@@ -8,7 +8,7 @@ lang: zh-CN
 
 **产品目标：** 用户在 Mac 上点击一个应用图标，局域网中的 Ubuntu 26.04 在独立图形会话中启动相应 Linux GUI 软件；该应用以可移动、可调整大小、可最小化的 **macOS 原生窗口** 出现在 Mac 桌面上。真实执行、存储和进程生命周期仍在 Linux 上。长期支持 Windows、macOS、Linux 任意组合的应用发布和接收。
 
-**不做：** 不传输完整远端桌面；不要求更换 Ubuntu 的 GNOME/Wayland；不将 GTK/Qt 控件重新绘制成 Cocoa 原生控件；不承诺任何已有桌面窗口都可无损迁移。首期只支持由本产品启动的兼容 X11/XWayland 的 Linux 应用。
+**不做：** 不传输完整远端桌面；不要求更换 Ubuntu 的 GNOME/Wayland；不将 GTK/Qt 控件重新绘制成 Cocoa 原生控件；不承诺任何已有桌面窗口都可无损迁移。默认启动独立 X11 应用；现有 X11/XWayland 进程可经服务端显式审批接入，具体边界见 `linux-agent.md`。
 
 ## 1.1 接近原生的定义
 
@@ -311,7 +311,7 @@ lan-remoteapp/
 
 **现在就做：** Rust 共享核心、Tauri 启动器、Ubuntu Linux Agent、Swift/AppKit WindowHost；以自主的窗口协议验证原生应用体验。V1 聚焦 Linux → Mac，不改变 Ubuntu 当前桌面。
 
-**暂缓：** 每个远程应用独立 Dock 身份、完整 Mac 菜单栏集成、文件拖放、4K 多路 60fps、已有 GNOME 窗口抓取、跨互联网打洞和任意三平台双向发布。
+**暂缓：** 每个远程应用独立 Dock 身份、完整 Mac 菜单栏集成、文件拖放、4K 多路 60fps、原生 Wayland 窗口抓取、跨互联网打洞和任意三平台双向发布。
 
 **成功标准：** 用户从 Mac Dock 点击图标，Ubuntu 启动应用，Mac 收到原生独立窗口；输入自然、字清晰、窗口和弹窗行为正确、断线不会导致丢工作内容。若体验不稳定，先优先修复基础窗口语义，而不是继续叠加更多协议或 AI 功能。
 

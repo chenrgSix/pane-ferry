@@ -8,6 +8,8 @@ P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled}]}，只返回尚未退出的会话，不抢占控制权。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
+
+display 为本地 X11 显示号，允许 0。白名单配置 existing 时，app.launch 接入经批准的现有进程窗口，不新建应用；协议和 native 后端值保持不变。重复请求复用该进程会话。PID、Xauthority 等接入参数不属于客户端协议，进程退出或身份变化后不得继续输入或捕获。
 窗口事件 window.created/window.metadata {window_id,parent_id:null|u32,title,role:"toplevel"|"dialog"|"popup",x,y,width,height,geometry_revision,visible:bool}；visible 缺失时按 true 兼容旧端。隐藏/重新映射同一 XID 只更新 visible，保留身份和几何版本，隐藏时暂停帧，重新显示时重发当前帧；真正销毁才发送 window.destroyed {window_id}。
 frame {window_id,geometry_revision,width,height,png:base64}。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。

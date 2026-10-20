@@ -11,7 +11,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{BufReader, Read, Write},
     os::unix::{
-        fs::PermissionsExt,
+        fs::{MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
         process::CommandExt,
     },
@@ -34,6 +34,52 @@ struct Session {
     children: Vec<Child>,
     controller: bool,
     exited: bool,
+    existing: Option<ProcessIdentity>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProcessIdentity {
+    pid: u32,
+    started: u64,
+    executable: PathBuf,
+}
+fn process_start_time(stat: &str) -> Result<u64> {
+    // comm may contain spaces and closing parentheses. Fields after its last
+    // closing parenthesis start with field 3 (state); starttime is field 22.
+    Ok(stat
+        .rsplit_once(')')
+        .context("invalid process stat")?
+        .1
+        .split_whitespace()
+        .nth(19)
+        .context("missing process start time")?
+        .parse()?)
+}
+fn process_identity(pid: u32) -> Result<ProcessIdentity> {
+    let root = PathBuf::from(format!("/proc/{pid}"));
+    if fs::metadata(&root)?.uid() != unsafe { libc::geteuid() } {
+        bail!("existing process belongs to another user")
+    }
+    Ok(ProcessIdentity {
+        pid,
+        started: process_start_time(&fs::read_to_string(root.join("stat"))?)?,
+        executable: fs::read_link(root.join("exe"))?,
+    })
+}
+impl Session {
+    fn has_exited(&mut self) -> Result<bool> {
+        if let Some(existing) = &self.existing {
+            self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
+        } else {
+            self.exited |= self
+                .children
+                .last_mut()
+                .map(|c| c.try_wait())
+                .transpose()?
+                .flatten()
+                .is_some();
+        }
+        Ok(self.exited)
+    }
 }
 // Do not signal a process group after its leader has been reaped: its numeric
 // ID may have been reused by an unrelated process. A live owned leader pins its PID.
@@ -48,6 +94,9 @@ fn stop_child(child: &mut Child) {
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        if let Some(backend) = &self.backend {
+            backend.release_all();
+        }
         for mut c in self.children.drain(..).rev() {
             stop_child(&mut c);
         }
@@ -204,15 +253,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
             if s.app_id != app_id {
                 bail!("request id conflict")
             }
-            if s.exited
-                || s.children
-                    .last_mut()
-                    .map(|c| c.try_wait())
-                    .transpose()?
-                    .flatten()
-                    .is_some()
-            {
-                s.exited = true;
+            if s.has_exited()? {
                 bail!("session exited; use a new request id to start again")
             }
         }
@@ -220,21 +261,11 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
     }
     for session in st.sessions.values() {
         let mut s = session.lock().unwrap();
-        if s.children
-            .last_mut()
-            .and_then(|c| c.try_wait().ok())
-            .flatten()
-            .is_some()
-        {
-            s.exited = true;
-        }
+        s.has_exited()?;
     }
     st.sessions.retain(|_, s| !s.lock().unwrap().exited);
     if st.requests.len() >= 4096 {
         bail!("request history limit reached; restart after saving work")
-    }
-    if st.sessions.len() >= 16 {
-        bail!("active session limit reached")
     }
     let app = st
         .apps
@@ -242,6 +273,51 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
         .find(|a| a.id == app_id)
         .cloned()
         .context("app not approved")?;
+    if let Some(existing) = &app.existing {
+        let identity = process_identity(existing.process_id)
+            .context("approved existing process unavailable")?;
+        if identity.executable != fs::canonicalize(&app.executable)? {
+            bail!("existing process does not match approved executable")
+        }
+        for session in st.sessions.values() {
+            let s = session.lock().unwrap();
+            if s.existing.as_ref() == Some(&identity) && s.display == existing.display {
+                if s.app_id != app_id {
+                    bail!("existing process already registered under another app")
+                }
+                st.requests.insert(req.into(), s.id.clone());
+                return Ok(session.clone());
+            }
+        }
+        if st.sessions.len() >= 16 {
+            bail!("active session limit reached")
+        }
+        let mut backend = Backend::connect_existing(
+            existing.display,
+            std::path::Path::new(&existing.xauthority),
+            existing.process_id,
+        )?;
+        if backend.scan()?.is_empty() {
+            bail!("no X11 windows belong to the approved process")
+        }
+        let id = random_id()?;
+        let session = Arc::new(Mutex::new(Session {
+            id: id.clone(),
+            app_id: app_id.into(),
+            display: existing.display,
+            backend: Some(backend),
+            children: vec![],
+            controller: false,
+            exited: false,
+            existing: Some(identity),
+        }));
+        st.requests.insert(req.into(), id.clone());
+        st.sessions.insert(id, session.clone());
+        return Ok(session);
+    }
+    if st.sessions.len() >= 16 {
+        bail!("active session limit reached")
+    }
     let display = (100..1000)
         .find(|d| {
             !std::path::Path::new(&format!("/tmp/.X11-unix/X{d}")).exists()
@@ -260,6 +336,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
         children: vec![],
         controller: false,
         exited: false,
+        existing: None,
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
@@ -351,6 +428,9 @@ impl Drop for Lease {
 }
 fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
     let mut s = session.lock().unwrap();
+    if s.has_exited()? {
+        bail!("session exited")
+    }
     if s.controller {
         bail!("session already controlled")
     };
@@ -418,6 +498,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
     let mut lease: Option<Lease> = None;
+    let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut frames: HashMap<u32, Vec<u8>> = HashMap::new();
     while !STOP.load(Ordering::SeqCst) {
@@ -434,14 +515,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         let mut sessions = Vec::new();
                         for session in st.sessions.values() {
                             let mut s = session.lock().unwrap();
-                            if s.exited
-                                || s.children
-                                    .last_mut()
-                                    .map(|c| c.try_wait())
-                                    .transpose()?
-                                    .flatten()
-                                    .is_some()
-                            {
+                            if s.has_exited()? {
                                 continue;
                             }
                             sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,"controlled":s.controller}));
@@ -538,6 +612,9 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     request => {
                         let l = lease.as_ref().context("no session attached")?;
                         let mut s = l.0.lock().unwrap();
+                        if s.has_exited()? {
+                            bail!("session exited")
+                        }
                         let b = s.backend.as_mut().context("native backend unavailable")?;
                         match request {
                             Request::Configure {
@@ -591,22 +668,15 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
-            if s.exited {
-                continue;
-            }
-            let exited = s
-                .children
-                .last_mut()
-                .map(|c| c.try_wait())
-                .transpose()?
-                .flatten()
-                .is_some();
+            let exited = s.has_exited()?;
             if exited {
-                s.exited = true;
-                for mut c in s.children.drain(..).rev() {
-                    stop_child(&mut c);
+                if !exit_notified {
+                    for mut c in s.children.drain(..).rev() {
+                        stop_child(&mut c);
+                    }
+                    send(&mut out, json!({"type":"session.exited"}), &mut seq, &sid)?;
+                    exit_notified = true;
                 }
-                send(&mut out, json!({"type":"session.exited"}), &mut seq, &sid)?;
                 continue;
             }
             if let Some(b) = s.backend.as_mut() {
@@ -667,5 +737,18 @@ mod tests {
     fn id_entropy() {
         assert_eq!(random_id().unwrap().len(), 32);
         assert_ne!(random_id().unwrap(), random_id().unwrap());
+    }
+    #[test]
+    fn process_identity_parses_commands_with_spaces_and_parentheses() {
+        let tail = std::iter::once("S")
+            .chain(std::iter::repeat_n("0", 18))
+            .chain(std::iter::once("12345"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            process_start_time(&format!("123 (App with ) spaces) {tail} 0 0")).unwrap(),
+            12345
+        );
+        assert!(process_start_time("123 (App) S 0").is_err());
     }
 }

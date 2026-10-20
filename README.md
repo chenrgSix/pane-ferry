@@ -8,7 +8,7 @@
 
 Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，捕获真实 X11 窗口 PNG，通过严格验证的 SSH 传给 Swift/AppKit `NSWindow`，回传指针、按键、大小与关闭请求。Mac 只使用打包的原生 WindowHost。
 
-首期不改变 Ubuntu 当前 GNOME/Wayland 桌面，不抓取当前桌面已有窗口，不开放公网控制端口。
+默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。不开放公网控制端口。
 
 ## 仓库
 

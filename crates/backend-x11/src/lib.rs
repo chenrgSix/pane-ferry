@@ -1,13 +1,16 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use remoteapp_protocol::Window;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    os::unix::net::UnixStream,
+    path::Path,
+    process::{Command, Stdio},
 };
 use x11rb::{
     connection::Connection,
-    protocol::{xproto::*, xtest::ConnectionExt as _},
-    rust_connection::RustConnection,
+    protocol::{composite::ConnectionExt as _, xproto::*, xtest::ConnectionExt as _},
+    rust_connection::{DefaultStream, RustConnection},
 };
 pub struct Backend {
     conn: RustConnection,
@@ -15,10 +18,55 @@ pub struct Backend {
     atoms: HashMap<String, u32>,
     pub windows: HashMap<u32, Window>,
     pressed: RefCell<HashSet<(u8, bool)>>,
+    process_id: Option<u32>,
 }
 impl Backend {
     pub fn connect(display: &str) -> Result<Self> {
         let (conn, n) = x11rb::connect(Some(display))?;
+        Self::from_connection(conn, n, None)
+    }
+    pub fn connect_existing(display: u16, authority: &Path, process_id: u32) -> Result<Self> {
+        // Read only the approved server's cookie. Never change process-global
+        // XAUTHORITY while other session threads are connecting.
+        let auth = Command::new("/usr/bin/xauth")
+            .arg("-f")
+            .arg(authority)
+            .arg("list")
+            .arg(format!(":{display}"))
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()?;
+        if !auth.status.success() {
+            bail!("cannot read approved X11 authority")
+        }
+        let cookie = String::from_utf8(auth.stdout)?;
+        let encoded = cookie
+            .lines()
+            .find_map(|line| {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                (fields.len() == 3 && fields[1] == "MIT-MAGIC-COOKIE-1").then(|| fields[2])
+            })
+            .context("approved X11 cookie unavailable")?;
+        if encoded.len() != 32 || !encoded.bytes().all(|c| c.is_ascii_hexdigit()) {
+            bail!("invalid X11 cookie")
+        }
+        let cookie = (0..32)
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&encoded[i..i + 2], 16))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let (stream, _) = DefaultStream::from_unix_stream(UnixStream::connect(format!(
+            "/tmp/.X11-unix/X{display}"
+        ))?)?;
+        let conn = RustConnection::connect_to_stream_with_auth_info(
+            stream,
+            0,
+            b"MIT-MAGIC-COOKIE-1".to_vec(),
+            cookie,
+        )?;
+        conn.composite_query_version(0, 4)?.reply()?;
+        Self::from_connection(conn, 0, Some(process_id))
+    }
+    fn from_connection(conn: RustConnection, n: usize, process_id: Option<u32>) -> Result<Self> {
         let root = conn.setup().roots[n].root;
         let mut atoms = HashMap::new();
         for name in [
@@ -29,6 +77,7 @@ impl Backend {
             "WM_PROTOCOLS",
             "WM_DELETE_WINDOW",
             "_NET_ACTIVE_WINDOW",
+            "_NET_WM_PID",
         ] {
             atoms.insert(
                 name.into(),
@@ -41,6 +90,7 @@ impl Backend {
             atoms,
             windows: HashMap::new(),
             pressed: RefCell::new(HashSet::new()),
+            process_id,
         })
     }
     fn atom(&self, n: &str) -> u32 {
@@ -51,6 +101,33 @@ impl Backend {
             .conn
             .get_property(false, w, self.atom(name), ty, 0, 4096)?
             .reply()?)
+    }
+    fn belongs_to_process(&self, mut id: u32) -> bool {
+        let Some(process_id) = self.process_id else {
+            return true;
+        };
+        let mut visited = HashSet::new();
+        for _ in 0..16 {
+            if !visited.insert(id) {
+                return false;
+            }
+            if let Some(pid) = self
+                .prop(id, "_NET_WM_PID", AtomEnum::CARDINAL)
+                .ok()
+                .and_then(|p| p.value32().and_then(|mut v| v.next()))
+            {
+                return pid == process_id;
+            }
+            match self
+                .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
+                .ok()
+                .and_then(|p| p.value32().and_then(|mut v| v.next()))
+            {
+                Some(parent) if parent != self.root => id = parent,
+                _ => return false,
+            }
+        }
+        false
     }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
         let clients = self
@@ -73,6 +150,9 @@ impl Backend {
         ids.dedup();
         let mut out = Vec::new();
         for id in ids {
+            if !self.belongs_to_process(id) {
+                continue;
+            }
             if out.len() >= 16 {
                 break;
             }
@@ -103,7 +183,8 @@ impl Backend {
             let parent_id = self
                 .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
                 .ok()
-                .and_then(|p| p.value32().and_then(|mut v| v.next()));
+                .and_then(|p| p.value32().and_then(|mut v| v.next()))
+                .filter(|id| self.belongs_to_process(*id));
             let mut w = Window {
                 window_id: id,
                 parent_id,
@@ -141,18 +222,43 @@ impl Backend {
         Ok(out)
     }
     pub fn capture(&self, w: &Window) -> Result<Vec<u8>> {
-        let img = self
+        self.known(w.window_id)?;
+        // A compositor redirects existing desktop windows. Naming that pixmap
+        // lets us capture this window even when another window covers it.
+        let pixmap = if self.process_id.is_some() {
+            let id = self.conn.generate_id()?;
+            self.conn
+                .composite_name_window_pixmap(w.window_id, id)?
+                .check()
+                .ok()
+                .map(|_| id)
+        } else {
+            None
+        };
+        let image = self
             .conn
             .get_image(
                 ImageFormat::Z_PIXMAP,
-                w.window_id,
+                pixmap.unwrap_or(w.window_id),
                 0,
                 0,
                 w.width as u16,
                 w.height as u16,
                 u32::MAX,
             )?
-            .reply()?;
+            .reply();
+        if let Some(pixmap) = pixmap {
+            self.conn.free_pixmap(pixmap)?;
+        }
+        let img = image?;
+        let visual_id = if img.visual == 0 {
+            self.conn
+                .get_window_attributes(w.window_id)?
+                .reply()?
+                .visual
+        } else {
+            img.visual
+        };
         let setup = self.conn.setup();
         let f = setup
             .pixmap_formats
@@ -164,7 +270,7 @@ impl Backend {
             .iter()
             .flat_map(|s| &s.allowed_depths)
             .flat_map(|d| &d.visuals)
-            .find(|v| v.visual_id == img.visual)
+            .find(|v| v.visual_id == visual_id)
             .ok_or_else(|| anyhow::anyhow!("missing visual"))?;
         remoteapp_capture::encode(
             w.width,
@@ -177,7 +283,7 @@ impl Backend {
         )
     }
     fn known(&self, id: u32) -> Result<()> {
-        if !self.windows.contains_key(&id) {
+        if !self.windows.contains_key(&id) || !self.belongs_to_process(id) {
             bail!("unknown window")
         };
         Ok(())
@@ -195,6 +301,20 @@ impl Backend {
         self.known(id)?;
         if !self.windows[&id].visible {
             bail!("window is hidden")
+        }
+        if self.process_id.is_some() {
+            let event = ClientMessageEvent::new(
+                32,
+                id,
+                self.atom("_NET_ACTIVE_WINDOW"),
+                [2, x11rb::CURRENT_TIME, 0, 0, 0],
+            );
+            self.conn.send_event(
+                false,
+                self.root,
+                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                event,
+            )?;
         }
         self.conn
             .set_input_focus(InputFocus::PARENT, id, x11rb::CURRENT_TIME)?

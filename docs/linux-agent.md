@@ -12,15 +12,37 @@
 
 状态目录 `~/.local/state/lan-remoteapp` 权限 0700；agent.sock 0600。Xvfb 使用共享用户 Xauthority 中每显示独立随机 cookie，关闭 TCP。桥接仅 Unix socket，不额外打开网络服务。SSH 认证仍属于系统；不保存密码和私钥。
 
+## 接入现有 X11 窗口
+
+在服务端白名单中为指定进程添加 `existing`。以下值仅为格式示例，PID、显示号和授权文件路径必须由 Linux 用户核对：
+
+```json
+{
+  "id": "existing-app",
+  "name": "现有应用窗口",
+  "executable": "/absolute/path/to/application",
+  "argv": [],
+  "existing": {
+    "display": 0,
+    "xauthority": "/run/user/1000/approved-Xauthority",
+    "process_id": 12345
+  }
+}
+```
+
+该路径不会启动应用、Xvfb 或窗口管理器。Agent 核验进程 UID、可执行文件和启动时间，按 `_NET_WM_PID` 筛选窗口及其有明确父子关联的弹窗，使用 XComposite 获取合成器重定向的窗口图像。客户端只能提交 app_id，不能指定任意 PID、显示号或授权文件。认证 cookie 仅在 Agent 内存中使用，不传给 Mac。
+
+同一进程的重复连接请求复用会话，并保持单控制端限制。断开或停止 Agent 不结束此类原有进程；关闭 Mac 窗口仍会向原窗口发送关闭请求。原进程退出后需要在本地重新核对并更新 PID。原生 Wayland 窗口不支持此方式；现有桌面上的尺寸和输入会作用于原窗口。
+
 ## 当前实现边界
 
-- 原生 x11rb 查询 `_NET_CLIENT_LIST` 加 override-redirect 弹出窗口，轮询捕获 GetImage 并编码 PNG（未用 XComposite，窗口遮挡、透明及复杂菜单内容不保证完整）。默认约 10fps 静止帧去重，尚未使用 XDamage/GStreamer/硬编。后台仍会采集/编码静止窗口；不等于低 CPU 的最终版本。
+- 原生 x11rb 查询 `_NET_CLIENT_LIST` 加 override-redirect 弹出窗口，轮询捕获 GetImage 并编码 PNG。现有窗口接入优先读取 XComposite pixmap；不保证透明、形状窗口及复杂菜单完整。默认约 10fps 静止帧去重，尚未使用 XDamage/GStreamer/硬编。后台仍会采集/编码静止窗口；不等于低 CPU 的最终版本。
 - 每会话 Xvfb + Openbox + dbus-run-session。单会话单控制端。网络断开保留进程；重新附着发送快照。断开释放按键和鼠标按钮，避免修饰键卡住。
 - 状态和幂等请求表目前在内存；Agent 服务重启不保证会话恢复。无持久快照。启动新会话时回收已退出会话；最多 16 个活动会话、4096 个幂等请求记录，超出后需保存工作再重启服务。
 - 最多传输 16 个窗口。尺寸不超过 4096×4096 且总像素不超过 8M。虚拟屏幕 4096×2160；尚无真正 Retina DPI 重排协商。
 - 未实现中文输入法桥接、剪贴板、多客户端共享控制、可靠复杂菜单/透明窗口、Wayland 原生程序、GPU 加速。`input.text.commit` 明确返回 unsupported。
 - 窗口管理器 readiness 仅采用短暂启动等待；实际应用兼容性须实机测试。无安装器、签名/公证或生产 SLA。
-- SSH 连接断开不等于退出应用；用户关闭应用窗口才会退出程序。服务退出会结束其管理的子进程，停止服务前应保存工作。
+- SSH 连接断开不等于退出应用；用户关闭应用窗口才会请求退出程序。服务退出会结束其自行启动的子进程，停止服务前应保存工作；显式接入的现有进程不归 Agent 管理，不会被结束。
 
 ## 协议
 

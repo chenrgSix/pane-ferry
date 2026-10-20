@@ -252,7 +252,7 @@ pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
     for session in &sessions {
         validate_id(&session.session_id)?;
         validate_id(&session.app_id)?;
-        if session.backend != "native" || session.display == 0 {
+        if session.backend != "native" {
             return Err(Error::Protocol);
         }
     }
@@ -346,6 +346,12 @@ mod tests {
         let session = parse_started(value.clone()).unwrap();
         assert_eq!(session.session_id, "abc123");
         assert_eq!(session.display, "101");
+        assert_eq!(
+            parse_started(json!({"session_id":"desktop","backend":"native","display":0}))
+                .unwrap()
+                .display,
+            "0"
+        );
         assert!(
             parse_started(json!({"session_id":"abc123","backend":"external","display":101}))
                 .is_err()

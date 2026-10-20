@@ -11,6 +11,15 @@ pub struct App {
     pub executable: String,
     #[serde(default)]
     pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<ExistingWindow>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExistingWindow {
+    pub display: u16,
+    pub xauthority: String,
+    pub process_id: u32,
 }
 pub fn load_catalog(path: &Path) -> Result<Vec<App>> {
     let data = std::fs::read(path).context("read approved app catalog")?;
@@ -45,6 +54,15 @@ pub fn validate(apps: &[App]) -> Result<()> {
         {
             bail!("invalid executable/argv")
         }
+        if let Some(existing) = &a.existing {
+            if existing.process_id <= 1
+                || !Path::new(&existing.xauthority).is_absolute()
+                || existing.xauthority.contains('\0')
+                || !a.argv.is_empty()
+            {
+                bail!("invalid existing-window approval")
+            }
+        }
     }
     Ok(())
 }
@@ -59,10 +77,28 @@ mod tests {
             description: String::new(),
             executable: "relative".into(),
             argv: vec![],
+            existing: None,
         };
         assert!(validate(&[a.clone()]).is_err());
         a.executable = "/usr/bin/xterm".into();
         assert!(validate(&[a.clone()]).is_ok());
         assert!(validate(&[a.clone(), a]).is_err());
+    }
+    #[test]
+    fn existing_window_requires_explicit_local_approval() {
+        let mut app: App = serde_json::from_value(serde_json::json!({
+            "id":"existing", "name":"Existing", "executable":"/usr/bin/xterm",
+            "existing":{"display":0,"xauthority":"/run/user/1000/Xauthority","process_id":1234}
+        }))
+        .unwrap();
+        assert!(validate(&[app.clone()]).is_ok());
+        app.existing.as_mut().unwrap().process_id = 1;
+        assert!(validate(&[app.clone()]).is_err());
+        app.existing.as_mut().unwrap().process_id = 1234;
+        app.existing.as_mut().unwrap().xauthority = "relative".into();
+        assert!(validate(&[app.clone()]).is_err());
+        app.existing.as_mut().unwrap().xauthority = "/run/user/1000/Xauthority".into();
+        app.argv.push("--launch-something".into());
+        assert!(validate(&[app]).is_err());
     }
 }
