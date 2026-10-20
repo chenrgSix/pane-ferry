@@ -9,6 +9,7 @@ if command -v npm >/dev/null; then
 fi
 if [[ $(uname -s) == Darwin ]]; then
   (cd apps/mac-windowhost && swift build)
+  python3 tests/e2e/windowhost_pipe_smoke.py
 else
   echo 'SKIP: Swift/AppKit 需要 macOS SDK，当前平台未编译。'
 fi

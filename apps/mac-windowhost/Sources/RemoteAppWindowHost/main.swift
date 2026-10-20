@@ -86,7 +86,7 @@ final class SSHTransport {
         try process.run(); alive = true
         DispatchQueue(label: "remoteapp.ssh.stderr").async { [weak self] in
             guard let self = self else { return }
-            while true { do { if try self.errors.fileHandleForReading.read(upToCount: 4096)?.isEmpty != false { break } } catch { break } }
+            while true { do { if try readPipeChunk(from: self.errors.fileHandleForReading, maximumCount: 4096).isEmpty { break } } catch { break } }
         }
         DispatchQueue(label: "remoteapp.ssh.reader").async { [weak self] in self?.readLoop() }
     }
@@ -121,7 +121,8 @@ final class SSHTransport {
         do {
             while true {
                 lock.lock(); let stop = closed; lock.unlock(); if stop { break }
-                guard let chunk = try output.fileHandleForReading.read(upToCount: 65536), !chunk.isEmpty else { break }
+                let chunk = try readPipeChunk(from: output.fileHandleForReading)
+                if chunk.isEmpty { break }
                 buffer.append(chunk)
                 while let newline = buffer.firstIndex(of: 10) {
                     let length = buffer.distance(from: buffer.startIndex, to: newline)
