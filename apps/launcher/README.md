@@ -10,7 +10,9 @@ P0 另需官方 Xpra Mac 客户端，界面默认路径可调整。P1 不需要 
 
 ## 首次连接
 
-在终端核验真实主机指纹并建立 known_hosts 信任及可用 SSH 认证。本应用只用已有标准 SSH 密钥/agent，不处理密码、创建凭据或自动接受未知密钥。禁用 SSH 配置文件，避免 ProxyCommand/LocalCommand 隐式执行，因此使用直连 IPv4/DNS、用户名和端口，不支持 SSH alias、跳板、自定义 IdentityFile 或 IPv6。
+在终端核验真实主机指纹并建立 known_hosts 信任及可用 SSH 认证。本应用使用已有 SSH 密钥/agent 或项目临时控制连接，不处理密码、创建凭据或自动接受未知密钥。禁用 SSH 配置文件，避免 ProxyCommand/LocalCommand 隐式执行，因此使用直连 IPv4/DNS、用户名和端口，不支持 SSH alias、跳板、自定义 IdentityFile 或 IPv6。
+
+只有密码登录时，可先在项目根目录运行 `bash scripts/connect-ssh.sh HOST USER 22`，直接在系统 SSH 中输入密码。启动器、WindowHost 与 Xpra 共用用户私有的 `~/.ssh/lan-remoteapp-%C` 控制连接；密码不进入应用、配置或日志，也不新增公钥授权。连接在最后一个客户端断开并空闲 10 分钟后结束。`--check` 可查看连接，`--disconnect` 可结束连接；主机校验始终严格，未知主机须先手工核验。
 
 远端 Agent 运行、应用白名单配置完成后，填写主机并读取目录，点击应用。连接偏好只保存在本地 localStorage，不存秘密。
 

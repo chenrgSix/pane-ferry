@@ -15,6 +15,8 @@ const SSH_OPTIONS: &[&str] = &[
     "-F",
     "/dev/null",
     "-T",
+    "-S",
+    "~/.ssh/lan-remoteapp-%C",
     "-oBatchMode=yes",
     "-oStrictHostKeyChecking=yes",
     "-oConnectTimeout=8",
@@ -56,7 +58,7 @@ pub struct SessionInfo {
 pub enum Error {
     #[error("{0}")]
     Invalid(&'static str),
-    #[error("SSH 连接或远端 Agent 未就绪，请检查已验证的 known_hosts、SSH 登录和 Agent 服务。")]
+    #[error("SSH 连接或远端 Agent 未就绪，请检查 known_hosts、SSH 密钥或临时登录会话，以及 Agent 服务。")]
     Connection,
     #[error("远端控制请求超时；不会自动重试启动，请先检查远端会话。")]
     Timeout,
@@ -386,6 +388,9 @@ mod tests {
         assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
         assert!(args.contains(&"-oStrictHostKeyChecking=yes".into()));
         assert!(args.contains(&"/dev/null".into()));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-%C"]));
     }
     #[test]
     fn disables_xpra_extras() {

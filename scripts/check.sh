@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 command -v cargo >/dev/null || { echo '缺少 Cargo，请先安装 Rust 工具链；脚本不会自动安装。' >&2; exit 1; }
 cargo fmt --all -- --check
 cargo test --workspace
+python3 tests/e2e/ssh_helper_validation.py
 if command -v npm >/dev/null; then
   (cd apps/launcher && npm ci && npm test && npm run build)
 fi

@@ -73,7 +73,7 @@ final class SSHTransport {
     func start(_ options: Options) throws {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
-        process.arguments = ["-F", "/dev/null", "-T", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
+        process.arguments = ["-F", "/dev/null", "-T", "-S", "~/.ssh/lan-remoteapp-%C", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
             "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no",
             "-oConnectTimeout=10", "-oServerAliveInterval=15", "-oServerAliveCountMax=3",
             "-p", String(options.port), "-l", options.user, "--", options.host,

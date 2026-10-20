@@ -18,6 +18,8 @@ swift build -c release
 
 默认读取 OpenSSH 的 known_hosts 与已有密钥/ssh-agent。`-F /dev/null` 禁用用户 SSH 配置，因此这里必须用真实主机名/IP，不能仅填自定义 SSH 别名；不支持 ProxyCommand 跳板。参数无 shell 插值；远端入口固定为 `.local/bin/remoteapp-agent bridge`。
 
+也会复用 `~/.ssh/lan-remoteapp-%C` 的现有项目 SSH 连接。密码用户可先在项目根目录运行 `bash scripts/connect-ssh.sh HOST USER 22`，由系统 SSH 完成登录，不向 WindowHost 提供密码。
+
 菜单“复制会话 ID”只在用户点击时写入 Mac 剪贴板，用于手动重连。菜单“断开并退出”保留 Linux 会话；窗口红色关闭按钮则请求 Linux 程序关闭，可能触发未保存文件确认。关闭最后一个远端窗口不会退出连接宿主。
 
 ## 当前能力与限制
