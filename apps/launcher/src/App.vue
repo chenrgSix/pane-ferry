@@ -257,7 +257,7 @@ async function resume(session: SessionInfo) {
             spellcheck="false"
         /></label>
         <p v-else class="hint mode-note">
-          Swift AppKit 窗口宿主，不依赖 XQuartz。尚未进行真实设备验收。
+            独立 Mac 窗口，支持会话恢复。中文输入和 Retina 重绘尚未支持。
         </p>
       </section>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>

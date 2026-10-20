@@ -32,7 +32,10 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     let path = app
         .path()
-        .resolve("RemoteAppWindowHost", tauri::path::BaseDirectory::Resource)
+        .resolve(
+            "RemoteAppWindowHost.app/Contents/MacOS/RemoteAppWindowHost",
+            tauri::path::BaseDirectory::Resource,
+        )
         .map_err(|_| "无法定位 WindowHost。")?;
     if !path.is_file() {
         return Err("请先运行 scripts/build-macos.sh 打包 WindowHost。".into());
