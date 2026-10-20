@@ -1,0 +1,6 @@
+syntax = "proto3";
+package remoteapp.v1;
+message Bounds { sint32 x = 1; sint32 y = 2; uint32 width = 3; uint32 height = 4; }
+message Window { uint32 id = 1; optional uint32 parent_id = 2; string title = 3; string role = 4; Bounds bounds = 5; uint64 geometry_revision = 6; }
+message Snapshot { string session_id = 1; repeated Window windows = 2; }
+message Frame { uint32 window_id = 1; uint64 geometry_revision = 2; uint32 width = 3; uint32 height = 4; bytes png = 5; }

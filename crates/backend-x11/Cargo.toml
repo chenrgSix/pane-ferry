@@ -1,0 +1,9 @@
+[package]
+name = "remoteapp-backend-x11"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+anyhow.workspace = true
+x11rb.workspace = true
+remoteapp-protocol = {path="../protocol"}
+remoteapp-capture = {path="../capture"}

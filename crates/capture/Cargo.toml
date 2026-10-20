@@ -1,0 +1,8 @@
+[package]
+name = "remoteapp-capture"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+anyhow.workspace = true
+png.workspace = true
+remoteapp-protocol = {path="../protocol"}

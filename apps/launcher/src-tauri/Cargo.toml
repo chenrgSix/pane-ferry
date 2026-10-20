@@ -1,0 +1,11 @@
+[package]
+name = "lan-remoteapp-launcher"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[build-dependencies]
+tauri-build = { version = "2" }
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+remoteapp-transport = { path = "../../../crates/transport" }

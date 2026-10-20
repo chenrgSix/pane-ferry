@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/protocol", "crates/transport", "crates/core", "crates/backend-x11", "crates/capture", "apps/linux-agent"]
+exclude = ["apps/launcher/src-tauri"]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+x11rb = { version = "0.13", features = ["xtest"] }
+png = "0.17"

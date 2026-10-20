@@ -1,0 +1,5 @@
+syntax = "proto3";
+package remoteapp.v1;
+message Pointer { uint32 window_id = 1; sint32 x = 2; sint32 y = 3; uint32 button = 4; bool pressed = 5; }
+message Key { uint32 window_id = 1; uint32 keysym = 2; bool pressed = 3; }
+message TextCommit { uint32 window_id = 1; string text = 2; }

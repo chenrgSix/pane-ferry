@@ -1,0 +1,9 @@
+syntax = "proto3";
+package remoteapp.v1;
+// Target schema for a future negotiated binary transport; not the current wire codec.
+message Envelope { uint32 protocol_version = 1; string session_id = 2; uint64 sequence = 3; string type = 4; bytes payload = 5; }
+message App { string id = 1; string name = 2; string description = 3; }
+message Catalog { repeated App apps = 1; }
+message Launch { string app_id = 1; string request_id = 2; string backend = 3; }
+message Hello { uint32 version = 1; repeated string capabilities = 2; }
+message Error { string code = 1; string message = 2; }

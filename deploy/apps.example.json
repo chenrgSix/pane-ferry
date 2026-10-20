@@ -1,0 +1,4 @@
+[
+  {"id":"xterm","name":"XTerm","description":"基础 X11 终端（具有登录用户的完整命令能力）","executable":"/usr/bin/xterm","argv":[]},
+  {"id":"mousepad","name":"Mousepad","description":"GTK 文本编辑器","executable":"/usr/bin/mousepad","argv":["--disable-server"]}
+]

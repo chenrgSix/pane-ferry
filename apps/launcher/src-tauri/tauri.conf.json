@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LAN RemoteApp",
+  "version": "0.1.0",
+  "identifier": "io.lanremoteapp.launcher",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LAN RemoteApp",
+        "width": 1080,
+        "height": 760,
+        "minWidth": 780,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "resources": {
+      "resources/RemoteAppWindowHost": "RemoteAppWindowHost"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}
