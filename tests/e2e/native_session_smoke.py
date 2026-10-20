@@ -153,6 +153,9 @@ try:
         retry.send(type="app.launch", app_id="xterm", request_id=request_id,
                    backend="native", attach=False)
         assert retry.until(lambda e: e["type"] == "session.started")["session_id"] == session
+        retry.send(type="session.list")
+        listed = retry.until(lambda e: e["type"] == "session.list")
+        assert any(s["session_id"] == session and s["controlled"] for s in listed["sessions"])
         retry.send(type="session.resume", session_id=session)
         assert retry.read()["type"] == "error", "A second controller must be rejected"
     finally:
@@ -211,10 +214,12 @@ try:
 
     peer.send(type="window.close.request", window_id=window_id)
     peer.until(lambda e: e["type"] == "session.exited")
+    peer.send(type="session.list")
+    assert not any(s["session_id"] == session for s in peer.until(lambda e: e["type"] == "session.list")["sessions"])
     session = None
     print(json.dumps({"result": "PASS", "checks": ["real SSH/X11 PNG", "idempotent launch",
           "exclusive controller", "remote keyboard/pointer input", "held input release", "resize", "hide/remap",
-          "close/exited"], "reconnects": args.reconnects,
+          "session discovery", "close/exited"], "reconnects": args.reconnects,
           "detached_seconds_each": args.detached_seconds}))
 finally:
     if peer is not None:

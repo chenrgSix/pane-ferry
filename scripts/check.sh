@@ -5,7 +5,7 @@ command -v cargo >/dev/null || { echo '缺少 Cargo，请先安装 Rust 工具�
 cargo fmt --all -- --check
 cargo test --workspace
 if command -v npm >/dev/null; then
-  (cd apps/launcher && npm ci && npm run build)
+  (cd apps/launcher && npm ci && npm test && npm run build)
 fi
 if [[ $(uname -s) == Darwin ]]; then
   (cd apps/mac-windowhost && swift build)

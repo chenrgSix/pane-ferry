@@ -44,6 +44,14 @@ pub struct Started {
     pub backend: String,
     pub display: String,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub session_id: String,
+    pub app_id: String,
+    pub backend: String,
+    pub display: u16,
+    pub controlled: bool,
+}
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("{0}")]
@@ -228,6 +236,27 @@ pub async fn catalog(endpoint: &Endpoint) -> Result<Vec<AppInfo>, Error> {
         }
     }
     Ok(apps)
+}
+pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
+    let value = request(
+        endpoint,
+        json!({"type":"session.list","version":1}),
+        "session.list",
+    )
+    .await?;
+    let sessions: Vec<SessionInfo> =
+        serde_json::from_value(value["sessions"].clone()).map_err(|_| Error::Protocol)?;
+    if sessions.len() > 16 {
+        return Err(Error::Protocol);
+    }
+    for session in &sessions {
+        validate_id(&session.session_id)?;
+        validate_id(&session.app_id)?;
+        if !["native", "xpra"].contains(&session.backend.as_str()) || session.display == 0 {
+            return Err(Error::Protocol);
+        }
+    }
+    Ok(sessions)
 }
 pub async fn launch_xpra(
     endpoint: &Endpoint,

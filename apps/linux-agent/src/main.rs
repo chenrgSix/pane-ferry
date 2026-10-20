@@ -481,7 +481,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":["catalog","xpra","native.png","input.pointer","input.key","session.resume"]}),
+        json!({"type":"hello","capabilities":["catalog","xpra","native.png","input.pointer","input.key","session.resume","session.list"]}),
         &mut seq,
         "",
     )?;
@@ -498,6 +498,33 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(req) = req {
             let result: Result<()> = (|| {
                 match req {
+                    Request::Sessions {} => {
+                        let st = state.lock().unwrap();
+                        let mut sessions = Vec::new();
+                        for session in st.sessions.values() {
+                            let mut s = session.lock().unwrap();
+                            if s.exited
+                                || s.children
+                                    .last_mut()
+                                    .map(|c| c.try_wait())
+                                    .transpose()?
+                                    .flatten()
+                                    .is_some()
+                            {
+                                continue;
+                            }
+                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":s.kind,"display":s.display,"controlled":s.controller}));
+                        }
+                        sessions.sort_by(|a, b| {
+                            a["session_id"].as_str().cmp(&b["session_id"].as_str())
+                        });
+                        send(
+                            &mut out,
+                            json!({"type":"session.list","sessions":sessions}),
+                            &mut seq,
+                            "",
+                        )?;
+                    }
                     Request::List {} => {
                         let st = state.lock().unwrap();
                         let apps: Vec<_> = st

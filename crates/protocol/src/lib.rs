@@ -20,6 +20,8 @@ pub enum Request {
     },
     #[serde(rename = "session.resume")]
     Resume { session_id: String },
+    #[serde(rename = "session.list")]
+    Sessions {},
     #[serde(rename = "session.detach")]
     Detach {},
     #[serde(rename = "window.configure")]
