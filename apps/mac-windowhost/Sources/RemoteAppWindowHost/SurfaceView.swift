@@ -7,6 +7,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     var remoteWidth = 1
     var remoteHeight = 1
     var image: CGImage? { didSet { needsDisplay = true } }
+    var preservesAspectRatio = false { didSet { needsDisplay = true } }
     var transmit: (([String: Any]) -> Void)?
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
@@ -21,7 +22,9 @@ final class SurfaceView: NSView, NSTextInputClient {
     private var heldButtons: Set<Int> = []
     private var lastPointer = (x: 0, y: 0)
     private var tracking: NSTrackingArea?
-    private var imageRect: CGRect { RenderGeometry.imageRect(in: bounds, width: remoteWidth, height: remoteHeight) }
+    private var imageRect: CGRect {
+        preservesAspectRatio ? RenderGeometry.imageRect(in: bounds, width: remoteWidth, height: remoteHeight) : bounds
+    }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func draw(_ dirtyRect: NSRect) {

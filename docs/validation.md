@@ -13,7 +13,7 @@
 | `npm run build` | 通过 | Vue TypeScript 类型检查及 Vite 生产构建 |
 | `tests/e2e/ssh_helper_validation.py` | 11 个非法参数案例通过 | SSH 登录辅助脚本参数校验 |
 | `swift build` 与短消息 pipe smoke | 通过 | AppKit 编译；短 SSH 消息无需等待完整缓冲区、EOF 与分段读取 |
-| `tests/e2e/controller_input_smoke.py` | 通过 | 真实 NSTextInputClient 预编辑不出控制端、Unicode 提交、按需复制/粘贴、大小边界与回包关联；像素/点数换算、等比显示下的点击及黑边过滤；测试不触碰系统剪贴板 |
+| `tests/e2e/controller_input_smoke.py` | 通过 | 真实 NSTextInputClient 预编辑不出控制端、Unicode 提交、按需复制/粘贴、大小边界与回包关联；像素/点数换算、自动铺满与固定等比模式的点击；AppKit event-tracking 模式中的尺寸同步、迟到几何回包隔离及手动/自动切换；测试不触碰系统剪贴板 |
 | `tests/e2e/hidpi_smoke.py`（Ubuntu） | 通过 | GTK 1×/2× 实际缩放、逻辑尺寸保持、PNG 像素翻倍、EWMH resize 与输入；WM/未显示辅助窗口不发布 |
 | `apps/launcher/scripts/build-macos.sh` | 通过 | Tauri release 应用及内嵌 WindowHost.app 打包；本机开发包未签名/公证 |
 | shell/Python 语法检查 | 通过 | 构建、检查和 smoke 脚本 |
@@ -43,6 +43,8 @@ Mac 原生界面已实际显示远端 xterm。新版启动器点击应用卡片�
 原桌面 Firefox 154 使用独立测试配置及 `tests/fixtures/controller-input.html`，未使用默认 Firefox 资料。用户在 Mac 转发窗口上确认点击、中文输入、双向复制粘贴均可用；另观察到多行中文/emoji 粘贴完整回显，页面点击计数、复制/粘贴事件计数与时钟持续更新。剪贴板仍只由主动操作触发。Firefox Snap 的测试实例使用启动器支持的 `DISABLE_WAYLAND=1`，以及私有 Xauthority；未关闭认证或更改默认浏览器配置。
 
 独立 Firefox 高清会话已在 Mac 窗口实测自动适应可用屏幕及手动 2560×1664：标题栏确认实际远端像素宽高，画面保持比例，点击计数增加，中文/emoji 主动粘贴完整回显。分辨率不再以原窗口宽高机械翻倍表示；100%/200% 只控制界面缩放。macOS backing 像素可能不同于面板标称像素，手动设置可指定精确宽高。
+
+自动适应现为默认模式，重新连接后不继承上一宿主的固定分辨率。Mac 实机确认 Firefox 在普通窗口 2940×1612 与全屏 2940×1846 间切换时同步重绘，退出全屏恢复原尺寸，画面铺满无黑边；点击计数和中文/emoji 粘贴再次通过。连续缩放调度另由真实 NSWindow 的 event-tracking 回归测试验证；旧尺寸回包不再反向调整本机窗口。超出 4096×2160 或 8M 像素预算时按本机窗口比例降低渲染像素数。
 
 本轮定位并修正了 WM 内部窗口和从未显示的辅助窗口触发隐藏窗口聚焦、重复 `request_failed` 弹窗的问题；迟到的隐藏/销毁窗口请求使用 `window_unavailable`，不再阻塞界面。另修复 Firefox 恢复到超限最大化尺寸时不发布主窗口的问题，通过 EWMH 解除最大化并调整至预算内。新版重新完成原生会话键鼠、resize、隐藏恢复及 3 次重连测试。其他实际失败仍保留错误提示，不能将此记录解释为所有应用错误均已解决。
 

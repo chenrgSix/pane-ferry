@@ -11,6 +11,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-input-', dir='/tmp') as direc
     binary = scratch / 'controller-input-smoke'
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
                     str(source / 'SurfaceView.swift'), str(source / 'ClipboardCopyGate.swift'), str(source / 'RenderGeometry.swift'),
+                    str(source / 'HostedWindow.swift'),
                     str(root / 'tests/swift/ControllerInputSmoke.swift'), '-o', str(binary)],
                    check=True, timeout=120)
     subprocess.run([str(binary)], check=True, timeout=15)

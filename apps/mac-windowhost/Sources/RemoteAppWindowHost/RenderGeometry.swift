@@ -10,12 +10,16 @@ struct RenderGeometry {
     func points(width: Int, height: Int) -> CGSize {
         CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))
     }
-    func pixels(for points: CGSize) -> (width: Int, height: Int)? {
+    func pixels(for points: CGSize, backingScale: CGFloat? = nil) -> (width: Int, height: Int)? {
         guard points.width.isFinite, points.height.isFinite, points.width > 0, points.height > 0 else { return nil }
-        let width = min(4096, max(64, (points.width * Double(scale)).rounded()))
-        let height = min(2160, max(48, (points.height * Double(scale)).rounded()))
-        let fit = min(1, sqrt(8_000_000 / (width * height)))
-        return (Int((width * fit).rounded(.down)), Int((height * fit).rounded(.down)))
+        let density = backingScale ?? CGFloat(scale)
+        guard density.isFinite, density > 0 else { return nil }
+        let width = max(64, (points.width * density).rounded())
+        let height = max(48, (points.height * density).rounded())
+        guard width.isFinite, height.isFinite else { return nil }
+        // Keep the viewport ratio even when a large display exceeds the frame budget.
+        let fit = min(1, 4096 / width, 2160 / height, sqrt(8_000_000 / width / height))
+        return (max(1, Int((width * fit).rounded(.down))), max(1, Int((height * fit).rounded(.down))))
     }
     static func imageRect(in bounds: CGRect, width: Int, height: Int) -> CGRect {
         guard width > 0, height > 0, bounds.width > 0, bounds.height > 0 else { return .zero }
