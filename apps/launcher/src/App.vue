@@ -203,12 +203,18 @@ async function resume(session: SessionInfo) {
               v-model.trim="endpoint.host"
               :disabled="busy"
               placeholder="192.168.1.20"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               autocomplete="off" /></label
           ><label
             >SSH 用户名<input
               v-model.trim="endpoint.user"
               :disabled="busy"
               placeholder="linux-user"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               autocomplete="off" /></label
           ><label class="port"
             >端口<input
