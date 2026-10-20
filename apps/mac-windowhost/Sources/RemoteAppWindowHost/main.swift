@@ -478,6 +478,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         for host in windows.values { host.surface.releaseInput() }
         send(["type": "session.detach"])
+        // An intentional detach can finish SSH before AppKit completes quit.
+        // Stop diagnostics now so the polling timer cannot open a modal alert.
+        connected = false
+        poll?.invalidate(); poll = nil
         // Give the serial write queue a brief opportunity, then close local transport only.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.transport.disconnect(); sender.reply(toApplicationShouldTerminate: true)
