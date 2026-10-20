@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 [workspace]
 [build-dependencies]
-tauri-build = { version = "2" }
+tauri-build = { version = "2", features = [] }
 [dependencies]
-tauri = { version = "2" }
+tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 remoteapp-transport = { path = "../../../crates/transport" }
+
+# macOS 27 rejects misaligned dylibs produced by affected Rust strip paths.
+# Keep host build tools/proc macros intact; the application remains optimized.
+# https://github.com/rust-lang/rust/issues/157750
+[profile.release.build-override]
+debug = true
+strip = "none"
