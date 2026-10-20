@@ -215,9 +215,20 @@ fn launch(st: &mut State, app_id: &str, req: &str, kind: &str) -> Result<Arc<Mut
     if let Some(sid) = st.requests.get(req) {
         let s = st.sessions.get(sid).context("session expired")?.clone();
         {
-            let s = s.lock().unwrap();
+            let mut s = s.lock().unwrap();
             if s.app_id != app_id || s.kind != kind {
                 bail!("request id conflict")
+            }
+            if s.exited
+                || s.children
+                    .last_mut()
+                    .map(|c| c.try_wait())
+                    .transpose()?
+                    .flatten()
+                    .is_some()
+            {
+                s.exited = true;
+                bail!("session exited; use a new request id to start again")
             }
         }
         return Ok(s);
@@ -505,15 +516,22 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         app_id,
                         request_id,
                         backend,
+                        attach,
                     } => {
                         if lease.is_some() {
                             bail!("detach before launching another session")
                         };
                         let session =
                             launch(&mut state.lock().unwrap(), &app_id, &request_id, &backend)?;
-                        let new = acquire(session)?;
+                        // A launcher only prepares a session. It must not race the
+                        // WindowHost for the exclusive controller lease.
+                        let new = if attach {
+                            Some(acquire(session.clone())?)
+                        } else {
+                            None
+                        };
                         {
-                            let s = new.0.lock().unwrap();
+                            let s = session.lock().unwrap();
                             send(
                                 &mut out,
                                 json!({"type":"session.started","backend":s.kind,"display":s.display}),
@@ -521,7 +539,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 &s.id,
                             )?;
                         }
-                        lease = Some(new);
+                        lease = new;
                     }
                     Request::Resume { session_id } => {
                         if lease.is_some() {

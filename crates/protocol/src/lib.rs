@@ -15,6 +15,8 @@ pub enum Request {
         app_id: String,
         request_id: String,
         backend: String,
+        #[serde(default = "attach_by_default")]
+        attach: bool,
     },
     #[serde(rename = "session.resume")]
     Resume { session_id: String },
@@ -46,6 +48,9 @@ pub enum Request {
     },
     #[serde(rename = "input.text.commit")]
     Text { window_id: u32, text: String },
+}
+fn attach_by_default() -> bool {
+    true
 }
 pub fn parse_request(data: &[u8]) -> Result<Request> {
     let mut v: serde_json::Value = serde_json::from_slice(data)?;
@@ -176,5 +181,12 @@ mod tests {
         ] {
             assert!(parse_request(data.as_bytes()).is_ok());
         }
+    }
+    #[test]
+    fn launch_can_prepare_without_attaching_and_keeps_old_default() {
+        let old = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native"}"#).unwrap();
+        assert!(matches!(old, Request::Launch { attach: true, .. }));
+        let prepared = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native","attach":false}"#).unwrap();
+        assert!(matches!(prepared, Request::Launch { attach: false, .. }));
     }
 }

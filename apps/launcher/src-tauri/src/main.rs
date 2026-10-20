@@ -67,6 +67,9 @@ async fn launch_app(
             if !path.is_file() {
                 return Err("请先运行 scripts/build-macos.sh 打包 WindowHost。".into());
             }
+            let session = transport::launch_native(&endpoint, &app_id, &request_id)
+                .await
+                .map_err(|e| e.to_string())?;
             let mut child = Command::new(path)
                 .args([
                     "--host",
@@ -75,22 +78,27 @@ async fn launch_app(
                     &endpoint.user,
                     "--port",
                     &endpoint.port.to_string(),
-                    "--app",
-                    &app_id,
+                    "--session",
+                    &session.session_id,
                 ])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
-                .map_err(|_| "原生宿主启动失败。")?;
+                .map_err(|_| {
+                    format!(
+                        "原生宿主启动失败。远端会话 {} 已创建，重试会复用该会话。",
+                        session.session_id
+                    )
+                })?;
             let pid = child.id();
             std::thread::spawn(move || {
                 let _ = child.wait();
             });
             Ok(LaunchResult {
                 mode,
-                session_id: None,
-                display: None,
+                session_id: Some(session.session_id),
+                display: Some(session.display),
                 pid,
                 message: "原生宿主已启动，连接结果由宿主显示。尚未通过真实设备联调。".into(),
             })

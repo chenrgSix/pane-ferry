@@ -234,9 +234,27 @@ pub async fn launch_xpra(
     app_id: &str,
     request_id: &str,
 ) -> Result<Started, Error> {
+    launch_session(endpoint, app_id, request_id, "xpra").await
+}
+pub async fn launch_native(
+    endpoint: &Endpoint,
+    app_id: &str,
+    request_id: &str,
+) -> Result<Started, Error> {
+    launch_session(endpoint, app_id, request_id, "native").await
+}
+async fn launch_session(
+    endpoint: &Endpoint,
+    app_id: &str,
+    request_id: &str,
+    backend: &str,
+) -> Result<Started, Error> {
     validate_id(app_id)?;
     validate_id(request_id)?;
-    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"xpra"}), "session.started").await?;
+    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":backend,"attach":false}), "session.started").await?;
+    parse_started(value, backend)
+}
+fn parse_started(value: Value, backend: &str) -> Result<Started, Error> {
     let display = match &value["display"] {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.to_string(),
@@ -251,12 +269,12 @@ pub async fn launch_xpra(
         .ok_or(Error::Protocol)?
         .to_string();
     validate_id(&session_id)?;
-    if value["backend"] != "xpra" {
+    if value["backend"] != backend {
         return Err(Error::Protocol);
     }
     Ok(Started {
         session_id,
-        backend: "xpra".into(),
+        backend: backend.into(),
         display: number.into(),
     })
 }
@@ -351,5 +369,18 @@ mod tests {
     async fn rejects_wrong_version() {
         let mut r = BufReader::new(&b"{\"type\":\"hello\",\"version\":99}\n"[..]);
         assert!(read_message(&mut r).await.is_err());
+    }
+    #[test]
+    fn validates_prepared_native_session() {
+        let value = json!({"session_id":"abc123","backend":"native","display":101});
+        let session = parse_started(value.clone(), "native").unwrap();
+        assert_eq!(session.session_id, "abc123");
+        assert_eq!(session.display, "101");
+        assert!(parse_started(value, "xpra").is_err());
+        assert!(parse_started(
+            json!({"session_id":"abc123","backend":"native","display":"101;id"}),
+            "native"
+        )
+        .is_err());
     }
 }
