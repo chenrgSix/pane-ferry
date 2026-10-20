@@ -1,6 +1,6 @@
 # macOS WindowHost（P1 开发预览）
 
-真实 Swift/AppKit `NSWindow` 宿主；直接接收本项目 Linux Agent 的 PNG 窗口画面，通过严格校验主机密钥的系统 SSH 发送输入。没有使用 XQuartz 或 Xpra 作为 P1 的渲染层。此代码在 Linux 云端编写，**尚未在 macOS 编译或与 Ubuntu 实机联调，不能视为已可日常使用的软件**。
+真实 Swift/AppKit `NSWindow` 宿主，接收 Linux Agent 的 PNG 窗口画面，通过严格校验主机密钥的系统 SSH 发送输入。已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 画面、实际键盘操作、启动器重启后恢复既有会话。仍是开发预览，复杂应用与显示场景未完成验收。
 
 ## 构建与运行
 
@@ -33,6 +33,6 @@ swift build -c release
 - 输入队列、消息长度、PNG 尺寸、窗口数量和待显示解码帧像素有上限；旧 geometry_revision、销毁窗口的旧帧会丢弃。已销毁 XID 在当前连接内复用会被拒绝，需重连重新获取快照。
 - 不显示远端 stderr，不把按键/画面/剪贴板写入日志。SSH 失败只显示退出码；在终端手动运行 SSH 核查连接，不关闭严格校验。
 
-## 待实机验证
+## 验证范围
 
-`swift build`、原生应用启动、真实 xterm/Mousepad 输入与缩放、多窗口、失焦键释放、断连后保留工作内容、20 次重连、休眠唤醒、Intel/Apple Silicon。测试 PNG 显示不能替代 Linux→Mac 完整验收。
+已通过 Swift release 构建、Mac 原生 xterm 显示与输入，以及 Agent 的 20 次 SSH 重连和断开 30 秒后的恢复。待验收：Mousepad 与其他应用、复杂多窗口/模态菜单、跨屏、休眠唤醒、Intel Mac、性能与长期稳定性。完整记录见 `docs/validation.md`。

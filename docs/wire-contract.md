@@ -4,7 +4,7 @@ P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
 客户端 app.list，服务端 app.list {apps:[{id,name,description}]}。
-客户端 app.launch {app_id,request_id,backend:"native"|"xpra",attach?:bool}；服务端 session.started {session_id,backend,display}。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
+客户端 app.launch {app_id,request_id,backend:"native",attach?:bool}；服务端 session.started {session_id,backend,display}。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled}]}，只返回尚未退出的会话，不抢占控制权。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
@@ -15,4 +15,4 @@ input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/
 input.key {window_id,keysym:u32,pressed:bool}，keysym 为 X11 keysym，Mac 端做键映射；input.text.commit 暂不支持 Unicode IME，必须返回 unsupported，不假称实现。
 服务端 error {code,message}，无敏感数据。会话退出 session.exited。
 
-Catalog 用 Linux 用户私有 JSON 配置 ~/.config/lan-remoteapp/apps.json，只接受经审批固定绝对 executable + argv 数组，客户端不能传 executable。P0 app.launch 返回 Xpra display，Mac 用严格 OpenSSH 的 xpra attach ssh://user@host:port/DISPLAY，禁止 auto Paramiko、禁文件/打印/音视频转发。固定远端 Agent 可由 shell 执行但无客户端参数插值。
+Catalog 用 Linux 用户私有 JSON 配置 ~/.config/lan-remoteapp/apps.json，只接受经审批固定绝对 executable + argv 数组，客户端不能传 executable。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。固定远端 Agent 可由 shell 执行但无客户端参数插值。

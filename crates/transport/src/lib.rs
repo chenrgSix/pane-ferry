@@ -1,7 +1,7 @@
 //! SSH control transport. No password handling and no client-generated remote shell commands.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{path::Path, process::Stdio, time::Duration};
+use std::{process::Stdio, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -66,8 +66,6 @@ pub enum Error {
     Protocol,
     #[error("远端拒绝请求：{0}")]
     Remote(String),
-    #[error("本地程序无法启动，请检查已安装的依赖和可执行文件路径。")]
-    Local,
 }
 impl Endpoint {
     pub fn validate(&self) -> Result<(), Error> {
@@ -254,38 +252,23 @@ pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
     for session in &sessions {
         validate_id(&session.session_id)?;
         validate_id(&session.app_id)?;
-        if !["native", "xpra"].contains(&session.backend.as_str()) || session.display == 0 {
+        if session.backend != "native" || session.display == 0 {
             return Err(Error::Protocol);
         }
     }
     Ok(sessions)
-}
-pub async fn launch_xpra(
-    endpoint: &Endpoint,
-    app_id: &str,
-    request_id: &str,
-) -> Result<Started, Error> {
-    launch_session(endpoint, app_id, request_id, "xpra").await
 }
 pub async fn launch_native(
     endpoint: &Endpoint,
     app_id: &str,
     request_id: &str,
 ) -> Result<Started, Error> {
-    launch_session(endpoint, app_id, request_id, "native").await
-}
-async fn launch_session(
-    endpoint: &Endpoint,
-    app_id: &str,
-    request_id: &str,
-    backend: &str,
-) -> Result<Started, Error> {
     validate_id(app_id)?;
     validate_id(request_id)?;
-    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":backend,"attach":false}), "session.started").await?;
-    parse_started(value, backend)
+    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false}), "session.started").await?;
+    parse_started(value)
 }
-fn parse_started(value: Value, backend: &str) -> Result<Started, Error> {
+fn parse_started(value: Value) -> Result<Started, Error> {
     let display = match &value["display"] {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.to_string(),
@@ -300,54 +283,14 @@ fn parse_started(value: Value, backend: &str) -> Result<Started, Error> {
         .ok_or(Error::Protocol)?
         .to_string();
     validate_id(&session_id)?;
-    if value["backend"] != backend {
+    if value["backend"] != "native" {
         return Err(Error::Protocol);
     }
     Ok(Started {
         session_id,
-        backend: backend.into(),
+        backend: "native".into(),
         display: number.into(),
     })
-}
-pub fn xpra_args(endpoint: &Endpoint, display: &str) -> Result<Vec<String>, Error> {
-    endpoint.validate()?;
-    if display.is_empty() || display.len() > 6 || !display.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::Invalid("显示号无效。"));
-    }
-    Ok(vec![
-        "attach".into(),
-        format!(
-            "ssh://{}@{}:{}/{}",
-            endpoint.user, endpoint.host, endpoint.port, display
-        ),
-        format!("--ssh={} {}", SSH, SSH_OPTIONS.join(" ")),
-        "--reconnect=no".into(),
-        "--file-transfer=no".into(),
-        "--printing=no".into(),
-        "--open-files=no".into(),
-        "--open-url=no".into(),
-        "--webcam=no".into(),
-        "--speaker=off".into(),
-        "--microphone=off".into(),
-        "--clipboard=no".into(),
-    ])
-}
-pub fn spawn_xpra(endpoint: &Endpoint, display: &str, executable: &Path) -> Result<u32, Error> {
-    if !executable.is_absolute() || !executable.is_file() {
-        return Err(Error::Invalid("请提供已安装 Xpra 的绝对可执行文件路径。"));
-    }
-    let mut child = std::process::Command::new(executable)
-        .args(xpra_args(endpoint, display)?)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| Error::Local)?;
-    let pid = child.id();
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(pid)
 }
 #[cfg(test)]
 mod tests {
@@ -392,13 +335,6 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-%C"]));
     }
-    #[test]
-    fn disables_xpra_extras() {
-        let args = xpra_args(&endpoint(), "120").unwrap();
-        assert!(args.iter().any(|a| a.starts_with("--ssh=/usr/bin/ssh ")));
-        assert!(args.contains(&"--file-transfer=no".into()));
-        assert!(xpra_args(&endpoint(), "120;id").is_err());
-    }
     #[tokio::test]
     async fn rejects_wrong_version() {
         let mut r = BufReader::new(&b"{\"type\":\"hello\",\"version\":99}\n"[..]);
@@ -407,13 +343,15 @@ mod tests {
     #[test]
     fn validates_prepared_native_session() {
         let value = json!({"session_id":"abc123","backend":"native","display":101});
-        let session = parse_started(value.clone(), "native").unwrap();
+        let session = parse_started(value.clone()).unwrap();
         assert_eq!(session.session_id, "abc123");
         assert_eq!(session.display, "101");
-        assert!(parse_started(value, "xpra").is_err());
+        assert!(
+            parse_started(json!({"session_id":"abc123","backend":"external","display":101}))
+                .is_err()
+        );
         assert!(parse_started(
-            json!({"session_id":"abc123","backend":"native","display":"101;id"}),
-            "native"
+            json!({"session_id":"abc123","backend":"native","display":"101;id"})
         )
         .is_err());
     }

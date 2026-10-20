@@ -25,9 +25,9 @@ test("a lost reply keeps the same request ID across launcher restarts", () => {
   );
 });
 
-test("different endpoints, apps and backends do not share a request", () => {
+test("different hosts, users and apps do not share a request", () => {
   const pending = new PendingLaunches(memory());
-  const keys = ["a:u:x:native", "b:u:x:native", "a:u:y:native", "a:u:x:xpra"];
+  const keys = ["a:u:x:native", "b:u:x:native", "a:u:y:native", "a:v:x:native"];
   assert.equal(new Set(keys.map((key) => pending.id(key))).size, keys.length);
 });
 

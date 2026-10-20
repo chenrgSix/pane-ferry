@@ -8,6 +8,6 @@ Restart=on-failure
 RestartSec=3
 UMask=0077
 NoNewPrivileges=yes
-# Do not use PrivateTmp: Xpra and X11 clients need the same Unix socket namespace.
+# Do not use PrivateTmp: X11 clients need the same Unix socket namespace.
 [Install]
 WantedBy=default.target

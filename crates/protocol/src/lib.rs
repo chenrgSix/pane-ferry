@@ -4,6 +4,11 @@ use std::io::BufRead;
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 8_000_000;
 #[derive(Debug, Deserialize)]
+pub enum LaunchBackend {
+    #[serde(rename = "native")]
+    Native,
+}
+#[derive(Debug, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum Request {
     #[serde(rename = "hello")]
@@ -14,7 +19,7 @@ pub enum Request {
     Launch {
         app_id: String,
         request_id: String,
-        backend: String,
+        backend: LaunchBackend,
         #[serde(default = "attach_by_default")]
         attach: bool,
     },
@@ -192,5 +197,10 @@ mod tests {
         assert!(matches!(old, Request::Launch { attach: true, .. }));
         let prepared = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native","attach":false}"#).unwrap();
         assert!(matches!(prepared, Request::Launch { attach: false, .. }));
+    }
+    #[test]
+    fn rejects_non_native_launch_backend() {
+        let request = serde_json::json!({"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"external"});
+        assert!(parse_request(&serde_json::to_vec(&request).unwrap()).is_err());
     }
 }

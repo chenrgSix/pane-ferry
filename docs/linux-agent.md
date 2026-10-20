@@ -1,6 +1,6 @@
 # Linux Agent 开发版
 
-普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session、已批准应用；P0 还需 Xpra。不会自动安装、启用 linger、改 SSH 配置或防火墙。
+普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session、已批准应用。不会自动安装、启用 linger、改 SSH 配置或防火墙。
 
 ## 手工安装
 
@@ -14,8 +14,7 @@
 
 ## 当前实现边界
 
-- P0 Xpra 原生 seamless 传输；应用通过固定 helper 与白名单启动。剪贴板、文件、打印、音视频默认关闭。
-- P1 原生 x11rb 查询 `_NET_CLIENT_LIST` 加 override-redirect 弹出窗口，轮询捕获 GetImage 并编码 PNG（未用 XComposite，窗口遮挡、透明及复杂菜单内容不保证完整）。默认约 10fps 静止帧去重，尚未使用 XDamage/GStreamer/硬编。后台仍会采集/编码静止窗口；不等于低 CPU 的最终版本。
+- 原生 x11rb 查询 `_NET_CLIENT_LIST` 加 override-redirect 弹出窗口，轮询捕获 GetImage 并编码 PNG（未用 XComposite，窗口遮挡、透明及复杂菜单内容不保证完整）。默认约 10fps 静止帧去重，尚未使用 XDamage/GStreamer/硬编。后台仍会采集/编码静止窗口；不等于低 CPU 的最终版本。
 - 每会话 Xvfb + Openbox + dbus-run-session。单会话单控制端。网络断开保留进程；重新附着发送快照。断开释放按键和鼠标按钮，避免修饰键卡住。
 - 状态和幂等请求表目前在内存；Agent 服务重启不保证会话恢复。无持久快照。启动新会话时回收已退出会话；最多 16 个活动会话、4096 个幂等请求记录，超出后需保存工作再重启服务。
 - 最多传输 16 个窗口。尺寸不超过 4096×4096 且总像素不超过 8M。虚拟屏幕 4096×2160；尚无真正 Retina DPI 重排协商。

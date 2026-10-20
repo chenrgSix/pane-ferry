@@ -29,7 +29,6 @@ static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 struct Session {
     id: String,
     app_id: String,
-    kind: String,
     display: u16,
     backend: Option<Backend>,
     children: Vec<Child>,
@@ -85,24 +84,10 @@ fn run() -> Result<()> {
     match args.get(1).map(String::as_str) {
         Some("serve") => serve(),
         Some("bridge") => bridge(),
-        Some("run-approved") => {
-            let id = args.get(2).context("app id required")?;
-            let app = catalog()?
-                .into_iter()
-                .find(|a| &a.id == id)
-                .context("app not approved")?;
-            let status = Command::new(app.executable)
-                .args(app.argv)
-                .env_remove("WAYLAND_DISPLAY")
-                .env("GDK_BACKEND", "x11")
-                .env("QT_QPA_PLATFORM", "xcb")
-                .status()?;
-            std::process::exit(status.code().unwrap_or(1));
-        }
         Some("check") => {
             let apps = catalog()?;
             println!("catalog: {} approved applications", apps.len());
-            for cmd in ["Xvfb", "openbox", "xauth", "xpra"] {
+            for cmd in ["Xvfb", "openbox", "xauth", "dbus-run-session"] {
                 let ok = Command::new("/usr/bin/env")
                     .args(["which", cmd])
                     .status()?
@@ -112,7 +97,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         _ => {
-            bail!("usage: remoteapp-agent serve | bridge | check | run-approved APP_ID")
+            bail!("usage: remoteapp-agent serve | bridge | check")
         }
     }
 }
@@ -208,15 +193,15 @@ fn random_id() -> Result<String> {
     std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
     Ok(b.iter().map(|v| format!("{v:02x}")).collect())
 }
-fn launch(st: &mut State, app_id: &str, req: &str, kind: &str) -> Result<Arc<Mutex<Session>>> {
-    if !identifier(app_id) || !identifier(req) || !["native", "xpra"].contains(&kind) {
+fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>> {
+    if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
     }
     if let Some(sid) = st.requests.get(req) {
         let s = st.sessions.get(sid).context("session expired")?.clone();
         {
             let mut s = s.lock().unwrap();
-            if s.app_id != app_id || s.kind != kind {
+            if s.app_id != app_id {
                 bail!("request id conflict")
             }
             if s.exited
@@ -270,7 +255,6 @@ fn launch(st: &mut State, app_id: &str, req: &str, kind: &str) -> Result<Arc<Mut
     let mut s = Session {
         id: id.clone(),
         app_id: app_id.into(),
-        kind: kind.into(),
         display,
         backend: None,
         children: vec![],
@@ -279,133 +263,80 @@ fn launch(st: &mut State, app_id: &str, req: &str, kind: &str) -> Result<Arc<Mut
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
-    if kind == "native" {
-        let cookie = random_id()?;
-        if !Command::new("xauth")
-            .arg("-f")
+    let cookie = random_id()?;
+    if !Command::new("xauth")
+        .arg("-f")
+        .arg(&auth)
+        .args(["add", &disp, "MIT-MAGIC-COOKIE-1", &cookie])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?
+        .success()
+    {
+        bail!("xauth failed")
+    }
+    s.children.push(
+        Command::new("Xvfb")
+            .args([
+                &disp,
+                "-screen",
+                "0",
+                "4096x2160x24",
+                "-nolisten",
+                "tcp",
+                "-auth",
+            ])
             .arg(&auth)
-            .args(["add", &disp, "MIT-MAGIC-COOKIE-1", &cookie])
+            .process_group(0)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()?
-            .success()
-        {
-            bail!("xauth failed")
+            .spawn()
+            .context("Xvfb not installed")?,
+    );
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(b) = Backend::connect(&disp) {
+            s.backend = Some(b);
+            break;
         }
-        s.children.push(
-            Command::new("Xvfb")
-                .args([
-                    &disp,
-                    "-screen",
-                    "0",
-                    "4096x2160x24",
-                    "-nolisten",
-                    "tcp",
-                    "-auth",
-                ])
-                .arg(&auth)
-                .process_group(0)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .context("Xvfb not installed")?,
-        );
-        let until = Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Ok(b) = Backend::connect(&disp) {
-                s.backend = Some(b);
-                break;
-            }
-            if Instant::now() > until {
-                bail!("Xvfb readiness timeout")
-            };
-            thread::sleep(Duration::from_millis(50));
-        }
-        s.children.push(
-            Command::new("openbox")
-                .env("DISPLAY", &disp)
-                .process_group(0)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .context("openbox not installed")?,
-        );
-        thread::sleep(Duration::from_millis(250));
-        s.children.push(
-            Command::new("dbus-run-session")
-                .arg("--")
-                .arg(&app.executable)
-                .args(&app.argv)
-                .env("DISPLAY", &disp)
-                .env_remove("WAYLAND_DISPLAY")
-                .env("GDK_BACKEND", "x11")
-                .env("QT_QPA_PLATFORM", "xcb")
-                .process_group(0)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .context("application start failed")?,
-        );
-    } else {
-        // app_id is a bounded ASCII identifier; executable path is a fixed installed helper.
-        let child = format!(
-            "{} run-approved {}",
-            quote(&home()?.join(".local/bin/remoteapp-agent").to_string_lossy()),
-            app.id
-        );
-        s.children.push(
-            Command::new("xpra")
-                .args([
-                    "start",
-                    &disp,
-                    "--daemon=no",
-                    "--exit-with-children=yes",
-                    "--exit-with-client=no",
-                    "--start-new-commands=no",
-                    "--file-transfer=no",
-                    "--printing=no",
-                    "--open-files=no",
-                    "--open-url=no",
-                    "--speaker=off",
-                    "--microphone=off",
-                    "--webcam=no",
-                    "--mdns=no",
-                    "--clipboard=no",
-                    "--start-child",
-                ])
-                .arg(child)
-                .process_group(0)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .context("xpra not installed")?,
-        );
-        let until = Instant::now() + Duration::from_secs(8);
-        loop {
-            if s.children[0].try_wait()?.is_some() {
-                bail!("xpra startup failed")
-            };
-            if std::path::Path::new(&format!("/tmp/.X11-unix/X{display}")).exists() {
-                break;
-            }
-            if Instant::now() > until {
-                bail!("xpra readiness timeout")
-            };
-            thread::sleep(Duration::from_millis(100));
-        }
+        if Instant::now() > until {
+            bail!("Xvfb readiness timeout")
+        };
+        thread::sleep(Duration::from_millis(50));
     }
+    s.children.push(
+        Command::new("openbox")
+            .env("DISPLAY", &disp)
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("openbox not installed")?,
+    );
+    thread::sleep(Duration::from_millis(250));
+    s.children.push(
+        Command::new("dbus-run-session")
+            .arg("--")
+            .arg(&app.executable)
+            .args(&app.argv)
+            .env("DISPLAY", &disp)
+            .env_remove("WAYLAND_DISPLAY")
+            .env("GDK_BACKEND", "x11")
+            .env("QT_QPA_PLATFORM", "xcb")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("application start failed")?,
+    );
     let session = Arc::new(Mutex::new(s));
     st.requests.insert(req.into(), id.clone());
     st.sessions.insert(id, session.clone());
     Ok(session)
-}
-fn quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 struct Lease(Arc<Mutex<Session>>);
 impl Drop for Lease {
@@ -481,7 +412,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":["catalog","xpra","native.png","input.pointer","input.key","session.resume","session.list"]}),
+        json!({"type":"hello","capabilities":["catalog","native.png","input.pointer","input.key","session.resume","session.list"]}),
         &mut seq,
         "",
     )?;
@@ -513,7 +444,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             {
                                 continue;
                             }
-                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":s.kind,"display":s.display,"controlled":s.controller}));
+                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,"controlled":s.controller}));
                         }
                         sessions.sort_by(|a, b| {
                             a["session_id"].as_str().cmp(&b["session_id"].as_str())
@@ -542,14 +473,13 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     Request::Launch {
                         app_id,
                         request_id,
-                        backend,
+                        backend: _,
                         attach,
                     } => {
                         if lease.is_some() {
                             bail!("detach before launching another session")
                         };
-                        let session =
-                            launch(&mut state.lock().unwrap(), &app_id, &request_id, &backend)?;
+                        let session = launch(&mut state.lock().unwrap(), &app_id, &request_id)?;
                         // A launcher only prepares a session. It must not race the
                         // WindowHost for the exclusive controller lease.
                         let new = if attach {
@@ -561,7 +491,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             let s = session.lock().unwrap();
                             send(
                                 &mut out,
-                                json!({"type":"session.started","backend":s.kind,"display":s.display}),
+                                json!({"type":"session.started","backend":"native","display":s.display}),
                                 &mut seq,
                                 &s.id,
                             )?;
@@ -608,10 +538,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     request => {
                         let l = lease.as_ref().context("no session attached")?;
                         let mut s = l.0.lock().unwrap();
-                        let b = s
-                            .backend
-                            .as_mut()
-                            .context("native operation unavailable for xpra")?;
+                        let b = s.backend.as_mut().context("native backend unavailable")?;
                         match request {
                             Request::Configure {
                                 window_id,
@@ -736,10 +663,6 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn shell_quote() {
-        assert_eq!(quote("a'b"), "'a'\\''b'");
-    }
     #[test]
     fn id_entropy() {
         assert_eq!(random_id().unwrap().len(), 32);

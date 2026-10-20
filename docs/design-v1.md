@@ -27,7 +27,7 @@ lang: zh-CN
 
 # 2. 架构决策
 
-推荐 **“统一控制核心 + 平台专属窗口宿主 + 可插拔发布后端”**，避免将 XQuartz、FreeRDP 或 Xpra 固定为产品基础协议。
+推荐 **“统一控制核心 + 平台专属窗口宿主 + 可插拔发布后端”**，避免将 XQuartz 或 FreeRDP 固定为产品基础协议。
 
 ```text
                        Mac (用户操作)
@@ -48,10 +48,7 @@ lang: zh-CN
   └────────────────────────────────────────────────────┘
 ```
 
-**两条并行路径：**
-
-1. **快速可用路径（V0）：** Tauri 图标管理 + SSH 一键启动 Xpra。保留已有 Xpra 客户端渲染，实现远程应用业务流程；这是验收基线，不宣称已实现自研原生窗口宿主。
-2. **正式产品路径（V1）：** 自己实现 Linux Window Agent 与 Mac AppKit WindowHost，通过自有版本化控制协议交换窗口元信息、输入和画面。先传 PNG 更新区域，再扩展为 H.264。此时 Mac 不再依赖 XQuartz 或 Xpra 客户端。
+**单一原生路径：** 自行实现 Linux Window Agent 与 Mac AppKit WindowHost，以版本化控制协议交换窗口、输入和画面。首先验证 SSH + PNG 原型，再扩展增量更新和媒体编码；Mac 使用自有窗口宿主。
 
 ## 2.1 为什么不一直使用 X11 Forwarding？
 
@@ -269,7 +266,7 @@ lan-remoteapp/
 
 | 阶段 | 交付内容 | 估算 |
 |:--|:--|:--|
-| P0 可用性验证 | Mac 图标 → SSH/Xpra → Linux 软件独立窗口；兼容矩阵 | 1–2 周 |
+| P0 可用性验证 | Mac 图标 → SSH/PNG → AppKit 独立窗口；兼容矩阵 | 1–2 周 |
 | P1 原生单窗口 | Ubuntu 虚拟 X11 Agent + PNG 图像 + Mac NSWindow + 输入 | 3–5 周 |
 | P2 多窗口与稳定性 | 窗口树、弹窗、剪贴板、重连、错误恢复 | 4–6 周 |
 | P3 体验优化 | H.264/VideoToolbox、HiDPI、IME、快捷键 | 4–8 周 |
@@ -293,7 +290,7 @@ lan-remoteapp/
 | Windows | 优先正式 RemoteApp/RDS 适配；也可自研 Windows Graphics Capture 单窗口后端（须处理安全桌面与权限限制） | 同一个统一窗口协议模型 |
 | macOS | ScreenCaptureKit 捕获应用窗口 + 合规的输入事件机制（需用户授权） | 同一个统一窗口协议模型 |
 
-控制层可以复用 `AppCatalog`、`LaunchSession`、`RemoteWindow`、`InputEvent`、`ClipboardItem`、`Transport`；窗口捕获和输入注入是平台专有实现。未来若不要求兼容 RDP/Xpra，就维持统一的自有数据面协议；若需要兼容企业 Windows RDS，则将 FreeRDP/RAIL 作为单独适配器，不污染核心协议。
+控制层可以复用 `AppCatalog`、`LaunchSession`、`RemoteWindow`、`InputEvent`、`ClipboardItem`、`Transport`；窗口捕获和输入注入是平台专有实现。未来若不要求兼容 RDP，就维持统一的自有数据面协议；若需要兼容企业 Windows RDS，则将 FreeRDP/RAIL 作为单独适配器，不污染核心协议。
 
 ## 12.1 Windows 与 macOS 的重要限制
 
@@ -312,7 +309,7 @@ lan-remoteapp/
 
 # 14. 最终决策（ADR）
 
-**现在就做：** Rust 共享核心、Tauri 启动器、Ubuntu Linux Agent、Swift/AppKit WindowHost；以 Xpra 快速验证用户体验，原生产品使用自主的窗口协议。V1 聚焦 Linux → Mac，不改变 Ubuntu 当前桌面。
+**现在就做：** Rust 共享核心、Tauri 启动器、Ubuntu Linux Agent、Swift/AppKit WindowHost；以自主的窗口协议验证原生应用体验。V1 聚焦 Linux → Mac，不改变 Ubuntu 当前桌面。
 
 **暂缓：** 每个远程应用独立 Dock 身份、完整 Mac 菜单栏集成、文件拖放、4K 多路 60fps、已有 GNOME 窗口抓取、跨互联网打洞和任意三平台双向发布。
 
@@ -320,9 +317,6 @@ lan-remoteapp/
 
 # 15. 参考资料（官方或源代码文档）
 
-- Xpra Seamless 模式：https://xpra-org.github.io/xpra/Usage/Seamless.html
-- Xpra 现代协议：https://xpra-org.github.io/xpra/Network/Protocol.html
-- Xpra 开源实现与许可：https://github.com/Xpra-org/xpra
 - FreeRDP/RAIL：https://github.com/FreeRDP/FreeRDP
 - x11rb：https://github.com/psychon/x11rb
 - GStreamer ximagesrc：https://gstreamer.freedesktop.org/documentation/ximagesrc/index.html

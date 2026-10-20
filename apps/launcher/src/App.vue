@@ -5,7 +5,6 @@ import { PendingLaunches } from "./session-store";
 type Endpoint = { host: string; user: string; port: number };
 type AppInfo = { id: string; name: string; description: string };
 type Result = {
-  mode: string;
   session_id: string | null;
   display: string | null;
   pid: number;
@@ -14,15 +13,13 @@ type Result = {
 type SessionInfo = {
   session_id: string;
   app_id: string;
-  backend: string;
+  backend: "native";
   display: number;
   controlled: boolean;
 };
 const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
   apps = ref<AppInfo[]>([]),
-  search = ref(""),
-  mode = ref("native"),
-  xpraPath = ref("/Applications/Xpra.app/Contents/MacOS/Xpra");
+  search = ref("");
 const busy = ref(false),
   error = ref(""),
   notice = ref(""),
@@ -54,7 +51,7 @@ function save() {
   try {
     localStorage.setItem(
       "lan-remoteapp.connection",
-      JSON.stringify({ endpoint: endpoint.value, xpraPath: xpraPath.value }),
+      JSON.stringify({ endpoint: endpoint.value }),
     );
   } catch {}
 }
@@ -71,7 +68,6 @@ try {
       user: s.endpoint.user,
       port: s.endpoint.port,
     };
-    if (typeof s.xpraPath === "string") xpraPath.value = s.xpraPath;
   }
 } catch {}
 const appName = (id: string) => apps.value.find((a) => a.id === id)?.name || id;
@@ -130,14 +126,12 @@ async function launch(app: AppInfo) {
   busy.value = true;
   error.value = "";
   notice.value = "";
-  const key = `${signature()}:${app.id}:${mode.value}`;
+  const key = `${signature()}:${app.id}:native`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
       endpoint: { ...endpoint.value },
       appId: app.id,
-      mode: mode.value,
-      xpraPath: xpraPath.value,
       requestId,
     });
     record(app.name, result);
@@ -159,7 +153,6 @@ async function resume(session: SessionInfo) {
     const result = await invoke<Result>("resume_session", {
       endpoint: { ...endpoint.value },
       sessionId: session.session_id,
-      xpraPath: xpraPath.value,
     });
     record(appName(session.app_id), result);
   } catch (e) {
@@ -233,32 +226,11 @@ async function resume(session: SessionInfo) {
       </section>
       <section class="options">
         <div>
-          <h2>02 <span>显示方式</span></h2>
-          <div class="switch">
-            <button
-              :class="{ selected: mode === 'xpra' }"
-              :disabled="busy"
-              @click="mode = 'xpra'"
-            >
-              Xpra 兼容模式 <small>P0</small></button
-            ><button
-              :class="{ selected: mode === 'native' }"
-              :disabled="busy"
-              @click="mode = 'native'"
-            >
-              原生窗口预览 <small>P1</small>
-            </button>
-          </div>
-        </div>
-        <label v-if="mode === 'xpra'" class="client-path"
-          >Xpra 客户端路径<input
-            v-model="xpraPath"
-            :disabled="busy"
-            spellcheck="false"
-        /></label>
-        <p v-else class="hint mode-note">
+          <h2>02 <span>原生窗口</span></h2>
+          <p class="hint">
             独立 Mac 窗口，支持会话恢复。中文输入和 Retina 重绘尚未支持。
-        </p>
+          </p>
+        </div>
       </section>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
@@ -319,15 +291,11 @@ async function resume(session: SessionInfo) {
           class="session-row"
         >
           <b>{{ appName(session.app_id) }}</b
-          ><span
-            >{{ session.backend === "native" ? "原生窗口" : "Xpra" }} ·
-            {{ session.controlled ? "已连接" : "可连接" }}</span
+          ><span>原生窗口 · {{ session.controlled ? "已连接" : "可连接" }}</span
           ><code>{{ session.session_id }}</code
           ><button
             class="session-action"
-            :disabled="
-              busy || (session.backend === 'native' && session.controlled)
-            "
+            :disabled="busy || session.controlled"
             @click="resume(session)"
           >
             重新连接
@@ -341,9 +309,7 @@ async function resume(session: SessionInfo) {
         <h2>本次连接记录</h2>
         <div v-for="(entry, i) in launches" :key="i">
           <b>{{ entry.name }}</b
-          ><span
-            >{{ entry.result.mode === "xpra" ? "Xpra" : "原生窗口" }} ·
-            客户端已启动</span
+          ><span>原生窗口 · 客户端已启动</span
           ><code v-if="entry.result.session_id"
             >会话 {{ entry.result.session_id }}</code
           >

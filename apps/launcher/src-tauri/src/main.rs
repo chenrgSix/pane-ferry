@@ -8,7 +8,6 @@ use std::{
 use tauri::Manager;
 #[derive(Serialize)]
 struct LaunchResult {
-    mode: String,
     session_id: Option<String>,
     display: Option<String>,
     pid: u32,
@@ -70,7 +69,6 @@ async fn resume_session(
     app: tauri::AppHandle,
     endpoint: Endpoint,
     session_id: String,
-    xpra_path: String,
 ) -> Result<LaunchResult, String> {
     endpoint.validate().map_err(|e| e.to_string())?;
     transport::validate_id(&session_id).map_err(|e| e.to_string())?;
@@ -80,25 +78,15 @@ async fn resume_session(
         .into_iter()
         .find(|s| s.session_id == session_id)
         .ok_or("远端会话已退出，请刷新列表。")?;
-    let pid = if session.backend == "native" {
-        if session.controlled {
-            return Err("该会话已连接，请先在原宿主中断开，再重新连接。".into());
-        }
-        spawn_host(native_host(&app)?, &endpoint, &session_id)?
-    } else {
-        transport::spawn_xpra(
-            &endpoint,
-            &session.display.to_string(),
-            &PathBuf::from(xpra_path),
-        )
-        .map_err(|e| e.to_string())?
-    };
+    if session.controlled {
+        return Err("该会话已连接，请先在原宿主中断开，再重新连接。".into());
+    }
+    let pid = spawn_host(native_host(&app)?, &endpoint, &session_id)?;
     Ok(LaunchResult {
-        mode: session.backend,
         session_id: Some(session_id),
         display: Some(session.display.to_string()),
         pid,
-        message: "已启动会话连接客户端，请以实际窗口确认连接结果。".into(),
+        message: "原生窗口客户端已启动，请以实际窗口确认连接结果。".into(),
     })
 }
 #[tauri::command]
@@ -106,53 +94,22 @@ async fn launch_app(
     app: tauri::AppHandle,
     endpoint: Endpoint,
     app_id: String,
-    mode: String,
-    xpra_path: String,
     request_id: String,
 ) -> Result<LaunchResult, String> {
     endpoint.validate().map_err(|e| e.to_string())?;
     transport::validate_id(&app_id).map_err(|e| e.to_string())?;
     transport::validate_id(&request_id).map_err(|e| e.to_string())?;
-    match mode.as_str() {
-        "xpra" => {
-            let path = PathBuf::from(xpra_path);
-            if !path.is_absolute() || !path.is_file() {
-                return Err("找不到 Xpra，请填写已安装客户端的绝对可执行路径。".into());
-            }
-            let session = transport::launch_xpra(&endpoint, &app_id, &request_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            let pid = transport::spawn_xpra(&endpoint, &session.display, &path).map_err(|e| {
-                format!(
-                    "{} 远端会话 {} 已创建，显示号 {}；请不要重复创建。",
-                    e, session.session_id, session.display
-                )
-            })?;
-            Ok(LaunchResult {
-                mode,
-                session_id: Some(session.session_id),
-                display: Some(session.display),
-                pid,
-                message: "Xpra 客户端已启动，请以实际窗口确认连接结果。断开不等于结束远端应用。"
-                    .into(),
-            })
-        }
-        "native" => {
-            let path = native_host(&app)?;
-            let session = transport::launch_native(&endpoint, &app_id, &request_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            let pid = spawn_host(path, &endpoint, &session.session_id)?;
-            Ok(LaunchResult {
-                mode,
-                session_id: Some(session.session_id),
-                display: Some(session.display),
-                pid,
-                message: "原生宿主已启动，连接结果由宿主显示。尚未通过真实设备联调。".into(),
-            })
-        }
-        _ => Err("未知后端。".into()),
-    }
+    let path = native_host(&app)?;
+    let session = transport::launch_native(&endpoint, &app_id, &request_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let pid = spawn_host(path, &endpoint, &session.session_id)?;
+    Ok(LaunchResult {
+        session_id: Some(session.session_id),
+        display: Some(session.display),
+        pid,
+        message: "原生窗口客户端已启动，请以实际窗口确认连接结果。".into(),
+    })
 }
 fn main() {
     tauri::Builder::default()
