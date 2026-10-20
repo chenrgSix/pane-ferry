@@ -75,6 +75,8 @@ pub struct Window {
     pub width: u32,
     pub height: u32,
     pub geometry_revision: u64,
+    #[serde(default = "attach_by_default")]
+    pub visible: bool,
 }
 pub fn dimensions(w: u32, h: u32) -> Result<()> {
     if w == 0 || h == 0 || w > 4096 || h > 4096 || u64::from(w) * u64::from(h) > MAX_PIXELS {

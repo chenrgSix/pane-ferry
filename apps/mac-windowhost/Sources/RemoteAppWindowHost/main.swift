@@ -289,6 +289,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     let surface = SurfaceView(frame: .zero)
     var revision: UInt64
     var applyingRemote = false
+    var remoteVisible = false
     var allowClose = false
     var resizeTimer: Timer?
     var transmit: ([String: Any]) -> Void
@@ -446,7 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard create, windows.count < 64 else { return }
             let host = HostedWindow(id: id, width: w, height: h, revision: rev,
                 popup: object["role"] as? String == "popup") { [weak self] in self?.send($0) }
-            windows[id] = host; host.window.makeKeyAndOrderFront(nil)
+            windows[id] = host
         }
         guard let host = windows[id], rev >= host.revision else { return }
         host.revision = rev
@@ -455,6 +456,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.applyingRemote = true
         if Int(host.surface.bounds.width) != w || Int(host.surface.bounds.height) != h { host.window.setContentSize(NSSize(width: CGFloat(w), height: CGFloat(h))) }
         host.applyingRemote = false
+        let visible = object["visible"] as? Bool ?? true
+        if visible != host.remoteVisible {
+            if visible { host.window.makeKeyAndOrderFront(nil) }
+            else { host.surface.releaseInput(); host.window.orderOut(nil) }
+            host.remoteVisible = visible
+        }
         if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max) { parents[id] = UInt32(parent) }
         else { parents.removeValue(forKey: id); host.window.parent?.removeChildWindow(host.window) }
     }

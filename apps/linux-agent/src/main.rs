@@ -650,11 +650,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             if exited {
                 s.exited = true;
                 for mut c in s.children.drain(..).rev() {
-                    unsafe {
-                        libc::kill(-(c.id() as i32), libc::SIGKILL);
-                    };
-                    let _ = c.kill();
-                    let _ = c.wait();
+                    stop_child(&mut c);
                 }
                 send(&mut out, json!({"type":"session.exited"}), &mut seq, &sid)?;
                 continue;
@@ -686,6 +682,10 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &mut seq,
                             &sid,
                         )?;
+                    }
+                    if !w.visible {
+                        frames.remove(&w.window_id);
+                        continue;
                     }
                     if let Ok(png) = b.capture(w) {
                         if frames.get(&w.window_id) != Some(&png) {

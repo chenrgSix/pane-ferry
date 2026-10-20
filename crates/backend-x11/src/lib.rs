@@ -58,25 +58,27 @@ impl Backend {
             .value32()
             .map(|x| x.collect::<Vec<_>>())
             .unwrap_or_default();
-        let mut ids = clients; // Also capture override-redirect popups, without exposing the root desktop.
+        let mut ids = clients;
+        // Unmapping/withdrawing a window is not destruction. Keep known XIDs
+        // until the server confirms they no longer exist, including cached menus.
+        ids.extend(self.windows.keys().copied());
         for id in self.conn.query_tree(self.root)?.reply()?.children {
             if let Ok(a) = self.conn.get_window_attributes(id)?.reply() {
-                if a.override_redirect && a.map_state == MapState::VIEWABLE {
+                if a.override_redirect {
                     ids.push(id)
                 }
             }
         }
         ids.sort_unstable();
         ids.dedup();
-        ids.truncate(16);
         let mut out = Vec::new();
         for id in ids {
+            if out.len() >= 16 {
+                break;
+            }
             let Ok(a) = self.conn.get_window_attributes(id)?.reply() else {
                 continue;
             };
-            if a.map_state != MapState::VIEWABLE {
-                continue;
-            }
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
@@ -119,12 +121,21 @@ impl Backend {
                 width: g.width.into(),
                 height: g.height.into(),
                 geometry_revision: 1,
+                visible: a.map_state == MapState::VIEWABLE,
             };
             if let Some(old) = self.windows.get(&id) {
                 w.geometry_revision = old.geometry_revision
                     + u64::from(old.width != w.width || old.height != w.height);
             }
             out.push(w);
+        }
+        if self.windows.values().any(|old| {
+            old.visible
+                && !out
+                    .iter()
+                    .any(|w| w.window_id == old.window_id && w.visible)
+        }) {
+            self.release_all();
         }
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
         Ok(out)
@@ -182,6 +193,9 @@ impl Backend {
     }
     pub fn focus(&self, id: u32) -> Result<()> {
         self.known(id)?;
+        if !self.windows[&id].visible {
+            bail!("window is hidden")
+        }
         self.conn
             .set_input_focus(InputFocus::PARENT, id, x11rb::CURRENT_TIME)?
             .check()?;
@@ -238,7 +252,10 @@ impl Backend {
         Ok(())
     }
     pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
-        self.focus(id)?;
+        self.known(id)?;
+        if pressed {
+            self.focus(id)?;
+        }
         let setup = self.conn.setup();
         let min = setup.min_keycode;
         let max = setup.max_keycode;
