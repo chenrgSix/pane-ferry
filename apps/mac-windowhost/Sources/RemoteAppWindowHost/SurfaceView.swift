@@ -21,13 +21,14 @@ final class SurfaceView: NSView, NSTextInputClient {
     private var heldButtons: Set<Int> = []
     private var lastPointer = (x: 0, y: 0)
     private var tracking: NSTrackingArea?
+    private var imageRect: CGRect { RenderGeometry.imageRect(in: bounds, width: remoteWidth, height: remoteHeight) }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill(); bounds.fill()
         guard let image = image else { return }
         NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
-            .draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+            .draw(in: imageRect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         if hasMarkedText() {
             let preview = NSAttributedString(string: markedText.string, attributes: [
                 .font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor,
@@ -42,8 +43,10 @@ final class SurfaceView: NSView, NSTextInputClient {
     }
     private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {
         let point = convert(event.locationInWindow, from: nil)
-        let x = max(0, min(remoteWidth - 1, Int(point.x / max(bounds.width, 1) * CGFloat(remoteWidth))))
-        let y = max(0, min(remoteHeight - 1, Int(point.y / max(bounds.height, 1) * CGFloat(remoteHeight))))
+        let rect = imageRect
+        if !rect.contains(point) && (button == 0 ? heldButtons.isEmpty : !heldButtons.contains(button)) { return }
+        let x = max(0, min(remoteWidth - 1, Int((point.x - rect.minX) / max(rect.width, 1) * CGFloat(remoteWidth))))
+        let y = max(0, min(remoteHeight - 1, Int((point.y - rect.minY) / max(rect.height, 1) * CGFloat(remoteHeight))))
         lastPointer = (x, y)
         if button > 0 { if pressed { heldButtons.insert(button) } else { heldButtons.remove(button) } }
         transmit?(["type": "input.pointer", "window_id": remoteID, "x": x, "y": y, "button": button, "pressed": pressed])

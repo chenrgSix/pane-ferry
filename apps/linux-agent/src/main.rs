@@ -30,6 +30,7 @@ struct Session {
     id: String,
     app_id: String,
     display: u16,
+    scale_factor: u8,
     backend: Option<Backend>,
     children: Vec<Child>,
     controller: bool,
@@ -242,7 +243,13 @@ fn random_id() -> Result<String> {
     std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
     Ok(b.iter().map(|v| format!("{v:02x}")).collect())
 }
-fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>> {
+fn launch(
+    st: &mut State,
+    app_id: &str,
+    req: &str,
+    scale_factor: u8,
+) -> Result<Arc<Mutex<Session>>> {
+    remoteapp_protocol::validate_scale(scale_factor)?;
     if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
     }
@@ -250,7 +257,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
         let s = st.sessions.get(sid).context("session expired")?.clone();
         {
             let mut s = s.lock().unwrap();
-            if s.app_id != app_id {
+            if s.app_id != app_id || s.existing.is_none() && s.scale_factor != scale_factor {
                 bail!("request id conflict")
             }
             if s.has_exited()? {
@@ -297,6 +304,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
             std::path::Path::new(&existing.xauthority),
             existing.process_id,
         )?;
+        backend.set_scale_factor(existing.scale_factor)?;
         if backend.scan()?.is_empty() {
             bail!("no X11 windows belong to the approved process")
         }
@@ -305,6 +313,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
             id: id.clone(),
             app_id: app_id.into(),
             display: existing.display,
+            scale_factor: existing.scale_factor,
             backend: Some(backend),
             children: vec![],
             controller: false,
@@ -332,6 +341,7 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
         id: id.clone(),
         app_id: app_id.into(),
         display,
+        scale_factor,
         backend: None,
         children: vec![],
         controller: false,
@@ -360,6 +370,8 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
                 "-screen",
                 "0",
                 "4096x2160x24",
+                "-dpi",
+                "96",
                 "-nolisten",
                 "tcp",
                 "-auth",
@@ -374,7 +386,8 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
     );
     let until = Instant::now() + Duration::from_secs(5);
     loop {
-        if let Ok(b) = Backend::connect(&disp) {
+        if let Ok(mut b) = Backend::connect(&disp) {
+            b.set_scale_factor(scale_factor)?;
             s.backend = Some(b);
             break;
         }
@@ -403,6 +416,12 @@ fn launch(st: &mut State, app_id: &str, req: &str) -> Result<Arc<Mutex<Session>>
             .env_remove("WAYLAND_DISPLAY")
             .env("GDK_BACKEND", "x11")
             .env("QT_QPA_PLATFORM", "xcb")
+            .env("DISABLE_WAYLAND", "1")
+            .env("GDK_SCALE", scale_factor.to_string())
+            .env("GDK_DPI_SCALE", "1")
+            .env("QT_SCALE_FACTOR", scale_factor.to_string())
+            .env("QT_FONT_DPI", "96")
+            .env_remove("QT_SCREEN_SCALE_FACTORS")
             .process_group(0)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -495,7 +514,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":["catalog","native.png","input.pointer","input.key","input.text.commit","clipboard.paste","clipboard.copy","session.resume","session.list"]}),
+        json!({"type":"hello","capabilities":["catalog","native.png","display.scale","input.pointer","input.key","input.text.commit","clipboard.paste","clipboard.copy","session.resume","session.list"]}),
         &mut seq,
         "",
     )?;
@@ -592,11 +611,17 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         request_id,
                         backend: _,
                         attach,
+                        scale_factor,
                     } => {
                         if lease.is_some() {
                             bail!("detach before launching another session")
                         };
-                        let session = launch(&mut state.lock().unwrap(), &app_id, &request_id)?;
+                        let session = launch(
+                            &mut state.lock().unwrap(),
+                            &app_id,
+                            &request_id,
+                            scale_factor,
+                        )?;
                         // A launcher only prepares a session. It must not race the
                         // WindowHost for the exclusive controller lease.
                         let new = if attach {
@@ -608,7 +633,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             let s = session.lock().unwrap();
                             send(
                                 &mut out,
-                                json!({"type":"session.started","backend":"native","display":s.display}),
+                                json!({"type":"session.started","backend":"native","display":s.display,"scale_factor":s.scale_factor}),
                                 &mut seq,
                                 &s.id,
                             )?;
@@ -701,9 +726,14 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     .as_ref()
                     .map(|l| l.0.lock().unwrap().id.clone())
                     .unwrap_or_default();
+                let message = e.to_string();
+                let code = match message.as_str() {
+                    "window is hidden" | "unknown window" => "window_unavailable",
+                    _ => "request_failed",
+                };
                 send(
                     &mut out,
-                    json!({"type":"error","code":"request_failed","message":e.to_string()}),
+                    json!({"type":"error","code":code,"message":message}),
                     &mut seq,
                     &sid,
                 )?;

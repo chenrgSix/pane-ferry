@@ -21,6 +21,7 @@ const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
   apps = ref<AppInfo[]>([]),
   search = ref("");
 const busy = ref(false),
+  renderScale = ref("auto"),
   error = ref(""),
   notice = ref(""),
   connected = ref(""),
@@ -51,12 +52,13 @@ function save() {
   try {
     localStorage.setItem(
       "lan-remoteapp.connection",
-      JSON.stringify({ endpoint: endpoint.value }),
+      JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value }),
     );
   } catch {}
 }
 try {
   const s = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
+  if (["auto", "1", "2"].includes(s?.renderScale)) renderScale.value = s.renderScale;
   if (
     s &&
     typeof s.endpoint?.host === "string" &&
@@ -126,13 +128,14 @@ async function launch(app: AppInfo) {
   busy.value = true;
   error.value = "";
   notice.value = "";
-  const key = `${signature()}:${app.id}:native`;
+  const key = `${signature()}:${app.id}:native:${renderScale.value}`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
       endpoint: { ...endpoint.value },
       appId: app.id,
       requestId,
+      renderScale: renderScale.value === "auto" ? null : Number(renderScale.value),
     });
     record(app.name, result);
     attempts.resolve(key);
@@ -228,8 +231,15 @@ async function resume(session: SessionInfo) {
         <div>
           <h2>02 <span>原生窗口</span></h2>
           <p class="hint">
-            使用控制端输入法，支持主动复制与粘贴。Retina 远端重绘尚未支持。
+            使用控制端输入法，支持主动复制与粘贴。新会话可按本机屏幕清晰度渲染。
           </p>
+          <label for="render-scale">界面缩放（新会话）</label>
+          <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
+            <option value="auto">自动 · 跟随本机像素密度</option>
+            <option value="1">100%</option>
+            <option value="2">200% · Retina</option>
+          </select>
+          <p class="hint">分辨率按本机窗口的实际像素尺寸调整；原生窗口的“显示”菜单可适应屏幕或输入像素宽高。已有会话保留原缩放。</p>
         </div>
       </section>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>

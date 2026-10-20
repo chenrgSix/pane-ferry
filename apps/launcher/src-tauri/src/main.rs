@@ -95,12 +95,25 @@ async fn launch_app(
     endpoint: Endpoint,
     app_id: String,
     request_id: String,
+    render_scale: Option<u8>,
 ) -> Result<LaunchResult, String> {
     endpoint.validate().map_err(|e| e.to_string())?;
     transport::validate_id(&app_id).map_err(|e| e.to_string())?;
     transport::validate_id(&request_id).map_err(|e| e.to_string())?;
     let path = native_host(&app)?;
-    let session = transport::launch_native(&endpoint, &app_id, &request_id)
+    let scale = render_scale.unwrap_or_else(|| {
+        if app
+            .get_webview_window("main")
+            .and_then(|window| window.scale_factor().ok())
+            .unwrap_or(1.0)
+            >= 1.5
+        {
+            2
+        } else {
+            1
+        }
+    });
+    let session = transport::launch_native(&endpoint, &app_id, &request_id, scale)
         .await
         .map_err(|e| e.to_string())?;
     let pid = spawn_host(path, &endpoint, &session.session_id)?;
@@ -108,7 +121,10 @@ async fn launch_app(
         session_id: Some(session.session_id),
         display: Some(session.display),
         pid,
-        message: "原生窗口客户端已启动，请以实际窗口确认连接结果。".into(),
+        message: format!(
+            "原生窗口已启动；分辨率随本机窗口调整，界面缩放 {}%。",
+            session.scale_factor * 100
+        ),
     })
 }
 fn main() {

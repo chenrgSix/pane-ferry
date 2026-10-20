@@ -20,6 +20,8 @@ pub struct ExistingWindow {
     pub display: u16,
     pub xauthority: String,
     pub process_id: u32,
+    #[serde(default = "remoteapp_protocol::default_scale")]
+    pub scale_factor: u8,
 }
 pub fn load_catalog(path: &Path) -> Result<Vec<App>> {
     let data = std::fs::read(path).context("read approved app catalog")?;
@@ -55,6 +57,7 @@ pub fn validate(apps: &[App]) -> Result<()> {
             bail!("invalid executable/argv")
         }
         if let Some(existing) = &a.existing {
+            remoteapp_protocol::validate_scale(existing.scale_factor)?;
             if existing.process_id <= 1
                 || !Path::new(&existing.xauthority).is_absolute()
                 || existing.xauthority.contains('\0')

@@ -45,6 +45,7 @@ pub struct Started {
     pub session_id: String,
     pub backend: String,
     pub display: String,
+    pub scale_factor: u8,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
@@ -262,13 +263,25 @@ pub async fn launch_native(
     endpoint: &Endpoint,
     app_id: &str,
     request_id: &str,
+    scale_factor: u8,
 ) -> Result<Started, Error> {
     validate_id(app_id)?;
     validate_id(request_id)?;
-    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false}), "session.started").await?;
+    if !matches!(scale_factor, 1 | 2) {
+        return Err(Error::Invalid("清晰度缩放必须为 1 或 2。"));
+    }
+    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor}), "session.started").await?;
     parse_started(value)
 }
 fn parse_started(value: Value) -> Result<Started, Error> {
+    let scale_factor = match value.get("scale_factor") {
+        None => 1,
+        Some(value) => match value.as_u64() {
+            Some(1) => 1,
+            Some(2) => 2,
+            _ => return Err(Error::Protocol),
+        },
+    };
     let display = match &value["display"] {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.to_string(),
@@ -290,6 +303,7 @@ fn parse_started(value: Value) -> Result<Started, Error> {
         session_id,
         backend: "native".into(),
         display: number.into(),
+        scale_factor,
     })
 }
 #[cfg(test)]

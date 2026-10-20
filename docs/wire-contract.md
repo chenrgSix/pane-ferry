@@ -4,15 +4,16 @@ P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
 客户端 app.list，服务端 app.list {apps:[{id,name,description}]}。
-客户端 app.launch {app_id,request_id,backend:"native",attach?:bool}；服务端 session.started {session_id,backend,display}。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
+客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，表示界面像素密度，不是固定分辨率；独立会话在启动前设置 GTK/Qt 缩放环境，existing 沿用服务端配置的实际缩放。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled}]}，只返回尚未退出的会话，不抢占控制权。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
 
 display 为本地 X11 显示号，允许 0。白名单配置 existing 时，app.launch 接入经批准的现有进程窗口，不新建应用；协议和 native 后端值保持不变。重复请求复用该进程会话。PID、Xauthority 等接入参数不属于客户端协议，进程退出或身份变化后不得继续输入或捕获。
 窗口事件 window.created/window.metadata {window_id,parent_id:null|u32,title,role:"toplevel"|"dialog"|"popup",x,y,width,height,geometry_revision,visible:bool}；visible 缺失时按 true 兼容旧端。隐藏/重新映射同一 XID 只更新 visible，保留身份和几何版本，隐藏时暂停帧，重新显示时重发当前帧；真正销毁才发送 window.destroyed {window_id}。
-frame {window_id,geometry_revision,width,height,png:base64}。
+窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。frame {window_id,geometry_revision,width,height,png:base64}。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
+window.configure 是请求任意合法像素宽高，不是把原窗口机械翻倍。宿主默认按本机可用窗口区域计算；手动分辨率模式固定远端像素尺寸，并按比例显示及映射输入。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。
 input.key {window_id,keysym:u32,pressed:bool}，用于导航、快捷键与非文字按键。控制端输入法预编辑保留在本地；input.text.commit {window_id,text} 只传已经提交的 Unicode，不把物理字母键或输入法切换修饰键发往被控端。
 clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy {window_id,request_id} 由主动复制触发；成功返回 clipboard.data {window_id,request_id,text}。控制端只接受仍有效、窗口和请求 ID 相符的复制回包，其他事件不得修改其剪贴板。没有通用 clipboard.read 接口或后台剪贴板同步。

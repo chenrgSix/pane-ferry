@@ -23,6 +23,8 @@ pub enum Request {
         backend: LaunchBackend,
         #[serde(default = "attach_by_default")]
         attach: bool,
+        #[serde(default = "default_scale")]
+        scale_factor: u8,
     },
     #[serde(rename = "session.resume")]
     Resume { session_id: String },
@@ -64,6 +66,15 @@ pub enum Request {
 fn attach_by_default() -> bool {
     true
 }
+pub fn default_scale() -> u8 {
+    1
+}
+pub fn validate_scale(scale: u8) -> Result<()> {
+    if !matches!(scale, 1 | 2) {
+        bail!("scale_factor must be 1 or 2")
+    }
+    Ok(())
+}
 pub fn parse_request(data: &[u8]) -> Result<Request> {
     let mut v: serde_json::Value = serde_json::from_slice(data)?;
     if v.get("version").and_then(|v| v.as_u64()) != Some(1) {
@@ -75,6 +86,9 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
             .remove("version");
     }
     let request = serde_json::from_value(v)?;
+    if let Request::Launch { scale_factor, .. } = &request {
+        validate_scale(*scale_factor)?;
+    }
     if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
         validate_text(text)?;
     }
@@ -101,6 +115,8 @@ pub struct Window {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    #[serde(default = "default_scale")]
+    pub scale_factor: u8,
     pub geometry_revision: u64,
     #[serde(default = "attach_by_default")]
     pub visible: bool,
@@ -217,6 +233,24 @@ mod tests {
         assert!(matches!(old, Request::Launch { attach: true, .. }));
         let prepared = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native","attach":false}"#).unwrap();
         assert!(matches!(prepared, Request::Launch { attach: false, .. }));
+    }
+    #[test]
+    fn launch_scale_is_optional_and_bounded() {
+        let message = |scale| serde_json::json!({"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native","scale_factor":scale});
+        for scale in [1, 2] {
+            assert!(parse_request(&serde_json::to_vec(&message(scale)).unwrap()).is_ok());
+        }
+        for scale in [0, 3, 255] {
+            assert!(parse_request(&serde_json::to_vec(&message(scale)).unwrap()).is_err());
+        }
+        let old = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native"}"#).unwrap();
+        assert!(matches!(
+            old,
+            Request::Launch {
+                scale_factor: 1,
+                ..
+            }
+        ));
     }
     #[test]
     fn rejects_non_native_launch_backend() {

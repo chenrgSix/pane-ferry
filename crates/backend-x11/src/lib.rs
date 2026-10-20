@@ -25,6 +25,7 @@ pub struct Backend {
     process_id: Option<u32>,
     text_transfer: Option<TextTransfer>,
     copy_transfer: Option<CopyTransfer>,
+    scale_factor: u8,
 }
 impl Backend {
     pub fn connect(display: &str) -> Result<Self> {
@@ -83,6 +84,10 @@ impl Backend {
             "WM_PROTOCOLS",
             "WM_DELETE_WINDOW",
             "_NET_ACTIVE_WINDOW",
+            "_NET_WM_STATE",
+            "_NET_WM_STATE_MAXIMIZED_HORZ",
+            "_NET_WM_STATE_MAXIMIZED_VERT",
+            "_NET_MOVERESIZE_WINDOW",
             "_NET_WM_PID",
             "_NET_SUPPORTING_WM_CHECK",
             "WM_CLASS",
@@ -109,7 +114,13 @@ impl Backend {
             process_id,
             text_transfer: None,
             copy_transfer: None,
+            scale_factor: 1,
         })
+    }
+    pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
+        remoteapp_protocol::validate_scale(scale)?;
+        self.scale_factor = scale;
+        Ok(())
     }
     fn atom(&self, n: &str) -> u32 {
         self.atoms[n]
@@ -148,6 +159,15 @@ impl Backend {
         false
     }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
+        let wm = self
+            .prop(self.root, "_NET_SUPPORTING_WM_CHECK", AtomEnum::WINDOW)
+            .ok()
+            .and_then(|p| p.value32().and_then(|mut ids| ids.next()));
+        let wm_pid = if self.process_id.is_none() {
+            wm.and_then(|id| self.client_pid(id).ok())
+        } else {
+            None
+        };
         let clients = self
             .prop(self.root, "_NET_CLIENT_LIST", AtomEnum::WINDOW)?
             .value32()
@@ -171,16 +191,36 @@ impl Backend {
             if !self.belongs_to_process(id) {
                 continue;
             }
+            if Some(id) == wm || wm_pid.is_some() && self.client_pid(id).ok() == wm_pid {
+                continue;
+            }
             if out.len() >= 16 {
                 break;
             }
             let Ok(a) = self.conn.get_window_attributes(id)?.reply() else {
                 continue;
             };
+            // Unmapped toolkit helpers are not application windows. Retain a
+            // hidden XID only after it has actually been shown to this client.
+            if a.map_state != MapState::VIEWABLE && !self.windows.contains_key(&id) {
+                continue;
+            }
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
             if remoteapp_protocol::dimensions(g.width.into(), g.height.into()).is_err() {
+                // A restored maximized app can initially exceed the frame
+                // budget (the virtual desktop is larger than one allowed frame).
+                // Normalize it instead of silently losing its only window.
+                let width = f64::from(g.width.min(4096));
+                let height = f64::from(g.height.min(2160));
+                let fit = (8_000_000.0 / (width * height)).sqrt().min(1.0);
+                self.resize_window(
+                    id,
+                    (width * fit) as u32,
+                    (height * fit) as u32,
+                    a.override_redirect,
+                )?;
                 continue;
             }
             let pos = self
@@ -219,6 +259,7 @@ impl Backend {
                 y: pos.dst_y.into(),
                 width: g.width.into(),
                 height: g.height.into(),
+                scale_factor: self.scale_factor,
                 geometry_revision: 1,
                 visible: a.map_state == MapState::VIEWABLE,
             };
@@ -309,9 +350,46 @@ impl Backend {
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
         self.known(id)?;
         remoteapp_protocol::dimensions(w, h)?;
-        self.conn
-            .configure_window(id, &ConfigureWindowAux::new().width(w).height(h))?
-            .check()?;
+        self.resize_window(id, w, h, self.windows[&id].role == "popup")
+    }
+    fn resize_window(&self, id: u32, w: u32, h: u32, popup: bool) -> Result<()> {
+        if !popup {
+            // Managed/maximized windows must be resized through their WM.
+            // Direct ConfigureWindow is commonly ignored for restored maximized Firefox.
+            for event in [
+                ClientMessageEvent::new(
+                    32,
+                    id,
+                    self.atom("_NET_WM_STATE"),
+                    [
+                        0,
+                        self.atom("_NET_WM_STATE_MAXIMIZED_HORZ"),
+                        self.atom("_NET_WM_STATE_MAXIMIZED_VERT"),
+                        2,
+                        0,
+                    ],
+                ),
+                ClientMessageEvent::new(
+                    32,
+                    id,
+                    self.atom("_NET_MOVERESIZE_WINDOW"),
+                    [(1 << 10) | (1 << 11) | (2 << 12), 0, 0, w, h],
+                ),
+            ] {
+                self.conn
+                    .send_event(
+                        false,
+                        self.root,
+                        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                        event,
+                    )?
+                    .check()?;
+            }
+        } else {
+            self.conn
+                .configure_window(id, &ConfigureWindowAux::new().width(w).height(h))?
+                .check()?;
+        }
         self.conn.flush()?;
         Ok(())
     }

@@ -200,15 +200,19 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var remoteVisible = false
     var allowClose = false
     var resizeTimer: Timer?
+    var rendering: RenderGeometry
+    var fixedPixels: (width: Int, height: Int)?
     var transmit: ([String: Any]) -> Void
-    init(id: UInt32, width: Int, height: Int, revision: UInt64, popup: Bool, transmit: @escaping ([String: Any]) -> Void) {
+    init(id: UInt32, width: Int, height: Int, revision: UInt64, scale: Int, popup: Bool, transmit: @escaping ([String: Any]) -> Void) {
         self.id = id; self.revision = revision; self.transmit = transmit
+        self.rendering = RenderGeometry(scale: scale)!
+        let size = rendering.points(width: width, height: height)
         let style: NSWindow.StyleMask = popup ? [.borderless] : [.titled, .closable, .miniaturizable, .resizable]
-        self.window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)), styleMask: style, backing: .buffered, defer: false)
+        self.window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         super.init()
         window.delegate = self; window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 64, height: 48)
-        window.contentMaxSize = NSSize(width: 4096, height: 4096)
+        window.contentMaxSize = rendering.points(width: 4096, height: 2160)
         window.acceptsMouseMovedEvents = true
         surface.remoteID = id; surface.remoteWidth = width; surface.remoteHeight = height; surface.transmit = transmit
         window.contentView = surface; window.center()
@@ -218,18 +222,26 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if allowClose { return true }
         transmit(["type": "window.close.request", "window_id": id]); return false
     }
-    func windowDidBecomeKey(_ notification: Notification) { transmit(["type": "window.focus", "window_id": id]) }
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard remoteVisible else { return }
+        transmit(["type": "window.focus", "window_id": id])
+    }
     func windowDidResignKey(_ notification: Notification) { surface.releaseInput() }
     func windowDidResize(_ notification: Notification) {
-        guard !applyingRemote else { return }
+        guard !applyingRemote, remoteVisible else { return }
         resizeTimer?.invalidate()
         resizeTimer = Timer.scheduledTimer(withTimeInterval: 0.10, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             let size = self.surface.bounds.size
-            let w = min(4096, max(64, Int(size.width))), h = min(4096, max(48, Int(size.height)))
-            guard w * h <= maximumPixels else { return }
-            self.transmit(["type": "window.configure", "window_id": self.id, "width": w, "height": h])
+            guard let pixels = self.fixedPixels ?? self.rendering.pixels(for: size) else { return }
+            self.transmit(["type": "window.configure", "window_id": self.id, "width": pixels.width, "height": pixels.height])
         }
+    }
+    func fitToScreen() {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        fixedPixels = nil
+        window.setFrame(screen.visibleFrame, display: true, animate: false)
+        windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
     func closeLocally() { resizeTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.close() }
 }
@@ -263,6 +275,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenu = NSMenu(title: "编辑"); editItem.submenu = editMenu
         editMenu.addItem(withTitle: "复制到控制端", action: #selector(SurfaceView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "从控制端粘贴", action: #selector(SurfaceView.paste(_:)), keyEquivalent: "v")
+        let displayItem = NSMenuItem(); mainMenu.addItem(displayItem)
+        let displayMenu = NSMenu(title: "显示"); displayItem.submenu = displayMenu
+        displayMenu.addItem(withTitle: "适应可用屏幕", action: #selector(fitScreen), keyEquivalent: "0")
+        displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
+        displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "RemoteApp · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         do {
@@ -278,7 +295,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("LAN RemoteApp 开发预览\n原生 AppKit 窗口 + PNG。输入法在控制端组合，剪贴板仅在主动复制/粘贴时传输纯文本；不做后台同步。Retina 远端重绘与 Metal 尚未实现。")
+        alert("LAN RemoteApp 开发预览\n原生 AppKit 窗口 + PNG。分辨率可随窗口调整或指定像素宽高，界面缩放独立设置为 100%/200%；原桌面窗口沿用其已配置的缩放。输入法在控制端组合，剪贴板只由主动操作触发。Metal 尚未实现。")
+    }
+    func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
+    @objc func fitScreen() { activeHost()?.fitToScreen() }
+    @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
+    @objc func setResolution() {
+        guard let host = activeHost() else { return }
+        let dialog = NSAlert(); dialog.messageText = "设置远端窗口分辨率"
+        dialog.informativeText = "输入远端实际渲染像素宽高，画面按比例显示。选择“适应可用屏幕”可恢复自动分辨率。上限 4096×2160、800 万像素。"
+        let width = NSTextField(string: String(host.surface.remoteWidth)), height = NSTextField(string: String(host.surface.remoteHeight))
+        let fields = NSStackView(views: [NSTextField(labelWithString: "宽"), width, NSTextField(labelWithString: "高"), height])
+        fields.orientation = .horizontal; fields.spacing = 8; fields.frame = NSRect(x: 0, y: 0, width: 360, height: 28)
+        dialog.accessoryView = fields; dialog.addButton(withTitle: "应用"); dialog.addButton(withTitle: "取消")
+        guard dialog.runModal() == .alertFirstButtonReturn else { return }
+        guard let w = Int(width.stringValue), let h = Int(height.stringValue), w >= 64, h >= 48, w <= 4096, h <= 2160, w * h <= maximumPixels else {
+            alert("分辨率超出范围，请输入有效的像素宽高。"); return
+        }
+        host.fixedPixels = (w, h)
+        host.windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
     @objc func copySession() {
         guard let session = session else { return }
@@ -315,13 +350,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if type == "hello" {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
-            if let app = options.app { send(["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]) }
+            if let app = options.app {
+                var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]
+                if capabilities.contains("display.scale") { launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1 }
+                send(launch)
+            }
             else if let session = options.session { send(["type": "session.resume", "session_id": session]) }
             return
         }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if code == "window_unavailable" { return }
             if ["controller_text_failed", "clipboard_copy_failed"].contains(code) {
                 statusItem?.button?.title = "RemoteApp · 输入或剪贴板失败"
                 NSSound.beep(); return
@@ -373,13 +413,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let w = object["width"] as? Int, let h = object["height"] as? Int,
               w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels,
               let rev = unsignedInteger(object["geometry_revision"]) else { return }
+        let scaleValue = object["scale_factor"] == nil ? 1 : unsignedInteger(object["scale_factor"])
+        guard let scale = scaleValue, scale <= 2, let rendering = RenderGeometry(scale: Int(scale)) else { transport.disconnect(); return }
         let id = UInt32(number)
         if removed.contains(id) { return } // XID reuse in one connection is deliberately not supported.
         let otherPixels = windows.filter { $0.key != id }.values.reduce(0) { $0 + $1.surface.remoteWidth * $1.surface.remoteHeight }
         guard otherPixels + w * h <= 16_000_000 else { transport.disconnect(); return }
-        if windows[id] == nil {
+        let justCreated = windows[id] == nil
+        if justCreated {
             guard create, windows.count < 64 else { return }
-            let host = HostedWindow(id: id, width: w, height: h, revision: rev,
+            let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: object["role"] as? String == "popup") { [weak self] in self?.send($0) }
             windows[id] = host
         }
@@ -388,16 +431,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.surface.controllerPasteEnabled = capabilities.contains("clipboard.paste")
         host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
         host.revision = rev
+        host.rendering = rendering
+        host.window.contentMaxSize = rendering.points(width: 4096, height: 2160)
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
+        host.window.subtitle = "\(w) × \(h) 像素 · 界面 \(scale * 100)%"
         host.surface.remoteWidth = w; host.surface.remoteHeight = h
         host.applyingRemote = true
-        if Int(host.surface.bounds.width) != w || Int(host.surface.bounds.height) != h { host.window.setContentSize(NSSize(width: CGFloat(w), height: CGFloat(h))) }
+        let size = rendering.points(width: w, height: h)
+        if host.fixedPixels == nil, host.surface.bounds.size != size { host.window.setContentSize(size) }
         host.applyingRemote = false
         let visible = object["visible"] as? Bool ?? true
         if visible != host.remoteVisible {
+            host.remoteVisible = visible
             if visible { host.window.makeKeyAndOrderFront(nil) }
             else { host.surface.releaseInput(); host.window.orderOut(nil) }
-            host.remoteVisible = visible
+        }
+        if justCreated, visible, object["role"] as? String == "toplevel" {
+            DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
         if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max) { parents[id] = UInt32(parent) }
         else { parents.removeValue(forKey: id); host.window.parent?.removeChildWindow(host.window) }
