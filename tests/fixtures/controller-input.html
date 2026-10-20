@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RemoteApp 输入测试</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 36px auto; padding: 0 28px; max-width: 1100px; font: 20px/1.5 system-ui,sans-serif; color: #18253b; background: #edf2f8 }
+  h1 { margin-bottom: 8px; font-size: 30px }
+  .status { color: #52637c; margin: 0 0 24px }
+  section { padding: 22px; background: white; border: 1px solid #c8d3e2; border-radius: 12px; margin-bottom: 20px }
+  label { display: block; font-weight: 600; margin-bottom: 10px }
+  textarea { width: 100%; height: 180px; padding: 16px; font: 22px/1.5 system-ui,sans-serif; border: 2px solid #8d9db3; border-radius: 8px; resize: vertical }
+  textarea:focus { outline: 3px solid #a9c6ff; border-color: #315dca }
+  button { padding: 10px 22px; font: inherit; border: 0; border-radius: 8px; color: white; background: #315dca; cursor: pointer }
+  output { display: block; white-space: pre-wrap; overflow-wrap: anywhere }
+  .stats { color: #52637c; margin-top: 10px }
+</style>
+<h1>RemoteApp 输入与剪贴板测试</h1>
+<p class="status">本地测试页面，不发送内容。画面时钟：<span id="clock"></span></p>
+<section>
+  <label for="text">输入区：点击后输入中文，或使用控制端复制 / 粘贴快捷键</label>
+  <textarea id="text" autofocus placeholder="在这里输入测试文字"></textarea>
+  <div class="stats" id="stats">字符数：0 · 粘贴次数：0 · 复制次数：0</div>
+</section>
+<section>
+  <button id="click" type="button">点击计数</button> <span id="count">0</span>
+  <p>输入内容镜像：</p>
+  <output id="mirror">（空）</output>
+</section>
+<script>
+  const text = document.getElementById('text');
+  let pastes = 0, copies = 0, clicks = 0;
+  const render = () => {
+    document.getElementById('stats').textContent = `字符数：${Array.from(text.value).length} · 粘贴次数：${pastes} · 复制次数：${copies}`;
+    document.getElementById('mirror').textContent = text.value || '（空）';
+  };
+  text.addEventListener('input', render);
+  text.addEventListener('paste', () => { pastes++; render(); });
+  text.addEventListener('copy', () => { copies++; render(); });
+  document.getElementById('click').addEventListener('click', () => { document.getElementById('count').textContent = ++clicks; });
+  const tick = () => { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); };
+  tick(); setInterval(tick, 1000);
+</script>
+</html>

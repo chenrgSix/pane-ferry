@@ -340,6 +340,26 @@ impl Backend {
         self.conn.flush()?;
         Ok(())
     }
+    fn focus_for_input(&self, id: u32) -> Result<()> {
+        self.known(id)?;
+        if !self.windows[&id].visible {
+            bail!("window is hidden")
+        }
+        let mut focused = self.conn.get_input_focus()?.reply()?.focus;
+        for _ in 0..16 {
+            if focused == id {
+                return Ok(());
+            }
+            if focused <= 1 || focused == self.root {
+                break;
+            }
+            match self.conn.query_tree(focused)?.reply() {
+                Ok(tree) => focused = tree.parent,
+                Err(_) => break,
+            }
+        }
+        self.focus(id)
+    }
     pub fn close(&self, id: u32) -> Result<()> {
         self.known(id)?;
         let msg = ClientMessageEvent::new(
@@ -360,9 +380,26 @@ impl Backend {
         if x < 0 || y < 0 || x >= w.width as i32 || y >= w.height as i32 || button > 7 {
             bail!("invalid pointer")
         };
-        self.focus(id)?;
+        if button != 0 && pressed {
+            self.focus_for_input(id)?;
+        }
+        let point = self
+            .conn
+            .translate_coordinates(id, self.root, x as i16, y as i16)?
+            .reply()?;
+        // XWarpPointer only moves Xwayland's internal pointer. Button events
+        // go through the compositor's input-emulation portal, so motion must
+        // use the same XTEST route or clicks land at the old desktop position.
         self.conn
-            .warp_pointer(x11rb::NONE, id, 0, 0, 0, 0, x as i16, y as i16)?
+            .xtest_fake_input(
+                MOTION_NOTIFY_EVENT,
+                0,
+                x11rb::CURRENT_TIME,
+                self.root,
+                point.dst_x,
+                point.dst_y,
+                0,
+            )?
             .check()?;
         if button != 0 {
             if pressed {
@@ -392,7 +429,7 @@ impl Backend {
     pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
         self.known(id)?;
         if pressed {
-            self.focus(id)?;
+            self.focus_for_input(id)?;
         }
         let setup = self.conn.setup();
         let min = setup.min_keycode;

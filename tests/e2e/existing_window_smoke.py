@@ -102,6 +102,9 @@ try:
             C.POINTER(C.c_ulong), C.POINTER(C.c_ulong), C.POINTER(C.POINTER(C.c_ubyte))]
         x.XFree.argtypes = [C.c_void_p]
         x.XCloseDisplay.argtypes = [C.c_void_p]
+        x.XSetInputFocus.argtypes = [C.c_void_p, C.c_ulong, C.c_int, C.c_ulong]
+        x.XGetInputFocus.argtypes = [C.c_void_p, C.POINTER(C.c_ulong), C.POINTER(C.c_int)]
+        x.XSync.argtypes = [C.c_void_p, C.c_int]
         os.environ['XAUTHORITY'] = str(authority)
         d = x.XOpenDisplay(f':{display}'.encode())
         assert d
@@ -166,6 +169,16 @@ try:
         assert base64.b64decode(frame['png']).startswith(b'\x89PNG\r\n\x1a\n')
         peer.send(type='window.focus', window_id=ids[other.pid])
         peer.until('error')
+        # Hovering a forwarded surface must not repeatedly activate the remote
+        # application or take focus away from another window on the desktop.
+        x.XSetInputFocus(d, ids[other.pid], 1, 0)
+        x.XSync(d, 0)
+        peer.send(type='input.pointer', window_id=ids[target.pid], x=20, y=20, button=0, pressed=False)
+        peer.send(type='session.list')
+        peer.until('session.list')
+        focused, revert = C.c_ulong(), C.c_int()
+        x.XGetInputFocus(d, C.byref(focused), C.byref(revert))
+        assert focused.value == ids[other.pid], 'pointer motion must not activate the controlled window'
         marker = root / 'input-reached-existing-window'
         for char in 'touch ' + str(marker) + '\r':
             for pressed in (True, False):
