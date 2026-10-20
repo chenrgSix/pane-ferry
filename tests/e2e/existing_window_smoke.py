@@ -10,11 +10,13 @@ import secrets
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
+parser.add_argument('--controller-text', action='store_true', help='also exercise Unicode input and explicit clipboard copy/paste using GTK3')
 args = parser.parse_args()
 agent_exe = args.agent.resolve()
 children = []
@@ -55,11 +57,13 @@ class Peer:
         return json.loads(line)
 
     def until(self, kind):
-        while True:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
             event = self.read()
-            assert event['type'] != 'error', event
+            assert event['type'] != 'error' or kind == 'error', event
             if event['type'] == kind:
                 return event
+        raise TimeoutError('Expected Agent event did not arrive: ' + kind)
 
     def close(self):
         self.file.close()
@@ -77,16 +81,14 @@ try:
         display = next(n for n in range(1100, 2000) if not Path(f'/tmp/.X11-unix/X{n}').exists())
         subprocess.run(['xauth', '-f', str(authority), 'add', f':{display}',
                         'MIT-MAGIC-COOKIE-1', secrets.token_hex(16)], check=True)
-        env = {**os.environ, 'DISPLAY': f':{display}', 'XAUTHORITY': str(authority), 'HOME': str(home)}
+        env = {**os.environ, 'DISPLAY': f':{display}', 'XAUTHORITY': str(authority), 'HOME': str(home),
+               'XMODIFIERS': '@im=none', 'GTK_IM_MODULE': 'simple', 'QT_IM_MODULE': 'compose', 'GDK_BACKEND': 'x11'}
         env.pop('WAYLAND_DISPLAY', None)
         env.pop('SESSION_MANAGER', None)
         env.pop('DBUS_SESSION_BUS_ADDRESS', None)
         start(['Xvfb', f':{display}', '-screen', '0', '1280x800x24',
                '-nolisten', 'tcp', '-auth', str(authority)], env)
         wait_for(lambda: Path(f'/tmp/.X11-unix/X{display}').exists(), 'Xvfb startup')
-        wm = start(['openbox'], env)
-        target = start(['/usr/bin/xterm', '-title', 'AllowedExistingWindow'], env)
-        other = start(['/usr/bin/xterm', '-title', 'UnrelatedWindow'], env)
         # Inventory this test-owned display to prove the excluded window really exists.
         x = C.CDLL('libX11.so.6')
         x.XOpenDisplay.argtypes = [C.c_char_p]
@@ -115,6 +117,11 @@ try:
                 if data:
                     x.XFree(data)
 
+        wm = start(['openbox'], env)
+        wait_for(lambda: bool(numbers(x.XDefaultRootWindow(d), b'_NET_SUPPORTING_WM_CHECK')), 'window manager ready')
+        target = start(['/usr/bin/xterm', '-title', 'AllowedExistingWindow'], env)
+        other = start(['/usr/bin/xterm', '-title', 'UnrelatedWindow'], env)
+
         def windows_by_pid():
             return {numbers(w, b'_NET_WM_PID')[0]: w
                     for w in numbers(x.XDefaultRootWindow(d), b'_NET_CLIENT_LIST')
@@ -126,11 +133,21 @@ try:
         except AssertionError as error:
             raise AssertionError(f'{error}: expected {target.pid}/{other.pid}; clients {numbers(x.XDefaultRootWindow(d), b"_NET_CLIENT_LIST")}; discovered {windows_by_pid()}; exit status {target.poll()}/{other.poll()}; wm {wm.poll()}') from error
         ids = windows_by_pid()
+        editor = None
+        if args.controller_text:
+            editor_state = root / 'editor-text'
+            editor = start([sys.executable, str(Path(__file__).with_name('clipboard_editor_fixture.py')), str(editor_state)], env)
+            wait_for(lambda: editor_state.exists() and editor.pid in windows_by_pid(), 'GTK editor ready')
+            editor_window = windows_by_pid()[editor.pid]
         existing = dict(display=display, xauthority=str(authority), process_id=target.pid)
-        (config / 'apps.json').write_text(json.dumps([
+        approved = [
             dict(id='existing', name='Existing', executable='/usr/bin/xterm', existing=existing),
             dict(id='wrong-exe', name='Wrong', executable='/usr/bin/true', existing=existing),
-        ]))
+        ]
+        if editor:
+            approved.append(dict(id='controller-text', name='Controller text', executable=str(Path(f'/proc/{editor.pid}/exe').resolve()),
+                existing=dict(display=display, xauthority=str(authority), process_id=editor.pid)))
+        (config / 'apps.json').write_text(json.dumps(approved))
         agent_env = {**env, 'HOME': str(home)}
         sock = home / '.local/state/lan-remoteapp/agent.sock'
         agent = start([str(agent_exe), 'serve'], agent_env)
@@ -148,8 +165,7 @@ try:
         frame = peer.until('frame')
         assert base64.b64decode(frame['png']).startswith(b'\x89PNG\r\n\x1a\n')
         peer.send(type='window.focus', window_id=ids[other.pid])
-        while peer.read()['type'] != 'error':
-            pass
+        peer.until('error')
         marker = root / 'input-reached-existing-window'
         for char in 'touch ' + str(marker) + '\r':
             for pressed in (True, False):
@@ -157,9 +173,38 @@ try:
                           keysym=0xff0d if char == '\r' else ord(char), pressed=pressed)
         wait_for(marker.exists, 'input must reach the pre-existing process')
         peer.close()
+        if editor:
+            peer = Peer(sock)
+            peer.send(type='app.launch', app_id='controller-text', request_id='text', backend='native')
+            peer.until('session.started')
+            peer.until('frame')
+            first, second, pasted = '控制端输入🙂', '/ordered', ' /粘贴内容'
+            peer.send(type='input.text.commit', window_id=editor_window, text=first)
+            peer.send(type='input.text.commit', window_id=editor_window, text=second)
+            peer.send(type='clipboard.paste', window_id=editor_window, text=pasted)
+            expected = first + second + pasted
+            wait_for(lambda: editor_state.read_text() == expected, 'ordered Unicode commit and controller paste')
+            def select_all():
+                for symbol, pressed in [(0xffe3, True), (ord('a'), True), (ord('a'), False), (0xffe3, False)]:
+                    peer.send(type='input.key', window_id=editor_window, keysym=symbol, pressed=pressed)
+            select_all()
+            peer.send(type='clipboard.copy', window_id=editor_window, request_id='explicit-copy')
+            copied = peer.until('clipboard.data')
+            assert copied['request_id'] == 'explicit-copy' and copied['window_id'] == editor_window
+            assert copied['text'] == expected, copied
+            # Replace the selection with a multiline controller clipboard payload.
+            peer.send(type='clipboard.paste', window_id=editor_window, text='第一行\nsecond 🙂')
+            wait_for(lambda: editor_state.read_text() == '第一行\nsecond 🙂', 'multiline Unicode paste')
+            # Nothing is selected now. Copy must fail instead of returning an
+            # earlier clipboard payload, even though that payload came from us.
+            peer.send(type='clipboard.copy', window_id=editor_window, request_id='no-selection')
+            assert peer.until('error')['code'] == 'clipboard_copy_failed'
+            peer.send(type='clipboard.paste', window_id=editor_window, text='/after-timeout')
+            wait_for(lambda: editor_state.read_text() == '第一行\nsecond 🙂/after-timeout', 'input resumes after failed copy')
+            peer.close()
         agent.terminate()
         assert agent.wait(timeout=10) == 0
-        assert target.poll() is None and other.poll() is None, 'Agent must not terminate existing processes'
+        assert target.poll() is None and other.poll() is None and (editor is None or editor.poll() is None), 'Agent must not terminate existing processes'
         agent = start([str(agent_exe), 'serve'], agent_env)
         wait_for(sock.exists, 'Agent restart')
         peer = Peer(sock)
@@ -169,6 +214,8 @@ try:
         peer.close()
         x.XCloseDisplay(d)
         print('PASS: process-scoped capture/input, unrelated-window rejection, executable verification, session reuse, existing processes survive Agent restart')
+        if editor:
+            print('PASS: ordered controller Unicode commit, explicit clipboard paste/copy, multiline UTF-8 round trip, no-selection copy rejection and recovery')
 finally:
     for child in reversed(children):
         if child.poll() is None:

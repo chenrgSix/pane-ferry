@@ -2,7 +2,7 @@
 
 在 Mac 上启动并操作运行在 Linux 上的图形应用。应用和文件仍然位于 Linux，不是把 Linux 二进制转换为 macOS 程序。
 
-**状态：原生链路开发者预览。** 已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 的真实画面、键鼠输入、窗口缩放、隐藏恢复和断开重连。复杂应用、中文输入和 Retina 重绘仍待完善，以 `docs/validation.md` 的实际记录为准。
+**状态：原生链路开发者预览。** 已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 的真实画面、键鼠输入、窗口缩放、隐藏恢复和断开重连。控制端输入法与主动双向纯文本剪贴板已实现，并通过 AppKit 和独立 GTK/X11 测试；现有 ChatGPT 的完整联调仍有输入响应问题。以 `docs/validation.md` 的实际记录为准。
 
 ## 运行链路
 
@@ -34,7 +34,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，捕获真�
 
 ## 当前边界
 
-P1 使用 SSH + 版本化 JSON Lines 和无损 PNG，全帧去重与有界队列，而非已完成的 QUIC、Protobuf、H.264、Metal 或 XDamage 增量流。没有宣称中文 IME、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵或性能指标已经通过。协议和 UI 应仅公布实际支持的能力。
+P1 使用 SSH + 版本化 JSON Lines 和无损 PNG，全帧去重与有界队列。文字在控制端组合后提交，复制/粘贴仅由主动操作触发，每次最多 8192 字节，不做后台同步。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与性能指标尚未完成验收；QUIC、Protobuf、H.264、Metal 或 XDamage 增量流尚未实现。
 
 不要传输密码、私钥、令牌到聊天或仓库。无需管理员权限运行 Agent；软件拥有运行它的 Linux 用户权限，应用白名单不是 OS 沙箱。建议为远程应用使用专用低权限账户。
 

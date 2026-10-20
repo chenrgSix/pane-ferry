@@ -420,6 +420,9 @@ impl Drop for Lease {
     fn drop(&mut self) {
         if let Ok(mut s) = self.0.lock() {
             s.controller = false;
+            if let Some(b) = &mut s.backend {
+                b.cancel_text();
+            }
             if let Some(b) = &s.backend {
                 b.release_all();
             }
@@ -492,7 +495,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":["catalog","native.png","input.pointer","input.key","session.resume","session.list"]}),
+        json!({"type":"hello","capabilities":["catalog","native.png","input.pointer","input.key","input.text.commit","clipboard.paste","clipboard.copy","session.resume","session.list"]}),
         &mut seq,
         "",
     )?;
@@ -502,10 +505,50 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut frames: HashMap<u32, Vec<u8>> = HashMap::new();
     while !STOP.load(Ordering::SeqCst) {
-        let req = match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(r) => Some(r),
-            Err(mpsc::RecvTimeoutError::Timeout) => None,
-            Err(_) => break,
+        let mut text_pending = false;
+        if let Some(l) = &lease {
+            let mut s = l.0.lock().unwrap();
+            let sid = s.id.clone();
+            if !s.has_exited()? {
+                if let Some(b) = &mut s.backend {
+                    if let Err(error) = b.pump_text() {
+                        eprintln!("controller text delivery failed: {error}");
+                        send(
+                            &mut out,
+                            json!({"type":"error","code":"controller_text_failed","message":"application did not accept controller text"}),
+                            &mut seq,
+                            &sid,
+                        )?;
+                    }
+                    match b.pump_copy() {
+                        Ok(Some(copy)) => send(
+                            &mut out,
+                            json!({"type":"clipboard.data","window_id":copy.window_id,"request_id":copy.request_id,"text":copy.text}),
+                            &mut seq,
+                            &sid,
+                        )?,
+                        Err(_) => send(
+                            &mut out,
+                            json!({"type":"error","code":"clipboard_copy_failed","message":"application did not provide selected text"}),
+                            &mut seq,
+                            &sid,
+                        )?,
+                        Ok(None) => {}
+                    }
+                    text_pending = b.text_pending();
+                }
+            }
+        }
+        // Preserve ordering: later keys/clicks cannot overtake a text paste.
+        let req = if text_pending {
+            thread::sleep(Duration::from_millis(5));
+            None
+        } else {
+            match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(r) => Some(r),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(_) => break,
+            }
         };
         if let Some(req) = req {
             let result: Result<()> = (|| {
@@ -636,9 +679,14 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 keysym,
                                 pressed,
                             } => b.key(window_id, keysym, pressed)?,
-                            Request::Text { .. } => {
-                                bail!("unsupported: Unicode text commit is not implemented")
+                            Request::Text { window_id, text }
+                            | Request::Paste { window_id, text } => {
+                                b.commit_text(window_id, text)?
                             }
+                            Request::Copy {
+                                window_id,
+                                request_id,
+                            } => b.copy_text(window_id, request_id)?,
                             _ => unreachable!(),
                         }
                     }

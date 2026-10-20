@@ -133,7 +133,7 @@ final class SSHTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame"]
+                    let allowedTypes: Set<String> = ["hello", "error", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
                     var image: CGImage?
                     if object["type"] as? String == "frame" {
@@ -190,98 +190,6 @@ final class SSHTransport {
     }
 }
 
-final class SurfaceView: NSView {
-    var remoteID: UInt32 = 0
-    var remoteWidth = 1
-    var remoteHeight = 1
-    var image: CGImage? { didSet { needsDisplay = true } }
-    var transmit: (([String: Any]) -> Void)?
-    private var keys: [UInt16: UInt32] = [:]
-    private var heldModifiers: Set<UInt32> = []
-    private var heldButtons: Set<Int> = []
-    private var lastPointer = (x: 0, y: 0)
-    private var tracking: NSTrackingArea?
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill(); bounds.fill()
-        guard let image = image else { return }
-        NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
-            .draw(in: bounds, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
-    }
-    override func updateTrackingAreas() {
-        if let tracking = tracking { removeTrackingArea(tracking) }
-        tracking = NSTrackingArea(rect: .zero, options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(tracking!); super.updateTrackingAreas()
-    }
-    private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {
-        let point = convert(event.locationInWindow, from: nil)
-        let x = max(0, min(remoteWidth - 1, Int(point.x / max(bounds.width, 1) * CGFloat(remoteWidth))))
-        let y = max(0, min(remoteHeight - 1, Int(point.y / max(bounds.height, 1) * CGFloat(remoteHeight))))
-        lastPointer = (x, y)
-        if button > 0 { if pressed { heldButtons.insert(button) } else { heldButtons.remove(button) } }
-        transmit?(["type": "input.pointer", "window_id": remoteID, "x": x, "y": y, "button": button, "pressed": pressed])
-    }
-    override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self); pointer(event, button: 1, pressed: true) }
-    override func mouseUp(with event: NSEvent) { pointer(event, button: 1, pressed: false) }
-    override func rightMouseDown(with event: NSEvent) { pointer(event, button: 3, pressed: true) }
-    override func rightMouseUp(with event: NSEvent) { pointer(event, button: 3, pressed: false) }
-    override func otherMouseDown(with event: NSEvent) { pointer(event, button: 2, pressed: true) }
-    override func otherMouseUp(with event: NSEvent) { pointer(event, button: 2, pressed: false) }
-    override func mouseMoved(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
-    override func mouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
-    override func rightMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
-    override func otherMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
-    override func scrollWheel(with event: NSEvent) {
-        let vertical = event.scrollingDeltaY
-        let horizontal = event.scrollingDeltaX
-        let value = abs(vertical) >= abs(horizontal) ? vertical : horizontal
-        guard value != 0 else { return }
-        let button = abs(vertical) >= abs(horizontal) ? (value > 0 ? 4 : 5) : (value > 0 ? 6 : 7)
-        for _ in 0..<min(5, max(1, Int(abs(value) / (event.hasPreciseScrollingDeltas ? 10 : 1)))) {
-            pointer(event, button: button, pressed: true); pointer(event, button: button, pressed: false)
-        }
-    }
-    private func key(_ symbol: UInt32, _ down: Bool) { transmit?(["type": "input.key", "window_id": remoteID, "keysym": symbol, "pressed": down]) }
-    override func keyDown(with event: NSEvent) {
-        syncModifiers(event.modifierFlags)
-        guard let symbol = keys[event.keyCode] ?? Self.keysym(event) else { NSSound.beep(); return }
-        keys[event.keyCode] = symbol; key(symbol, true)
-    }
-    override func keyUp(with event: NSEvent) {
-        if let symbol = keys.removeValue(forKey: event.keyCode) { key(symbol, false) }
-        syncModifiers(event.modifierFlags)
-    }
-    override func flagsChanged(with event: NSEvent) { syncModifiers(event.modifierFlags) }
-    private func syncModifiers(_ flags: NSEvent.ModifierFlags) {
-        var target = Set<UInt32>()
-        if flags.contains(.shift) { target.insert(0xffe1) }
-        if flags.contains(.control) || flags.contains(.command) { target.insert(0xffe3) }
-        if flags.contains(.option) { target.insert(0xffe9) }
-        for symbol in heldModifiers.subtracting(target) { key(symbol, false) }
-        for symbol in target.subtracting(heldModifiers) { key(symbol, true) }
-        heldModifiers = target
-    }
-    func releaseInput() {
-        for button in heldButtons { transmit?(["type": "input.pointer", "window_id": remoteID, "x": lastPointer.x, "y": lastPointer.y, "button": button, "pressed": false]) }
-        heldButtons.removeAll()
-        for symbol in Set(keys.values) { key(symbol, false) }; keys.removeAll()
-        for symbol in heldModifiers { key(symbol, false) }; heldModifiers.removeAll()
-    }
-    static func keysym(_ event: NSEvent) -> UInt32? {
-        let special: [UInt16: UInt32] = [36: 0xff0d, 48: 0xff09, 51: 0xff08, 53: 0xff1b, 117: 0xffff,
-            123: 0xff51, 124: 0xff53, 125: 0xff54, 126: 0xff52, 115: 0xff50, 119: 0xff57,
-            116: 0xff55, 121: 0xff56, 76: 0xff8d,
-            122: 0xffbe, 120: 0xffbf, 99: 0xffc0, 118: 0xffc1, 96: 0xffc2, 97: 0xffc3,
-            98: 0xffc4, 100: 0xffc5, 101: 0xffc6, 109: 0xffc7, 103: 0xffc8, 111: 0xffc9]
-        if let symbol = special[event.keyCode] { return symbol }
-        // Physical ANSI fallback deliberately avoids claiming Unicode/IME support.
-        let ansi: [UInt16: String] = [0:"a",1:"s",2:"d",3:"f",4:"h",5:"g",6:"z",7:"x",8:"c",9:"v",11:"b",
-            12:"q",13:"w",14:"e",15:"r",16:"y",17:"t",18:"1",19:"2",20:"3",21:"4",22:"6",23:"5",24:"=",25:"9",26:"7",27:"-",28:"8",29:"0",
-            30:"]",31:"o",32:"u",33:"[",34:"i",35:"p",37:"l",38:"j",39:"'",40:"k",41:";",42:"\\",43:",",44:"/",45:"n",46:"m",47:".",49:" ",50:"`"]
-        return ansi[event.keyCode]?.unicodeScalars.first?.value
-    }
-}
 
 final class HostedWindow: NSObject, NSWindowDelegate {
     let id: UInt32
@@ -338,6 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var connected = true
     var poll: Timer?
     var statusItem: NSStatusItem?
+    var capabilities = Set<String>()
+    var clipboardCopyGate = ClipboardCopyGate()
     init(options: Options) { self.options = options; super.init() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -349,6 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "断开并退出（保留远端应用）", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = mainMenu
+        let editItem = NSMenuItem(); mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "编辑"); editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "复制到控制端", action: #selector(SurfaceView.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "从控制端粘贴", action: #selector(SurfaceView.paste(_:)), keyEquivalent: "v")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "RemoteApp · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         do {
@@ -364,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("LAN RemoteApp P1 开发预览\n原生 AppKit 窗口 + PNG。此版本尚未完成真实 Mac/Ubuntu 联调；中文输入、Retina 远端重绘、剪贴板与 Metal 暂未实现。")
+        alert("LAN RemoteApp 开发预览\n原生 AppKit 窗口 + PNG。输入法在控制端组合，剪贴板仅在主动复制/粘贴时传输纯文本；不做后台同步。Retina 远端重绘与 Metal 尚未实现。")
     }
     @objc func copySession() {
         guard let session = session else { return }
@@ -385,6 +299,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func send(_ message: [String: Any]) {
         guard connected else { return }
+        if let type = message["type"] as? String, ["input.text.commit", "clipboard.paste", "clipboard.copy"].contains(type) {
+            guard capabilities.contains(type) else { NSSound.beep(); return }
+            if type == "clipboard.copy", let id = message["request_id"] as? String,
+               let window = message["window_id"] as? UInt32 {
+                clipboardCopyGate.begin(id: id, window: window)
+            }
+        }
         // The bridge owns one attached session. Only session.resume carries session_id.
         transport.send(message)
     }
@@ -393,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let type = object["type"] as? String else { return }
         if type == "hello" {
             guard !ready else { return }; ready = true
+            capabilities = Set(object["capabilities"] as? [String] ?? [])
             if let app = options.app { send(["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]) }
             else if let session = options.session { send(["type": "session.resume", "session_id": session]) }
             return
@@ -400,6 +322,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if ["controller_text_failed", "clipboard_copy_failed"].contains(code) {
+                statusItem?.button?.title = "RemoteApp · 输入或剪贴板失败"
+                NSSound.beep(); return
+            }
             alert("远端返回错误：" + String(code.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(80))); return
         }
         if type == "session.started" || type == "session.snapshot" {
@@ -410,6 +336,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
         guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
         guard seq > lastSequence else { return }; lastSequence = seq
+        if type == "clipboard.data" {
+            guard let id = object["request_id"] as? String,
+                  let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
+                  windows[UInt32(number)] != nil, let text = object["text"] as? String,
+                  let accepted = clipboardCopyGate.accept(id: id, window: UInt32(number), text: text) else { return }
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(accepted, forType: .string)
+            return
+        }
         if type == "session.snapshot" {
             for host in windows.values { host.closeLocally() }; windows.removeAll(); parents.removeAll(); removed.removeAll()
             for item in object["windows"] as? [[String: Any]] ?? [] { updateWindow(item, create: true) }
@@ -450,6 +384,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows[id] = host
         }
         guard let host = windows[id], rev >= host.revision else { return }
+        host.surface.controllerTextEnabled = capabilities.contains("input.text.commit")
+        host.surface.controllerPasteEnabled = capabilities.contains("clipboard.paste")
+        host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
         host.revision = rev
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.surface.remoteWidth = w; host.surface.remoteHeight = h

@@ -228,7 +228,7 @@ async function resume(session: SessionInfo) {
         <div>
           <h2>02 <span>原生窗口</span></h2>
           <p class="hint">
-            独立 Mac 窗口，支持会话恢复。中文输入和 Retina 重绘尚未支持。
+            使用控制端输入法，支持主动复制与粘贴。Retina 远端重绘尚未支持。
           </p>
         </div>
       </section>
@@ -318,7 +318,7 @@ async function resume(session: SessionInfo) {
       </section>
       <footer>
         Linux 负责运行 · macOS 负责呈现
-        <span>文件、音频及剪贴板转发默认关闭</span>
+        <span>文件、音频和后台剪贴板同步关闭</span>
       </footer>
     </main>
   </div>

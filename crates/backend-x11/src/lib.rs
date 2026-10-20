@@ -12,6 +12,10 @@ use x11rb::{
     protocol::{composite::ConnectionExt as _, xproto::*, xtest::ConnectionExt as _},
     rust_connection::{DefaultStream, RustConnection},
 };
+mod controller_copy;
+mod controller_text;
+use controller_copy::CopyTransfer;
+use controller_text::TextTransfer;
 pub struct Backend {
     conn: RustConnection,
     root: u32,
@@ -19,6 +23,8 @@ pub struct Backend {
     pub windows: HashMap<u32, Window>,
     pressed: RefCell<HashSet<(u8, bool)>>,
     process_id: Option<u32>,
+    text_transfer: Option<TextTransfer>,
+    copy_transfer: Option<CopyTransfer>,
 }
 impl Backend {
     pub fn connect(display: &str) -> Result<Self> {
@@ -78,6 +84,16 @@ impl Backend {
             "WM_DELETE_WINDOW",
             "_NET_ACTIVE_WINDOW",
             "_NET_WM_PID",
+            "_NET_SUPPORTING_WM_CHECK",
+            "WM_CLASS",
+            "CLIPBOARD",
+            "TARGETS",
+            "TEXT",
+            "TIMESTAMP",
+            "text/plain;charset=utf-8",
+            "text/plain",
+            "_LAN_REMOTEAPP_TEXT_TIME",
+            "_LAN_REMOTEAPP_CLIPBOARD",
         ] {
             atoms.insert(
                 name.into(),
@@ -91,6 +107,8 @@ impl Backend {
             windows: HashMap::new(),
             pressed: RefCell::new(HashSet::new()),
             process_id,
+            text_transfer: None,
+            copy_transfer: None,
         })
     }
     fn atom(&self, n: &str) -> u32 {

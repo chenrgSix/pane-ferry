@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 8_000_000;
+pub const MAX_TEXT_BYTES: usize = 8 * 1024;
 #[derive(Debug, Deserialize)]
 pub enum LaunchBackend {
     #[serde(rename = "native")]
@@ -55,6 +56,10 @@ pub enum Request {
     },
     #[serde(rename = "input.text.commit")]
     Text { window_id: u32, text: String },
+    #[serde(rename = "clipboard.paste")]
+    Paste { window_id: u32, text: String },
+    #[serde(rename = "clipboard.copy")]
+    Copy { window_id: u32, request_id: String },
 }
 fn attach_by_default() -> bool {
     true
@@ -69,7 +74,22 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
             .ok_or_else(|| anyhow::anyhow!("object required"))?
             .remove("version");
     }
-    Ok(serde_json::from_value(v)?)
+    let request = serde_json::from_value(v)?;
+    if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
+        validate_text(text)?;
+    }
+    if let Request::Copy { request_id, .. } = &request {
+        if !identifier(request_id) {
+            bail!("invalid copy request id")
+        }
+    }
+    Ok(request)
+}
+pub fn validate_text(text: &str) -> Result<()> {
+    if text.is_empty() || text.len() > MAX_TEXT_BYTES || text.contains('\0') {
+        bail!("invalid or oversized controller text")
+    }
+    Ok(())
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Window {
@@ -202,5 +222,22 @@ mod tests {
     fn rejects_non_native_launch_backend() {
         let request = serde_json::json!({"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"external"});
         assert!(parse_request(&serde_json::to_vec(&request).unwrap()).is_err());
+    }
+    #[test]
+    fn controller_text_and_explicit_copy_are_bounded() {
+        for kind in ["input.text.commit", "clipboard.paste"] {
+            let message = serde_json::json!({"type":kind,"version":1,"window_id":1,"text":"中文🙂\ncontroller"});
+            assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_ok());
+            for text in [String::new(), "a\0b".into(), "x".repeat(MAX_TEXT_BYTES + 1)] {
+                let message =
+                    serde_json::json!({"type":kind,"version":1,"window_id":1,"text":text});
+                assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_err());
+            }
+        }
+        assert!(parse_request(
+            br#"{"type":"clipboard.copy","version":1,"window_id":1,"request_id":"copy-1"}"#
+        )
+        .is_ok());
+        assert!(parse_request(br#"{"type":"clipboard.read","version":1}"#).is_err());
     }
 }
