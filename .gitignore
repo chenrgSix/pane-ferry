@@ -1,0 +1,11 @@
+**/target/
+**/node_modules/
+**/dist/
+**/.build/
+**/.swiftpm/
+**/__pycache__/
+apps/launcher/src-tauri/gen/
+apps/launcher/src-tauri/resources/RemoteAppWindowHost
+.DS_Store
+.env
+.env.*
