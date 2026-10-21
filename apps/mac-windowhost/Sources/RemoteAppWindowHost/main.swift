@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ImageIO
+import Network
 
 // RWP/1 developer preview. Rendering is CoreGraphics/NSView, not Metal.
 let maximumLine = 16 * 1024 * 1024
@@ -52,9 +53,14 @@ struct Incoming {
     let object: [String: Any]
     let image: CGImage?
 }
+struct SSHFailure {
+    let message: String
+    let retryable: Bool
+}
 
 /// Local SSH is the only transport. Authentication remains in system SSH.
 final class SSHTransport {
+    let executable: URL
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
@@ -64,14 +70,17 @@ final class SSHTransport {
     private var writes: [Data] = []
     private var writing = false
     private var closed = false
-    private var failure: String?
+    private var failure: SSHFailure?
+    private var diagnostic = Data()
     private var queuedPixels = 0
     private let writer = DispatchQueue(label: "remoteapp.ssh.writer")
     private(set) var alive = false
     var onDiagnostic: ((String) -> Void)?
+    init(executable: URL = URL(fileURLWithPath: "/usr/bin/ssh")) { self.executable = executable }
 
     func start(_ options: Options) throws {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.executableURL = executable
+        process.environment = ProcessInfo.processInfo.environment.merging(["LC_ALL": "C"]) { _, fixed in fixed }
         // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
         process.arguments = ["-F", "/dev/null", "-T"] + SSHIdentity.options(host: options.host, user: options.user, port: options.port) + ["-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
             "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no",
@@ -86,18 +95,32 @@ final class SSHTransport {
         try process.run(); alive = true
         DispatchQueue(label: "remoteapp.ssh.stderr").async { [weak self] in
             guard let self = self else { return }
-            while true { do { if try readPipeChunk(from: self.errors.fileHandleForReading, maximumCount: 4096).isEmpty { break } } catch { break } }
+            while true {
+                do {
+                    let chunk = try readPipeChunk(from: self.errors.fileHandleForReading, maximumCount: 4096)
+                    if chunk.isEmpty { break }
+                    self.lock.lock(); self.diagnostic.append(chunk.prefix(max(0, 8192 - self.diagnostic.count))); self.lock.unlock()
+                } catch { break }
+            }
         }
         DispatchQueue(label: "remoteapp.ssh.reader").async { [weak self] in self?.readLoop() }
     }
 
-    private func fail(_ message: String) {
-        lock.lock(); if failure == nil { failure = message }; lock.unlock()
+    private func fail(_ message: String, retryable: Bool = true) {
+        lock.lock(); if failure == nil { failure = SSHFailure(message: message, retryable: retryable) }; lock.unlock()
     }
-    func drain() -> ([Incoming], String?) {
+    func drain() -> ([Incoming], SSHFailure?) {
         lock.lock(); defer { lock.unlock() }
         let events = inbox; inbox.removeAll(keepingCapacity: true); queuedPixels = 0
-        let error = failure; failure = nil
+        var error = failure; failure = nil
+        if error != nil {
+            let text = String(decoding: diagnostic, as: UTF8.self)
+            if text.contains("Host key verification failed") || text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
+                error = SSHFailure(message: "远端设备身份发生变化，请核验后重新连接。", retryable: false)
+            } else if text.contains("Permission denied (") || text.contains("Too many authentication failures") {
+                error = SSHFailure(message: "设备登录授权已失效，请在启动器重新登录。", retryable: false)
+            }
+        }
         return (events, error)
     }
     private func enqueue(_ value: Incoming) throws {
@@ -184,8 +207,9 @@ final class SSHTransport {
                 }
                 guard buffer.count <= maximumLine else { throw HostError.message("协议消息未终止或过大") }
             }
-            if !buffer.isEmpty { throw HostError.message("连接结束时存在不完整消息") }
-        } catch { fail("RWP 数据读取失败，已停止接收。请检查版本和连接。") }
+            // A network interruption may truncate the final frame. Resume from
+            // a fresh snapshot instead of treating that as a protocol upgrade.
+        } catch { fail("RWP 数据读取失败，已停止接收。请检查版本和连接。", retryable: false) }
         disconnect()
     }
     func send(_ object: [String: Any]) {
@@ -221,7 +245,8 @@ final class SSHTransport {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
-    let transport = SSHTransport()
+    var transport = SSHTransport()
+    var makeTransport: () -> SSHTransport = { SSHTransport() }
     var windows: [UInt32: HostedWindow] = [:]
     var parents: [UInt32: UInt32] = [:]
     var removed = Set<UInt32>()
@@ -229,6 +254,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var lastSequence: UInt64 = 0
     var ready = false
     var connected = true
+    var recovering = false
+    var stopping = false
+    var reconnectAttempt = 0
+    var reconnectTimer: Timer?
+    var handshakeTimer: Timer?
+    var networkMonitor: NWPathMonitor?
+    let launchRequestID = UUID().uuidString
     var poll: Timer?
     var statusItem: NSStatusItem?
     var capabilities = Set<String>()
@@ -267,16 +299,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "RemoteApp · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
-        do {
-            try transport.start(options)
-            writeWire(["type": "hello"])
-            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.pump() }
-            RunLoop.main.add(timer, forMode: .common); poll = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
-                guard let self = self, !self.ready, self.connected else { return }
-                self.transport.disconnect()
+        startConnection()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.pump() }
+        RunLoop.main.add(timer, forMode: .common); poll = timer
+        let monitor = NWPathMonitor(); networkMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                guard let self = self, !self.stopping else { return }
+                if path.status == .satisfied, self.recovering, !self.connected { self.startConnection() }
+                else if path.status == .unsatisfied, self.connected { self.connectionLost() }
             }
-        } catch { alert("无法启动 SSH。请检查系统 SSH 与登录配置。") }
+        }
+        monitor.start(queue: DispatchQueue(label: "remoteapp.network"))
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
@@ -318,12 +352,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     func pump() {
         let (events, error) = transport.drain()
-        for event in events { receive(event) }
+        for event in events { if !connected { break }; receive(event) }
         if let error = error, connected {
-            connected = false; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll(); statusItem?.button?.title = "RemoteApp · 已断开"
-            for host in windows.values { host.surface.transmit = nil; host.window.title += " [已断开]" }
-            alert(error + (session.map { "\n会话 ID：\($0)" } ?? ""))
+            if error.retryable { connectionLost() }
+            else { stopRecovery(); alert(error.message) }
         }
+    }
+    func startConnection() {
+        guard !stopping else { return }
+        reconnectTimer?.invalidate(); reconnectTimer = nil
+        transport = makeTransport(); connected = true; ready = false; lastSequence = 0; capabilities.removeAll()
+        do {
+            try transport.start(options)
+            writeWire(["type": "hello"])
+            let current = transport
+            let timer = Timer(timeInterval: 15, repeats: false) { [weak self, weak current] _ in
+                guard let self = self, self.transport === current, !self.stopping else { return }
+                self.connectionLost()
+            }
+            handshakeTimer?.invalidate(); handshakeTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } catch { connectionLost() }
+    }
+    static func reconnectDelay(_ attempt: Int) -> TimeInterval { [1, 2, 4, 8, 15][min(max(0, attempt), 4)] }
+    func pauseConnection() {
+        connected = false; ready = false; transport.disconnect()
+        handshakeTimer?.invalidate(); handshakeTimer = nil
+        clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil
+        clipboardDeferred.removeAll(); clipboardBusy = false; clipboardReading = false; clipboardCopyGate = ClipboardCopyGate()
+        for host in windows.values {
+            host.surface.transmit = nil; host.surface.releaseInput(); host.surface.unmarkText()
+            host.resizeTimer?.invalidate(); host.resizeTimer = nil
+        }
+    }
+    func connectionLost() {
+        guard !stopping else { return }
+        pauseConnection(); recovering = true
+        guard reconnectTimer == nil else { return }
+        for host in windows.values { host.window.subtitle = "连接中断，正在自动重连…" }
+        statusItem?.button?.title = "RemoteApp · 正在重连"
+        let delay = Self.reconnectDelay(reconnectAttempt); reconnectAttempt += 1
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in self?.startConnection() }
+        reconnectTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    func stopRecovery() {
+        pauseConnection(); recovering = false
+        reconnectTimer?.invalidate(); reconnectTimer = nil
+        statusItem?.button?.title = "RemoteApp · 已断开"
+        for host in windows.values { host.window.subtitle = "已断开，请从启动器重新连接。" }
     }
     private func beginClipboard(timeout: TimeInterval, reading: Bool = false) -> UUID {
         clipboardBusy = true; clipboardReading = reading
@@ -377,6 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func send(_ message: [String: Any]) {
         guard connected else { return }
         let type = message["type"] as? String ?? ""
+        if recovering && !["video.enable", "session.resume", "app.launch"].contains(type) { return }
         if clipboardBusy && type != "session.detach" {
             if type == "input.pointer", message["button"] as? Int == 0,
                clipboardDeferred.last?["type"] as? String == type, clipboardDeferred.last?["button"] as? Int == 0,
@@ -406,12 +483,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
             if capabilities.contains("native.h264") { send(["type":"video.enable", "codec":"h264"]) }
-            if let app = options.app {
-                var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]
+            if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
+            else if let app = options.app {
+                var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
                 if capabilities.contains("display.scale") { launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1 }
                 send(launch)
             }
-            else if let session = options.session { send(["type": "session.resume", "session_id": session]) }
             return
         }
         if type == "video.ready" { statusItem?.button?.title = "RemoteApp · H.264 视频"; return }
@@ -419,16 +496,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
             if code == "window_unavailable" { return }
+            if code == "session_controlled", recovering { connectionLost(); return }
+            if ["session_expired", "session_exited"].contains(code) {
+                stopRecovery(); statusItem?.button?.title = "RemoteApp · 会话已结束"; return
+            }
             if ["controller_text_failed", "clipboard_copy_failed", "clipboard_cut_failed", "clipboard_cut_unavailable"].contains(code) {
                 statusItem?.button?.title = "RemoteApp · 输入或剪贴板失败"
                 if code == "controller_text_failed" { NSSound.beep() } else { clipboardFailed() }; return
             }
+            if handshakeTimer != nil { stopRecovery() }
             alert("远端返回错误：" + String(code.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(80))); return
         }
         if type == "session.started" || type == "session.snapshot" {
             guard let id = object["session_id"] as? String, id.count <= 128 else { return }
             if let session = session, session != id { return }
-            session = id; statusItem?.button?.title = "RemoteApp · 已连接"
+            session = id; recovering = false; reconnectAttempt = 0
+            reconnectTimer?.invalidate(); reconnectTimer = nil; handshakeTimer?.invalidate(); handshakeTimer = nil
+            statusItem?.button?.title = "RemoteApp · 已连接"
         }
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
         guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
@@ -471,11 +555,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         if type == "session.snapshot" {
-            for host in windows.values { host.closeLocally() }; windows.removeAll(); parents.removeAll(); removed.removeAll()
-            for item in object["windows"] as? [[String: Any]] ?? [] { updateWindow(item, create: true) }
-            attachParents(); return
+            let snapshot = object["windows"] as? [[String: Any]] ?? []
+            let retained = Set(snapshot.compactMap { unsignedInteger($0["window_id"]).flatMap { $0 <= UInt32.max ? UInt32($0) : nil } })
+            for id in Array(windows.keys) where !retained.contains(id) { windows.removeValue(forKey: id)?.closeLocally() }
+            parents.removeAll(); removed.removeAll()
+            for item in snapshot { updateWindow(item, create: true) }
+            attachParents()
+            for host in windows.values where !host.popup { host.windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
+            if let host = activeHost() { send(["type": "window.focus", "window_id": host.id]) }
+            return
         }
         if type == "session.exited" {
+            stopRecovery()
             for host in windows.values { host.closeLocally() }; windows.removeAll()
             statusItem?.button?.title = "RemoteApp · 应用已退出"; return
         }
@@ -517,6 +608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             windows[id] = host
         }
         guard let host = windows[id], rev >= host.revision else { return }
+        host.surface.transmit = { [weak self] in self?.send($0) }
         host.surface.requestControllerPaste = { [weak self] in self?.send(["type":"controller.paste", "window_id":id]) }
         host.surface.controllerTextEnabled = capabilities.contains("input.text.commit")
         host.surface.controllerPasteEnabled = capabilities.contains("clipboard.paste")
@@ -552,6 +644,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         send(["type": "session.detach"])
         // An intentional detach can finish SSH before AppKit completes quit.
         // Stop diagnostics now so the polling timer cannot open a modal alert.
+        stopping = true; reconnectTimer?.invalidate(); reconnectTimer = nil; handshakeTimer?.invalidate(); handshakeTimer = nil
+        networkMonitor?.cancel(); networkMonitor = nil
         connected = false; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll()
         poll?.invalidate(); poll = nil
         // Give the serial write queue a brief opportunity, then close local transport only.
@@ -560,7 +654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         return .terminateLater
     }
-    func applicationWillTerminate(_ notification: Notification) { poll?.invalidate(); transport.disconnect() }
+    func applicationWillTerminate(_ notification: Notification) { stopping = true; networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
 }
 
 let application = NSApplication.shared
