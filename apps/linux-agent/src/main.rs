@@ -549,6 +549,10 @@ fn launch(
             .env_remove("WAYLAND_DISPLAY")
             .env("GDK_BACKEND", "x11")
             .env("QT_QPA_PLATFORM", "xcb")
+            // Composition belongs to the controller, not a desktop IM daemon.
+            .env("GTK_IM_MODULE", "gtk-im-context-simple")
+            .env("QT_IM_MODULE", "compose")
+            .env("XMODIFIERS", "@im=none")
             .env("DISABLE_WAYLAND", "1")
             .env("MOZ_ENABLE_WAYLAND", "0")
             .env("GDK_SCALE", scale_factor.to_string())

@@ -14,6 +14,7 @@ pub(super) struct TextTransfer {
     owner: u32,
     window_id: u32,
     terminal: bool,
+    key_interval: Duration,
     paste_at: Instant,
     pasted_at: Option<Instant>,
     completed: bool,
@@ -22,6 +23,7 @@ pub(super) struct TextTransfer {
     bytes: Vec<u8>,
     timestamp: u32,
     requestor: Option<(u32, u32)>,
+    data_consumed: bool,
     deadline: Instant,
 }
 impl Backend {
@@ -30,29 +32,38 @@ impl Backend {
         window: u32,
         letter: u8,
         terminal: bool,
-        paced: bool,
+        interval: Duration,
     ) -> Result<()> {
         let mut symbols = vec![0xffe3];
         if terminal {
             symbols.push(0xffe1);
         }
         symbols.push(u32::from(letter));
-        // Only the desktop Wayland bridge needs time to dispatch modifiers.
-        // Native X11 events already carry ordered modifier state; sleeping for
-        // every transition adds 48/72ms to every committed character.
+        // Firefox also needs distinct shortcut event timestamps. Its GTK key
+        // handling can merge rapid repeated paste shortcuts. Other native X11
+        // applications keep the zero-delay path.
         for symbol in &symbols {
             self.key(window, *symbol, true)?;
-            if paced {
-                std::thread::sleep(Duration::from_millis(12));
+            if !interval.is_zero() {
+                std::thread::sleep(interval);
             }
         }
         for symbol in symbols.into_iter().rev() {
             self.key(window, symbol, false)?;
-            if paced {
-                std::thread::sleep(Duration::from_millis(12));
+            if !interval.is_zero() {
+                std::thread::sleep(interval);
             }
         }
         Ok(())
+    }
+    pub(super) fn clipboard_key_interval(class: &str, bridged: bool) -> Duration {
+        Duration::from_millis(if bridged {
+            12
+        } else if class.contains("firefox") || class.contains("navigator") {
+            4
+        } else {
+            0
+        })
     }
     pub(super) fn clipboard_bridge_pid(&self) -> Option<u32> {
         use std::os::unix::fs::MetadataExt;
@@ -142,7 +153,9 @@ impl Backend {
         let target_pid = self.application_pid(window_id)?;
         let bridge_pid = self.clipboard_bridge_pid();
         self.release_all();
-        self.focus(window_id)?;
+        // Preserve Firefox/GTK's focused child. Re-focusing its toplevel can
+        // cancel the active editor (including an in-progress address edit).
+        self.focus_for_input(window_id)?;
         let owner = self.conn.generate_id()?;
         self.conn
             .create_window(
@@ -210,8 +223,17 @@ impl Backend {
                 owner,
                 window_id,
                 terminal,
+                key_interval: Self::clipboard_key_interval(&class, bridge_pid.is_some()),
+                // Firefox snapshots clipboard offers asynchronously. If Ctrl+V
+                // overtakes the new offer, it can paste its previous snapshot.
                 paste_at: Instant::now()
-                    + Duration::from_millis(if bridge_pid.is_some() { 100 } else { 0 }),
+                    + Duration::from_millis(if bridge_pid.is_some() {
+                        100
+                    } else if class.contains("firefox") || class.contains("navigator") {
+                        16
+                    } else {
+                        0
+                    }),
                 pasted_at: None,
                 completed: false,
                 target_pid,
@@ -219,6 +241,7 @@ impl Backend {
                 bytes: text.into_bytes(),
                 timestamp,
                 requestor: None,
+                data_consumed: false,
                 deadline: Instant::now() + Duration::from_secs(3),
             });
             self.conn.flush()?;
@@ -343,10 +366,8 @@ impl Backend {
                         if e.state == Property::DELETE
                             && transfer.requestor == Some((e.window, e.atom)) =>
                     {
-                        if transfer.bridge_pid.is_none() && transfer.pasted_at.is_some() {
-                            complete = true;
-                            break;
-                        }
+                        // A browser may preload the offer before the shortcut.
+                        transfer.data_consumed = true;
                     }
                     Event::SelectionClear(e) if e.owner == transfer.owner => {
                         if transfer.completed {
@@ -362,12 +383,7 @@ impl Backend {
                 // The Wayland bridge must first advertise the new selection.
                 // Pasting before it receives TARGETS makes Electron read the old offer.
                 let id = transfer.window_id;
-                self.clipboard_shortcut(
-                    id,
-                    b'v',
-                    transfer.terminal,
-                    transfer.bridge_pid.is_some(),
-                )?;
+                self.clipboard_shortcut(id, b'v', transfer.terminal, transfer.key_interval)?;
                 transfer.pasted_at = Some(Instant::now());
             }
             if transfer.bridge_pid.is_some()
@@ -375,6 +391,12 @@ impl Backend {
                 && transfer
                     .pasted_at
                     .is_some_and(|at| at.elapsed() >= Duration::from_millis(100))
+            {
+                complete = true;
+            }
+            if transfer.bridge_pid.is_none()
+                && transfer.data_consumed
+                && transfer.pasted_at.is_some()
             {
                 complete = true;
             }

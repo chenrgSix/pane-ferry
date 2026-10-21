@@ -18,11 +18,13 @@ display 为本地 X11 显示号，允许 0。白名单配置 existing 时，app.
 窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。frame {window_id,geometry_revision,width,height,png:base64}。
 视频帧使用同一 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height，省略 png。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize 和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。编码失败回退帧有 png 和 video_error:"encoder_failed"，没有 codec 字段。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
+Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。
 window.configure 是请求任意合法像素宽高，不是把原窗口机械翻倍。宿主默认按当前内容区 × 本机 backing 像素密度持续计算；自动模式始终铺满，远端回包不改变本机窗口大小。手动分辨率模式固定远端像素尺寸，并按比例显示及映射输入。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。
 input.key {window_id,keysym:u32,pressed:bool}，用于导航、快捷键与非文字按键。控制端输入法预编辑保留在本地；input.text.commit {window_id,text} 只传已经提交的 Unicode，不把物理字母键或输入法切换修饰键发往被控端。
 clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy {window_id,request_id} 由主动复制触发；成功返回 clipboard.data {window_id,request_id,text}。控制端只接受仍有效、窗口和请求 ID 相符的复制回包，其他事件不得修改其剪贴板。没有通用 clipboard.read 接口或后台剪贴板同步。
 文字提交与剪贴板均只支持非空 UTF-8 纯文本，单次上限 8192 字节，禁止 NUL，超限报错而非截断。Agent 用 X11 selection 交付文字；XRes 校验请求方/selection owner 属于目标应用或经进程身份核验的桌面合成器桥接进程。原生 X11 等待读取完成；Xwayland 桥接完成数据请求后保留 selection source，以支持异步读取，后续文字/复制操作或断开时替换并清理。桥接读取不代表应用已经完成语义上的粘贴。复制先清除旧 selection 再触发本次 Ctrl+C，未产生新内容则超时失败，不返回之前的剪贴板。所有未完成操作有 3 秒超时；不会恢复或保存操作前的被控端剪贴板。
+新建自有实例使用不连接桌面 IM daemon 的 GTK/Qt 输入上下文，组合仍在控制端完成；现有进程的输入法环境不被修改。普通 X11 应用保持快速路径；Firefox 对新剪贴板快照增加 16ms 广告时间，并为快捷键转换保留 4ms 节奏，提前读取也会计入交付状态。selection 的读取确认不等同于编辑器的语义提交确认，客户端不得将其解释为网页已经接受输入。
 服务端 error {code,message}，无敏感数据。会话退出 session.exited。
 
 已退出的原进程返回 existing_process_unavailable；已结束/回收的会话返回 session_exited / session_expired。明确拒绝启动后，启动器可清除待确认请求 ID，再由用户触发新启动；网络错误、超时与未知 request_failed 必须保留 ID。客户端只显示本地映射的错误码解释，不显示任意服务端详情。

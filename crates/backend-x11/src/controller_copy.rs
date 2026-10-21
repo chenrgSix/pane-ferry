@@ -34,7 +34,7 @@ impl Backend {
         let target_pid = self.application_pid(window_id)?;
         let bridge_pid = self.clipboard_bridge_pid();
         self.release_all();
-        self.focus(window_id)?;
+        self.focus_for_input(window_id)?;
         let owner = self.conn.generate_id()?;
         self.conn
             .create_window(
@@ -87,7 +87,12 @@ impl Backend {
             ]
             .iter()
             .any(|name| class.contains(name));
-            self.clipboard_shortcut(window_id, b'c', terminal, bridge_pid.is_some())?;
+            self.clipboard_shortcut(
+                window_id,
+                b'c',
+                terminal,
+                Self::clipboard_key_interval(&class, bridge_pid.is_some()),
+            )?;
             self.conn.flush()?;
             Ok(())
         })();
