@@ -29,6 +29,7 @@ mod input_queue;
 mod output;
 mod request_error;
 mod video;
+mod webrtc;
 struct Session {
     id: String,
     app_id: String,
@@ -538,6 +539,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     ];
     if video::available() {
         capabilities.push("native.h264");
+        if webrtc::available() {
+            capabilities.push("native.webrtc.h264");
+        }
     }
     send(
         &mut out,
@@ -559,6 +563,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             let sid = s.id.clone();
             if !s.has_exited()? {
                 if let Some(b) = &mut s.backend {
+                    if out.take_refresh() {
+                        b.refresh_capture();
+                    }
                     if let Err(error) = b.pump_text() {
                         eprintln!("controller text delivery failed: {error}");
                         send(
@@ -621,6 +628,23 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
             let result: Result<()> = (|| {
                 match req {
+                    Request::EnableWebRtc {} => {
+                        if lease.is_some() {
+                            bail!("configure video before attaching")
+                        }
+                        if !video::available() {
+                            bail!("video encoder unavailable")
+                        }
+                        out.enable_webrtc()?;
+                        send(
+                            &mut out,
+                            json!({"type":"video.ready","codec":"h264","transport":"webrtc"}),
+                            "",
+                        )?;
+                    }
+                    Request::WebRtcAnswer { sdp } => out.answer(sdp)?,
+                    Request::WebRtcCandidate { candidate, mid } => out.candidate(candidate, mid)?,
+                    Request::VideoFallback {} => out.fallback_video()?,
                     Request::EnableVideo { codec: _ } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")

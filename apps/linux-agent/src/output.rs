@@ -17,6 +17,11 @@ const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
     EnableVideo,
+    EnableWebRtc,
+    Answer(String),
+    Candidate(String, String),
+    MediaState(i32),
+    Keyframe(u32),
     Message(Value, String),
     Frame(Window, Arc<CapturedImage>, String),
 }
@@ -39,6 +44,7 @@ struct Queue {
     events: VecDeque<Pending>,
     pixels: usize,
     closed: bool,
+    refresh_requested: bool,
 }
 impl Queue {
     fn remove(&mut self, index: usize) -> Pending {
@@ -79,6 +85,7 @@ type Shared = Arc<(Mutex<Queue>, Condvar)>;
 pub struct Output {
     queue: Shared,
     socket: UnixStream,
+    webrtc_requested: bool,
 }
 impl Output {
     pub fn new(mut socket: UnixStream) -> Result<Self> {
@@ -86,6 +93,7 @@ impl Output {
         let output = Self {
             queue: Arc::new((Mutex::new(Queue::default()), Condvar::new())),
             socket: socket.try_clone()?,
+            webrtc_requested: false,
         };
         let shared = output.queue.clone();
         thread::spawn(move || {
@@ -114,8 +122,38 @@ impl Output {
             session.into(),
         ))
     }
-    pub fn enable_video(&self) -> Result<()> {
+    pub fn enable_video(&mut self) -> Result<()> {
+        self.webrtc_requested = false;
         self.push(Pending::EnableVideo)
+    }
+    pub fn enable_webrtc(&mut self) -> Result<()> {
+        if !crate::webrtc::available() {
+            bail!("WebRTC runtime unavailable")
+        }
+        self.webrtc_requested = true;
+        self.push(Pending::EnableWebRtc)
+    }
+    pub fn answer(&self, sdp: String) -> Result<()> {
+        if self.webrtc_requested {
+            self.push(Pending::Answer(sdp))?;
+        }
+        Ok(())
+    }
+    pub fn candidate(&self, candidate: String, mid: String) -> Result<()> {
+        if self.webrtc_requested {
+            self.push(Pending::Candidate(candidate, mid))?;
+        }
+        Ok(())
+    }
+    pub fn fallback_video(&mut self) -> Result<()> {
+        if self.webrtc_requested {
+            self.enable_video()?;
+            self.queue.0.lock().unwrap().refresh_requested = true;
+        }
+        Ok(())
+    }
+    pub fn take_refresh(&self) -> bool {
+        std::mem::take(&mut self.queue.0.lock().unwrap().refresh_requested)
     }
 }
 impl Drop for Output {
@@ -134,6 +172,8 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
     let mut video = false;
     let mut encoders: HashMap<u32, crate::video::Encoder> = HashMap::new();
     let mut next_stream = 1;
+    let mut rtc: Option<crate::webrtc::Peer> = None;
+    let mut frame_ids: HashMap<u32, u64> = HashMap::new();
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -145,12 +185,91 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
             }
             queue.remove(0)
         };
-        let (mut value, session) = match event {
+        let (value, session) = match event {
             Pending::EnableVideo => {
+                rtc = None;
                 video = true;
                 frames.clear();
                 encoders.clear();
                 continue;
+            }
+            Pending::EnableWebRtc => {
+                let notifications = shared.clone();
+                rtc = Some(crate::webrtc::Peer::new(move |event| {
+                    use crate::webrtc::Event;
+                    let mut queue = notifications.0.lock().unwrap();
+                    let pending = match event {
+                        Event::Description(sdp) => Pending::Message(
+                            json!({"type":"webrtc.offer","sdp":sdp}),
+                            String::new(),
+                        ),
+                        Event::Candidate { candidate, mid } => Pending::Message(
+                            json!({"type":"webrtc.candidate","candidate":candidate,"mid":mid}),
+                            String::new(),
+                        ),
+                        Event::Keyframe(window) => {
+                            queue.refresh_requested = true;
+                            Pending::Keyframe(window)
+                        }
+                        Event::State(state) => {
+                            if matches!(state, 4 | 5) {
+                                queue.refresh_requested = true;
+                            }
+                            Pending::MediaState(state)
+                        }
+                        Event::Failed => {
+                            queue.refresh_requested = true;
+                            Pending::MediaState(-1)
+                        }
+                    };
+                    if queue.push(pending).is_err() {
+                        queue.closed = true;
+                    }
+                    drop(queue);
+                    notifications.1.notify_one();
+                })?);
+                video = true;
+                frames.clear();
+                encoders.clear();
+                continue;
+            }
+            Pending::Answer(sdp) => {
+                if let Some(peer) = &rtc {
+                    peer.answer(&sdp)?;
+                }
+                continue;
+            }
+            Pending::Candidate(candidate, mid) => {
+                if let Some(peer) = &rtc {
+                    peer.candidate(&candidate, &mid)?;
+                }
+                continue;
+            }
+            Pending::Keyframe(window) => {
+                frames.remove(&window);
+                encoders.remove(&window);
+                continue;
+            }
+            Pending::MediaState(state) => {
+                let pair = if state == 2 {
+                    rtc.as_ref().and_then(|peer| peer.selected_pair())
+                } else {
+                    None
+                };
+                if state == -1 || matches!(state, 4 | 5) {
+                    rtc = None;
+                    frames.clear();
+                    encoders.clear();
+                    (
+                        json!({"type":"webrtc.failed","code":"media_transport_failed"}),
+                        String::new(),
+                    )
+                } else {
+                    (
+                        json!({"type":"webrtc.state","state":state,"pair":pair}),
+                        String::new(),
+                    )
+                }
             }
             Pending::Message(value, session) => {
                 match value["type"].as_str() {
@@ -173,6 +292,25 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 (value, session)
             }
             Pending::Frame(window, image, session) => {
+                if let Some(peer) = &rtc {
+                    match peer.ready(window.window_id) {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(_) => {
+                            rtc = None;
+                            frames.clear();
+                            encoders.clear();
+                            shared.0.lock().unwrap().refresh_requested = true;
+                            write_value(
+                                socket,
+                                &mut sequence,
+                                json!({"type":"webrtc.failed","code":"track_failed"}),
+                                &session,
+                            )?;
+                            continue;
+                        }
+                    }
+                }
                 if frames
                     .get(&window.window_id)
                     .is_some_and(|(revision, old)| {
@@ -210,13 +348,42 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 } else {
                     None
                 };
+                // BENCHMARK: encoder output ready, before either media transport.
                 if let Some((packet, stream)) = packet {
                     value["codec"] = json!("h264");
-                    value["data"] = json!(STANDARD.encode(packet.bytes));
                     value["stream_id"] = json!(stream);
                     value["key_frame"] = json!(packet.keyframe);
                     value["encoded_width"] = json!(image.width + image.width % 2);
                     value["encoded_height"] = json!(image.height + image.height % 2);
+                    if let Some(peer) = &rtc {
+                        let id = frame_ids.entry(window.window_id).or_default();
+                        *id += 1;
+                        value["frame_id"] = json!(*id);
+                        value["transport"] = json!("webrtc");
+                        value["version"] = json!(1);
+                        value["session_id"] = json!(session);
+                        value["seq"] = json!(sequence + 1);
+                        let metadata = serde_json::to_vec(&value)?;
+                        if peer
+                            .send(window.window_id, &packet.bytes, &metadata)
+                            .is_err()
+                        {
+                            rtc = None;
+                            frames.clear();
+                            encoders.clear();
+                            shared.0.lock().unwrap().refresh_requested = true;
+                            write_value(
+                                socket,
+                                &mut sequence,
+                                json!({"type":"webrtc.failed","code":"media_send_failed"}),
+                                &session,
+                            )?;
+                            continue;
+                        }
+                    } else {
+                        value["transport"] = json!("ssh");
+                        value["data"] = json!(STANDARD.encode(packet.bytes));
+                    }
                 } else {
                     value["png"] = json!(STANDARD.encode(image.png()?));
                 }
@@ -231,20 +398,38 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                     frames.clear();
                 }
                 frames.insert(window.window_id, (window.geometry_revision, image));
+                if rtc.is_some() && value["codec"] == "h264" {
+                    sequence += 1;
+                    continue;
+                }
+                if rtc.is_some() {
+                    rtc = None;
+                    frames.clear();
+                    encoders.clear();
+                }
                 (value, session)
             }
         };
-        sequence += 1;
-        value["version"] = json!(1);
-        value["seq"] = json!(sequence);
-        value["session_id"] = json!(session);
-        let mut bytes = serde_json::to_vec(&value)?;
-        if bytes.len() + 1 > remoteapp_protocol::MAX_LINE {
-            bail!("outgoing frame too large")
-        }
-        bytes.push(b'\n');
-        socket.write_all(&bytes)?;
+        write_value(socket, &mut sequence, value, &session)?;
     }
+}
+fn write_value(
+    socket: &mut UnixStream,
+    sequence: &mut u64,
+    mut value: Value,
+    session: &str,
+) -> Result<()> {
+    *sequence += 1;
+    value["version"] = json!(1);
+    value["seq"] = json!(*sequence);
+    value["session_id"] = json!(session);
+    let mut bytes = serde_json::to_vec(&value)?;
+    if bytes.len() + 1 > remoteapp_protocol::MAX_LINE {
+        bail!("outgoing frame too large")
+    }
+    bytes.push(b'\n');
+    socket.write_all(&bytes)?;
+    Ok(())
 }
 
 #[cfg(test)]

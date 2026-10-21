@@ -18,10 +18,11 @@ struct Options {
     let port: UInt16
     let app: String?
     let session: String?
+    let videoTransport: String
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
-        let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session"]
+        let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session", "--video-transport"]
         while i < args.count {
             guard allowed.contains(args[i]), i + 1 < args.count, values[args[i]] == nil else {
                 throw HostError.message("参数格式错误；使用 --host HOST --user USER [--port 22] --app APP_ID 或 --session SESSION_ID")
@@ -43,7 +44,9 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(host: host, user: user, port: port, app: app, session: session)
+        let videoTransport = values["--video-transport"] ?? "ssh"
+        guard ["ssh", "webrtc", "auto"].contains(videoTransport) else { throw HostError.message("视频传输必须是 ssh、webrtc 或 auto") }
+        return Options(host: host, user: user, port: port, app: app, session: session, videoTransport: videoTransport)
     }
 }
 enum HostError: Error { case message(String) }
@@ -65,6 +68,8 @@ final class SSHTransport {
     private var writing = false
     private var closed = false
     private var failure: String?
+    private var mediaPeer: WebRTCPeer?
+    private var mediaRequested = false, mediaStrict = false, mediaFrameSeen = false, mediaDeadlineStarted = false
     private var queuedPixels = 0
     private let writer = DispatchQueue(label: "remoteapp.ssh.writer")
     private(set) var alive = false
@@ -93,6 +98,40 @@ final class SSHTransport {
 
     private func fail(_ message: String) {
         lock.lock(); if failure == nil { failure = message }; lock.unlock()
+    }
+    func startWebRTC(strict: Bool) throws {
+        let peer = try WebRTCPeer(signal: { [weak self] object in
+            guard let self = self else { return }
+            self.lock.lock(); let active = self.mediaRequested && !self.closed; self.lock.unlock()
+            if active { self.send(object) }
+        }, frame: { [weak self] incoming in
+            guard let self = self else { return }
+            self.lock.lock(); let active = self.mediaRequested && !self.closed; self.mediaFrameSeen = active; self.lock.unlock()
+            guard active else { return }
+            do { try self.enqueue(incoming) } catch { self.mediaFailed() }
+        }, failure: { [weak self] in self?.mediaFailed() })
+        lock.lock(); mediaPeer = peer; mediaRequested = true; mediaStrict = strict; lock.unlock()
+    }
+    private func mediaFailed() {
+        lock.lock()
+        guard mediaRequested && !closed else { lock.unlock(); return }
+        mediaRequested = false
+        let peer = mediaPeer; mediaPeer = nil; let strict = mediaStrict; lock.unlock()
+        peer?.close()
+        if strict { fail("WebRTC 媒体连接失败；本次强制测试不会悄悄回退 SSH。") }
+        else { send(["type":"video.fallback"]) }
+    }
+    private func currentMedia() -> WebRTCPeer? { lock.lock(); defer { lock.unlock() }; return mediaPeer }
+    private func mediaOffer(_ sdp: String) {
+        currentMedia()?.description(sdp)
+        lock.lock(); let start = mediaRequested && !mediaDeadlineStarted; mediaDeadlineStarted = true; lock.unlock()
+        if start {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self = self else { return }
+                self.lock.lock(); let expired = self.mediaRequested && !self.mediaFrameSeen; self.lock.unlock()
+                if expired { self.mediaFailed() }
+            }
+        }
     }
     func drain() -> ([Incoming], String?) {
         lock.lock(); defer { lock.unlock() }
@@ -135,8 +174,18 @@ final class SSHTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
+                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "webrtc.offer", "webrtc.candidate", "webrtc.state", "webrtc.failed", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
+                    if object["type"] as? String == "webrtc.offer" {
+                        guard let sdp = object["sdp"] as? String else { throw HostError.message("无效 WebRTC 协商") }
+                        mediaOffer(sdp); continue
+                    }
+                    if object["type"] as? String == "webrtc.candidate" {
+                        guard let candidate = object["candidate"] as? String, let mid = object["mid"] as? String else { throw HostError.message("无效 ICE 候选") }
+                        currentMedia()?.remoteCandidate(candidate, mid: mid); continue
+                    }
+                    if object["type"] as? String == "webrtc.failed" { mediaFailed(); continue }
+                    if object["type"] as? String == "webrtc.state" { continue }
                     if ["session.snapshot", "session.exited"].contains(object["type"] as? String ?? "") { videoDecoders.removeAll(); videoPixels.removeAll() }
                     if object["type"] as? String == "window.destroyed" ||
                         (object["type"] as? String == "window.metadata" && (object["visible"] as? Bool) == false),
@@ -181,6 +230,7 @@ final class SSHTransport {
                     }
                     var lightweight = object; lightweight.removeValue(forKey: "png"); lightweight.removeValue(forKey: "data")
                     try enqueue(Incoming(object: lightweight, image: image))
+                    currentMedia()?.noteControl(lightweight)
                 }
                 guard buffer.count <= maximumLine else { throw HostError.message("协议消息未终止或过大") }
             }
@@ -210,8 +260,10 @@ final class SSHTransport {
         }
     }
     func disconnect() {
-        lock.lock(); let wasClosed = closed; closed = true; writes.removeAll(); lock.unlock()
+        lock.lock(); let wasClosed = closed; closed = true; writes.removeAll()
+        mediaRequested = false; let peer = mediaPeer; mediaPeer = nil; lock.unlock()
         if wasClosed { return }
+        peer?.close()
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
         if process.isRunning { process.terminate() }
@@ -332,7 +384,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "hello" {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
-            if capabilities.contains("native.h264") { send(["type":"video.enable", "codec":"h264"]) }
+            let canWebRTC = capabilities.contains("native.webrtc.h264") && WebRTCPeer.available
+            if options.videoTransport == "webrtc" && !canWebRTC {
+                alert("控制端或远端缺少 WebRTC 组件，本次强制测试无法开始。"); transport.disconnect(); return
+            }
+            if options.videoTransport != "ssh" && canWebRTC {
+                do {
+                    try transport.startWebRTC(strict: options.videoTransport == "webrtc")
+                    send(["type":"webrtc.enable"])
+                } catch { alert("WebRTC 初始化失败。"); transport.disconnect(); return }
+            } else if capabilities.contains("native.h264") { send(["type":"video.enable", "codec":"h264"]) }
             if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]
                 if capabilities.contains("display.scale") { launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1 }
@@ -358,8 +419,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             session = id; statusItem?.button?.title = "RemoteApp · 已连接"
         }
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
-        guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
-        guard seq > lastSequence else { return }; lastSequence = seq
+        // Media and control have independent arrival order. A UDP frame cannot
+        // advance the SSH control sequence and discard an earlier resize/close.
+        if !(type == "frame" && object["transport"] as? String == "webrtc") {
+            guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
+            guard seq > lastSequence else { return }; lastSequence = seq
+        }
         if type == "clipboard.data" {
             guard let id = object["request_id"] as? String,
                   let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
@@ -390,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.surface.image = image
             let video = object["codec"] as? String == "h264"
-            let mode = video ? "H.264 视频" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
+            let mode = video ? ((object["transport"] as? String == "webrtc" ? "WebRTC" : "SSH") + " · H.264 视频") : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
             if host.mediaMode != mode { host.mediaMode = mode; host.updateSubtitle() }
             statusItem?.button?.title = "RemoteApp · " + mode
         default: break
