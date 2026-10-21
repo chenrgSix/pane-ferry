@@ -138,6 +138,8 @@ Mac 新包已安装，WindowHost SHA-256 为 `4e0a8b85f2440703661484ddde4b03707b
 
 `npm test` **14 项通过、0 失败**，包含缓存跨启动保存、账号/端口隔离、失败保留、窗口与会话去重及独立实例。`launcher-flow.test.mjs` 编译并执行实际 `App.vue` setup 与 Vue mount/unmount 生命周期，使用非 DOM renderer，只替换 Tauri IPC、存储和聚焦来源；验证重开及聚焦不调用 `list_apps`、主动刷新才调用、统一入口正确调用恢复/接管、已连接时不重复操作、恢复失败不另开应用、发现失败不阻塞已有会话，以及旧主机迟到回包隔离。Vue 类型检查与 Vite 生产构建通过；这些测试不等同于真实 WebView / SSH 界面的端到端验收。本轮只修改启动器，Ubuntu Agent 与视频/输入通道未变。
 
+Swift release 与 Tauri 完整 macOS 应用包构建通过，新包已备份替换到原工作区安装路径。启动器 SHA-256 为 `87b0059ceae2a76af3ea86cba41a88a4f6e0f7bd5c4a28d84d7e439c46bc22f8`；内嵌 WindowHost 仍为上轮 `4e0a8b85f2440703661484ddde4b03707b70b96d5f847e46ea67a5c286990955`。正在运行的启动器需退出并重开以加载新版；本轮没有重启 Ubuntu Agent 或接管用户桌面窗口。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
