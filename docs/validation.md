@@ -63,6 +63,27 @@ H.264 追加验证：Ubuntu 的动态 GTK 测试中，前 10 帧（含首个关�
 
 2026-10-21 远端采集/编码优化：使用 MIT-SHM 私有 fd、只读像素租约直接交给系统 GStreamer、XDamage 重绘唤醒，保持原像素宽高及全部画质配置。新旧两版本八组共 720 个有效样本；2940×1612 持续更新中位数 163.04→115.37ms，2560×1664 持续更新两轮合并 141.46→100.21ms，静止后输入 125.56→79.72ms。2560 动态首轮中位数无明显改善、两轮合并 P95 226.44→244.75ms，全部数据均保留，不能宣称尾延迟已解决。完整阶段、画质和回退检查见 [优化后延迟记录](performance/2026-10-21-optimized-latency.md)。正式非计时 Agent 已部署，安装后真实 SSH 键鼠/缩放/隐藏及三次重连通过；独立 Firefox 恢复到 2940×1612、界面 200%、自动适应及 H.264，中文/emoji 粘贴和点击计数实机通过。ChatGPT 原窗口未操作。
 
+## 2026-10-21 Ubuntu 应用发现与窗口列表
+
+本轮位于 `feat/ubuntu-app-discovery`，从原有 SSH / H.264 稳定链路实现，未合并 WebRTC 实验。Ubuntu 用户级 Agent 与 Mac 启动器均已更新。应用发现与接管范围见 [应用与窗口发现](application-discovery.md)。
+
+本地 `cargo test --workspace --locked` 为 **34 项通过、0 失败、4 项 Linux 专用测试忽略**（Agent 8、backend 1、capture 3、core 2、protocol 13、transport 7）。根 workspace 格式与 Clippy 检查通过；前端 4 项测试、Vue 类型检查和 Vite 生产构建通过；Swift release 及 Tauri 完整 macOS 应用包构建通过。此处替代上方历史记录中的 Mac 32 项计数，不表示 CI 或所有应用兼容性验收。
+
+Ubuntu 上的 `tests/e2e/app_discovery_smoke.py` 使用独立 HOME、XDG 应用目录和 Xvfb，已通过：
+
+- 没有 `apps.json` 仍读取真实 `.desktop` 入口；中文名称、SVG 转 PNG、用户目录覆盖、Hidden / NoDisplay / TryExec / OnlyShowIn 过滤，以及增删入口后的即时刷新。
+- 真实发现的 XTerm 入口启动，以及控制端提交中文与 emoji 后，远端终端程序实际读取到完全一致的 UTF-8 内容。新终端的剪贴板快捷键仅在该实例生效。
+- 只读窗口列表、稳定窗口 ID、名称和图标；同一 PID 的三个窗口中，仅选中主窗口及其对话框进入控制范围，另一主窗口拒绝输入。
+- 选中窗口中文输入、显式双向文本剪贴板；关闭目标后会话结束，同进程另一个窗口及原进程继续存活，Agent 停止也不结束原有应用。
+
+原有 `existing_window_smoke.py --controller-text`、`video_stream_smoke.py` 和 `stale_launch_smoke.py` 在 Ubuntu 隔离环境重新通过；视频测试收到 17 个 H.264 包，并覆盖输入、奇数尺寸和重连。
+
+真实 Ubuntu 桌面只读取元数据：发现 **48 个已安装应用、48 个 PNG 图标、3 个桌面窗口**，另保留 4 个自定义入口。实际 Mac 启动器已显示应用图标、中文名称、搜索及独立的“运行中的桌面窗口”区。未接管、聚焦或输入原桌面的 ChatGPT、uTools 和飞书。
+
+从真实已安装列表的 XTerm 卡片新建独立会话后，Mac 原生窗口显示 **2938×1603、界面 200%、H.264**；控制端输入和主动粘贴命令后，画面实际回显 `discovery-ui-final-ok`。终端正常退出后宿主曾显示 `session_exited` 提示，该退出提示仍待单独改善。测试会话和测试进程均已清理，最终会话数为 0。Agent 服务为 active，状态目录 0700、socket 0600；安装二进制 SHA-256 为 `58fab7a2e8dfac4afa95096bcf9555b41eb3215b6282885ec0b7043551905aae`，更新前版本已备份。
+
+窗口发现和接管当前支持 X11 / XWayland；原生 Wayland 窗口暂不支持。48 个入口成功发现不等于全部应用的独立启动及完整交互均已验收。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
