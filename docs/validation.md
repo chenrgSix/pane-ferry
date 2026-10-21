@@ -63,6 +63,10 @@ H.264 追加验证：Ubuntu 的动态 GTK 测试中，前 10 帧（含首个关�
 
 2026-10-21 远端采集/编码优化：使用 MIT-SHM 私有 fd、只读像素租约直接交给系统 GStreamer、XDamage 重绘唤醒，保持原像素宽高及全部画质配置。新旧两版本八组共 720 个有效样本；2940×1612 持续更新中位数 163.04→115.37ms，2560×1664 持续更新两轮合并 141.46→100.21ms，静止后输入 125.56→79.72ms。2560 动态首轮中位数无明显改善、两轮合并 P95 226.44→244.75ms，全部数据均保留，不能宣称尾延迟已解决。完整阶段、画质和回退检查见 [优化后延迟记录](performance/2026-10-21-optimized-latency.md)。正式非计时 Agent 已部署，安装后真实 SSH 键鼠/缩放/隐藏及三次重连通过；独立 Firefox 恢复到 2940×1612、界面 200%、自动适应及 H.264，中文/emoji 粘贴和点击计数实机通过。ChatGPT 原窗口未操作。
 
+2026-10-21 WebRTC 实验分支：已实现原生 H.264 RTP / DTLS-SRTP / ICE UDP 媒体轨道，控制与信令保留 SSH；分辨率、采集、编码参数及硬件解码路径保持一致。两平台 C++ wire / receiver 与真实 UDP loopback、多窗口协商通过；17 个实际编码 AU 的原有 NAL 字节保持一致，18 个实际视频 AU 经 Mac 硬件解码通过。新版普通 Agent 的 WebRTC 输入、奇数尺寸、动静态重连、主动双向文本剪贴板及原 SSH / HiDPI 回归通过。Mac workspace 测试现为 33 项通过、4 项默认忽略；fmt / clippy、Swift release 及独立实验包组件/许可证打包通过。自动模式的建立失败与中途媒体停流均验证可在同一会话回退 SSH，故障注入不进入正式代码。
+
+相同源码、相同 utun4 路径的十次成功对照共 900 个有效样本：2940×1612 动态 SSH / WebRTC 中位数为 84.16 / 86.39ms，2560×1664 动态为 81.16 / 80.05ms，静止后输入为 60.98 / 67.69ms。2940 动态 P95 有改善，其他组未见稳定收益。追加静止反向复测出现一次媒体已连接但持续请求关键帧、未产生有效回显的失败，单独保留，未混入成功统计。按条件判断不切换默认、不合并 main、不替换当前安装或重启原服务。完整逐次结果、阶段、失败输出和数据见 [WebRTC 对照记录](performance/2026-10-21-webrtc-latency.md)；测试未操作现有 Firefox 或 ChatGPT，不能当作其应用特定验收。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
@@ -70,4 +74,4 @@ H.264 追加验证：Ubuntu 的动态 GTK 测试中，前 10 帧（含首个关�
 - 未做签名、公证、外部安全审计、CI 或生产验收。Ubuntu 联调使用临时用户服务，尚未验证重启系统后的自动启动。
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
-当前技术为 SSH + JSON Lines + H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。Protobuf schema 为后续草案；WebRTC/UDP、QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
+当前默认技术为 SSH + JSON Lines + H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。实验分支实现了可选 WebRTC/UDP 媒体与自动回退；当前测量及稳定性不足以替换默认链路。Protobuf schema 为后续草案；QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。

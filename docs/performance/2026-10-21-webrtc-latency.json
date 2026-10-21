@@ -1,0 +1,1061 @@
+{
+  "date": "2026-10-21",
+  "branch": "experiment/webrtc-h264",
+  "same_source_revision": "02890ce",
+  "libdatachannel_revision": "8e330edebfe766b44f59be427e0454fd18964d4e",
+  "host": "10.0.1.66",
+  "route": "utun4; SSH 10.0.1.66 and actual ICE UDP pair 10.0.1.253 <-> 10.0.1.66",
+  "endpoint": "SurfaceView input handler -> AppKit draw completion",
+  "sample_count": 900,
+  "excluded_warmups": 60,
+  "pooled": {
+    "2560x1664-animated": {
+      "ssh": {
+        "total_ms": {
+          "samples": 180,
+          "mean": 80.1,
+          "median": 81.16,
+          "p95": 103.3,
+          "min": 49.01,
+          "max": 147.92
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 180,
+            "mean": 2.02,
+            "median": 1.07,
+            "p95": 6.76,
+            "min": 0.35,
+            "max": 11.57
+          },
+          "remote_capture": {
+            "samples": 180,
+            "mean": 26.08,
+            "median": 26.37,
+            "p95": 45.04,
+            "min": 8.47,
+            "max": 75.3
+          },
+          "remote_encode": {
+            "samples": 180,
+            "mean": 22.57,
+            "median": 22.44,
+            "p95": 24.17,
+            "min": 20.58,
+            "max": 30.69
+          },
+          "transport": {
+            "samples": 180,
+            "mean": 10.95,
+            "median": 8.44,
+            "p95": 23.4,
+            "min": 4.43,
+            "max": 58.21
+          },
+          "mac": {
+            "samples": 180,
+            "mean": 18.48,
+            "median": 18.87,
+            "p95": 25.97,
+            "min": 9.0,
+            "max": 36.17
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 60,
+            "mean": 82.09,
+            "median": 84.2,
+            "p95": 100.19,
+            "min": 49.01,
+            "max": 147.92
+          },
+          "text": {
+            "samples": 60,
+            "mean": 77.98,
+            "median": 77.06,
+            "p95": 98.32,
+            "min": 49.05,
+            "max": 124.07
+          },
+          "pointer": {
+            "samples": 60,
+            "mean": 80.23,
+            "median": 80.21,
+            "p95": 107.47,
+            "min": 55.15,
+            "max": 112.31
+          }
+        },
+        "over_150ms": 0,
+        "over_250ms": 0
+      },
+      "webrtc": {
+        "total_ms": {
+          "samples": 180,
+          "mean": 80.2,
+          "median": 80.05,
+          "p95": 107.72,
+          "min": 51.01,
+          "max": 221.39
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 180,
+            "mean": 1.57,
+            "median": 0.89,
+            "p95": 5.25,
+            "min": 0.34,
+            "max": 12.04
+          },
+          "remote_capture": {
+            "samples": 180,
+            "mean": 25.4,
+            "median": 25.89,
+            "p95": 41.52,
+            "min": 8.41,
+            "max": 87.5
+          },
+          "remote_encode": {
+            "samples": 180,
+            "mean": 22.88,
+            "median": 22.54,
+            "p95": 24.5,
+            "min": 20.89,
+            "max": 29.77
+          },
+          "transport": {
+            "samples": 180,
+            "mean": 11.64,
+            "median": 8.1,
+            "p95": 25.99,
+            "min": 4.46,
+            "max": 136.53
+          },
+          "mac": {
+            "samples": 180,
+            "mean": 18.71,
+            "median": 19.13,
+            "p95": 25.44,
+            "min": 8.75,
+            "max": 28.86
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 60,
+            "mean": 80.27,
+            "median": 80.05,
+            "p95": 107.72,
+            "min": 56.24,
+            "max": 125.15
+          },
+          "text": {
+            "samples": 60,
+            "mean": 80.84,
+            "median": 80.47,
+            "p95": 107.86,
+            "min": 51.01,
+            "max": 138.78
+          },
+          "pointer": {
+            "samples": 60,
+            "mean": 79.49,
+            "median": 77.79,
+            "p95": 98.18,
+            "min": 57.68,
+            "max": 221.39
+          }
+        },
+        "over_150ms": 1,
+        "over_250ms": 0
+      }
+    },
+    "2560x1664-idle": {
+      "ssh": {
+        "total_ms": {
+          "samples": 90,
+          "mean": 61.51,
+          "median": 60.98,
+          "p95": 78.12,
+          "min": 47.57,
+          "max": 127.72
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 90,
+            "mean": 0.87,
+            "median": 0.63,
+            "p95": 1.46,
+            "min": 0.35,
+            "max": 7.45
+          },
+          "remote_capture": {
+            "samples": 90,
+            "mean": 9.78,
+            "median": 8.92,
+            "p95": 13.39,
+            "min": 8.04,
+            "max": 13.88
+          },
+          "remote_encode": {
+            "samples": 90,
+            "mean": 22.09,
+            "median": 21.94,
+            "p95": 22.62,
+            "min": 20.47,
+            "max": 28.45
+          },
+          "transport": {
+            "samples": 90,
+            "mean": 10.26,
+            "median": 7.62,
+            "p95": 22.38,
+            "min": 5.01,
+            "max": 56.33
+          },
+          "mac": {
+            "samples": 90,
+            "mean": 18.52,
+            "median": 19.14,
+            "p95": 25.8,
+            "min": 10.16,
+            "max": 27.54
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 30,
+            "mean": 60.96,
+            "median": 61.05,
+            "p95": 78.12,
+            "min": 47.57,
+            "max": 94.23
+          },
+          "text": {
+            "samples": 30,
+            "mean": 61.06,
+            "median": 60.63,
+            "p95": 72.36,
+            "min": 50.72,
+            "max": 127.72
+          },
+          "pointer": {
+            "samples": 30,
+            "mean": 62.51,
+            "median": 61.19,
+            "p95": 82.5,
+            "min": 48.96,
+            "max": 83.19
+          }
+        },
+        "over_150ms": 0,
+        "over_250ms": 0
+      },
+      "webrtc": {
+        "total_ms": {
+          "samples": 90,
+          "mean": 73.97,
+          "median": 67.69,
+          "p95": 118.37,
+          "min": 47.77,
+          "max": 176.46
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 90,
+            "mean": 0.86,
+            "median": 0.76,
+            "p95": 1.45,
+            "min": 0.36,
+            "max": 2.0
+          },
+          "remote_capture": {
+            "samples": 90,
+            "mean": 10.17,
+            "median": 9.27,
+            "p95": 13.43,
+            "min": 8.11,
+            "max": 14.41
+          },
+          "remote_encode": {
+            "samples": 90,
+            "mean": 22.07,
+            "median": 21.93,
+            "p95": 22.71,
+            "min": 20.55,
+            "max": 28.73
+          },
+          "transport": {
+            "samples": 90,
+            "mean": 19.05,
+            "median": 11.68,
+            "p95": 59.95,
+            "min": 5.5,
+            "max": 127.87
+          },
+          "mac": {
+            "samples": 90,
+            "mean": 21.83,
+            "median": 21.96,
+            "p95": 34.64,
+            "min": 9.32,
+            "max": 61.82
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 30,
+            "mean": 69.28,
+            "median": 67.48,
+            "p95": 93.8,
+            "min": 49.17,
+            "max": 109.67
+          },
+          "text": {
+            "samples": 30,
+            "mean": 72.82,
+            "median": 67.75,
+            "p95": 116.76,
+            "min": 47.77,
+            "max": 176.13
+          },
+          "pointer": {
+            "samples": 30,
+            "mean": 79.81,
+            "median": 67.91,
+            "p95": 158.3,
+            "min": 52.12,
+            "max": 176.46
+          }
+        },
+        "over_150ms": 3,
+        "over_250ms": 0
+      }
+    },
+    "2940x1612-animated": {
+      "ssh": {
+        "total_ms": {
+          "samples": 180,
+          "mean": 90.68,
+          "median": 84.16,
+          "p95": 132.16,
+          "min": 51.16,
+          "max": 247.95
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 180,
+            "mean": 1.96,
+            "median": 1.09,
+            "p95": 6.82,
+            "min": 0.37,
+            "max": 10.6
+          },
+          "remote_capture": {
+            "samples": 180,
+            "mean": 25.89,
+            "median": 25.31,
+            "p95": 46.12,
+            "min": 9.57,
+            "max": 72.51
+          },
+          "remote_encode": {
+            "samples": 180,
+            "mean": 25.41,
+            "median": 25.28,
+            "p95": 27.29,
+            "min": 22.38,
+            "max": 31.7
+          },
+          "transport": {
+            "samples": 180,
+            "mean": 16.28,
+            "median": 9.97,
+            "p95": 41.14,
+            "min": 6.13,
+            "max": 152.02
+          },
+          "mac": {
+            "samples": 180,
+            "mean": 21.14,
+            "median": 20.92,
+            "p95": 33.2,
+            "min": 9.72,
+            "max": 63.64
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 60,
+            "mean": 88.62,
+            "median": 82.47,
+            "p95": 128.64,
+            "min": 51.16,
+            "max": 197.95
+          },
+          "text": {
+            "samples": 60,
+            "mean": 95.85,
+            "median": 87.51,
+            "p95": 167.71,
+            "min": 55.43,
+            "max": 247.95
+          },
+          "pointer": {
+            "samples": 60,
+            "mean": 87.56,
+            "median": 84.16,
+            "p95": 118.84,
+            "min": 58.81,
+            "max": 132.16
+          }
+        },
+        "over_150ms": 8,
+        "over_250ms": 0
+      },
+      "webrtc": {
+        "total_ms": {
+          "samples": 180,
+          "mean": 88.16,
+          "median": 86.39,
+          "p95": 112.38,
+          "min": 54.23,
+          "max": 161.18
+        },
+        "groups_ms": {
+          "input": {
+            "samples": 180,
+            "mean": 1.96,
+            "median": 1.23,
+            "p95": 5.96,
+            "min": 0.38,
+            "max": 11.57
+          },
+          "remote_capture": {
+            "samples": 180,
+            "mean": 28.31,
+            "median": 30.54,
+            "p95": 47.16,
+            "min": 9.31,
+            "max": 69.69
+          },
+          "remote_encode": {
+            "samples": 180,
+            "mean": 25.46,
+            "median": 25.22,
+            "p95": 27.34,
+            "min": 22.66,
+            "max": 35.08
+          },
+          "transport": {
+            "samples": 180,
+            "mean": 11.71,
+            "median": 8.69,
+            "p95": 26.13,
+            "min": 4.46,
+            "max": 77.34
+          },
+          "mac": {
+            "samples": 180,
+            "mean": 20.72,
+            "median": 20.83,
+            "p95": 31.58,
+            "min": 9.88,
+            "max": 54.67
+          }
+        },
+        "modes_ms": {
+          "key": {
+            "samples": 60,
+            "mean": 88.87,
+            "median": 86.4,
+            "p95": 114.73,
+            "min": 63.94,
+            "max": 161.18
+          },
+          "text": {
+            "samples": 60,
+            "mean": 85.93,
+            "median": 86.62,
+            "p95": 107.48,
+            "min": 65.6,
+            "max": 112.38
+          },
+          "pointer": {
+            "samples": 60,
+            "mean": 89.67,
+            "median": 85.3,
+            "p95": 115.09,
+            "min": 54.23,
+            "max": 153.58
+          }
+        },
+        "over_150ms": 3,
+        "over_250ms": 0
+      }
+    }
+  },
+  "runs": [
+    {
+      "name": "rtc-compare-2560-animated-1-ssh",
+      "profile": "2560x1664-animated",
+      "transport": "ssh",
+      "measured_at": "2026-10-21T15:04:39+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 82.52,
+        "median": 82.4,
+        "p95": 112.31,
+        "min": 49.01,
+        "max": 147.92
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 1.84,
+          "median": 0.92,
+          "p95": 6.76,
+          "min": 0.36,
+          "max": 9.84
+        },
+        "remote_capture": {
+          "mean": 27.34,
+          "median": 27.17,
+          "p95": 46.54,
+          "min": 8.61,
+          "max": 75.3
+        },
+        "remote_encode": {
+          "mean": 22.63,
+          "median": 22.45,
+          "p95": 24.33,
+          "min": 20.83,
+          "max": 30.69
+        },
+        "transport": {
+          "mean": 11.45,
+          "median": 8.59,
+          "p95": 24.9,
+          "min": 4.43,
+          "max": 58.21
+        },
+        "mac": {
+          "mean": 19.25,
+          "median": 19.65,
+          "p95": 26.96,
+          "min": 10.07,
+          "max": 36.17
+        }
+      },
+      "source_sha256": "6f1406b9a3d53b35e7888c0b433171a27cb135ead58e555a81cf2ff8a3839570"
+    },
+    {
+      "name": "rtc-compare-2560-animated-1-webrtc",
+      "profile": "2560x1664-animated",
+      "transport": "webrtc",
+      "measured_at": "2026-10-21T15:05:14+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 82.61,
+        "median": 80.96,
+        "p95": 115.35,
+        "min": 51.01,
+        "max": 221.39
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 1.53,
+          "median": 0.93,
+          "p95": 5.29,
+          "min": 0.36,
+          "max": 6.49
+        },
+        "remote_capture": {
+          "mean": 26.59,
+          "median": 27.4,
+          "p95": 42.14,
+          "min": 8.9,
+          "max": 87.5
+        },
+        "remote_encode": {
+          "mean": 22.95,
+          "median": 22.54,
+          "p95": 24.6,
+          "min": 20.89,
+          "max": 29.26
+        },
+        "transport": {
+          "mean": 12.38,
+          "median": 8.08,
+          "p95": 26.48,
+          "min": 5.46,
+          "max": 136.53
+        },
+        "mac": {
+          "mean": 19.15,
+          "median": 19.97,
+          "p95": 27.15,
+          "min": 8.75,
+          "max": 28.86
+        }
+      },
+      "source_sha256": "dddc4e8ee004db56f493c6af4ed890e170ff845dc78c084e5d0844e2dcd37454"
+    },
+    {
+      "name": "rtc-compare-2560-animated-2-ssh",
+      "profile": "2560x1664-animated",
+      "transport": "ssh",
+      "measured_at": "2026-10-21T15:06:19+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 77.67,
+        "median": 77.04,
+        "p95": 98.81,
+        "min": 49.05,
+        "max": 108.98
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 2.19,
+          "median": 1.26,
+          "p95": 6.97,
+          "min": 0.35,
+          "max": 11.57
+        },
+        "remote_capture": {
+          "mean": 24.82,
+          "median": 23.84,
+          "p95": 44.97,
+          "min": 8.47,
+          "max": 53.58
+        },
+        "remote_encode": {
+          "mean": 22.51,
+          "median": 22.41,
+          "p95": 23.99,
+          "min": 20.58,
+          "max": 25.44
+        },
+        "transport": {
+          "mean": 10.45,
+          "median": 8.24,
+          "p95": 22.13,
+          "min": 4.89,
+          "max": 41.12
+        },
+        "mac": {
+          "mean": 17.71,
+          "median": 18.1,
+          "p95": 24.63,
+          "min": 9.0,
+          "max": 28.13
+        }
+      },
+      "source_sha256": "63896e6155189e488bd0513e9ed5d6f154867913163d817997a13447b31300dc"
+    },
+    {
+      "name": "rtc-compare-2560-animated-2-webrtc",
+      "profile": "2560x1664-animated",
+      "transport": "webrtc",
+      "measured_at": "2026-10-21T15:05:47+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 77.79,
+        "median": 78.47,
+        "p95": 100.8,
+        "min": 56.24,
+        "max": 124.52
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 1.62,
+          "median": 0.86,
+          "p95": 5.1,
+          "min": 0.34,
+          "max": 12.04
+        },
+        "remote_capture": {
+          "mean": 24.2,
+          "median": 25.67,
+          "p95": 41.07,
+          "min": 8.41,
+          "max": 48.19
+        },
+        "remote_encode": {
+          "mean": 22.81,
+          "median": 22.52,
+          "p95": 24.07,
+          "min": 21.28,
+          "max": 29.77
+        },
+        "transport": {
+          "mean": 10.9,
+          "median": 8.12,
+          "p95": 21.41,
+          "min": 4.46,
+          "max": 46.95
+        },
+        "mac": {
+          "mean": 18.27,
+          "median": 18.26,
+          "p95": 24.9,
+          "min": 9.15,
+          "max": 25.83
+        }
+      },
+      "source_sha256": "b0b2d7fcad6eb15d37c1e04478e653a394b54dd320e45f1aa2321cea77e15ee0"
+    },
+    {
+      "name": "rtc-compare-2560-idle-1-ssh",
+      "profile": "2560x1664-idle",
+      "transport": "ssh",
+      "measured_at": "2026-10-21T15:06:56+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 61.51,
+        "median": 60.98,
+        "p95": 78.12,
+        "min": 47.57,
+        "max": 127.72
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 0.87,
+          "median": 0.63,
+          "p95": 1.46,
+          "min": 0.35,
+          "max": 7.45
+        },
+        "remote_capture": {
+          "mean": 9.78,
+          "median": 8.92,
+          "p95": 13.39,
+          "min": 8.04,
+          "max": 13.88
+        },
+        "remote_encode": {
+          "mean": 22.09,
+          "median": 21.94,
+          "p95": 22.62,
+          "min": 20.47,
+          "max": 28.45
+        },
+        "transport": {
+          "mean": 10.26,
+          "median": 7.62,
+          "p95": 22.38,
+          "min": 5.01,
+          "max": 56.33
+        },
+        "mac": {
+          "mean": 18.52,
+          "median": 19.14,
+          "p95": 25.8,
+          "min": 10.16,
+          "max": 27.54
+        }
+      },
+      "source_sha256": "392ff6bb839f1c60c89bd54897a4bdb70c3bd5dd1e7f6c41742cf2409b87dbb2"
+    },
+    {
+      "name": "rtc-compare-2560-idle-1-webrtc",
+      "profile": "2560x1664-idle",
+      "transport": "webrtc",
+      "measured_at": "2026-10-21T15:07:36+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 73.97,
+        "median": 67.69,
+        "p95": 118.37,
+        "min": 47.77,
+        "max": 176.46
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 0.86,
+          "median": 0.76,
+          "p95": 1.45,
+          "min": 0.36,
+          "max": 2.0
+        },
+        "remote_capture": {
+          "mean": 10.17,
+          "median": 9.27,
+          "p95": 13.43,
+          "min": 8.11,
+          "max": 14.41
+        },
+        "remote_encode": {
+          "mean": 22.07,
+          "median": 21.93,
+          "p95": 22.71,
+          "min": 20.55,
+          "max": 28.73
+        },
+        "transport": {
+          "mean": 19.05,
+          "median": 11.68,
+          "p95": 59.95,
+          "min": 5.5,
+          "max": 127.87
+        },
+        "mac": {
+          "mean": 21.83,
+          "median": 21.96,
+          "p95": 34.64,
+          "min": 9.32,
+          "max": 61.82
+        }
+      },
+      "source_sha256": "8a89fe9056cfbff4a9608bc7f87a1352adf849c3647bae6fcf76233aee6a4eaa"
+    },
+    {
+      "name": "rtc-compare-2940-animated-1-ssh",
+      "profile": "2940x1612-animated",
+      "transport": "ssh",
+      "measured_at": "2026-10-21T15:02:07+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 98.84,
+        "median": 90.19,
+        "p95": 167.94,
+        "min": 58.81,
+        "max": 247.95
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 2.07,
+          "median": 1.14,
+          "p95": 7.14,
+          "min": 0.42,
+          "max": 10.6
+        },
+        "remote_capture": {
+          "mean": 25.83,
+          "median": 26.4,
+          "p95": 44.89,
+          "min": 9.57,
+          "max": 66.44
+        },
+        "remote_encode": {
+          "mean": 25.39,
+          "median": 25.31,
+          "p95": 27.22,
+          "min": 23.25,
+          "max": 29.17
+        },
+        "transport": {
+          "mean": 21.4,
+          "median": 11.92,
+          "p95": 90.99,
+          "min": 6.4,
+          "max": 152.02
+        },
+        "mac": {
+          "mean": 24.15,
+          "median": 23.1,
+          "p95": 35.45,
+          "min": 11.15,
+          "max": 63.64
+        }
+      },
+      "source_sha256": "9133132766d7f426bdae3632fe2de5428c9e4243d0c8096fd69bd8438f49f1be"
+    },
+    {
+      "name": "rtc-compare-2940-animated-1-webrtc",
+      "profile": "2940x1612-animated",
+      "transport": "webrtc",
+      "measured_at": "2026-10-21T15:02:51+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 90.51,
+        "median": 86.86,
+        "p95": 115.09,
+        "min": 63.94,
+        "max": 161.18
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 1.89,
+          "median": 1.01,
+          "p95": 5.96,
+          "min": 0.47,
+          "max": 11.57
+        },
+        "remote_capture": {
+          "mean": 26.6,
+          "median": 26.12,
+          "p95": 43.41,
+          "min": 9.31,
+          "max": 66.57
+        },
+        "remote_encode": {
+          "mean": 25.52,
+          "median": 25.27,
+          "p95": 27.7,
+          "min": 22.66,
+          "max": 33.12
+        },
+        "transport": {
+          "mean": 13.11,
+          "median": 9.66,
+          "p95": 34.09,
+          "min": 5.18,
+          "max": 77.34
+        },
+        "mac": {
+          "mean": 23.39,
+          "median": 22.63,
+          "p95": 35.47,
+          "min": 12.1,
+          "max": 54.67
+        }
+      },
+      "source_sha256": "6daf255e8dcdd3eb34416255f7fffc0cfd747ec95d60901c3c27c6b345e35c82"
+    },
+    {
+      "name": "rtc-compare-2940-animated-2-ssh",
+      "profile": "2940x1612-animated",
+      "transport": "ssh",
+      "measured_at": "2026-10-21T15:04:04+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 82.51,
+        "median": 80.34,
+        "p95": 115.75,
+        "min": 51.16,
+        "max": 134.84
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 1.86,
+          "median": 1.09,
+          "p95": 6.49,
+          "min": 0.37,
+          "max": 10.56
+        },
+        "remote_capture": {
+          "mean": 25.94,
+          "median": 22.83,
+          "p95": 46.31,
+          "min": 9.74,
+          "max": 72.51
+        },
+        "remote_encode": {
+          "mean": 25.42,
+          "median": 25.26,
+          "p95": 27.53,
+          "min": 22.38,
+          "max": 31.7
+        },
+        "transport": {
+          "mean": 11.15,
+          "median": 8.26,
+          "p95": 31.67,
+          "min": 6.13,
+          "max": 53.71
+        },
+        "mac": {
+          "mean": 18.14,
+          "median": 18.36,
+          "p95": 25.73,
+          "min": 9.72,
+          "max": 27.25
+        }
+      },
+      "source_sha256": "59339fc01157b1fb457b442fc1b3a4ebf5d8edc14785b00aae98ecfc19e74593"
+    },
+    {
+      "name": "rtc-compare-2940-animated-2-webrtc",
+      "profile": "2940x1612-animated",
+      "transport": "webrtc",
+      "measured_at": "2026-10-21T15:03:29+0800",
+      "samples": 90,
+      "warmups": 6,
+      "total_ms": {
+        "samples": 90,
+        "mean": 85.81,
+        "median": 84.53,
+        "p95": 107.48,
+        "min": 54.23,
+        "max": 151.54
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 2.02,
+          "median": 1.29,
+          "p95": 6.14,
+          "min": 0.38,
+          "max": 7.98
+        },
+        "remote_capture": {
+          "mean": 30.02,
+          "median": 31.41,
+          "p95": 50.43,
+          "min": 9.45,
+          "max": 69.69
+        },
+        "remote_encode": {
+          "mean": 25.41,
+          "median": 25.17,
+          "p95": 27.07,
+          "min": 23.23,
+          "max": 35.08
+        },
+        "transport": {
+          "mean": 10.31,
+          "median": 7.93,
+          "p95": 23.59,
+          "min": 4.46,
+          "max": 33.74
+        },
+        "mac": {
+          "mean": 18.05,
+          "median": 17.88,
+          "p95": 25.73,
+          "min": 9.88,
+          "max": 27.23
+        }
+      },
+      "source_sha256": "eef7387b680f4970f3723bef3f3bc0c7675d3cfa174f85e1419041f96d8edf32"
+    }
+  ],
+  "failed_runs": [
+    {
+      "name": "rtc-compare-2560-idle-2-webrtc",
+      "source_sha256": "7b330535959ba10d8b81f4cd220971ea6673917169077445c68438499e689325",
+      "phase": "static reverse-order recheck",
+      "valid_samples": 0,
+      "drawn_response_frames": 0,
+      "ice_connected": true,
+      "receiver_recovery_events": 16,
+      "error": "WebRTC media failed after connected; strict mode did not silently fall back",
+      "paired_ssh_not_run": true
+    }
+  ],
+  "notes": [
+    "Both transports use the same encoder, resolution and hardware decoder.",
+    "ssh_network is the historical field name for round-trip transport/protocol/buffering residual, including SSH input and either SSH or WebRTC video; it is not pure one-way network latency.",
+    "Response bytes have different envelopes and are not a wire bandwidth measurement.",
+    "All 900 measured input markers and 60 warmups matched the drawn response. No packet-loss count was instrumented.",
+    "Physical key/pointer event acquisition and panel scanout are outside the endpoint."
+  ]
+}

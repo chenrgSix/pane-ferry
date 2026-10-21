@@ -1,0 +1,37 @@
+Building isolated Ubuntu timing probe...
+   Compiling remoteapp-agent v0.1.0 (/tmp/remoteapp-end-to-end-WlSxs2/source/apps/linux-agent)
+    Finished `release` profile [optimized] target(s) in 1.62s
+Building actual AppKit host with timing hooks...
+Measuring 90 steady-state input responses at 2560x1664...
+sandbox_extension_issue_file_to_process failed for /tmp/remoteapp-end-to-end-8r81vhm2/RemoteAppLatencyProbe.app: 1 (Operation not permitted)
+Probe sends hello
+Probe receives hello
+Probe sends app.launch
+Probe receives video.ready
+Probe receives session.started
+RTC event 5 1
+RTC event 5 2
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+RTC event 7 6291460
+Traceback (most recent call last):
+  File "/Users/chenzhirong/Code/ideProject/lan-remoteapp/tests/performance/end_to_end.py", line 306, in <module>
+    main()
+    ~~~~^^
+  File "/Users/chenzhirong/Code/ideProject/lan-remoteapp/tests/performance/end_to_end.py", line 286, in main
+    raise AssertionError(mac.get('error', 'test host failed'))
+AssertionError: WebRTC 媒体连接失败；本次强制测试不会悄悄回退 SSH。
+会话 ID：aad450b80efe248b79a7f0ccef1f0731

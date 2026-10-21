@@ -77,3 +77,8 @@ X11 读像素；`app_render`、`capture_wait`、`capture` 是进一步诊断项�
 2026-10-21 的远端优化对照保存于
 [`docs/performance/2026-10-21-optimized-latency.md`](../../docs/performance/2026-10-21-optimized-latency.md)，
 含八组统计及 720 个逐样本数据，也保留整体延迟未改善的首轮动态场景。
+
+相同源码与相同网络路径的 SSH / WebRTC 对照见
+[`docs/performance/2026-10-21-webrtc-latency.md`](../../docs/performance/2026-10-21-webrtc-latency.md)：
+十次成功运行共 900 个有效样本，另单独保存一次追加复测的媒体恢复失败。默认链路未切换，
+失败运行未计作零延迟、有效样本或静默 SSH 回退成功。
