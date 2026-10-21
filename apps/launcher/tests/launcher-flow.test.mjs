@@ -79,7 +79,6 @@ test("actual launcher restores cached apps at mount and only refreshes live meta
     assert.equal(mounted.state.apps[0].name, "Firefox", "cached list is visible before IPC completes");
     await settled(mounted.state);
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
-    mounted.state.lastRuntimeRead = 0;
     mounted.listeners.get("focus")();
     await settled(mounted.state);
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
@@ -147,4 +146,39 @@ test("catalog failures do not block live sessions; late metadata from a previous
     assert.equal(state.sessionWarning, "");
     assert.equal(state.runningConnections.length, 0);
   } finally { mounted.unmount(); }
+});
+
+test("focus refresh never swallows the first connection click or overwrites newer connection state", async () => {
+  const now = Date.now;
+  let defer = false;
+  let controlled = false;
+  const replies = [];
+  const mounted = mount(storage(), {
+    list_sessions: () => defer ? new Promise(resolve => replies.push(() => resolve([session("remote", "firefox", 228)]))) : [session("remote", "firefox", 228, controlled)],
+    list_desktop_windows: () => defer ? new Promise(resolve => replies.push(() => resolve({ windows: [], unavailable_reason: null }))) : { windows: [], unavailable_reason: null },
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    const later = now() + 6000;
+    Date.now = () => later;
+    defer = true;
+    state.onFocus();
+    state.onFocus();
+    assert.equal(state.busy, false, "background metadata must leave the Connect action available");
+    assert.equal(replies.length, 2, "duplicate focus events share one pending metadata read");
+    defer = false;
+    controlled = true;
+    await state.connect(state.runningConnections[0]);
+    assert.equal(actions(mounted).length, 1);
+    assert.equal(actions(mounted)[0].command, "resume_session");
+    assert.equal(state.runningConnections[0].controlled, true);
+    for (const reply of replies) reply();
+    await settled(state);
+    assert.equal(state.runningConnections[0].controlled, true, "late pre-connection metadata must not replace the new status");
+  } finally {
+    Date.now = now;
+    for (const reply of replies) reply();
+    mounted.unmount();
+  }
 });

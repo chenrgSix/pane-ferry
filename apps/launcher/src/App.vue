@@ -51,7 +51,8 @@ const filteredConnections = computed(() => runningConnections.value.filter(row =
 const signature = () => endpointKey(endpoint.value),
   catalogCurrent = computed(() => connected.value === signature()),
   runtimeCurrent = computed(() => runtimeEndpoint.value === signature());
-let lastRuntimeRead = 0;
+let runtimeRevision = 0;
+let focusRead: Promise<void> | undefined;
 const valid = computed(() =>
   Boolean(
     endpoint.value.host.trim() &&
@@ -94,23 +95,13 @@ function restoreCatalog() {
   desktopWindows.value = [];
   sessions.value = [];
   runtimeEndpoint.value = "";
-  lastRuntimeRead = 0;
+  runtimeRevision++;
+  focusRead = undefined;
   discoveryWarning.value = "";
   windowWarning.value = "";
   sessionWarning.value = "";
   error.value = "";
   notice.value = "";
-}
-async function readSessions(sent = { ...endpoint.value }) {
-  try {
-    const data = await invoke<SessionInfo[]>("list_sessions", { endpoint: sent });
-    if (signature() !== endpointKey(sent)) return;
-    sessions.value = data;
-    sessionWarning.value = "";
-    runtimeEndpoint.value = endpointKey(sent);
-  } catch (error) {
-    if (signature() === endpointKey(sent)) sessionWarning.value = `会话读取失败：${String(error)}`;
-  }
 }
 async function load(refreshApps = false) {
   if (!valid.value || busy.value) return;
@@ -139,21 +130,24 @@ async function load(refreshApps = false) {
     busy.value = false;
   }
 }
-async function readWindows(sent = { ...endpoint.value }) {
-  try {
-    const result = await invoke<DesktopWindows>("list_desktop_windows", { endpoint: sent });
-    if (signature() !== endpointKey(sent)) return;
-    desktopWindows.value = result.windows;
-    windowWarning.value = result.unavailable_reason || "";
-    runtimeEndpoint.value = endpointKey(sent);
-  } catch (error) {
-    if (signature() !== endpointKey(sent)) return;
-    windowWarning.value = `运行窗口读取失败：${String(error)}`;
-  }
-}
 async function readRuntime(sent = { ...endpoint.value }) {
-  await Promise.all([readSessions(sent), readWindows(sent)]);
-  if (signature() === endpointKey(sent)) lastRuntimeRead = Date.now();
+  const revision = ++runtimeRevision;
+  const [running, desktop] = await Promise.allSettled([
+    invoke<SessionInfo[]>("list_sessions", { endpoint: sent }),
+    invoke<DesktopWindows>("list_desktop_windows", { endpoint: sent }),
+  ]);
+  // A focus refresh may overlap a connect/disconnect or a host change.
+  if (signature() !== endpointKey(sent) || revision !== runtimeRevision) return;
+  if (running.status === "fulfilled") {
+    sessions.value = running.value;
+    sessionWarning.value = "";
+    runtimeEndpoint.value = endpointKey(sent);
+  } else sessionWarning.value = `会话读取失败：${String(running.reason)}`;
+  if (desktop.status === "fulfilled") {
+    desktopWindows.value = desktop.value.windows;
+    windowWarning.value = desktop.value.unavailable_reason || "";
+    runtimeEndpoint.value = endpointKey(sent);
+  } else windowWarning.value = `运行窗口读取失败：${String(desktop.reason)}`;
 }
 async function refresh() {
   if (busy.value || !valid.value) return;
@@ -222,7 +216,11 @@ async function connect(row: Connection) {
   else await launch({ id: row.appId, name: row.name });
 }
 function onFocus() {
-  if ((catalogCurrent.value || runtimeCurrent.value) && Date.now() - lastRuntimeRead > 5000) void refresh();
+  if (!valid.value || !(catalogCurrent.value || runtimeCurrent.value) || focusRead) return;
+  // Returning to the launcher must not disable or swallow the user's first click.
+  const pending = readRuntime();
+  focusRead = pending;
+  void pending.finally(() => { if (focusRead === pending) focusRead = undefined; });
 }
 watch(signature, restoreCatalog);
 onMounted(() => {
