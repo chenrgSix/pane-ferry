@@ -1,27 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { PendingLaunches } from "./session-store";
 import { launchFailure } from "./launch-failure";
+import { CatalogCache, readCatalog } from "./catalog-cache";
+import { endpointKey } from "./launcher-types";
+import type { AppCatalog, AppInfo, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
-type Endpoint = { host: string; user: string; port: number };
-type LaunchTarget = { id: string; name: string; unavailable_reason?: string | null };
-type AppInfo = LaunchTarget & { description: string; icon_png?: string | null; source: "desktop" | "custom" };
-type AppCatalog = { apps: AppInfo[]; discovery_error: string | null };
-type DesktopWindow = LaunchTarget & { window_id: number; title: string; icon_png?: string | null; minimized: boolean; controlled: boolean; session_id?: string | null };
-type DesktopWindows = { windows: DesktopWindow[]; unavailable_reason: string | null };
 type Result = {
   session_id: string | null;
   display: string | null;
   pid: number;
   message: string;
-};
-type SessionInfo = {
-  session_id: string;
-  app_id: string;
-  backend: "native";
-  display: number;
-  controlled: boolean;
 };
 const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
   apps = ref<AppInfo[]>([]),
@@ -33,6 +23,8 @@ const busy = ref(false),
   renderScale = ref("auto"),
   error = ref(""),
   notice = ref(""),
+  catalogSavedAt = ref<number | null>(null),
+  catalogPersisted = ref(false),
   connected = ref(""),
   sessions = ref<SessionInfo[]>([]),
   launches = ref<{ name: string; result: Result }[]>([]);
@@ -41,6 +33,7 @@ try {
   storage = localStorage;
 } catch {}
 const attempts = new PendingLaunches(storage);
+const catalogCache = new CatalogCache(storage);
 const filtered = computed(() =>
   apps.value.filter((a) =>
     `${a.name} ${a.id}`.toLowerCase().includes(search.value.toLowerCase()),
@@ -50,7 +43,7 @@ const installed = computed(() => filtered.value.filter(app => app.source === "de
 const custom = computed(() => filtered.value.filter(app => app.source === "custom"));
 const filteredWindows = computed(() => desktopWindows.value.filter(window =>
   `${window.name} ${window.title}`.toLowerCase().includes(search.value.toLowerCase())));
-const signature = () => JSON.stringify(endpoint.value),
+const signature = () => endpointKey(endpoint.value),
   catalogCurrent = computed(() => connected.value === signature());
 const valid = computed(() =>
   Boolean(
@@ -63,7 +56,7 @@ const valid = computed(() =>
 );
 function save() {
   try {
-    localStorage.setItem(
+    storage?.setItem(
       "lan-remoteapp.connection",
       JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value }),
     );
@@ -87,51 +80,60 @@ try {
 } catch {}
 const appName = (id: string) => apps.value.find((a) => a.id === id)?.name
   || desktopWindows.value.find(window => window.id === id)?.name || id;
-async function readSessions() {
-  const sent = { ...endpoint.value };
-  const data = await invoke<SessionInfo[]>("list_sessions", { endpoint: sent });
-  if (signature() === JSON.stringify(sent)) sessions.value = data;
+function restoreCatalog() {
+  const cached = catalogCache.get(signature());
+  apps.value = cached?.apps ?? [];
+  connected.value = cached ? signature() : "";
+  catalogSavedAt.value = cached?.savedAt ?? null;
+  catalogPersisted.value = catalogCache.isPersisted(signature());
+  desktopWindows.value = [];
+  sessions.value = [];
+  discoveryWarning.value = "";
+  windowWarning.value = "";
+  error.value = "";
+  notice.value = "";
 }
-async function load() {
+async function readSessions(sent = { ...endpoint.value }) {
+  const data = await invoke<SessionInfo[]>("list_sessions", { endpoint: sent });
+  if (signature() === endpointKey(sent)) sessions.value = data;
+}
+async function load(refreshApps = false) {
   if (!valid.value || busy.value) return;
   busy.value = true;
   error.value = "";
   notice.value = "";
-  apps.value = [];
-  desktopWindows.value = [];
-  discoveryWarning.value = "";
-  windowWarning.value = "";
-  sessions.value = [];
-  connected.value = "";
   const sent = { ...endpoint.value };
   try {
-    const [catalog, running] = await Promise.all([
-      invoke<AppCatalog>("list_apps", { endpoint: sent }),
-      invoke<SessionInfo[]>("list_sessions", { endpoint: sent }),
+    const [catalog, running] = await Promise.allSettled([
+      readCatalog(catalogCache, endpointKey(sent), () => invoke<AppCatalog>("list_apps", { endpoint: sent }), refreshApps),
+      readSessions(sent),
+      readWindows(sent),
     ]);
-    if (signature() !== JSON.stringify(sent)) return;
-    apps.value = catalog.apps;
-    discoveryWarning.value = catalog.discovery_error || "";
-    sessions.value = running;
-    connected.value = JSON.stringify(sent);
-    await readWindows();
-    notice.value = `已读取 ${catalog.apps.filter(app => app.source === "desktop").length} 个已安装应用，${desktopWindows.value.length} 个桌面窗口，${running.length} 个远程会话。`;
+    if (signature() !== endpointKey(sent)) return;
+    const failures: string[] = [];
+    if (catalog.status === "fulfilled") {
+      apps.value = catalog.value.catalog.apps;
+      discoveryWarning.value = catalog.value.catalog.discovery_error || "";
+      catalogSavedAt.value = catalog.value.savedAt;
+      catalogPersisted.value = catalog.value.persisted;
+      connected.value = endpointKey(sent);
+      notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
+    } else failures.push(`应用读取失败：${String(catalog.reason)}`);
+    if (running.status === "rejected") failures.push(`会话读取失败：${String(running.reason)}`);
+    error.value = failures.join(" ");
     save();
-  } catch (e) {
-    error.value = String(e);
   } finally {
     busy.value = false;
   }
 }
-async function readWindows() {
-  const sent = { ...endpoint.value };
+async function readWindows(sent = { ...endpoint.value }) {
   try {
     const result = await invoke<DesktopWindows>("list_desktop_windows", { endpoint: sent });
-    if (signature() !== JSON.stringify(sent)) return;
+    if (signature() !== endpointKey(sent)) return;
     desktopWindows.value = result.windows;
     windowWarning.value = result.unavailable_reason || "";
   } catch (error) {
-    desktopWindows.value = [];
+    if (signature() !== endpointKey(sent)) return;
     windowWarning.value = `运行窗口读取失败：${String(error)}`;
   }
 }
@@ -202,6 +204,11 @@ async function resume(session: SessionInfo) {
     busy.value = false;
   }
 }
+watch(signature, restoreCatalog);
+onMounted(() => {
+  restoreCatalog();
+  if (valid.value) void load();
+});
 </script>
 <template>
   <div class="shell">
@@ -256,8 +263,8 @@ async function resume(session: SessionInfo) {
               type="number"
               min="1"
               max="65535" /></label
-          ><button :disabled="!valid || busy" @click="load">
-            {{ busy ? "处理中…" : "读取应用与窗口 →" }}
+          ><button :disabled="!valid || busy" @click="load()">
+            {{ busy ? "处理中…" : catalogCurrent ? "刷新运行状态 →" : "连接并读取 →" }}
           </button>
         </div>
         <p class="hint">
@@ -286,19 +293,21 @@ async function resume(session: SessionInfo) {
           <h2>
             03 <span>已安装应用</span><span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span>
           </h2>
-          <input
+          <div class="catalog-actions"><input
             v-model="search"
             class="search"
             placeholder="搜索应用或窗口…"
             aria-label="搜索应用或窗口"
-          />
+          /><button class="session-action" :disabled="!valid || busy" @click="load(true)">刷新应用</button></div>
         </div>
+        <p v-if="catalogSavedAt" class="hint">上次更新：{{ new Date(catalogSavedAt).toLocaleString() }}。安装或卸载应用后可点“刷新应用”。</p>
+        <p v-if="catalogSavedAt && !catalogPersisted" class="hint">本机缓存无法保存；当前列表仍可使用，退出启动器后需要重新读取。</p>
         <p v-if="discoveryWarning" class="alert error" role="status">{{ discoveryWarning }}</p>
         <div v-if="!apps.some(app => app.source === 'desktop')" class="empty">
           <div>▦</div>
           <h3>{{ busy ? "正在读取 Ubuntu 应用" : "Ubuntu 已安装应用将在这里" }}</h3>
           <p>
-            连接后读取 Ubuntu 的应用名称和图标。安装或卸载应用后，重新读取即可更新。
+            首次连接后读取并缓存名称和图标，下次打开直接显示。
           </p>
         </div>
         <div v-else class="app-grid">
@@ -317,7 +326,7 @@ async function resume(session: SessionInfo) {
         </div>
         <p v-if="apps.some(app => app.source === 'desktop') && !installed.length" class="hint">没有匹配的应用。</p>
         <p v-if="apps.length && !catalogCurrent" class="hint">
-          主机信息已改变，请重新读取应用与窗口。
+          主机信息已改变，请连接当前主机。
         </p>
       </section>
       <section v-if="catalogCurrent" class="catalog desktop-windows">
