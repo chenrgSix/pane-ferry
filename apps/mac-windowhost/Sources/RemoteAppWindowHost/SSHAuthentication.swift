@@ -68,7 +68,7 @@ enum SSHAuthentication {
             environment["SSH_ASKPASS_REQUIRE"] = "force"
             environment["REMOTEAPP_SSH_ASKPASS_ACCOUNT"] = account
             process.environment = environment
-            return ["-S", "~/.ssh/lan-remoteapp-password-%C", "-oBatchMode=no", "-oNumberOfPasswordPrompts=1", "-oControlMaster=auto", "-oControlPersist=10m"]
+            return ["-S", "~/.ssh/lra-pw-%C", "-oBatchMode=no", "-oNumberOfPasswordPrompts=1", "-oControlMaster=auto", "-oControlPersist=10m"]
         }
         process.environment = environment
         return ["-S", "~/.ssh/lan-remoteapp-%C", "-oBatchMode=yes"]

@@ -18,7 +18,7 @@ Tauri 2 + Vue 3，通过固定 SSH 入口真实读取 Ubuntu 应用名称、图�
 
 已安装应用缓存按端点保留，自动恢复仅更新窗口和会话状态；需要重新扫描安装目录时点击“刷新应用”。运行列表统一“连接”恢复已有会话或接管桌面窗口；不要求配置 apps.json。
 
-原有系统密钥/agent 或临时登录通道仍可使用。维护辅助命令 `bash scripts/connect-ssh.sh HOST USER 22` 不保存密码，`--check` 只探测，`--disconnect` 关闭该临时通道；这不是日常自动重连的必需步骤。自动密码连接使用独立 `~/.ssh/lan-remoteapp-password-%C` 控制通道，不重置已有手工 SSH 连接。
+原有系统密钥/agent 或临时登录通道仍可使用。维护辅助命令 `bash scripts/connect-ssh.sh HOST USER 22` 不保存密码，`--check` 只探测，`--disconnect` 关闭该临时通道；这不是日常自动重连的必需步骤。自动密码连接使用独立 `~/.ssh/lra-pw-%C` 控制通道，不重置已有手工 SSH 连接。
 
 ## 结果与恢复
 

@@ -247,7 +247,7 @@ impl Endpoint {
             .collect::<Vec<_>>();
         if password {
             let control = args.iter().position(|argument| argument == "-S").unwrap();
-            args[control + 1] = "~/.ssh/lan-remoteapp-password-%C".into();
+            args[control + 1] = "~/.ssh/lra-pw-%C".into();
             let batch = args
                 .iter()
                 .position(|argument| argument == "-oBatchMode=yes")
@@ -640,7 +640,7 @@ mod tests {
         let args = endpoint().ssh_args_with_password(true).unwrap();
         assert!(args
             .windows(2)
-            .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-password-%C"]));
+            .any(|pair| pair == ["-S", "~/.ssh/lra-pw-%C"]));
         for option in [
             "-oBatchMode=no",
             "-oNumberOfPasswordPrompts=1",
@@ -656,6 +656,13 @@ mod tests {
             .iter()
             .any(|argument| argument == "-i" || argument == "-oBatchMode=yes"));
         assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
+        // OpenSSH binds a temporary path with a 17-byte random suffix before
+        // installing the final socket. macOS sockaddr_un has 104 bytes total.
+        let control = &args.windows(2).find(|pair| pair[0] == "-S").unwrap()[1];
+        let example = control
+            .replacen('~', "/Users/chenzhirong", 1)
+            .replace("%C", &"a".repeat(40));
+        assert!(example.len() + 17 < 104);
     }
     #[test]
     fn distinguishes_expired_login_network_and_agent_without_stderr_leaks() {
