@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import sys
 
+RECEIVER_DESKTOP_IDS = {'io.lanremoteapp.launcher.desktop'}
+
 # A user service may not inherit the graphical login's export directories.
 paths = os.environ.get('XDG_DATA_DIRS', '/usr/local/share:/usr/share').split(':')
 for path in ([] if 'XDG_DATA_DIRS' in os.environ else [
@@ -112,7 +114,7 @@ def command(app):
 def entry(app, theme=None):
     desktop_id = app.get_id()
     filename = app.get_filename()
-    if not desktop_id or not filename or not app.should_show() or app.get_is_hidden():
+    if not desktop_id or desktop_id in RECEIVER_DESKTOP_IDS or not filename or not app.should_show() or app.get_is_hidden():
         return None
     data = dict(id='desktop-' + hashlib.sha256(desktop_id.encode()).hexdigest()[:32],
                 desktop_id=desktop_id, name=''.join(c if not c.isascii() or c.isprintable() else ' ' for c in app.get_display_name())[:256],

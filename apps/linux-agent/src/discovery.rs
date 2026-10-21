@@ -258,6 +258,20 @@ pub fn running(
             let Ok(identity) = process_identity(window.process_id) else {
                 continue;
             };
+            let receiver = crate::runtime()?
+                .join("receivers")
+                .join(format!("{}.json", identity.pid));
+            if !receiver.is_symlink()
+                && fs::metadata(&receiver).is_ok_and(|metadata| metadata.len() <= 1024)
+                && fs::read(&receiver)
+                    .ok()
+                    .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
+                    .is_some_and(|value| {
+                        value["pid"] == identity.pid && value["started"] == identity.started
+                    })
+            {
+                continue;
+            }
             let matching = apps
                 .iter()
                 .find(|app| {
