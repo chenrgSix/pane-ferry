@@ -259,6 +259,7 @@ dependencies = [
  "remoteapp-backend-x11",
  "remoteapp-core",
  "remoteapp-protocol",
+ "serde",
  "serde_json",
  "signal-hook",
 ]
@@ -269,6 +270,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libc",
+ "png",
  "remoteapp-capture",
  "remoteapp-protocol",
  "x11rb",
@@ -306,6 +308,7 @@ dependencies = [
 name = "remoteapp-transport"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde",
  "serde_json",
  "thiserror",

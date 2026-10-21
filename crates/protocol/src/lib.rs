@@ -23,6 +23,8 @@ pub enum Request {
     EnableVideo { codec: VideoCodec },
     #[serde(rename = "app.list")]
     List {},
+    #[serde(rename = "window.list")]
+    Windows {},
     #[serde(rename = "app.launch")]
     Launch {
         app_id: String,
@@ -241,6 +243,7 @@ mod tests {
     #[test]
     fn accepts_native_input_contract() {
         for data in [
+            r#"{"type":"window.list","version":1}"#,
             r#"{"type":"input.key","version":1,"window_id":1,"keysym":65,"pressed":true}"#,
             r#"{"type":"input.pointer","version":1,"window_id":1,"x":10,"y":20,"button":1,"pressed":false}"#,
             r#"{"type":"window.configure","version":1,"window_id":1,"width":960,"height":640}"#,

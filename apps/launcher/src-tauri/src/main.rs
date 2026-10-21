@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use remoteapp_transport::{self as transport, AppInfo, Endpoint};
+use remoteapp_transport::{self as transport, AppCatalog, Endpoint};
 use serde::Serialize;
 use std::{
     path::PathBuf,
@@ -28,8 +28,14 @@ impl From<transport::Error> for LaunchFailure {
     }
 }
 #[tauri::command]
-async fn list_apps(endpoint: Endpoint) -> Result<Vec<AppInfo>, String> {
+async fn list_apps(endpoint: Endpoint) -> Result<AppCatalog, String> {
     transport::catalog(&endpoint)
+        .await
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn list_desktop_windows(endpoint: Endpoint) -> Result<transport::DesktopWindows, String> {
+    transport::desktop_windows(&endpoint)
         .await
         .map_err(|e| e.to_string())
 }
@@ -140,16 +146,21 @@ async fn launch_app(
         session_id: Some(session.session_id),
         display: Some(session.display),
         pid,
-        message: format!(
-            "原生窗口已启动；分辨率随本机窗口调整，界面缩放 {}%。",
-            session.scale_factor * 100
-        ),
+        message: if app_id.starts_with("window-") {
+            "现有窗口客户端已启动，原应用的内容和登录状态保留。".into()
+        } else {
+            format!(
+                "原生窗口已启动；分辨率随本机窗口调整，界面缩放 {}%。",
+                session.scale_factor * 100
+            )
+        },
     })
 }
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             list_apps,
+            list_desktop_windows,
             list_sessions,
             launch_app,
             resume_session

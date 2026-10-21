@@ -1,0 +1,43 @@
+# Ubuntu 应用与窗口发现
+
+启动器分开显示：
+
+- **已安装应用**：通过系统 GIO 读取桌面入口、本地化名称和真实图标。安装、卸载或修改入口后，重新读取即可更新。
+- **运行中的桌面窗口**：只读枚举当前用户可接入的 X11 / XWayland 窗口。点击接管后保留原进程、内容和登录状态。
+- **远程会话**：由 RemoteApp 创建或已接入的会话，用于断开后重连。
+
+原有 `~/.config/lan-remoteapp/apps.json` 是可选的**自定义入口**，用于固定参数、独立测试资料或旧的进程接入配置，不再代替系统应用列表。自定义配置在服务启动时加载；系统应用每次读取都会刷新。没有 apps.json 也能启动 Agent。
+
+## 来源与图标
+
+使用 GIO / GioUnix 的 DesktopAppInfo，不使用硬编码应用数组。GIO 处理 XDG 目录优先级、用户覆盖、Hidden、NoDisplay、桌面环境可见性、TryExec 和本地化名称。没有显式设置 XDG_DATA_DIRS 时，补充存在的 Snap / Flatpak 导出目录。没有桌面入口的 CLI 工具不自动列入图形应用。
+
+文件图标和主题图标在 Ubuntu 端通过 GdkPixbuf 转成 PNG；不把 SVG / XML 或 Ubuntu 文件路径直接送到 WebView。优先输出 96px，复杂图标降为 64px / 48px，使应用图标不超过 12KiB；窗口图标最多 16KiB。控制端检查格式头、尺寸和长度，只构造固定 PNG data URL。缺失或解码失败时显示名称首字母。
+
+需要系统 Python3 GI、GIO / GioUnix、GTK3、GdkPixbuf 和图片解码器；Ubuntu 26 的 SVG 解码还使用系统 Glycin 配置。本机 Ubuntu 已具备这些组件。缺少组件时明确报告发现失败，保留自定义入口，不把静态目录当作系统扫描成功。`remoteapp-agent check` 会报告应用与图标数量。
+
+字段依据 [Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry/latest/)和 [Icon Theme 规范](https://specifications.freedesktop.org/icon-theme/latest/)。
+
+## 启动
+
+客户端只提交服务端生成的 ID。启动时重新解析对应入口，处理 Exec 字段中的文件/URL、图标、名称、位置和百分号替换，不接受客户端提供的程序路径、argv 或 shell 字符串，不用 shell 求值。没有文件请求时移除文件/URL 字段。缺少程序、工作目录、终端或不支持的启动方式会明确标为不可启动；只有 D-Bus 激活、没有 Exec 兼容入口的程序暂不支持独立启动。
+
+独立会话沿用 Xvfb / Openbox、缩放、H.264、控制端输入法和主动双向文本剪贴板。终端型入口使用 xterm。Snap 入口在用户应用 scope 前台运行，使用 Snap 可读目录里的私有会话 cookie，结束时清理；不关闭认证或沙箱。
+
+发现入口不等于所有应用已完成运行兼容性验收。单实例浏览器、依赖完整 GNOME 会话、GPU 或原生 Wayland 的程序可能需要专门适配；已有窗口可从运行窗口区接入。不会复制默认浏览器资料或改其配置。
+
+## 窗口与范围
+
+Agent 保存启动时的图形桌面 DISPLAY / Xauthority；环境不可用时，从当前用户的 systemd manager 和已有显式配置定位授权的本地显示。发现只读窗口属性、进程身份和图标，**不截取窗口内容、不改尺寸、不激活窗口、不发送键鼠**。自己的独立虚拟桌面不重复列为原桌面窗口。
+
+只列出经 XRes 确认本地进程、并通过同 UID 身份检查的窗口。ID 包含显示、进程启动时间和窗口标识，刷新保持稳定，PID 重用不能重定向旧 ID。点击接管时再次验证身份；只接入选中窗口及关联弹窗，同 PID 的其他主窗口仍被排除。旧的自定义 existing 配置沿用整个已批准进程的范围。
+
+关闭选中窗口会结束对应会话，原进程的其他窗口继续运行；停止 Agent 不结束外部已有进程。已接入的窗口显示连接状态，通过远程会话区重连。
+
+原生 Wayland 窗口目前不能通过 X11 路径接管。桌面锁屏和系统输入授权仍会影响实际键鼠；读取元数据成功不代表输入已获授权。
+
+## 验证
+
+`tests/e2e/app_discovery_smoke.py --agent /ABS/remoteapp-agent` 在独立 HOME / XDG / Xvfb 验证桌面入口、本地化、SVG 图标、覆盖和隐藏规则、刷新及真实启动；再以同一进程的三个窗口验证主窗口/弹窗隔离、拒绝其他窗口输入、Unicode 与主动复制粘贴、目标关闭及原进程存活。只借用系统公开的图片 loader、主题等配置，不枚举用户原桌面。
+
+实机与构建结果见 [验证记录](validation.md)。

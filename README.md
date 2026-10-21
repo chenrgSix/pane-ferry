@@ -8,7 +8,9 @@
 
 ## 运行链路
 
-Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，按窗口采集并默认协商 H.264 实时视频，经严格验证的 SSH 传给 Swift/AppKit `NSWindow`，Mac 使用 VideoToolbox 解码。键鼠、大小和关闭请求仍由自有控制协议处理。窗口副标题显示当前使用视频还是 PNG 回退。
+启动器真实读取 Ubuntu 已安装的图形应用名称和图标；“运行中的桌面窗口”和“远程会话”分别显示。应用安装或卸载后重新读取即可更新。原来的 apps.json 作为可选自定义入口保留，详见 [应用与窗口发现](docs/application-discovery.md)。
+
+Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的应用，按窗口采集并默认协商 H.264 实时视频，经严格验证的 SSH 传给 Swift/AppKit `NSWindow`，Mac 使用 VideoToolbox 解码。键鼠、大小和关闭请求仍由自有控制协议处理。窗口副标题显示当前使用视频还是 PNG 回退。
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。不开放公网控制端口。
 
@@ -28,7 +30,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，按窗口�
 ## 使用顺序
 
 1. 阅读 Linux Agent、Mac WindowHost 和 Launcher 目录内 README，按对应平台安装依赖并编译。不要在没有图形运行依赖的 Linux 上将编译成功当作可运行。
-2. 在 Linux 本地审核应用白名单配置，只批准固定的绝对可执行文件和固定参数。客户端不能提交任意程序或 shell 命令。
+2. 默认读取该 Linux 用户已安装的桌面应用；可额外配置 apps.json，保留固定参数或已有进程的自定义入口。客户端只能提交服务端列出的 ID，不能提交任意程序或 shell 命令。
 3. 在 Linux 安装用户级 Agent，并启动用户服务。服务仅使用用户私有 Unix socket，不监听公网 TCP。
 4. 在 Mac 上先通过可信渠道核对 Ubuntu SSH 主机指纹，并手工建立正常 SSH 登录。密码用户可用 `bash scripts/connect-ssh.sh HOST USER 22` 建立临时登录会话，密码由系统 SSH 处理。程序使用 BatchMode 和严格主机密钥检查，不自动接受未知或变化的主机密钥，不提供密码收集界面。
 5. 启动 Launcher，填写已验证主机、SSH 用户和端口，加载批准应用目录，点击应用即可在原生窗口中启动。

@@ -5,6 +5,9 @@ P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
 支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。未协商的连接继续使用 PNG，旧 hello 不变。协商只影响本连接，不能指定客户端编码程序、采集进程或任意编码参数。
 客户端 app.list，服务端 app.list {apps:[{id,name,description,unavailable_reason?:null|string}]}。unavailable_reason 是现有窗口绑定已失效等稳定错误码，由客户端映射为提示；缺失或 null 表示未发现不可用原因，不保证后续启动必定成功。
+新版 app.list 从 GIO 每次发现已安装桌面应用，并追加自定义入口。响应另有 discovery_supported:true、discovery_error:null|code；每项有 source:"desktop"|"custom" 和 icon_png:null|base64。图标仅为受限 PNG，应用图标最多 12KiB / 96px；控制端检查格式头、尺寸和长度。客户端不接收可执行路径或 argv；旧 Agent 没有 discovery_supported 时，新启动器明确提示需要更新。自动应用最多 512 个，自定义配置最多 256 个，控制响应行仍限制 16MiB。
+客户端 window.list，服务端 window.list {windows:[{id,window_id,name,title,icon_png,minimized,controlled,session_id:null|string}],unavailable_reason:null|code}。最多 128 个当前用户的 X11/XWayland 窗口，原生 Wayland 不在本接口范围。只读查询不得截屏、改变焦点/尺寸或发送输入；单个窗口图标不超过 16KiB / 128px。自己的独立虚拟桌面不重复列入原桌面窗口。
+接管从 window.list 返回的 id 仍使用 app.launch，不允许客户端传 PID、显示号、认证文件或任意 XID 作为接入目标。服务端注册并复核 XRes 客户 PID、同 UID、进程启动时间、可执行身份和选中窗口，仅该主窗口及关联弹窗进入会话。同 PID 的其他主窗口不属于这个会话。session_id 非空时从远程会话区重连，避免重复接管。
 客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，表示界面像素密度，不是固定分辨率；独立会话在启动前设置 GTK/Qt 缩放环境，existing 沿用服务端配置的实际缩放。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled}]}，只返回尚未退出的会话，不抢占控制权。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
@@ -26,4 +29,4 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 视频/PNG 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔 33ms，实际帧率受编码、网络及控制端限制；已实现 H.264 over SSH，尚未实现 WebRTC 视频轨道。
 
-Catalog 用 Linux 用户私有 JSON 配置 ~/.config/lan-remoteapp/apps.json，只接受经审批固定绝对 executable + argv 数组，客户端不能传 executable。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。固定远端 Agent 可由 shell 执行但无客户端参数插值。
+Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/lan-remoteapp/apps.json 自定义入口。Exec 字段由服务器解析、启动前重新确认对应桌面入口；自定义配置只接受固定绝对 executable + argv 数组。客户端不能传 executable 或命令字符串。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。固定远端 Agent 可由 shell 执行但无客户端参数插值。完整行为见 [应用与窗口发现](application-discovery.md)。

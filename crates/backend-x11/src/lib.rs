@@ -16,9 +16,11 @@ use x11rb::{
 mod controller_copy;
 mod controller_text;
 mod damage;
+mod inventory;
 mod shared_capture;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
+pub use inventory::{desktop_windows, DesktopWindow};
 pub struct Backend {
     conn: RustConnection,
     root: u32,
@@ -26,6 +28,7 @@ pub struct Backend {
     pub windows: HashMap<u32, Window>,
     pressed: RefCell<HashSet<(u8, bool)>>,
     process_id: Option<u32>,
+    root_window: Option<u32>,
     text_transfer: Option<TextTransfer>,
     copy_transfer: Option<CopyTransfer>,
     scale_factor: u8,
@@ -48,45 +51,31 @@ impl Backend {
         Self::from_connection(conn, n, None)
     }
     pub fn connect_existing(display: u16, authority: &Path, process_id: u32) -> Result<Self> {
-        // Read only the approved server's cookie. Never change process-global
-        // XAUTHORITY while other session threads are connecting.
-        let auth = Command::new("/usr/bin/xauth")
-            .arg("-f")
-            .arg(authority)
-            .arg("list")
-            .arg(format!(":{display}"))
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()?;
-        if !auth.status.success() {
-            bail!("cannot read approved X11 authority")
-        }
-        let cookie = String::from_utf8(auth.stdout)?;
-        let encoded = cookie
-            .lines()
-            .find_map(|line| {
-                let fields: Vec<_> = line.split_whitespace().collect();
-                (fields.len() == 3 && fields[1] == "MIT-MAGIC-COOKIE-1").then(|| fields[2])
-            })
-            .context("approved X11 cookie unavailable")?;
-        if encoded.len() != 32 || !encoded.bytes().all(|c| c.is_ascii_hexdigit()) {
-            bail!("invalid X11 cookie")
-        }
-        let cookie = (0..32)
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&encoded[i..i + 2], 16))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let (stream, _) = DefaultStream::from_unix_stream(UnixStream::connect(format!(
-            "/tmp/.X11-unix/X{display}"
-        ))?)?;
-        let conn = RustConnection::connect_to_stream_with_auth_info(
-            stream,
-            0,
-            b"MIT-MAGIC-COOKIE-1".to_vec(),
-            cookie,
-        )?;
+        let conn = authenticated_connection(display, authority)?;
         conn.composite_query_version(0, 4)?.reply()?;
         Self::from_connection(conn, 0, Some(process_id))
+    }
+    /// Restrict an explicitly selected existing window, including its dialogs.
+    pub fn restrict_to_window(&mut self, window: u32) -> Result<()> {
+        if window == 0 || self.client_pid(window).ok() != self.process_id {
+            bail!("unknown window")
+        }
+        let attributes = self.conn.get_window_attributes(window)?.reply()?;
+        self.root_window = Some(window);
+        if attributes.map_state != MapState::VIEWABLE {
+            self.conn.map_window(window)?.check()?;
+            self.conn.flush()?;
+        }
+        Ok(())
+    }
+    pub fn existing_window_exists(&self, window: u32) -> bool {
+        self.matches_process(window)
+            && self
+                .conn
+                .get_window_attributes(window)
+                .ok()
+                .and_then(|request| request.reply().ok())
+                .is_some()
     }
     fn from_connection(conn: RustConnection, n: usize, process_id: Option<u32>) -> Result<Self> {
         let root = conn.setup().roots[n].root;
@@ -129,6 +118,7 @@ impl Backend {
             windows: HashMap::new(),
             pressed: RefCell::new(HashSet::new()),
             process_id,
+            root_window: None,
             text_transfer: None,
             copy_transfer: None,
             scale_factor: 1,
@@ -151,9 +141,40 @@ impl Backend {
             .reply()?)
     }
     fn belongs_to_process(&self, mut id: u32) -> bool {
+        if !self.matches_process(id) {
+            return false;
+        }
+        let Some(root) = self.root_window else {
+            return true;
+        };
+        let mut seen = HashSet::new();
+        for _ in 0..16 {
+            if id == root {
+                return true;
+            }
+            if !seen.insert(id) {
+                return false;
+            }
+            let Some(parent) = self
+                .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
+                .ok()
+                .and_then(|p| p.value32().and_then(|mut values| values.next()))
+            else {
+                return false;
+            };
+            id = parent;
+        }
+        false
+    }
+    fn matches_process(&self, mut id: u32) -> bool {
         let Some(process_id) = self.process_id else {
             return true;
         };
+        // Discovered windows use the X server's peer credentials. This also
+        // handles PID namespaces where _NET_WM_PID is a container-local number.
+        if self.root_window.is_some() {
+            return self.client_pid(id).ok() == Some(process_id);
+        }
         let mut visited = HashSet::new();
         for _ in 0..16 {
             if !visited.insert(id) {
@@ -633,4 +654,46 @@ impl Backend {
         }
         let _ = self.conn.flush();
     }
+}
+
+/// Authenticate to one local X server without mutating global XAUTHORITY.
+fn authenticated_connection(display: u16, authority: &Path) -> Result<RustConnection> {
+    // Read only the approved server's cookie. Never change process-global
+    // XAUTHORITY while other session threads are connecting.
+    let auth = Command::new("/usr/bin/xauth")
+        .arg("-f")
+        .arg(authority)
+        .arg("list")
+        .arg(format!(":{display}"))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()?;
+    if !auth.status.success() {
+        bail!("cannot read approved X11 authority")
+    }
+    let cookie = String::from_utf8(auth.stdout)?;
+    let encoded = cookie
+        .lines()
+        .find_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            (fields.len() == 3 && fields[1] == "MIT-MAGIC-COOKIE-1").then(|| fields[2])
+        })
+        .context("approved X11 cookie unavailable")?;
+    if encoded.len() != 32 || !encoded.bytes().all(|c| c.is_ascii_hexdigit()) {
+        bail!("invalid X11 cookie")
+    }
+    let cookie = (0..32)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&encoded[i..i + 2], 16))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (stream, _) = DefaultStream::from_unix_stream(UnixStream::connect(format!(
+        "/tmp/.X11-unix/X{display}"
+    ))?)?;
+    let conn = RustConnection::connect_to_stream_with_auth_info(
+        stream,
+        0,
+        b"MIT-MAGIC-COOKIE-1".to_vec(),
+        cookie,
+    )?;
+    Ok(conn)
 }

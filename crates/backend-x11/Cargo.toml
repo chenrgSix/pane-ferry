@@ -8,3 +8,4 @@ libc = "0.2"
 x11rb.workspace = true
 remoteapp-protocol = {path="../protocol"}
 remoteapp-capture = {path="../capture"}
+png.workspace = true

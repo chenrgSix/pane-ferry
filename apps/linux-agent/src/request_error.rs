@@ -12,6 +12,8 @@ pub fn code(message: &str) -> &'static str {
         "session already controlled" => "session_controlled",
         "request id conflict" => "request_id_conflict",
         "app not approved" => "app_not_approved",
+        "desktop application unavailable" => "desktop_application_unavailable",
+        "application discovery unavailable" => "application_discovery_unavailable",
         "active session limit reached" => "session_limit",
         "request history limit reached; restart after saving work" => "request_history_limit",
         _ => "request_failed",

@@ -25,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod discovery;
 mod input_queue;
 mod output;
 mod request_error;
@@ -39,6 +40,8 @@ struct Session {
     controller: bool,
     exited: bool,
     existing: Option<ProcessIdentity>,
+    root_window: Option<u32>,
+    private_authority: Option<PathBuf>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -83,6 +86,12 @@ impl Session {
     fn has_exited(&mut self) -> Result<bool> {
         if let Some(existing) = &self.existing {
             self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
+            if let Some(window) = self.root_window {
+                self.exited |= self
+                    .backend
+                    .as_ref()
+                    .is_none_or(|backend| !backend.existing_window_exists(window));
+            }
         } else {
             self.exited |= self
                 .children
@@ -114,12 +123,18 @@ impl Drop for Session {
         for mut c in self.children.drain(..).rev() {
             stop_child(&mut c);
         }
+        if let Some(path) = &self.private_authority {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 struct State {
     sessions: HashMap<String, Arc<Mutex<Session>>>,
     requests: HashMap<String, String>,
     apps: Vec<App>,
+    desktop_apps: Vec<discovery::DesktopApp>,
+    desktop: Option<discovery::Desktop>,
+    running: HashMap<String, discovery::RunningWindow>,
     runtime: PathBuf,
 }
 fn home() -> Result<PathBuf> {
@@ -134,7 +149,12 @@ fn runtime() -> Result<PathBuf> {
     Ok(p)
 }
 fn catalog() -> Result<Vec<App>> {
-    load_catalog(&home()?.join(".config/lan-remoteapp/apps.json"))
+    let path = home()?.join(".config/lan-remoteapp/apps.json");
+    if path.exists() {
+        load_catalog(&path)
+    } else {
+        Ok(vec![])
+    }
 }
 fn main() {
     if let Err(e) = run() {
@@ -149,7 +169,20 @@ fn run() -> Result<()> {
         Some("bridge") => bridge(),
         Some("check") => {
             let apps = catalog()?;
-            println!("catalog: {} approved applications", apps.len());
+            println!("custom app entries: {}", apps.len());
+            match discovery::applications() {
+                Ok(installed) => println!(
+                    "installed applications: {} (icons: {})",
+                    installed.len(),
+                    installed
+                        .iter()
+                        .filter(|app| app.icon_png.is_some())
+                        .count()
+                ),
+                Err(_) => println!(
+                    "installed applications: unavailable (requires Python GI, GIO and GTK3)"
+                ),
+            }
             for cmd in ["Xvfb", "openbox", "xauth", "dbus-run-session"] {
                 let ok = Command::new("/usr/bin/env")
                     .args(["which", cmd])
@@ -178,6 +211,7 @@ fn bridge() -> Result<()> {
     Ok(())
 }
 fn serve() -> Result<()> {
+    let desktop = discovery::environment();
     let dir = runtime()?;
     let sock = dir.join("agent.sock");
     if sock.exists() {
@@ -207,6 +241,9 @@ fn serve() -> Result<()> {
         sessions: HashMap::new(),
         requests: HashMap::new(),
         apps,
+        desktop_apps: vec![],
+        desktop,
+        running: HashMap::new(),
         runtime: dir,
     }));
     eprintln!("remoteapp-agent listening on private user socket");
@@ -287,21 +324,47 @@ fn launch(
     if st.requests.len() >= 4096 {
         bail!("request history limit reached; restart after saving work")
     }
-    let app = st
-        .apps
+    if app_id.starts_with("desktop-") && !st.desktop_apps.iter().any(|a| a.id == app_id) {
+        st.desktop_apps = discovery::applications()?;
+    }
+    let discovered = st
+        .desktop_apps
         .iter()
         .find(|a| a.id == app_id)
-        .cloned()
-        .context("app not approved")?;
+        .map(|app| app.resolve())
+        .transpose()?;
+    let root_window = st.running.get(app_id).map(|target| target.window_id);
+    let app = if let Some(target) = st.running.get(app_id) {
+        if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
+            bail!("approved existing process unavailable")
+        }
+        target.app()
+    } else if let Some(desktop) = &discovered {
+        desktop.app()
+    } else {
+        st.apps
+            .iter()
+            .find(|a| a.id == app_id)
+            .cloned()
+            .context("app not approved")?
+    };
     if let Some(existing) = &app.existing {
         let identity = process_identity(existing.process_id)
             .context("approved existing process unavailable")?;
-        if identity.executable != fs::canonicalize(&app.executable)? {
+        if root_window.is_none() && identity.executable != fs::canonicalize(&app.executable)? {
             bail!("existing process does not match approved executable")
         }
         for session in st.sessions.values() {
             let s = session.lock().unwrap();
-            if s.existing.as_ref() == Some(&identity) && s.display == existing.display {
+            if s.existing.as_ref() == Some(&identity)
+                && s.display == existing.display
+                && (s.root_window == root_window
+                    || s.root_window.is_none()
+                    || root_window.is_none())
+            {
+                if s.root_window != root_window {
+                    bail!("session already controlled")
+                }
                 if s.app_id != app_id {
                     bail!("existing process already registered under another app")
                 }
@@ -318,6 +381,9 @@ fn launch(
             existing.process_id,
         )?;
         backend.set_scale_factor(existing.scale_factor)?;
+        if let Some(window) = root_window {
+            backend.restrict_to_window(window)?;
+        }
         if backend.scan()?.is_empty() {
             bail!("no X11 windows belong to the approved process")
         }
@@ -332,6 +398,8 @@ fn launch(
             controller: false,
             exited: false,
             existing: Some(identity),
+            root_window,
+            private_authority: None,
         }));
         st.requests.insert(req.into(), id.clone());
         st.sessions.insert(id, session.clone());
@@ -360,6 +428,8 @@ fn launch(
         controller: false,
         exited: false,
         existing: None,
+        root_window: None,
+        private_authority: None,
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
@@ -420,16 +490,54 @@ fn launch(
             .context("openbox not installed")?,
     );
     thread::sleep(Duration::from_millis(250));
-    s.children.push(
-        Command::new("dbus-run-session")
-            .arg("--")
+    let mut command = Command::new("dbus-run-session");
+    command.arg("--");
+    if let Some(snap) = discovered.as_ref().and_then(|app| app.snap.as_ref()) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = home()?.join("snap").join(snap).join("common/lan-remoteapp");
+        fs::create_dir_all(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+        let authority = directory.join(format!("Xauthority-{}", s.id));
+        s.private_authority = Some(authority.clone());
+        if !Command::new("/usr/bin/xauth")
+            .arg("-f")
+            .arg(&auth)
+            .arg("extract")
+            .arg(&authority)
+            .arg(&disp)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?
+            .success()
+        {
+            bail!("xauth failed")
+        }
+        fs::set_permissions(&authority, fs::Permissions::from_mode(0o600))?;
+        command = Command::new("/usr/bin/systemd-run");
+        command
+            .args(["--user", "--scope", "--collect", "--quiet"])
             .arg(&app.executable)
             .args(&app.argv)
+            .env(
+                "DBUS_SESSION_BUS_ADDRESS",
+                format!("unix:path=/run/user/{}/bus", unsafe { libc::geteuid() }),
+            )
+            .env("XAUTHORITY", authority);
+    } else {
+        command.arg(&app.executable).args(&app.argv);
+    }
+    if let Some(cwd) = discovered.as_ref().and_then(|app| app.cwd.as_ref()) {
+        command.current_dir(cwd);
+    }
+    s.children.push(
+        command
             .env("DISPLAY", &disp)
             .env_remove("WAYLAND_DISPLAY")
             .env("GDK_BACKEND", "x11")
             .env("QT_QPA_PLATFORM", "xcb")
             .env("DISABLE_WAYLAND", "1")
+            .env("MOZ_ENABLE_WAYLAND", "0")
             .env("GDK_SCALE", scale_factor.to_string())
             .env("GDK_DPI_SCALE", "1")
             .env("QT_SCALE_FACTOR", scale_factor.to_string())
@@ -535,6 +643,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "clipboard.copy",
         "session.resume",
         "session.list",
+        "app.discovery",
+        "window.list",
     ];
     if video::available() {
         capabilities.push("native.h264");
@@ -651,13 +761,70 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                     Request::List {} => {
-                        let st = state.lock().unwrap();
-                        let apps: Vec<_> = st
-                            .apps
-                            .iter()
-                            .map(|a| json!({"id":a.id,"name":a.name,"description":a.description,"unavailable_reason":existing_unavailable_reason(a)}))
+                        let result = discovery::applications();
+                        let warning = result
+                            .as_ref()
+                            .err()
+                            .map(|_| "application_discovery_unavailable");
+                        let mut st = state.lock().unwrap();
+                        st.desktop_apps = result.unwrap_or_default();
+                        let mut apps: Vec<_> =
+                            st.desktop_apps.iter().map(|app| app.public()).collect();
+                        apps.extend(st.apps.iter().map(|a| {
+                            json!({"id":a.id,"name":a.name,"description":a.description,
+                            "source":"custom","unavailable_reason":existing_unavailable_reason(a)})
+                        }));
+                        send(
+                            &mut out,
+                            json!({"type":"app.list","apps":apps,"discovery_supported":true,"discovery_error":warning}),
+                            "",
+                        )?;
+                    }
+                    Request::Windows {} => {
+                        let mut st = state.lock().unwrap();
+                        let sources = discovery::desktops(&st.desktop, &st.apps);
+                        let excluded: Vec<_> = st
+                            .sessions
+                            .values()
+                            .filter_map(|session| {
+                                let session = session.lock().unwrap();
+                                session.existing.is_none().then_some(session.display)
+                            })
                             .collect();
-                        send(&mut out, json!({"type":"app.list","apps":apps}), "")?;
+                        let (running, connected) =
+                            discovery::running(&sources, &st.desktop_apps, &excluded)?;
+                        let mut windows: Vec<_> = running
+                            .values()
+                            .map(|target| {
+                                let existing_session = st.sessions.values().find_map(|session| {
+                                    let session = session.lock().unwrap();
+                                    (session.existing.as_ref() == Some(&target.identity)
+                                        && session.display == target.desktop.display
+                                        && (session.root_window.is_none()
+                                            || session.root_window == Some(target.window_id)))
+                                    .then_some((session.id.clone(), session.controller))
+                                });
+                                target.public(
+                                    existing_session
+                                        .as_ref()
+                                        .is_some_and(|(_, controlled)| *controlled),
+                                    existing_session.map(|(id, _)| id),
+                                )
+                            })
+                            .collect();
+                        windows.sort_by(|a, b| {
+                            a["name"]
+                                .as_str()
+                                .cmp(&b["name"].as_str())
+                                .then(a["title"].as_str().cmp(&b["title"].as_str()))
+                        });
+                        st.running = running;
+                        send(
+                            &mut out,
+                            json!({"type":"window.list","windows":windows,
+                            "unavailable_reason":if connected {None} else {Some("desktop_unavailable")}}),
+                            "",
+                        )?;
                     }
                     Request::Launch {
                         app_id,

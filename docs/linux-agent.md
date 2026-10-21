@@ -1,12 +1,12 @@
 # Linux Agent 开发版
 
-普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session、已批准应用。不会自动安装、启用 linger、改 SSH 配置或防火墙。
+普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session；应用发现另使用系统 Python GI、GIO/GioUnix、GTK3 和 GdkPixbuf。不会自动安装、启用 linger、改 SSH 配置或防火墙。
 
 ## 手工安装
 
 1. 编译：`cargo build --release -p remoteapp-agent`。
 2. 将二进制安装到 `~/.local/bin/remoteapp-agent`（SSH 固定命令使用此路径）。
-3. 创建 `~/.config/lan-remoteapp/apps.json`，参考 `deploy/apps.example.json`；审核每项绝对路径及 argv。xterm 能执行任何该用户可运行命令，白名单并非 OS 沙箱。
+3. 默认发现当前用户已安装的桌面应用。可选的 `~/.config/lan-remoteapp/apps.json` 用于自定义入口，格式参考 `deploy/apps.example.json`；审核其中的绝对路径及 argv。没有此文件也能运行。应用仍具有当前用户权限，目录不是 OS 沙箱。
 4. 前台运行 `~/.local/bin/remoteapp-agent serve`。或将 service 文件放入 `~/.config/systemd/user/`，由用户自行执行 `systemctl --user daemon-reload` 和 `systemctl --user enable --now remoteapp-agent`。
 5. Mac 已经通过 SSH 信任主机并能非交互登录后，启动器可连接。
 
@@ -23,6 +23,8 @@
 Agent 在 hello 中仅在组件可用时声明 `native.h264`；没有组件或编码失败时保留 PNG，Mac 副标题明确显示回退。当前仍经 SSH 传输，不是 WebRTC/UDP；不会配置 STUN、TURN、公网端口或更改防火墙。Ubuntu 已有组件在实机测试中可用，但其他 Linux 发行版需要自行安装运行依赖。
 
 ## 接入现有 X11 窗口
+
+启动器的“运行中的桌面窗口”会自动读取当前用户可接管的窗口；点击后只接入选中的主窗口及关联弹窗，不需要手填 PID。读取列表只查询元数据，不改变原桌面窗口。应用、图标、身份校验与 Wayland 限制见 [应用与窗口发现](application-discovery.md)。以下 existing 配置保留为兼容的固定进程入口，范围仍为整个已批准进程。
 
 在服务端白名单中为指定进程添加 `existing`。以下值仅为格式示例，PID、显示号和授权文件路径必须由 Linux 用户核对：
 

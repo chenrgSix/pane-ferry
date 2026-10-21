@@ -21,7 +21,8 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-stale-') as temporary:
              existing=dict(display=0, xauthority=str(home / 'unused'), process_id=2147483647)),
         dict(id='exits', name='Exits', executable='/usr/bin/true'),
     ]))
-    process = subprocess.Popen([str(args.agent.resolve()), 'serve'], env=dict(os.environ, HOME=str(home)),
+    process = subprocess.Popen([str(args.agent.resolve()), 'serve'], env=dict(os.environ, HOME=str(home),
+                               XDG_DATA_HOME=str(home/'data'), XDG_DATA_DIRS=str(home/'data')),
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         path = home / '.local/state/lan-remoteapp/agent.sock'

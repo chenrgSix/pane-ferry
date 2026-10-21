@@ -1,4 +1,5 @@
 //! SSH control transport. No password handling and no client-generated remote shell commands.
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{process::Stdio, time::Duration};
@@ -10,7 +11,7 @@ use tokio::{
 
 const REMOTE_COMMAND: &str = ".local/bin/remoteapp-agent bridge";
 const SSH: &str = "/usr/bin/ssh";
-const MAX_CONTROL_LINE: usize = 1024 * 1024;
+const MAX_CONTROL_LINE: usize = 16 * 1024 * 1024;
 const SSH_OPTIONS: &[&str] = &[
     "-F",
     "/dev/null",
@@ -40,6 +41,35 @@ pub struct AppInfo {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
+    pub unavailable_reason: Option<String>,
+    #[serde(default)]
+    pub icon_png: Option<String>,
+    #[serde(default = "custom_source")]
+    pub source: String,
+}
+fn custom_source() -> String {
+    "custom".into()
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct AppCatalog {
+    pub apps: Vec<AppInfo>,
+    pub discovery_error: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesktopWindowInfo {
+    pub id: String,
+    pub window_id: u32,
+    pub name: String,
+    pub title: String,
+    pub icon_png: Option<String>,
+    pub minimized: bool,
+    pub controlled: bool,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct DesktopWindows {
+    pub windows: Vec<DesktopWindowInfo>,
     pub unavailable_reason: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,9 +102,7 @@ pub enum Error {
 }
 pub fn remote_error_message(code: &str) -> String {
     match code {
-        "existing_process_unavailable" => {
-            "原窗口对应的进程已退出。请在 Ubuntu 更新该应用的窗口绑定，或打开独立应用会话。".into()
-        }
+        "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
         "existing_window_unavailable" => {
             "该应用目前没有可接入的 X11 窗口。请先在 Ubuntu 打开窗口。".into()
@@ -82,7 +110,21 @@ pub fn remote_error_message(code: &str) -> String {
         "session_expired" | "session_exited" => "上次会话已结束。再次打开将创建新会话。".into(),
         "session_controlled" => "该会话已有控制端，请先断开原控制端。".into(),
         "request_id_conflict" => "启动参数已变化，请重新打开应用。".into(),
-        "app_not_approved" => "应用已不在获准目录中，请重新读取目录。".into(),
+        "app_not_approved" => "应用或窗口入口已失效，请重新读取列表。".into(),
+        "desktop_application_unavailable" => "应用已变更或卸载，请刷新应用列表。".into(),
+        "desktop_activation_unavailable" | "desktop_command_unsupported" => {
+            "该应用的启动方式暂未支持。".into()
+        }
+        "desktop_executable_unavailable" => "该应用的程序文件不可用，请在 Ubuntu 检查安装。".into(),
+        "desktop_terminal_unavailable" => "Ubuntu 缺少用于启动此应用的 xterm 终端。".into(),
+        "desktop_working_directory_unavailable" => {
+            "该应用的启动目录已不存在，请在 Ubuntu 检查安装。".into()
+        }
+        "application_discovery_unavailable" => {
+            "Ubuntu 应用发现组件未就绪，请检查 Python GI、GTK 和 GIO 运行依赖。".into()
+        }
+        "agent_upgrade_required" => "远端 Agent 需要更新，当前仅能读取自定义入口。".into(),
+        "desktop_unavailable" => "未找到可连接的 Ubuntu 桌面，请确认用户已登录图形桌面。".into(),
         "session_limit" => "运行中的会话已达上限，请保存工作并关闭不用的远端应用。".into(),
         "request_history_limit" => "启动记录已达上限，请保存远端工作后重启 Agent。".into(),
         _ => code
@@ -106,6 +148,7 @@ impl Error {
                     | "session_exited"
                     | "request_id_conflict"
                     | "app_not_approved"
+                    | "desktop_application_unavailable"
                     | "session_limit"
                     | "request_history_limit"
             ),
@@ -268,7 +311,7 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
     let _ = child.wait().await;
     result
 }
-pub async fn catalog(endpoint: &Endpoint) -> Result<Vec<AppInfo>, Error> {
+pub async fn catalog(endpoint: &Endpoint) -> Result<AppCatalog, Error> {
     let value = request(endpoint, json!({"type":"app.list","version":1}), "app.list").await?;
     let mut apps: Vec<AppInfo> =
         serde_json::from_value(value["apps"].clone()).map_err(|_| Error::Protocol)?;
@@ -280,11 +323,74 @@ pub async fn catalog(endpoint: &Endpoint) -> Result<Vec<AppInfo>, Error> {
         if app.name.len() > 1024 || app.description.len() > 4096 {
             return Err(Error::Protocol);
         }
+        if !matches!(app.source.as_str(), "desktop" | "custom") {
+            return Err(Error::Protocol);
+        }
+        validate_icon(app.icon_png.as_deref())?;
         if let Some(code) = &app.unavailable_reason {
             app.unavailable_reason = Some(remote_error_message(code));
         }
     }
-    Ok(apps)
+    let warning = if value["discovery_supported"] != true {
+        Some("agent_upgrade_required")
+    } else {
+        value["discovery_error"].as_str()
+    };
+    Ok(AppCatalog {
+        apps,
+        discovery_error: warning.map(remote_error_message),
+    })
+}
+fn validate_icon(icon: Option<&str>) -> Result<(), Error> {
+    let Some(icon) = icon else {
+        return Ok(());
+    };
+    if icon.len() > 24 * 1024 {
+        return Err(Error::Protocol);
+    }
+    let bytes = STANDARD.decode(icon).map_err(|_| Error::Protocol)?;
+    if bytes.len() < 24
+        || bytes.len() > 16 * 1024
+        || !bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || &bytes[12..16] != b"IHDR"
+    {
+        return Err(Error::Protocol);
+    }
+    let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+    let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+    if width == 0 || height == 0 || width > 128 || height > 128 {
+        return Err(Error::Protocol);
+    }
+    Ok(())
+}
+pub async fn desktop_windows(endpoint: &Endpoint) -> Result<DesktopWindows, Error> {
+    let value = request(
+        endpoint,
+        json!({"type":"window.list","version":1}),
+        "window.list",
+    )
+    .await?;
+    let windows: Vec<DesktopWindowInfo> =
+        serde_json::from_value(value["windows"].clone()).map_err(|_| Error::Protocol)?;
+    if windows.len() > 128 {
+        return Err(Error::Protocol);
+    }
+    for window in &windows {
+        validate_id(&window.id)?;
+        if let Some(session) = &window.session_id {
+            validate_id(session)?;
+        }
+        if window.window_id == 0 || window.name.len() > 1024 || window.title.len() > 1024 {
+            return Err(Error::Protocol);
+        }
+        validate_icon(window.icon_png.as_deref())?;
+    }
+    Ok(DesktopWindows {
+        windows,
+        unavailable_reason: value["unavailable_reason"]
+            .as_str()
+            .map(remote_error_message),
+    })
 }
 pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
     let value = request(
@@ -357,6 +463,17 @@ fn parse_started(value: Value) -> Result<Started, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn accepts_bounded_png_icons_and_rejects_active_or_oversized_data() {
+        let mut header = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        header.extend_from_slice(&64u32.to_be_bytes());
+        header.extend_from_slice(&96u32.to_be_bytes());
+        assert!(validate_icon(Some(&STANDARD.encode(&header))).is_ok());
+        header[16..20].copy_from_slice(&4096u32.to_be_bytes());
+        assert!(validate_icon(Some(&STANDARD.encode(&header))).is_err());
+        assert!(validate_icon(Some(&STANDARD.encode(b"<svg onload='evil()'/>"))).is_err());
+        assert!(validate_icon(Some(&"A".repeat(24 * 1024 + 1))).is_err());
+    }
     #[tokio::test]
     async fn stale_process_errors_are_actionable_without_private_details() {
         let mut reader = BufReader::new(&b"{\"type\":\"error\",\"version\":1,\"code\":\"existing_process_unavailable\",\"message\":\"PRIVATE COMMAND\"}\n"[..]);

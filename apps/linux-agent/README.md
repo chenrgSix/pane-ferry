@@ -8,9 +8,9 @@
 cargo build --release -p remoteapp-agent
 mkdir -p "$HOME/.local/bin" "$HOME/.config/lan-remoteapp"
 install -m 755 target/release/remoteapp-agent "$HOME/.local/bin/remoteapp-agent"
-# 审核示例内路径和 argv 后，再自行创建 ~/.config/lan-remoteapp/apps.json。
+# 已安装桌面应用会自动发现；有固定参数需求时，可另配 apps.json 自定义入口。
 ~/.local/bin/remoteapp-agent check
 ~/.local/bin/remoteapp-agent serve
 ```
 
-以上安装命令供你在自己的 Linux 上审阅执行，本次交付没有执行远端安装。不要覆盖已有白名单；仅运行你认可的应用。
+安装时保留已有自定义入口。应用名称、图标与运行窗口的发现方式见 [应用与窗口发现](../../docs/application-discovery.md)。
