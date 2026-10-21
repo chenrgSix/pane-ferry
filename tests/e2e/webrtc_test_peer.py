@@ -76,7 +76,7 @@ class RTCConnection:
                 assert self.api.ra_rtc_description(self.handle, value['sdp'].encode(), b'offer') == 0
             elif kind == 'webrtc.candidate':
                 assert self.api.ra_rtc_candidate(self.handle, value['candidate'].encode(), value['mid'].encode()) == 0
-            elif kind == 'webrtc.state':
+            elif kind in ('webrtc.state', 'webrtc.pulse'):
                 continue
             elif kind == '_rtc.signal':
                 if value['kind'] == 1:
@@ -85,7 +85,7 @@ class RTCConnection:
                 else:
                     self.send(type='webrtc.candidate', candidate=value['payload'], mid=value['label'])
             elif kind == '_rtc.error':
-                if not self.accept_ssh:
+                if not self.accept_ssh or value['code'] == 'Agent_closed':
                     raise AssertionError(value)
             else:
                 if kind == 'frame' and not self.accept_ssh:

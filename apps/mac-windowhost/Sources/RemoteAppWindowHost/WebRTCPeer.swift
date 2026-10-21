@@ -57,6 +57,7 @@ final class WebRTCPeer {
     private var pending: [UInt32: Incoming] = [:]
     private var retired = Set<UInt32>()
     private(set) var candidatePair: String?
+    private var connectionState = 0
     private let signal: ([String: Any]) -> Void
     private let frame: (Incoming) -> Void
     private let failure: () -> Void
@@ -127,13 +128,33 @@ final class WebRTCPeer {
         case 2:
             if let candidate = String(data: data, encoding: .utf8) { signal(["type":"webrtc.candidate", "candidate":candidate, "mid":name]) }
         case 5:
+            connectionState = Int(name) ?? -1
             if name == "2", let handle = handle {
                 var bytes = [CChar](repeating: 0, count: 4096)
                 let length = api.pair(handle, &bytes, bytes.count)
                 if length > 0 { candidatePair = String(cString: bytes) }
             } else if name == "4" || name == "5" { failure() }
+            else if name == "3" {
+                worker.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    if let self = self, self.active, self.connectionState == 3 { self.failure() }
+                }
+            }
         case 6: failure()
         default: break // Packet loss is repaired by NACK/PLI, not a connection failure.
+        }
+    }
+    func verifyProgress(_ expected: [String: Any]) {
+        guard expected.count <= 64 else { failure(); return }
+        // SSH remains a liveness path. A static window reports the same frame
+        // ID, so silence alone never causes a fallback. Only undelivered media
+        // that the authenticated sender says it sent can expire this deadline.
+        worker.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self = self, self.active else { return }
+            for (key, value) in expected {
+                guard let id = UInt32(key), let number = unsignedInteger(value),
+                      let known = self.geometry[id], known["visible"] as? Bool != false else { continue }
+                if (self.lastFrames[id] ?? 0) < number { self.failure(); return }
+            }
         }
     }
     private func accept(_ value: RTCFrame) {

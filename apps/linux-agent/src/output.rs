@@ -10,7 +10,7 @@ use std::{
     os::unix::net::UnixStream,
     sync::{Arc, Condvar, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const PIXEL_BUDGET: usize = 16_000_000;
@@ -21,6 +21,7 @@ enum Pending {
     Answer(String),
     Candidate(String, String),
     MediaState(i32),
+    MediaPulse,
     Keyframe(u32),
     Message(Value, String),
     Frame(Window, Arc<CapturedImage>, String),
@@ -174,16 +175,32 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
     let mut next_stream = 1;
     let mut rtc: Option<crate::webrtc::Peer> = None;
     let mut frame_ids: HashMap<u32, u64> = HashMap::new();
+    let mut last_pulse = Instant::now();
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
             while !queue.closed && queue.events.is_empty() {
-                queue = shared.1.wait(queue).unwrap();
+                if rtc.is_some() {
+                    let delay = Duration::from_secs(1).saturating_sub(last_pulse.elapsed());
+                    let (next, result) = shared.1.wait_timeout(queue, delay).unwrap();
+                    queue = next;
+                    if result.timed_out() {
+                        break;
+                    }
+                } else {
+                    queue = shared.1.wait(queue).unwrap();
+                }
             }
             if queue.closed {
                 return Ok(());
             }
-            queue.remove(0)
+            if queue.events.is_empty()
+                || rtc.is_some() && last_pulse.elapsed() >= Duration::from_secs(1)
+            {
+                Pending::MediaPulse
+            } else {
+                queue.remove(0)
+            }
         };
         let (value, session) = match event {
             Pending::EnableVideo => {
@@ -271,16 +288,25 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                     )
                 }
             }
+            Pending::MediaPulse => {
+                last_pulse = Instant::now();
+                (
+                    json!({"type":"webrtc.pulse","frames":frame_ids}),
+                    String::new(),
+                )
+            }
             Pending::Message(value, session) => {
                 match value["type"].as_str() {
                     Some("session.snapshot" | "session.exited") => {
                         frames.clear();
                         encoders.clear();
+                        frame_ids.clear();
                     }
                     Some("window.destroyed") => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
                         frames.remove(&id);
                         encoders.remove(&id);
+                        frame_ids.remove(&id);
                     }
                     Some("window.metadata") if value["visible"] == false => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
