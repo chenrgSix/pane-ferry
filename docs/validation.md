@@ -208,6 +208,16 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 新版已备份安装：launcher SHA-256 `ae4b287866be8508c5a8d7dd0bfde2f2d7d5b0e7b2f93938e6f7365e97144214`，WindowHost `92e8c47c7898aaa2e8784daa53ef606e58ef9e273d2fd6ffe49531318c7359b8`；生成入口中的二进制与该宿主哈希相同。已运行的旧宿主需断开并重新连接后使用新名称，远端应用继续保留。验证使用当前未签名开发包，不能据此宣称签名公证、系统网络切换或生产环境验收通过。
 
+## 2026-10-22：Agent 统一原桌面授权
+
+本轮新增 Agent 共享的 input-only RemoteDesktop Portal v2 / libei 连接；Xwayland Backend 仍独立核验主窗口/进程并采集，不再逐应用创建 XTEST 门户。首次选择记住后，恢复凭据仅保存在 Ubuntu 私有状态目录，按系统单次令牌语义原子轮换。列表读取、独立 Xvfb 会话和断开释放不申请授权。
+
+- `scripts/check.sh` 完整通过：40 个 Rust 测试通过、4 个依赖 Linux 环境的测试按原规则忽略；3 个新增授权存储/输入所有权测试通过；20 个前端测试、类型检查与构建，以及 Swift 输入、富剪贴板、复制剪切顺序、SSH 密码与自动重连 smoke 均通过。更新后的 AppKit smoke 检查授权提示的 session 隔离、画面元数据不会盖掉提示、授权恢复清除提示和等待时不弹阻塞错误框。本地 Clippy `--workspace --all-targets -- -D warnings` 通过。
+- Ubuntu 工作区测试 40 项通过、4 项同样按规则忽略，release 构建通过。Ubuntu 没有安装 Clippy，本轮未安装新工具，Clippy 结果来自 Mac。
+- `desktop_authorization_smoke.py` 在 Ubuntu 的专用 D-Bus（禁用服务自动激活）、独立 HOME 和真实系统 libei/libeis 上通过：多个输入租约仅申请一次、真实键盘/绝对指针/按钮/滚轮事件、按租约释放、设备移除/重新加入期间不补发输入、重启恢复和令牌轮换、撤销后重新确认、取消后打字不重复申请、portal 重启后重新注册和恢复。fixture 只实现 input-only 门户，不能把它当作 GNOME 系统弹窗实测。
+- Ubuntu 的 `existing_window_smoke.py --controller-text` 与 `app_discovery_smoke.py` 再次通过，包含进程和主窗口隔离、拒绝其他窗口、中文输入、剪切/粘贴、重连复用与原进程在 Agent 重启后存活。均使用自建 Xvfb / GTK 测试程序，没有操作用户原桌面程序。
+- Mac release 开发应用打包通过。真实 Ubuntu 会话总线与 RemoteDesktop 接口版本 2 已只读核验；真实 GNOME 首次确认与后续复用尚待激活测试，以上自动化结果不代表这一步已通过。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。

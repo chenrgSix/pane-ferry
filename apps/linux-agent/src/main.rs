@@ -25,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod desktop_input;
 mod discovery;
 mod input_queue;
 mod output;
@@ -136,6 +137,7 @@ struct State {
     desktop: Option<discovery::Desktop>,
     running: HashMap<String, discovery::RunningWindow>,
     runtime: PathBuf,
+    desktop_input: desktop_input::Manager,
 }
 fn home() -> Result<PathBuf> {
     Ok(PathBuf::from(
@@ -255,6 +257,7 @@ fn serve() -> Result<()> {
         desktop_apps: vec![],
         desktop,
         running: HashMap::new(),
+        desktop_input: desktop_input::Manager::new(dir.clone()),
         runtime: dir,
     }));
     eprintln!("remoteapp-agent listening on private user socket");
@@ -391,6 +394,18 @@ fn launch(
             std::path::Path::new(&existing.xauthority),
             existing.process_id,
         )?;
+        if backend.is_xwayland()? {
+            // The user's portal controls the graphical login, not an arbitrary
+            // nested compositor from a custom entry. Never send its coordinates
+            // to a different desktop merely because both servers use Xwayland.
+            if !discovery::desktops(&st.desktop, &[])
+                .iter()
+                .any(|desktop| desktop.display == existing.display)
+            {
+                bail!("desktop_input_unavailable")
+            }
+            backend.set_desktop_input(st.desktop_input.lease());
+        }
         backend.set_scale_factor(existing.scale_factor)?;
         if let Some(window) = root_window {
             backend.restrict_to_window(window)?;
@@ -607,6 +622,7 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
     };
     s.controller = true;
     if let Some(backend) = &s.backend {
+        backend.prepare_input();
         backend.refresh_capture();
     }
     drop(s);
@@ -666,6 +682,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "display.scale",
         "input.pointer",
         "input.key",
+        "input.authorization",
         "input.text.commit",
         "clipboard.paste",
         "clipboard.copy",
@@ -687,6 +704,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut last_capture = Instant::now() - Duration::from_secs(1);
     let mut last_scan = last_capture;
     let mut lease: Option<Lease> = None;
+    let mut input_status = None;
     let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut pending_request = None;
@@ -1021,6 +1039,17 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 continue;
             }
             if let Some(b) = s.backend.as_mut() {
+                let status = b.input_status();
+                if status != input_status {
+                    input_status = status;
+                    if let Some(status) = status {
+                        send(
+                            &mut out,
+                            json!({"type":"input.authorization","state":status}),
+                            &sid,
+                        )?;
+                    }
+                }
                 let windows = b.scan()?;
                 for id in known.keys().filter(|id| !b.windows.contains_key(id)) {
                     send(

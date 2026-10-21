@@ -63,6 +63,7 @@ impl Backend {
     }
     fn copy_or_cut(&mut self, window: u32, id: String, cut: bool, rich: bool) -> Result<()> {
         self.known(window)?;
+        self.require_input()?;
         if self.text_pending() {
             bail!("clipboard operation already pending")
         }

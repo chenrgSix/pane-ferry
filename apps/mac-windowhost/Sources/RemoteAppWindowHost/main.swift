@@ -274,6 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var capabilities = Set<String>()
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
+    var desktopInputNotice: String?
     private func writeWire(_ message: [String: Any]) { if let sink = wireSink { sink(message) } else { transport.send(message) } }
     var clipboardCopyGate = ClipboardCopyGate()
     var clipboardBusy = false
@@ -507,6 +508,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if ["desktop_authorization_pending", "desktop_authorization_denied", "desktop_input_paused", "desktop_input_unavailable"].contains(code) {
+                // The authorization state event explains the action without a
+                // blocking alert for every key pressed while consent is pending.
+                if code != "desktop_authorization_pending" { NSSound.beep() }
+                return
+            }
             if code == "window_unavailable" { return }
             if code == "session_controlled", recovering { connectionLost(); return }
             if ["session_expired", "session_exited"].contains(code) {
@@ -529,6 +536,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
         guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
         guard seq > lastSequence else { return }; lastSequence = seq
+        if type == "input.authorization" {
+            let state = object["state"] as? String ?? "unavailable"
+            switch state {
+            case "ready": desktopInputNotice = nil
+            case "pending": desktopInputNotice = "请在 Ubuntu 确认 LAN RemoteApp Agent 控制授权，并记住本次选择"
+            case "denied": desktopInputNotice = "Ubuntu 已取消控制授权；重新连接可再次申请"
+            case "paused": desktopInputNotice = "Ubuntu 暂停了输入控制，请检查远端锁屏状态"
+            default: desktopInputNotice = "Ubuntu 输入授权连接不可用，请重新连接"
+            }
+            for host in windows.values { host.inputNotice = desktopInputNotice }
+            statusItem?.button?.title = desktopInputNotice == nil ? "RemoteApp · 已连接" : "RemoteApp · 等待 Ubuntu 授权"
+            return
+        }
         if type == "clipboard.data" {
             guard let id = object["request_id"] as? String,
                   let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
@@ -618,6 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             windows[id] = host
+            host.inputNotice = desktopInputNotice
         }
         guard let host = windows[id], rev >= host.revision else { return }
         host.surface.transmit = { [weak self] in self?.send($0) }

@@ -7,6 +7,7 @@ use std::{
     os::unix::net::UnixStream,
     path::Path,
     process::{Command, Stdio},
+    sync::Arc,
 };
 use x11rb::{
     connection::Connection,
@@ -22,6 +23,15 @@ mod shared_capture;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
 pub use inventory::{desktop_windows, DesktopWindow};
+/// Agent-owned desktop input. Capture and clipboard selections keep their own
+/// X11 connection; only validated input crosses this shared authorization route.
+pub trait DesktopInput: Send + Sync {
+    fn prepare(&self);
+    fn status(&self) -> &'static str;
+    fn pointer(&self, x: i32, y: i32, button: u8, pressed: bool) -> Result<()>;
+    fn key(&self, code: u8, pressed: bool) -> Result<()>;
+    fn release_all(&self);
+}
 pub struct Backend {
     conn: RustConnection,
     root: u32,
@@ -35,8 +45,35 @@ pub struct Backend {
     scale_factor: u8,
     shared_capture: RefCell<shared_capture::SharedCapture>,
     damage: RefCell<damage::Damage>,
+    desktop_input: Option<Arc<dyn DesktopInput>>,
 }
 impl Backend {
+    pub fn is_xwayland(&self) -> Result<bool> {
+        Ok(self.conn.query_extension(b"XWAYLAND")?.reply()?.present)
+    }
+    pub fn set_desktop_input(&mut self, input: Arc<dyn DesktopInput>) {
+        self.desktop_input = Some(input);
+    }
+    pub fn prepare_input(&self) {
+        if let Some(input) = &self.desktop_input {
+            input.prepare();
+        }
+    }
+    pub fn input_status(&self) -> Option<&'static str> {
+        self.desktop_input.as_ref().map(|input| input.status())
+    }
+    fn require_input(&self) -> Result<()> {
+        if let Some(input) = &self.desktop_input {
+            match input.status() {
+                "ready" => {}
+                "pending" => bail!("desktop_authorization_pending"),
+                "denied" => bail!("desktop_authorization_denied"),
+                "paused" => bail!("desktop_input_paused"),
+                _ => bail!("desktop_input_unavailable"),
+            }
+        }
+        Ok(())
+    }
     /// A fresh controller needs a snapshot even if the application stayed idle
     /// while disconnected and its last damage was already acknowledged.
     pub fn refresh_capture(&self) {
@@ -130,6 +167,7 @@ impl Backend {
             scale_factor: 1,
             shared_capture,
             damage,
+            desktop_input: None,
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
@@ -555,6 +593,9 @@ impl Backend {
         if x < 0 || y < 0 || x >= w.width as i32 || y >= w.height as i32 || button > 7 {
             bail!("invalid pointer")
         };
+        if pressed || button == 0 {
+            self.require_input()?;
+        }
         if button != 0 && pressed {
             self.focus_for_input(id)?;
         }
@@ -562,6 +603,9 @@ impl Backend {
             .conn
             .translate_coordinates(id, self.root, x as i16, y as i16)?
             .reply()?;
+        if let Some(input) = &self.desktop_input {
+            return input.pointer(point.dst_x.into(), point.dst_y.into(), button, pressed);
+        }
         // XWarpPointer only moves Xwayland's internal pointer. Button events
         // go through the compositor's input-emulation portal, so motion must
         // use the same XTEST route or clicks land at the old desktop position.
@@ -604,6 +648,9 @@ impl Backend {
     pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
         self.known(id)?;
         if pressed {
+            self.require_input()?;
+        }
+        if pressed {
             self.focus_for_input(id)?;
         }
         let setup = self.conn.setup();
@@ -619,6 +666,9 @@ impl Backend {
             .position(|syms| syms.contains(&keysym))
             .map(|i| min + i as u8)
             .ok_or_else(|| anyhow::anyhow!("keysym unavailable in server layout"))?;
+        if let Some(input) = &self.desktop_input {
+            return input.key(code, pressed);
+        }
         if pressed {
             self.pressed.borrow_mut().insert((code, true));
         } else {
@@ -643,6 +693,10 @@ impl Backend {
         Ok(())
     }
     pub fn release_all(&self) {
+        if let Some(input) = &self.desktop_input {
+            input.release_all();
+            return;
+        }
         for (code, key) in self.pressed.borrow_mut().drain() {
             let _ = self.conn.xtest_fake_input(
                 if key {

@@ -95,6 +95,19 @@ struct AutomaticReconnectSmoke {
                      "transport recovery retains this application's icon content")
         precondition(NSApp.mainMenu?.items.first?.title == app.applicationName,
                      "transport recovery retains the Ubuntu application identity")
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"other", "seq":2, "state":"pending"], image:nil))
+        precondition(original.inputNotice == nil, "another session changed input status")
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":2, "state":"pending"], image:nil))
+        precondition(original.window.subtitle.contains("Ubuntu") && original.window.subtitle.contains("授权"))
+        original.mediaMode = "H.264"; original.updateSubtitle()
+        precondition(original.window.subtitle == app.desktopInputNotice, "frame metadata hid the consent instructions")
+        app.receive(Incoming(object:["type":"error", "code":"desktop_authorization_pending"], image:nil))
+        precondition(app.connected && !app.recovering, "pending permission interrupted the transport")
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":3, "state":"ready"], image:nil))
+        precondition(original.inputNotice == nil && original.window.subtitle.contains("H.264"))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":4, "state":"paused"], image:nil))
+        precondition(original.window.subtitle.contains("锁屏"))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":5, "state":"ready"], image:nil))
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
         until { ((try? String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)) ?? "").contains("after reconnect") }
         let requests = try String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)
@@ -121,5 +134,6 @@ struct AutomaticReconnectSmoke {
         launch.stopRecovery()
         print("PASS: real transport subprocess loss automatically resumes the same NSWindow/session, resets stream sequence, preserves resolution, drops offline input and stops on quit; launch idempotence")
         print("PASS: bounded Ubuntu PNG with alpha over fragmented stdin; non-PNG/oversized icons rejected; application Dock icon survives reconnect")
+        print("PASS: shared Ubuntu authorization state stays scoped to the session, survives frame metadata, clears on readiness and does not block reconnect")
     }
 }

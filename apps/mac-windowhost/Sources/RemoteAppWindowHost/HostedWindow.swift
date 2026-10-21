@@ -12,6 +12,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var resizeTimer: Timer?
     var rendering: RenderGeometry
     var mediaMode: String?
+    var inputNotice: String? { didSet { updateSubtitle() } }
     var fixedPixels: (width: Int, height: Int)? {
         didSet { surface.preservesAspectRatio = fixedPixels != nil }
     }
@@ -48,7 +49,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         updateSubtitle()
     }
     func updateSubtitle() {
-        window.subtitle = "\(surface.remoteWidth) × \(surface.remoteHeight) 像素 · 界面 \(rendering.scale * 100)%" + (mediaMode.map { " · " + $0 } ?? "")
+        window.subtitle = inputNotice ?? ("\(surface.remoteWidth) × \(surface.remoteHeight) 像素 · 界面 \(rendering.scale * 100)%" + (mediaMode.map { " · " + $0 } ?? ""))
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose { return true }

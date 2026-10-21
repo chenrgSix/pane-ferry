@@ -165,6 +165,7 @@ impl Backend {
         rich: bool,
     ) -> Result<()> {
         self.known(window_id)?;
+        self.require_input()?;
         if self.text_pending() {
             bail!("controller text transfer already pending")
         }

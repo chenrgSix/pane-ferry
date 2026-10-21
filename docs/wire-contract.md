@@ -22,6 +22,7 @@ Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送
 window.configure 是请求任意合法像素宽高，不是把原窗口机械翻倍。宿主默认按当前内容区 × 本机 backing 像素密度持续计算；自动模式始终铺满，远端回包不改变本机窗口大小。手动分辨率模式固定远端像素尺寸，并按比例显示及映射输入。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。
 input.key {window_id,keysym:u32,pressed:bool}，用于导航、快捷键与非文字按键。控制端输入法预编辑保留在本地；input.text.commit {window_id,text} 只传已经提交的 Unicode，不把物理字母键或输入法切换修饰键发往被控端。
+声明 `input.authorization` 的 Agent，在接入原桌面 Xwayland 后额外发送 `input.authorization {state:"pending"|"ready"|"denied"|"paused"|"unavailable"}`，仍有当前 session_id / seq，只在状态变化时发送。授权属于 Agent 的共享输入会话，不随某个控制端断开而关闭。`desktop_authorization_pending` / `desktop_authorization_denied` / `desktop_input_paused` / `desktop_input_unavailable` 是受限输入错误码；控制端显示本地状态提示，不能为每次输入弹阻塞错误窗，也不能在授权恢复后重放等待期间的输入。恢复 token 不属于协议，不发送给客户端。普通 X11 / 独立 Xvfb 不发送此事件。
 clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy {window_id,request_id} 由主动复制触发；成功返回 clipboard.data {window_id,request_id,text}。控制端只接受仍有效、窗口和请求 ID 相符的复制回包，其他事件不得修改其剪贴板。没有通用 clipboard.read 接口或后台剪贴板同步。
 文字提交与旧版文本剪贴板接口只支持非空 UTF-8 纯文本，单次上限 8192 字节，禁止 NUL，超限报错而非截断。Agent 用 X11 selection 交付文字；XRes 校验请求方/selection owner 属于目标应用或经进程身份核验的桌面合成器桥接进程。原生 X11 等待读取完成；Xwayland 桥接完成数据请求后保留 selection source，以支持异步读取，后续文字/复制操作或断开时替换并清理。桥接读取不代表应用已经完成语义上的粘贴。复制先清除旧 selection 再触发本次 Ctrl+C，未产生新内容则超时失败，不返回之前的剪贴板。所有未完成操作有 3 秒超时；不会恢复或保存操作前的被控端剪贴板。
 图片、文件/文件夹及剪切使用 `clipboard.bundle` 能力与独立 SSH 字节流，完整消息、限制、INCR 和缓存规则见[剪贴板说明](clipboard.md)。新旧文本接口保持兼容，没有后台同步。
