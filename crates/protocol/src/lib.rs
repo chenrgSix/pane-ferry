@@ -18,6 +18,12 @@ pub enum VideoCodec {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum Request {
+    #[serde(rename = "node.info")]
+    NodeInfo {},
+    #[serde(rename = "peer.prepare")]
+    PreparePeer { device_id: String },
+    #[serde(rename = "sharing.set")]
+    Sharing { enabled: bool },
     #[serde(rename = "hello")]
     Hello { version: u32 },
     #[serde(rename = "video.enable")]

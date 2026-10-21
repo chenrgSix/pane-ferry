@@ -29,6 +29,7 @@ mod desktop_input;
 mod discovery;
 mod input_queue;
 mod output;
+mod peers;
 mod request_error;
 mod video;
 struct Session {
@@ -130,6 +131,8 @@ impl Drop for Session {
     }
 }
 struct State {
+    device_id: String,
+    sharing: bool,
     sessions: HashMap<String, Arc<Mutex<Session>>>,
     requests: HashMap<String, String>,
     apps: Vec<App>,
@@ -167,6 +170,7 @@ fn main() {
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("peer-hold") => peers::hold(&runtime()?),
         Some("clipboard-upload") => {
             let store = remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?;
             let id = store.receive(&mut std::io::BufReader::new(std::io::stdin().lock()))?;
@@ -251,6 +255,8 @@ fn serve() -> Result<()> {
     });
     listener.set_nonblocking(true)?;
     let state = Arc::new(Mutex::new(State {
+        device_id: remoteapp_core::node::device_id(&dir)?,
+        sharing: fs::read(dir.join("sharing-enabled")).map_or(true, |bytes| bytes == b"1"),
         sessions: HashMap::new(),
         requests: HashMap::new(),
         apps,
@@ -692,6 +698,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "session.list",
         "app.discovery",
         "window.list",
+        "node.info",
+        "peer.reverse",
     ];
     if video::available() {
         capabilities.push("native.h264");
@@ -709,6 +717,14 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut pending_request = None;
     while !STOP.load(Ordering::SeqCst) {
+        if lease.is_some() && !state.lock().unwrap().sharing {
+            send(
+                &mut out,
+                json!({"type":"error","code":"sharing_disabled"}),
+                "",
+            )?;
+            break;
+        }
         let mut text_pending = false;
         let mut x11_fd = None;
         let mut capture_pending = false;
@@ -783,6 +799,33 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
             let result: Result<()> = (|| {
                 match req {
+                    Request::NodeInfo {} => {
+                        let st = state.lock().unwrap();
+                        send(
+                            &mut out,
+                            json!({"type":"node.info","device_id":st.device_id,"platform":"linux",
+                            "name":std::env::var("HOSTNAME").unwrap_or_else(|_|"Ubuntu".into()),
+                            "publishing_supported":true,"receiving_supported":true,"sharing_enabled":st.sharing}),
+                            "",
+                        )?;
+                    }
+                    Request::PreparePeer { device_id } => {
+                        let st = state.lock().unwrap();
+                        send(&mut out, peers::prepare(&st.runtime, &device_id)?, "")?;
+                    }
+                    Request::Sharing { enabled } => {
+                        let mut st = state.lock().unwrap();
+                        fs::write(
+                            st.runtime.join("sharing-enabled"),
+                            if enabled { b"1" } else { b"0" },
+                        )?;
+                        st.sharing = enabled;
+                        send(
+                            &mut out,
+                            json!({"type":"sharing.changed","enabled":enabled}),
+                            "",
+                        )?;
+                    }
                     Request::EnableVideo { codec: _ } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")
@@ -813,6 +856,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                     Request::List {} => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
                         let result = discovery::applications();
                         let warning = result
                             .as_ref()
@@ -833,6 +879,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                     Request::Windows {} => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
                         let mut st = state.lock().unwrap();
                         let sources = discovery::desktops(&st.desktop, &st.apps);
                         let excluded: Vec<_> = st
@@ -885,6 +934,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         attach,
                         scale_factor,
                     } => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
                         if lease.is_some() {
                             bail!("detach before launching another session")
                         };
@@ -912,6 +964,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         lease = new;
                     }
                     Request::Resume { session_id } => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
                         if lease.is_some() {
                             bail!("already attached")
                         };

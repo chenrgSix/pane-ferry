@@ -1,6 +1,7 @@
 /// Stable public codes; never require a client to display arbitrary error details.
 pub fn code(message: &str) -> &'static str {
     match message {
+        "sharing disabled" => "sharing_disabled",
         "desktop_authorization_pending" => "desktop_authorization_pending",
         "desktop_authorization_denied" => "desktop_authorization_denied",
         "desktop_input_paused" => "desktop_input_paused",
