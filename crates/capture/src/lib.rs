@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use std::borrow::Cow;
 #[derive(Debug, PartialEq, Eq)]
 pub struct Image {
     pub width: u32,
@@ -24,9 +25,56 @@ impl Image {
             self.masks,
         )
     }
+    pub fn bgrx(&self) -> Result<Cow<'_, [u8]>> {
+        remoteapp_protocol::dimensions(self.width, self.height)?;
+        if self.bpp == 32 && self.pad == 32 && self.little && self.masks == (0xff0000, 0xff00, 0xff)
+        {
+            let length = self.pixels() * 4;
+            if self.data.len() < length {
+                bail!("short X11 image")
+            }
+            return Ok(Cow::Borrowed(&self.data[..length]));
+        }
+        let rgb = rgb_pixels(
+            self.width,
+            self.height,
+            &self.data,
+            self.bpp,
+            self.pad,
+            self.little,
+            self.masks,
+        )?;
+        let mut pixels = Vec::with_capacity(self.pixels() * 4);
+        for pixel in rgb.chunks_exact(3) {
+            pixels.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 0]);
+        }
+        Ok(Cow::Owned(pixels))
+    }
 }
 /// Xvfb configured as 24-bit TrueColor; handles 24/32-bit scanlines and server byte order.
 pub fn encode(
+    w: u32,
+    h: u32,
+    data: &[u8],
+    bpp: u8,
+    pad: u8,
+    little: bool,
+    masks: (u32, u32, u32),
+) -> Result<Vec<u8>> {
+    let rgb = rgb_pixels(w, h, data, bpp, pad, little, masks)?;
+    let mut out = Vec::new();
+    {
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgb);
+        e.set_depth(png::BitDepth::Eight);
+        e.set_compression(png::Compression::Fast);
+        e.set_filter(png::FilterType::Sub);
+        let mut writer = e.write_header()?;
+        writer.write_image_data(&rgb)?;
+    }
+    Ok(out)
+}
+fn rgb_pixels(
     w: u32,
     h: u32,
     data: &[u8],
@@ -77,17 +125,7 @@ pub fn encode(
             }
         }
     }
-    let mut out = Vec::new();
-    {
-        let mut e = png::Encoder::new(&mut out, w, h);
-        e.set_color(png::ColorType::Rgb);
-        e.set_depth(png::BitDepth::Eight);
-        e.set_compression(png::Compression::Fast);
-        e.set_filter(png::FilterType::Sub);
-        let mut writer = e.write_header()?;
-        writer.write_image_data(&rgb)?;
-    }
-    Ok(out)
+    Ok(rgb)
 }
 #[cfg(test)]
 mod tests {
@@ -131,6 +169,16 @@ mod tests {
             let mut pixels = vec![0; reader.output_buffer_size()];
             reader.next_frame(&mut pixels).unwrap();
             assert_eq!(pixels, [1, 2, 3, 4, 5, 6]);
+            let image = Image {
+                width: 1,
+                height: 2,
+                data,
+                bpp,
+                pad: 32,
+                little,
+                masks,
+            };
+            assert_eq!(image.bgrx().unwrap().as_ref(), [3, 2, 1, 0, 6, 5, 4, 0]);
         }
     }
 }

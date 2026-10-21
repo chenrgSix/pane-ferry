@@ -22,7 +22,35 @@ parser.add_argument('--max-input-ms', type=float, default=0)
 parser.add_argument('--samples', type=int, default=5)
 parser.add_argument('--motions', type=int, default=32)
 parser.add_argument('--stall-reader', action='store_true')
+parser.add_argument('--video', action='store_true')
 args = parser.parse_args()
+class VideoDecoder:
+    def __init__(self):
+        import gi
+        gi.require_version('Gst', '1.0')
+        gi.require_version('GstApp', '1.0')
+        from gi.repository import Gst
+        self.Gst = Gst
+        Gst.init(None)
+        self.pipeline = Gst.parse_launch('appsrc name=source is-live=true format=time caps=video/x-h264,stream-format=byte-stream,alignment=au '
+            '! h264parse ! openh264dec ! videoconvert ! video/x-raw,format=RGB ! appsink name=sink sync=false max-buffers=1')
+        self.source, self.sink = self.pipeline.get_by_name('source'), self.pipeline.get_by_name('sink')
+        self.pipeline.set_state(Gst.State.PLAYING)
+        self.sequence = 0
+    def red(self, frame):
+        assert frame.get('codec') == 'h264', frame.get('video_error')
+        packet = base64.b64decode(frame['data'])
+        buf = self.Gst.Buffer.new_allocate(None, len(packet), None)
+        buf.fill(0, packet)
+        buf.pts = self.sequence * self.Gst.SECOND // 30
+        self.sequence += 1
+        assert self.source.emit('push-buffer', buf) == self.Gst.FlowReturn.OK
+        sample = self.sink.emit('try-pull-sample', self.Gst.SECOND)
+        assert sample is not None, 'video decode timeout'
+        width = sample.get_caps().get_structure(0).get_value('width')
+        stride = (width * 3 + 3) & ~3
+        return sample.get_buffer().extract_dup(20 * stride + 20 * 3, 1)[0]
+    def close(self): self.pipeline.set_state(self.Gst.State.NULL)
 with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
@@ -53,14 +81,22 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
             read_gate, paused = threading.Event(), threading.Event()
             read_gate.set()
             def reader():
+                decoder = VideoDecoder() if args.video else None
                 try:
                     while running:
                         if not read_gate.is_set(): paused.set()
                         read_gate.wait()
                         line = wire.readline(16 * 1024 * 1024 + 1)
                         if not line: break
-                        events.put((time.monotonic(), json.loads(line), len(line)))
+                        arrived = time.monotonic()
+                        event = json.loads(line)
+                        if decoder and event['type'] == 'frame': event['response_red'] = decoder.red(event)
+                        events.put((arrived, event, len(line)))
                 except (OSError, ValueError): pass
+                except Exception as error:
+                    events.put((time.monotonic(), dict(type='error', code=repr(error)), 0))
+                finally:
+                    if decoder: decoder.close()
             reader_thread = threading.Thread(target=reader, daemon=True)
             reader_thread.start()
             def send(**data): peer.sendall((json.dumps(dict(data, version=1)) + '\n').encode())
@@ -71,7 +107,10 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
                     assert event['type'] != 'error', event
                     if event['type'] == kind and predicate(event): return arrived, event, size
                 raise AssertionError(f'missing {kind}')
-            send(type='hello'); until('hello')
+            send(type='hello'); hello = until('hello')[1]
+            if args.video:
+                assert 'native.h264' in hello['capabilities']
+                send(type='video.enable', codec='h264'); until('video.ready')
             send(type='app.launch', app_id='latency', request_id='measure', backend='native')
             until('session.started')
             _, window, _ = until('window.created', lambda event: event['title'] == 'RemoteAppLatencyFixture')
@@ -100,12 +139,15 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
                 inputs.append((result['received'] - started) * 1000)
                 while True:
                     arrived, frame, size = until('frame', lambda event: event['window_id'] == wid)
-                    with Image.open(io.BytesIO(base64.b64decode(frame['png']))) as image:
-                        red = image.convert('RGB').getpixel((20, 20))[0]
+                    if args.video:
+                        red = frame['response_red']
+                    else:
+                        with Image.open(io.BytesIO(base64.b64decode(frame['png']))) as image:
+                            red = image.convert('RGB').getpixel((20, 20))[0]
                     if (red > 128) == bool(sample % 2): break
                 visible.append((arrived - started) * 1000)
                 sizes.append(size)
-            result = dict(input_ms=[round(v, 1) for v in inputs], visible_ms=[round(v, 1) for v in visible],
+            result = dict(codec='h264' if args.video else 'png', input_ms=[round(v, 1) for v in inputs], visible_ms=[round(v, 1) for v in visible],
                           median_input_ms=round(statistics.median(inputs), 1), median_visible_ms=round(statistics.median(visible), 1),
                           mean_frame_bytes=round(statistics.mean(sizes)))
             if args.stall_reader:

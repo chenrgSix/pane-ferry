@@ -16,6 +16,7 @@ use std::{
 const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
+    EnableVideo,
     Message(Value, String),
     Frame(Window, CapturedImage, String),
 }
@@ -109,6 +110,9 @@ impl Output {
     pub fn frame(&self, window: &Window, image: CapturedImage, session: &str) -> Result<()> {
         self.push(Pending::Frame(window.clone(), image, session.into()))
     }
+    pub fn enable_video(&self) -> Result<()> {
+        self.push(Pending::EnableVideo)
+    }
 }
 impl Drop for Output {
     fn drop(&mut self) {
@@ -123,6 +127,9 @@ impl Drop for Output {
 fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
     let mut sequence = 0u64;
     let mut frames: HashMap<u32, (u64, CapturedImage)> = HashMap::new();
+    let mut video = false;
+    let mut encoders: HashMap<u32, crate::video::Encoder> = HashMap::new();
+    let mut next_stream = 1;
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -135,14 +142,27 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
             queue.remove(0)
         };
         let (mut value, session) = match event {
+            Pending::EnableVideo => {
+                video = true;
+                frames.clear();
+                encoders.clear();
+                continue;
+            }
             Pending::Message(value, session) => {
                 match value["type"].as_str() {
-                    Some("session.snapshot" | "session.exited") => frames.clear(),
+                    Some("session.snapshot" | "session.exited") => {
+                        frames.clear();
+                        encoders.clear();
+                    }
                     Some("window.destroyed") => {
-                        frames.remove(&(value["window_id"].as_u64().unwrap_or(0) as u32));
+                        let id = value["window_id"].as_u64().unwrap_or(0) as u32;
+                        frames.remove(&id);
+                        encoders.remove(&id);
                     }
                     Some("window.metadata") if value["visible"] == false => {
-                        frames.remove(&(value["window_id"].as_u64().unwrap_or(0) as u32));
+                        let id = value["window_id"].as_u64().unwrap_or(0) as u32;
+                        frames.remove(&id);
+                        encoders.remove(&id);
                     }
                     _ => {}
                 }
@@ -157,9 +177,45 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 {
                     continue;
                 }
-                let png = image.png()?;
-                let value = json!({"type":"frame", "window_id":window.window_id, "geometry_revision":window.geometry_revision,
-                    "width":window.width, "height":window.height, "png":STANDARD.encode(png)});
+                let mut value = json!({"type":"frame", "window_id":window.window_id, "geometry_revision":window.geometry_revision,
+                    "width":window.width, "height":window.height});
+                let packet = if video {
+                    let encoded = (|| -> Result<_> {
+                        if encoders.get(&window.window_id).is_none_or(|encoder| {
+                            encoder.width != image.width || encoder.height != image.height
+                        }) {
+                            encoders.remove(&window.window_id);
+                            let encoder =
+                                crate::video::Encoder::new(image.width, image.height, next_stream)?;
+                            next_stream += 1;
+                            encoders.insert(window.window_id, encoder);
+                        }
+                        let encoder = encoders.get_mut(&window.window_id).unwrap();
+                        let packet = encoder.encode(&image)?;
+                        Ok((packet, encoder.stream))
+                    })();
+                    match encoded {
+                        Ok(packet) => Some(packet),
+                        Err(_) => {
+                            video = false;
+                            encoders.clear();
+                            value["video_error"] = json!("encoder_failed");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                if let Some((packet, stream)) = packet {
+                    value["codec"] = json!("h264");
+                    value["data"] = json!(STANDARD.encode(packet.bytes));
+                    value["stream_id"] = json!(stream);
+                    value["key_frame"] = json!(packet.keyframe);
+                    value["encoded_width"] = json!(image.width + image.width % 2);
+                    value["encoded_height"] = json!(image.height + image.height % 2);
+                } else {
+                    value["png"] = json!(STANDARD.encode(image.png()?));
+                }
                 frames.remove(&window.window_id);
                 if frames
                     .values()

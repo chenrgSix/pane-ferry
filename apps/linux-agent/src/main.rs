@@ -27,6 +27,7 @@ static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 mod output;
 mod request_error;
+mod video;
 struct Session {
     id: String,
     app_id: String,
@@ -513,9 +514,24 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         Request::Hello { version: 1 } => {}
         _ => bail!("hello version 1 required"),
     }
+    let mut capabilities = vec![
+        "catalog",
+        "native.png",
+        "display.scale",
+        "input.pointer",
+        "input.key",
+        "input.text.commit",
+        "clipboard.paste",
+        "clipboard.copy",
+        "session.resume",
+        "session.list",
+    ];
+    if video::available() {
+        capabilities.push("native.h264");
+    }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":["catalog","native.png","display.scale","input.pointer","input.key","input.text.commit","clipboard.paste","clipboard.copy","session.resume","session.list"]}),
+        json!({"type":"hello","capabilities":capabilities}),
         "",
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
@@ -568,6 +584,16 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(req) = req {
             let result: Result<()> = (|| {
                 match req {
+                    Request::EnableVideo { codec: _ } => {
+                        if lease.is_some() {
+                            bail!("configure video before attaching")
+                        }
+                        if !video::available() {
+                            bail!("video encoder unavailable")
+                        }
+                        out.enable_video()?;
+                        send(&mut out, json!({"type":"video.ready", "codec":"h264"}), "")?;
+                    }
                     Request::Sessions {} => {
                         let st = state.lock().unwrap();
                         let mut sessions = Vec::new();

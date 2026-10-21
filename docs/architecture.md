@@ -4,11 +4,13 @@
 
 保留原方案的 Rust 业务核心、Tauri 管理 UI、Linux 用户 Agent、Swift/AppKit WindowHost。Ubuntu 端只创建产品自己的虚拟 X11 会话，不接管 GNOME/Wayland。
 
-为了让首次交付具有可读、可诊断的完整链路，而不是只有接口定义，当前 P1 选择 SSH stdio + JSON Lines（RWP/1）。消息通过可靠 SSH 字节流按序传输，图像使用 PNG base64。协议显式版本，输入和帧有限额。生产优化再迁移 Protobuf/独立媒体流/QUIC；不将 TCP SSH 转发描述为 QUIC 传输。
+当前 P1 使用 SSH stdio + JSON Lines（RWP/1）。窗口画面默认协商 H.264 视频，保留旧客户端和编码不可用时的 PNG 回退。媒体与控制仍共用有序 SSH 通道，包按 base64 封装；输入处理与编码、写出分离。没有 WebRTC/UDP、QUIC 或 Protobuf，弱网下仍有 TCP 队头阻塞的限制。
 
 ## 窗口与图像
 
-Agent 发现产品会话内的可见窗口，发送元数据及真实 PNG。服务端显式配置 existing 时，也可按 PID 接入原桌面已有 X11 窗口，使用 XComposite pixmap 捕获。Swift 宿主创建独立 NSWindow，图像通过系统位图绘制。当前没有 Metal 或 VideoToolbox 解码器。PNG 全帧去重适合文本/静态应用，但不等于 XDamage 区域更新、30fps 或 60fps 性能承诺。
+Agent 发现产品会话内的可见窗口，发送元数据及窗口视频。服务端显式配置 existing 时，也可按 PID 接入原桌面已有 X11 窗口，使用 XComposite pixmap 捕获。固定的私有 GStreamer/OpenH264 编码进程只接收 Agent 已验证窗口的原始像素，输出含关键帧和 P 帧的 access unit；不重新采集整个桌面。Swift 宿主按窗口使用 VideoToolbox 解码，再由 NSView/CoreGraphics 显示，未使用 Metal。采样最短间隔 33ms，不承诺实际 30/60fps。
+
+在编码之前合并待处理原始帧，避免画面排队；已编码的 P 帧按序发送、解码，只在解码后合并待显示图像。每个编码流从关键帧开始，resize、隐藏恢复、重连重建流。原始帧队列、去重缓存、解码总像素和包大小均受限。窗口副标题显示分辨率、UI 缩放及视频/PNG 模式。
 
 窗口销毁后不能接受旧帧；大小变更带 geometry_revision。队列与解码尺寸必须有上限，无法正确解码的帧被拒绝而不是无限缓存。NSWindow 操作在主线程，网络读取不阻塞 UI。
 
@@ -22,8 +24,8 @@ existing 会话只持有 X11 连接和进程身份，不拥有原进程。Agent 
 
 ## 原生链路
 
-服务端批准应用目录、SSH 控制、PNG 窗口流和 AppKit 宿主组成唯一路径。启动器先幂等创建会话，再附着原生宿主；会话列表用于跨启动器重启恢复。系统 SSH 临时连接可用于密码登录，应用不收集或保存密码。
+服务端批准应用目录、SSH 控制、按窗口视频和 AppKit 宿主组成唯一路径。启动器先幂等创建会话，再附着原生宿主；会话列表用于跨启动器重启恢复。系统 SSH 临时连接可用于密码登录，应用不收集或保存密码。
 
 ## 后续
 
-仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、H.264、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本剪贴板和 GTK HiDPI 的测试范围见 validation.md。
+仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、WebRTC/独立媒体传输、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本剪贴板和 GTK HiDPI 的测试范围见 validation.md。

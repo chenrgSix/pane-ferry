@@ -118,6 +118,8 @@ final class SSHTransport {
     }
     private func readLoop() {
         var buffer = Data()
+        var videoDecoders: [UInt32: H264Decoder] = [:]
+        var videoPixels: [UInt32: Int] = [:]
         do {
             while true {
                 lock.lock(); let stop = closed; lock.unlock(); if stop { break }
@@ -133,12 +135,37 @@ final class SSHTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
+                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
+                    if ["session.snapshot", "session.exited"].contains(object["type"] as? String ?? "") { videoDecoders.removeAll(); videoPixels.removeAll() }
+                    if object["type"] as? String == "window.destroyed" ||
+                        (object["type"] as? String == "window.metadata" && (object["visible"] as? Bool) == false),
+                        let id = unsignedInteger(object["window_id"]), id <= UInt32.max {
+                        videoDecoders.removeValue(forKey: UInt32(id)); videoPixels.removeValue(forKey: UInt32(id))
+                    }
                     var image: CGImage?
                     if object["type"] as? String == "frame" {
                         guard let w = object["width"] as? Int, let h = object["height"] as? Int,
-                              w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels,
+                              w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels
+                        else { throw HostError.message("无效或过大的视频尺寸") }
+                        if object["codec"] as? String == "h264" {
+                            guard let id = unsignedInteger(object["window_id"]), id <= UInt32.max,
+                                  let stream = unsignedInteger(object["stream_id"]), stream > 0,
+                                  let ew = object["encoded_width"] as? Int, let eh = object["encoded_height"] as? Int,
+                                  let encoded = object["data"] as? String, let data = Data(base64Encoded: encoded),
+                                  data.count <= 12 * 1024 * 1024 else { throw HostError.message("无效 H.264 帧") }
+                            let windowID = UInt32(id)
+                            guard videoPixels.filter({ $0.key != windowID }).values.reduce(0, +) + w * h <= 16_000_000 else {
+                                throw HostError.message("视频解码像素总量超限")
+                            }
+                            videoPixels[windowID] = w * h
+                            if videoDecoders[windowID] == nil {
+                                guard videoDecoders.count < 64 else { throw HostError.message("视频窗口数量超限") }
+                                videoDecoders[windowID] = H264Decoder()
+                            }
+                            image = try videoDecoders[windowID]?.decode(data, streamID: stream, width: w, height: h, encodedWidth: ew, encodedHeight: eh)
+                        } else {
+                            guard object["codec"] == nil,
                               let encoded = object["png"] as? String,
                               let png = Data(base64Encoded: encoded), png.count <= 12 * 1024 * 1024,
                               png.starts(with: [137,80,78,71,13,10,26,10]),
@@ -150,8 +177,9 @@ final class SSHTransport {
                               let decoded = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
                         else { throw HostError.message("无效或过大的 PNG 帧") }
                         image = decoded
+                        }
                     }
-                    var lightweight = object; lightweight.removeValue(forKey: "png")
+                    var lightweight = object; lightweight.removeValue(forKey: "png"); lightweight.removeValue(forKey: "data")
                     try enqueue(Incoming(object: lightweight, image: image))
                 }
                 guard buffer.count <= maximumLine else { throw HostError.message("协议消息未终止或过大") }
@@ -304,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "hello" {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
+            if capabilities.contains("native.h264") { send(["type":"video.enable", "codec":"h264"]) }
             if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": UUID().uuidString, "backend": "native"]
                 if capabilities.contains("display.scale") { launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1 }
@@ -312,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             else if let session = options.session { send(["type": "session.resume", "session_id": session]) }
             return
         }
+        if type == "video.ready" { statusItem?.button?.title = "RemoteApp · H.264 视频"; return }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
@@ -359,6 +389,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.surface.image = image
+            let video = object["codec"] as? String == "h264"
+            let mode = video ? "H.264 视频" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
+            if host.mediaMode != mode { host.mediaMode = mode; host.updateSubtitle() }
+            statusItem?.button?.title = "RemoteApp · " + mode
         default: break
         }
     }
@@ -386,7 +420,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
         host.revision = rev
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
-        host.window.subtitle = "\(w) × \(h) 像素 · 界面 \(scale * 100)%"
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
         let visible = object["visible"] as? Bool ?? true
         if visible != host.remoteVisible {

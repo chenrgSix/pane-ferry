@@ -10,10 +10,17 @@ pub enum LaunchBackend {
     Native,
 }
 #[derive(Debug, Deserialize)]
+pub enum VideoCodec {
+    #[serde(rename = "h264")]
+    H264,
+}
+#[derive(Debug, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum Request {
     #[serde(rename = "hello")]
     Hello { version: u32 },
+    #[serde(rename = "video.enable")]
+    EnableVideo { codec: VideoCodec },
     #[serde(rename = "app.list")]
     List {},
     #[serde(rename = "app.launch")]
@@ -191,6 +198,21 @@ mod tests {
         assert!(parse_request(br#"{"type":"app.list","version":1}"#).is_ok());
         assert!(parse_request(br#"{"type":"app.list","version":2}"#).is_err());
         assert!(parse_request(br#"{"type":"app.list"}"#).is_err());
+    }
+    #[test]
+    fn video_codec_is_explicit_and_bounded() {
+        assert!(matches!(
+            parse_request(br#"{"type":"video.enable","version":1,"codec":"h264"}"#).unwrap(),
+            Request::EnableVideo {
+                codec: VideoCodec::H264
+            }
+        ));
+        for request in [
+            r#"{"type":"video.enable","version":1,"codec":"x264;id"}"#,
+            r#"{"type":"video.enable","version":1,"codec":"h264","command":"id"}"#,
+        ] {
+            assert!(parse_request(request.as_bytes()).is_err());
+        }
     }
     #[test]
     fn rejects_fields() {

@@ -8,7 +8,7 @@
 
 ## 运行链路
 
-Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，捕获真实 X11 窗口 PNG，通过严格验证的 SSH 传给 Swift/AppKit `NSWindow`，回传指针、按键、大小与关闭请求。Mac 只使用打包的原生 WindowHost。
+Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，按窗口采集并默认协商 H.264 实时视频，经严格验证的 SSH 传给 Swift/AppKit `NSWindow`，Mac 使用 VideoToolbox 解码。键鼠、大小和关闭请求仍由自有控制协议处理。窗口副标题显示当前使用视频还是 PNG 回退。
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。不开放公网控制端口。
 
@@ -36,7 +36,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行白名单应用，捕获真�
 
 ## 当前边界
 
-P1 使用 SSH + 版本化 JSON Lines 和无损 PNG，全帧去重与有界队列。文字在控制端组合后提交，复制/粘贴仅由主动操作触发，每次最多 8192 字节，不做后台同步。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与性能指标尚未完成验收；QUIC、Protobuf、H.264、Metal 或 XDamage 增量流尚未实现。
+P1 使用 SSH + 版本化 JSON Lines，默认 H.264 关键帧/P 帧视频；Linux 编码组件缺失、编码失败或旧客户端会使用 PNG 回退。视频采用有损 4:2:0 编码，未实现 WebRTC/UDP、QUIC、Protobuf、Metal 或 XDamage。文字在控制端组合后提交，复制/粘贴仅由主动操作触发，每次最多 8192 字节，不做后台同步。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与长期性能仍待完整验收。
 
 不要传输密码、私钥、令牌到聊天或仓库。无需管理员权限运行 Agent；软件拥有运行它的 Linux 用户权限，应用白名单不是 OS 沙箱。建议为远程应用使用专用低权限账户。
 
