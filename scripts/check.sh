@@ -6,6 +6,7 @@ cargo fmt --all -- --check
 cargo test --workspace
 python3 tests/e2e/ssh_helper_validation.py
 python3 tests/e2e/ssh_recovery_smoke.py
+python3 tests/e2e/automatic_identity_smoke.py
 if command -v npm >/dev/null; then
   (cd apps/launcher && npm ci && npm test && npm run build)
 fi

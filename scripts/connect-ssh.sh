@@ -32,6 +32,11 @@ ssh_options=(-F /dev/null -S "$HOME/.ssh/lan-remoteapp-%C" -T
   -oForwardAgent=no -oForwardX11=no -oPermitLocalCommand=no
   -oServerAliveInterval=10 -oServerAliveCountMax=2
   -p "$((10#$remote_port))" -l "$remote_user")
+automatic_key="$HOME/.ssh/lan-remoteapp-keys/$remote_user@$remote_host-$((10#$remote_port))"
+if [[ -f $automatic_key && ! -L $automatic_key && -f $automatic_key.enabled && ! -L $automatic_key.enabled ]]; then
+  ssh_options[3]="$HOME/.ssh/lan-remoteapp-auto-%C"
+  ssh_options+=(-i "$automatic_key" -oIdentitiesOnly=yes)
+fi
 if [[ $action == exit ]]; then
   exec /usr/bin/ssh "${ssh_options[@]}" -O "$action" -- "$remote_host"
 fi

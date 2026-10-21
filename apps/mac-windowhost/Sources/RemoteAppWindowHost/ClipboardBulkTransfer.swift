@@ -12,7 +12,7 @@ final class ClipboardBulkTransfer {
         guard !agent.isEmpty, agent.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || "/._-".utf8.contains($0) }) else { throw ClipboardFailure.invalid }
         let process = Process(), input = Pipe(), output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = ["-F", "/dev/null", "-T", "-S", "~/.ssh/lan-remoteapp-%C", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no", "-oConnectTimeout=10", "-oServerAliveInterval=15", "-oServerAliveCountMax=3", "-p", String(port), "-l", user, "--", host, agent + " " + command]
+        process.arguments = ["-F", "/dev/null", "-T"] + SSHIdentity.options(host: host, user: user, port: port) + ["-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no", "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2", "-p", String(port), "-l", user, "--", host, agent + " " + command]
         process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
         try process.run()
         let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }

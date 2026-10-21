@@ -2,7 +2,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{process::Stdio, time::Duration};
+use std::{path::Path, process::Stdio, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -236,6 +236,22 @@ impl Endpoint {
             .iter()
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
+        if let Some(home) = std::env::var_os("HOME") {
+            let automatic = self.automatic_identity(Path::new(&home));
+            if let Some(key) = automatic {
+                // A separate mux prevents the restricted key from resetting or
+                // changing the user's existing password-authenticated session.
+                let control = args.iter().position(|argument| argument == "-S").unwrap();
+                args[control + 1] = "~/.ssh/lan-remoteapp-auto-%C".into();
+                args.extend([
+                    "-i".into(),
+                    key.to_string_lossy().into_owned(),
+                    "-oIdentitiesOnly=yes".into(),
+                    "-oControlMaster=auto".into(),
+                    "-oControlPersist=10m".into(),
+                ]);
+            }
+        }
         args.extend([
             "-p".into(),
             self.port.to_string(),
@@ -246,6 +262,17 @@ impl Endpoint {
             REMOTE_COMMAND.into(),
         ]);
         Ok(args)
+    }
+    fn automatic_identity(&self, home: &Path) -> Option<std::path::PathBuf> {
+        let key = home
+            .join(".ssh/lan-remoteapp-keys")
+            .join(format!("{}@{}-{}", self.user, self.host, self.port));
+        let marker =
+            key.with_file_name(format!("{}@{}-{}.enabled", self.user, self.host, self.port));
+        let regular = |path: &Path| {
+            std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+        };
+        (regular(&key) && regular(&marker)).then_some(key)
     }
 }
 pub fn validate_id(id: &str) -> Result<(), Error> {
@@ -552,6 +579,43 @@ mod tests {
             user: "alice".into(),
             port: 22,
         }
+    }
+    #[test]
+    fn automatic_identity_requires_successful_activation_for_the_same_endpoint() {
+        let root = std::env::temp_dir().join(format!(
+            "remoteapp-identity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let directory = root.join(".ssh/lan-remoteapp-keys");
+        std::fs::create_dir_all(&directory).unwrap();
+        let endpoint = endpoint();
+        let key = directory.join("alice@192.168.1.20-22");
+        assert!(endpoint.automatic_identity(&root).is_none());
+        std::fs::write(&key, b"test identity").unwrap();
+        assert!(
+            endpoint.automatic_identity(&root).is_none(),
+            "pending keys are not active"
+        );
+        let marker = directory.join("alice@192.168.1.20-22.enabled");
+        std::fs::write(&marker, b"active").unwrap();
+        assert_eq!(endpoint.automatic_identity(&root), Some(key));
+        let mut other = endpoint.clone();
+        other.port = 2222;
+        assert!(other.automatic_identity(&root).is_none());
+        other = endpoint.clone();
+        other.user = "other".into();
+        assert!(other.automatic_identity(&root).is_none());
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&marker).unwrap();
+            std::os::unix::fs::symlink(directory.join("alice@192.168.1.20-22"), &marker).unwrap();
+            assert!(endpoint.automatic_identity(&root).is_none());
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn refuses_injection() {

@@ -10,7 +10,7 @@ parser.add_argument('--host',required=True);parser.add_argument('--user',require
 args=parser.parse_args();root=Path(__file__).resolve().parents[2];source=root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
 with tempfile.TemporaryDirectory(prefix='remoteapp-bulk-') as directory:
     binary=Path(directory)/'bulk'
-    subprocess.run(['swiftc','-module-cache-path',str(Path(directory)/'modules'),str(source/'SurfaceView.swift'),str(source/'ClipboardBundle.swift'),str(source/'ClipboardBulkTransfer.swift'),str(source/'RenderGeometry.swift'),str(root/'tests/swift/ClipboardBulkSSHSmoke.swift'),'-o',str(binary)],check=True,timeout=120)
+    subprocess.run(['swiftc','-module-cache-path',str(Path(directory)/'modules'),str(source/'SurfaceView.swift'),str(source/'ClipboardBundle.swift'),str(source/'ClipboardBulkTransfer.swift'),str(source/'SSHIdentity.swift'),str(source/'RenderGeometry.swift'),str(root/'tests/swift/ClipboardBulkSSHSmoke.swift'),'-o',str(binary)],check=True,timeout=120)
     result=subprocess.run([str(binary),args.host,args.user,args.port,args.agent],check=True,capture_output=True,text=True,timeout=120)
     lines=result.stdout.splitlines();print(lines[0])
     ids=json.loads(lines[-1])['ids']

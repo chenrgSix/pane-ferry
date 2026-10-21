@@ -53,7 +53,7 @@ struct Incoming {
     let image: CGImage?
 }
 
-/// Local SSH is the only transport. No listening port, no new keys, no shell interpolation.
+/// Local SSH is the only transport. Authentication remains in system SSH.
 final class SSHTransport {
     private let process = Process()
     private let input = Pipe()
@@ -73,9 +73,9 @@ final class SSHTransport {
     func start(_ options: Options) throws {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
-        process.arguments = ["-F", "/dev/null", "-T", "-S", "~/.ssh/lan-remoteapp-%C", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
+        process.arguments = ["-F", "/dev/null", "-T"] + SSHIdentity.options(host: options.host, user: options.user, port: options.port) + ["-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
             "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no",
-            "-oConnectTimeout=10", "-oServerAliveInterval=15", "-oServerAliveCountMax=3",
+            "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2",
             "-p", String(options.port), "-l", options.user, "--", options.host,
             ".local/bin/remoteapp-agent bridge"]
         process.standardInput = input; process.standardOutput = output; process.standardError = errors

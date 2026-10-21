@@ -1,0 +1,13 @@
+#!/bin/sh
+# Forced command for the dedicated RemoteApp key. Never evaluate client input.
+case "${SSH_ORIGINAL_COMMAND-}" in
+  '.local/bin/remoteapp-agent bridge') exec "$HOME/.local/bin/remoteapp-agent" bridge ;;
+  '.local/bin/remoteapp-agent clipboard-upload') exec "$HOME/.local/bin/remoteapp-agent" clipboard-upload ;;
+  '.local/bin/remoteapp-agent clipboard-download '*)
+    transfer=${SSH_ORIGINAL_COMMAND#'.local/bin/remoteapp-agent clipboard-download '}
+    case "$transfer" in ''|*[!A-Za-z0-9_-]*) exit 126 ;; esac
+    [ "${#transfer}" -le 100 ] || exit 126
+    exec "$HOME/.local/bin/remoteapp-agent" clipboard-download "$transfer" ;;
+  /usr/bin/true) exec /usr/bin/true ;;
+  *) echo 'RemoteApp key only permits its application channel.' >&2; exit 126 ;;
+esac
