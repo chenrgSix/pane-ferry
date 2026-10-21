@@ -90,16 +90,20 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if UnixStream::connect(&socket).is_ok() {
         return Ok(socket);
     }
-    let path = component(app)?.join("Contents/MacOS/RemoteAppNode");
-    let mut child = Command::new(path)
+    // LaunchServices gives the accessory app its own TCC responsibility.
+    // Directly spawning its executable attributes permission checks to this
+    // Rust launcher, so a user's grant to the helper cannot take effect.
+    let status = Command::new("/usr/bin/open")
+        .args(["-g", "-n", "-a"])
+        .arg(component(app)?)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .status()
         .map_err(|_| "本机服务启动失败。")?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
+    if !status.success() {
+        return Err("本机服务启动失败。".into());
+    }
     for _ in 0..50 {
         if UnixStream::connect(&socket).is_ok() {
             return Ok(socket);
