@@ -14,7 +14,9 @@
 
 ## 窗口视频流
 
-新版 Mac 宿主优先协商 H.264。Agent 将自己已验证归属的窗口原始像素交给固定的私有编码进程，使用系统 `/usr/bin/python3`、PyGObject/GstApp 和 GStreamer 的 appsrc、videobox、videoconvert、openh264enc、h264parse、appsink。辅助源码嵌入二进制，不额外部署脚本，不运行客户端提供的命令。输入输出使用私有 socketpair，有 3 秒 I/O 超时；会话和图片输出线程独立处理，编码进程在流结束时回收。
+新版 Mac 宿主优先协商 H.264。Agent 的独立输出线程运行系统 GStreamer 的 appsrc、videoconvert、openh264enc、h264parse、appsink 管线，奇数宽高才插入 videobox 补边。通过稳定 C API 运行时加载 `libgstreamer-1.0.so.0` / `libgstapp-1.0.so.0`，视频编码不再依赖 Python GI 或原始帧 socketpair。只读像素缓冲由 Arc 租约保持至 GStreamer 释放，避免跨进程传帧、Python 缓冲拼接和再次填充 GstBuffer。identity 只按原 sequence/30 规则设置时间戳；颜色转换及编码器、码率、GOP、QP 上限、帧跳过策略保持不变。拉取编码结果有 2 秒超时，失败维持现有 PNG 回退；停止管线后释放缓冲及对象引用。不运行客户端提供的管线或命令。
+
+缓冲共享遵循 [GStreamer 的 wrapped-buffer 生命周期约定](https://gstreamer.freedesktop.org/documentation/gstreamer/gstbuffer.html#gst_buffer_new_wrapped_full)：数据保持只读，释放通知回收租约，不依赖私有结构体布局。`tests/performance/legacy_video_encoder.py` 仅用于与旧管线比较解码像素，不再作为运行时编码进程。
 
 编码使用 OpenH264 屏幕模式、无 B 帧、关键帧加 P 帧；窗口改变大小、隐藏恢复或重连后从新的关键帧开始。仅在编码之前合并旧画面，已编码的依赖帧不丢弃。实际显示像素尺寸保持不变，奇数宽高为编码补至偶数，Mac 解码后裁掉补边。编码为有损 4:2:0，文本颜色精度与 PNG 不同。
 

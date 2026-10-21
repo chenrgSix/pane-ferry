@@ -18,7 +18,7 @@ const EVENT_LIMIT: usize = 256;
 enum Pending {
     EnableVideo,
     Message(Value, String),
-    Frame(Window, CapturedImage, String),
+    Frame(Window, Arc<CapturedImage>, String),
 }
 impl Pending {
     fn pixels(&self) -> usize {
@@ -108,7 +108,11 @@ impl Output {
         self.push(Pending::Message(value, session.into()))
     }
     pub fn frame(&self, window: &Window, image: CapturedImage, session: &str) -> Result<()> {
-        self.push(Pending::Frame(window.clone(), image, session.into()))
+        self.push(Pending::Frame(
+            window.clone(),
+            Arc::new(image),
+            session.into(),
+        ))
     }
     pub fn enable_video(&self) -> Result<()> {
         self.push(Pending::EnableVideo)
@@ -126,7 +130,7 @@ impl Drop for Output {
 }
 fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
     let mut sequence = 0u64;
-    let mut frames: HashMap<u32, (u64, CapturedImage)> = HashMap::new();
+    let mut frames: HashMap<u32, (u64, Arc<CapturedImage>)> = HashMap::new();
     let mut video = false;
     let mut encoders: HashMap<u32, crate::video::Encoder> = HashMap::new();
     let mut next_stream = 1;
@@ -172,7 +176,7 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 if frames
                     .get(&window.window_id)
                     .is_some_and(|(revision, old)| {
-                        *revision == window.geometry_revision && *old == image
+                        *revision == window.geometry_revision && **old == *image
                     })
                 {
                     continue;
@@ -262,7 +266,7 @@ mod tests {
         };
         Pending::Frame(
             window,
-            CapturedImage {
+            Arc::new(CapturedImage {
                 width: 1,
                 height: 1,
                 data: vec![0; 4],
@@ -270,7 +274,7 @@ mod tests {
                 pad: 32,
                 little: true,
                 masks: (0xff0000, 0xff00, 0xff),
-            },
+            }),
             "session".into(),
         )
     }

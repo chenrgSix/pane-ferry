@@ -8,7 +8,7 @@
 
 ## 窗口与图像
 
-Agent 发现产品会话内的可见窗口，发送元数据及窗口视频。服务端显式配置 existing 时，也可按 PID 接入原桌面已有 X11 窗口，使用 XComposite pixmap 捕获。固定的私有 GStreamer/OpenH264 编码进程只接收 Agent 已验证窗口的原始像素，输出含关键帧和 P 帧的 access unit；不重新采集整个桌面。Swift 宿主按窗口使用 VideoToolbox 解码，再由 NSView/CoreGraphics 显示，未使用 Metal。采样最短间隔 33ms，不承诺实际 30/60fps。
+Agent 发现产品会话内的可见窗口，发送元数据及窗口视频。服务端显式配置 existing 时，也可按 PID 接入原桌面已有 X11 窗口，使用 XComposite pixmap 捕获。独立输出线程通过系统 GStreamer C API 将已验证窗口的只读原始像素缓冲直接交给 OpenH264，使用 Arc 生命周期租约避免跨进程传帧和重复拷贝；不重新采集整个桌面。颜色转换、编码器、码率、GOP、量化上限和 4:2:0 格式保持原设置。Swift 宿主按窗口使用 VideoToolbox 解码，再由 NSView/CoreGraphics 显示，未使用 Metal。采样最短间隔 33ms，不承诺实际 30/60fps。
 
 在编码之前合并待处理原始帧，避免画面排队；已编码的 P 帧按序发送、解码，只在解码后合并待显示图像。每个编码流从关键帧开始，resize、隐藏恢复、重连重建流。原始帧队列、去重缓存、解码总像素和包大小均受限。窗口副标题显示分辨率、UI 缩放及视频/PNG 模式。
 

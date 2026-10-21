@@ -1,4 +1,4 @@
-"""Fixed private worker, embedded in the Agent. BGRx in; length-delimited H.264 AU out."""
+"""Legacy encoder retained only as a test quality baseline; never used by the Agent."""
 import struct
 import sys
 import gi
