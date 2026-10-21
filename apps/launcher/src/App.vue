@@ -34,6 +34,7 @@ const busy = ref(false),
   attemptedEndpoint = ref(""),
   actionConnectionError = ref(false),
   waitingForLogin = ref(false),
+  loginNeeded = ref(false),
   sessions = ref<SessionInfo[]>([]),
   launches = ref<{ name: string; result: Result }[]>([]);
 let storage: Storage | undefined;
@@ -57,6 +58,19 @@ const signature = () => endpointKey(endpoint.value),
   runtimeCurrent = computed(() => runtimeEndpoint.value === signature());
 let runtimeRevision = 0;
 let focusRead: Promise<void> | undefined;
+let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+let recoveryAttempt = 0;
+let disposed = false;
+function stopRetry(reset = true) {
+  if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+  recoveryTimer = undefined;
+  if (reset) recoveryAttempt = 0;
+}
+function retryRuntime() {
+  if (disposed || recoveryTimer !== undefined) return;
+  const delay = [1000, 2000, 4000, 8000, 15000][Math.min(recoveryAttempt++, 4)];
+  recoveryTimer = setTimeout(() => { recoveryTimer = undefined; onFocus(); }, delay);
+}
 const valid = computed(() =>
   Boolean(
     endpoint.value.host.trim() &&
@@ -91,6 +105,7 @@ try {
   }
 } catch {}
 function restoreCatalog() {
+  stopRetry();
   const cached = catalogCache.get(signature());
   apps.value = cached?.apps ?? [];
   connected.value = cached ? signature() : "";
@@ -102,6 +117,7 @@ function restoreCatalog() {
   attemptedEndpoint.value = cached ? signature() : "";
   actionConnectionError.value = false;
   waitingForLogin.value = false;
+  loginNeeded.value = false;
   runtimeRevision++;
   focusRead = undefined;
   discoveryWarning.value = "";
@@ -133,6 +149,7 @@ async function load(refreshApps = false) {
       notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
     } else failures.push(`应用读取失败：${requestFailure(catalog.reason).message}`);
     actionConnectionError.value = catalog.status === "rejected" && isConnectionFailure(catalog.reason);
+    if (catalog.status === "rejected" && requestFailure(catalog.reason).kind === "authentication_required") loginNeeded.value = true;
     error.value = failures.join(" ");
     save();
   } finally {
@@ -146,7 +163,7 @@ async function readRuntime(sent = { ...endpoint.value }) {
     invoke<DesktopWindows>("list_desktop_windows", { endpoint: sent }),
   ]);
   // A focus refresh may overlap a connect/disconnect or a host change.
-  if (signature() !== endpointKey(sent) || revision !== runtimeRevision) return;
+  if (disposed || signature() !== endpointKey(sent) || revision !== runtimeRevision) return;
   if (running.status === "fulfilled") {
     sessions.value = running.value;
     sessionWarning.value = "";
@@ -158,8 +175,17 @@ async function readRuntime(sent = { ...endpoint.value }) {
     runtimeEndpoint.value = endpointKey(sent);
   } else windowWarning.value = `运行窗口读取失败：${requestFailure(desktop.reason).message}`;
   if (running.status === "fulfilled" && desktop.status === "fulfilled") {
+    const recovered = recoveryAttempt > 0;
+    stopRetry(); loginNeeded.value = false;
     if (actionConnectionError.value) { error.value = ""; actionConnectionError.value = false; }
     if (waitingForLogin.value) { notice.value = "SSH 登录已恢复，窗口与会话列表已更新。"; waitingForLogin.value = false; }
+    else if (recovered) notice.value = "连接已自动恢复。";
+  } else {
+    const failures = [running, desktop].filter(result => result.status === "rejected").map(result => requestFailure((result as PromiseRejectedResult).reason));
+    loginNeeded.value = failures.some(failure => failure.kind === "authentication_required" || failure.kind === "host_verification");
+    if (failures.every(failure => ["connection", "agent_unavailable"].includes(failure.kind))) {
+      notice.value = "连接暂时中断，正在自动重连…"; retryRuntime();
+    } else stopRetry();
   }
 }
 async function refresh() {
@@ -256,7 +282,8 @@ async function connect(row: Connection) {
   else await launch({ id: row.appId, name: row.name });
 }
 function onFocus() {
-  if (!valid.value || attemptedEndpoint.value !== signature() || focusRead) return;
+  if (disposed || !valid.value || attemptedEndpoint.value !== signature() || focusRead) return;
+  stopRetry(false);
   // Returning to the launcher must not disable or swallow the user's first click.
   const pending = readRuntime();
   focusRead = pending;
@@ -276,6 +303,7 @@ onMounted(() => {
   if (valid.value) void load();
 });
 onUnmounted(() => {
+  disposed = true; runtimeRevision++; stopRetry();
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onOnline);
 });
@@ -305,7 +333,7 @@ onUnmounted(() => {
       <section class="connection">
         <div class="section-title">
           <h2>01 <span>连接主机</span></h2>
-          <span>不保存密码或私钥</span>
+          <span>密码由系统处理</span>
         </div>
         <div class="fields">
           <label
@@ -335,11 +363,10 @@ onUnmounted(() => {
               max="65535" /></label
           ><button :disabled="!valid || busy" @click="load()">
             {{ busy ? "处理中…" : catalogCurrent ? "刷新运行状态 →" : "连接并读取 →" }}
-          </button><button class="secondary-action" :disabled="!valid || busy" @click="login">重新登录 SSH</button>
+          </button><button v-if="loginNeeded || waitingForLogin" class="secondary-action" :disabled="!valid || busy" @click="login">重新登录</button>
         </div>
         <p class="hint">
-          首次连接请先在终端核验主机指纹并完成 SSH 登录。不会自动信任未知主机。
-          仅使用密码时，断网或登录过期后可点“重新登录 SSH”，在系统终端完成认证。
+          记住此设备后，网络恢复会自动连接，远端应用和内容会保留。仅首次登录或设备授权失效时需要重新登录。
         </p>
       </section>
       <section class="options">

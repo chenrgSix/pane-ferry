@@ -263,3 +263,45 @@ test("a stuck previous connection cannot block online or post-login recovery", a
     }
   }
 });
+
+test("metadata reconnects with bounded backoff without clicks, catalog scans or repeated app operations", async () => {
+  const originalSet = globalThis.setTimeout, originalClear = globalThis.clearTimeout;
+  const timers = new Map(); let sequence = 0, offline = false, auth = false;
+  globalThis.setTimeout = (callback, delay) => { const id = ++sequence; timers.set(id, {callback, delay}); return id; };
+  globalThis.clearTimeout = id => timers.delete(id);
+  function requireConnection() {
+    if (auth) throw { kind: "authentication_required", message: "设备授权已失效" };
+    if (offline) throw { kind: "connection", message: "network offline" };
+  }
+  const mounted = mount(storage(), {
+    list_sessions: () => { requireConnection(); return [session("remote", "firefox", 228)]; },
+    list_desktop_windows: () => { requireConnection(); return { windows: [], unavailable_reason: null }; },
+  });
+  try {
+    await settled(mounted.state);
+    offline = true; await mounted.state.refresh();
+    for (const delay of [1000, 2000, 4000, 8000, 15000, 15000]) {
+      assert.equal(timers.size, 1);
+      const [id, timer] = [...timers][0]; timers.delete(id);
+      assert.equal(timer.delay, delay); timer.callback(); await settled(mounted.state);
+    }
+    assert.match(mounted.state.notice, /自动重连/);
+    offline = false;
+    const [id, timer] = [...timers][0]; timers.delete(id); timer.callback(); await settled(mounted.state);
+    assert.equal(timers.size, 0);
+    assert.equal(mounted.state.windowWarning, "");
+    assert.match(mounted.state.notice, /自动恢复/);
+    assert.equal(mounted.state.loginNeeded, false);
+    assert.equal(actions(mounted).length, 0);
+    assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 1);
+    auth = true; await mounted.state.refresh();
+    assert.equal(timers.size, 0, "revoked authentication needs login, not unlimited retries");
+    assert.equal(mounted.state.loginNeeded, true);
+    auth = false; offline = true; await mounted.state.refresh();
+    assert.equal(timers.size, 1);
+    mounted.state.endpoint = { ...endpoint, host: "another-device" }; await nextTick();
+    assert.equal(timers.size, 0, "changing endpoint must cancel recovery of the previous device");
+  } finally {
+    mounted.unmount(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
+  }
+});
