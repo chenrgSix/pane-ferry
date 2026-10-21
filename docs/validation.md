@@ -229,11 +229,33 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 测试结束已关闭本机 A 连接，并按测试脚本身份核验后清理两个专用 GTK 进程；Agent 保持 active（1179418）、活动会话归零、恢复授权保留。原桌面 ChatGPT PID 437845 与飞书 PID 44108 仍存活，可执行文件身份保持；本轮没有输入、缩放或读取这两个应用画面。未重启 Ubuntu 系统，未宣称系统重启、其他桌面后端、真实 portal 服务重启、长期稳定性或生产环境验收已通过。
 
+## 2026-10-22：统一产品与 Mac → Ubuntu 组件
+
+新增 Mac 窗口发布组件、Ubuntu GTK 管理与接收窗口、同产品安装入口、设备 ID 与会话归属模型，以及按 SSH 端点独立管理的 StreamLocal 返回通道。既有 Ubuntu → Mac 的宿主与认证配置保留。使用步骤和首版限制见 [Mac 发布指南](mac-publishing.md)。
+
+已完成的本地与隔离验证：
+
+- 最终固定代码后，`scripts/check.sh` 完整通过：Rust 42 项通过、4 项按既有 Linux 条件忽略；3 项 Python 授权单测、SSH 辅助脚本与恢复验证、20 项前端测试、类型/构建，以及 Mac 两个 Swift 组件编译、发布边界、原宿主读取/输入/富剪贴板/顺序/自动重连/密码配置 smoke 均通过。Ubuntu Rust 同样 42 项通过、4 项忽略。首次完整检查因同时修改 Swift 输入文件而中断，已固定代码重跑，未把中断结果当作通过。
+- Mac Swift 发布组件 release 编译与开发包构建通过；独立边界 smoke 验证接收应用包/缓存入口及系统安全界面排除、标识符限制、视频与图片像素上限。它不申请录屏或辅助功能，也不操作用户窗口。
+- Mac 启动器 20 项前端测试、类型检查、Vite 构建，以及 8 项 Rust 后端测试通过；启动器和 Rust 工作区的 Clippy `-D warnings` 通过。新增专用返回连接参数测试，验证不更改共享 SSH master、不清除所需返回转发、不接受注入地址。
+- Ubuntu `node_routes_smoke.py` 在独立 HOME 的真实 Agent 上通过：设备身份和停止共享状态跨服务重启保留，两个设备的记录互相隔离，同设备旧代连接结束不清理新代，非法设备 ID 被拒绝，停止共享拒绝目录访问。
+- Ubuntu `linux_receiver_smoke.py` 在独立 Xvfb/HOME、真实 GTK/GStreamer 和协议 fixture 上通过：实际 H.264 解码与 GTK 像素显示、SPS 尺寸拒绝、GTK 输入上下文中文提交、按键/鼠标消息、原生文本/PNG/文件剪贴板读取写入、目录与文件大小检查、恢复原会话且不重放输入/启动。发现并修复 PyGObject 文件选择区注册 API 差异。这里的服务端是测试 fixture，不能当作真实 ScreenCaptureKit 或 Ubuntu 中文候选框验收。
+- 原链路 `native_session_smoke.py` 经真实 SSH 完成 3 次重连，启动幂等、单控制端、键鼠与按住释放、缩放、隐藏恢复、会话发现和程序退出均通过。Ubuntu 的 `existing_window_smoke.py --controller-text` 与 `app_discovery_smoke.py` 通过，覆盖主窗口/进程归属、中文、原生剪切、复制粘贴和原进程在 Agent 重启后存活。
+
+部署与服务验证：
+
+- Mac 新版管理应用已打包并实际打开，显示统一“本机共享”和已保存设备选择。真实 Mac 服务的私有管理/发布 socket 均为 0600；连续连接后直接关闭的健康探测不再终止服务。发布 socket 拒绝远端修改共享开关和触发系统权限。初版服务曾因断开的健康探测触发 SIGPIPE 退出，已修复并实测其保持运行。
+- Ubuntu 已备份并升级原 Agent、安装同产品 GTK 入口。在无活动应用会话时，将原 `systemd-run` 临时服务替换为 `~/.config/systemd/user/remoteapp-agent.service`，已 enable 且 active；原桌面 ChatGPT PID 437845 与飞书 PID 44108 仍存活。GTK 管理应用通过图形用户环境实际启动并保持 active。系统重启后的自动启动仍未实测。
+
+最终开发产物 SHA-256：Mac launcher `91eeb88be9dc3bbaad542c2e40a6810f6642bbd3ffc596409d556d24cbf5e7ca`，Mac 发布辅助组件 `ac5a394f3aac37faa8a13a44cbca9d7775747f2b93018211aecc9bf34a775d46`，原 Mac 接收宿主仍为 `dcf74f48ea7ca51526a710d47e71db5d88242901c4e083b2473df729b244ad88`；Ubuntu Agent 的已安装文件与最终 release 产物均为 `44016c817913a94b3749d6e9a9df5629a7ccc75f88b33df6bd00de5b06957a48`。
+
+真实 Mac → Ubuntu 窗口测试尚未完成：开启 Mac 共享的 UI 操作被自动审批拒绝，要求用户在操作时明确确认接收方和共享范围；Mac 服务查询也报告录屏、辅助功能尚未授权。已请求用户确认向 `chenrg@10.0.1.66` 共享并完成首次系统权限，未通过其他接口绕过拒绝。准备了只匹配专用 `MacPublishingFixture` 窗口的 `mac_to_linux_live.py`，它不会开启共享或授予系统权限。实际 SCK 画面、Mac 原生输入、双向同时使用、物理断网、多台远端并发、复杂弹窗与长期稳定性均不能据隔离测试宣称通过。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
 - 输入法基础预编辑/提交和主动双向文本、图片、文件剪贴板已实现并有独立测试；复杂中文输入法、精确候选位置、现有 ChatGPT 往返和附件界面、其他图像编辑器与文件管理器仍未完整验收。后台剪贴板同步不在当前范围。GTK 2× 重绘已验证；跨屏幕 DPI 热切换、Qt/传统 X11 应用、双屏、休眠与网络切换、生产性能和长时间稳定性尚未覆盖。
-- 未做签名、公证、外部安全审计、CI 或生产验收。Ubuntu 联调使用临时用户服务，尚未验证重启系统后的自动启动。
+- 未做发布签名、公证、外部安全审计、CI 或生产验收。Ubuntu 已安装持久用户服务，尚未验证重启系统后的自动启动。Mac 发布辅助组件使用本机临时签名，不能据此宣称已完成发布签名。
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
 当前技术为 SSH + JSON Lines + H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。Protobuf schema 为后续草案；WebRTC/UDP、QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。

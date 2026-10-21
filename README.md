@@ -2,7 +2,7 @@
 
 在 Mac 上启动并操作运行在 Linux 上的图形应用。应用和文件仍然位于 Linux，不是把 Linux 二进制转换为 macOS 程序。
 
-**下一阶段方向（2026-10-22）：** 在保留 Ubuntu → Mac 链路的基础上补齐 Mac → Ubuntu。每个平台交付一个 LAN RemoteApp，统一管理本机服务、应用发布和远端连接；同一台机器可同时发布本机应用、使用其他机器的应用，无需分别安装服务端版和客户端版。架构预留同时连接两台或更多设备的能力，各设备的连接和会话独立管理。当前尚未实现反向链路或完成多设备并发验收，改造边界见[统一节点架构](docs/architecture.md#统一节点架构下一阶段)。
+**双向组件（2026-10-22）：** 已加入 Mac 发布、Ubuntu 接收和统一管理入口，每个平台交付一个 LAN RemoteApp。设备连接、目录和窗口保留来源设备，预留多设备扩展；实际多设备并发尚未验收。Mac → Ubuntu 已通过隔离接收端验证，真实 Mac 采集与控制仍需首次系统权限和共享范围确认后验收。使用步骤与当前边界见 [Mac 发布指南](docs/mac-publishing.md)。
 
 **状态：原生链路开发者预览。** 已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 的真实画面、键鼠输入、窗口缩放、隐藏恢复和断开重连。控制端输入法与主动双向文本、截图及文件剪贴板已实现，并在原桌面 Firefox 上实测点击、中文输入、多行粘贴和复制回传。以 `docs/validation.md` 的实际记录为准。
 
@@ -21,6 +21,8 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 - `apps/linux-agent`：用户级 Agent、SSH stdio 桥接、持久图形会话。
 - `apps/launcher`：Tauri 2 + Vue/TypeScript 设备与应用启动器。
 - `apps/mac-windowhost`：Swift/AppKit 原生窗口宿主。
+- `apps/mac-node`：Mac 本机窗口发布、H.264 编码和输入执行辅助组件。
+- `apps/linux-client`：同一个 Ubuntu 产品中的 GTK 管理界面、输入法和窗口接收组件。
 - `crates/`：协议、传输和 Linux 后端等 Rust 组件。
 - `deploy/`：人工审核并安装的 Linux 用户服务、白名单示例。
 - `docs/design-v1.md`：产品设计与阶段规划。

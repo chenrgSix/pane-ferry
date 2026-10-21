@@ -8,6 +8,8 @@ Tauri 2 + Vue 3，通过固定 SSH 入口真实读取 Ubuntu 应用名称、图�
 
 浏览器单独 `npm run dev` 仅预览界面，不能执行 SSH。
 
+同一个管理入口新增“本机应用共享”和已保存设备选择。Mac 发布组件由产品自动启动，Ubuntu 安装包包含发布 Agent、GTK 管理界面和接收窗口；首版返回通道复用已验证的 Ubuntu SSH 配置。共享范围与系统权限需要用户明确确认，详见 [Mac 发布与 Ubuntu 接收](../../docs/mac-publishing.md)。
+
 ## 连接与自动恢复
 
 在启动器填写已验证的 Ubuntu 主机、账号和密码，点击“连接”。连接账号和密码由 Mac 后端保存到本应用的连接配置，按主机、账号和端口隔离；localStorage 只保存界面偏好和应用目录缓存。更新密码时直接填写新值再连接，留空则使用已保存密码。配置位于 `~/Library/Application Support/io.lanremoteapp.launcher/ssh-connections.json`，目录 0700、文件 0600；后端加文件锁并原子替换，避免并发更新丢失或写入半份配置。文件包含按用户要求保存的连接密码；换电脑可重新填写连接，或迁移这份应用配置并保持私有权限。不会创建 SSH 密钥或修改 Ubuntu 的公钥授权。
