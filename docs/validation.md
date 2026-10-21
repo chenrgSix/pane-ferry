@@ -253,7 +253,9 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 真实 Mac → Ubuntu 的画面部分已通过：`mac_to_linux_live.py --capture-only` 只匹配专用 `MacPublishingFixture` 窗口，在 Ubuntu 原图形用户环境运行实际 GTK 接收端，收到 SCK → VideoToolbox H.264 → SSH 返回通道的 1600 × 1184 解码图像，本次从接收端启动到首帧约 0.255 秒（不代表输入到显示延迟）。主动中断接收 socket 后，确认同会话恢复且收到新的解码图像；关闭接收窗口后原 Mac 测试窗口仍在。此模式不发送输入，也不会开启共享或授予权限。测试应用须通过 LaunchServices 启动，直接执行其二进制没有 NSRunningApplication 启动时间，无法通过窗口身份校验。
 
-Mac 原生输入、双向同时使用、物理断网、多台远端并发、复杂弹窗与长期稳定性仍未完成真实验收。
+并行链路验证通过：Ubuntu 原桌面 GTK 连续接收上述 Mac H.264 窗口 40 秒，期间在 Mac 运行 `native_session_smoke.py --reconnects 3 --detached-seconds 1`。正向真实 SSH/X11 的专用 xterm 完成键鼠、缩放、隐藏恢复、按住输入释放及 3 次断开恢复，反向接收保持同一连接代次且始终 ready。它验证了两个方向的传输并存，不能代替两个原生宿主同时交互或两个方向同时使用剪贴板的验收。
+
+Mac 原生输入、双向原生宿主同时交互、物理断网、多台远端并发、复杂弹窗与长期稳定性仍未完成真实验收。
 
 ## 尚未覆盖
 
