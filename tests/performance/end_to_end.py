@@ -44,14 +44,16 @@ def instrument_agent(destination):
     output = main.with_name('output.rs')
     text = replace(output.read_text(), 'let mut value = json!({"type":"frame",',
                    'let probe = crate::probe::frame(image.data.as_ptr() as usize);\n                let mut value = json!({"type":"frame",')
-    text = replace(text, '                frames.remove(&window.window_id);\n                if frames',
-                   '                value["_probe"] = probe;\n                value["_probe"]["encode_end"] = json!(crate::probe::now());\n                frames.remove(&window.window_id);\n                if frames')
+    text = replace(text, '// BENCHMARK: encoder output ready, before either media transport.',
+                   'value["_probe"] = probe;\n                value["_probe"]["encode_end"] = json!(crate::probe::now());')
+    text = replace(text, 'let metadata = serde_json::to_vec(&value)?;',
+                   'value["_probe"]["ready"] = json!(crate::probe::now());\n                        let metadata = serde_json::to_vec(&value)?;')
     text = replace(text, 'let mut bytes = serde_json::to_vec(&value)?;',
                    'if value.get("_probe").is_some() { value["_probe"]["ready"] = json!(crate::probe::now()); }\n        let mut bytes = serde_json::to_vec(&value)?;')
     output.write_text(text)
 
 
-def instrument_mac(destination, bridge):
+def instrument_mac(destination, bridge, simulate_media_stall=False):
     original = ROOT / 'apps/mac-windowhost/Sources/RemoteAppWindowHost'
     shutil.copytree(original, destination)
     main = destination / 'main.swift'
@@ -77,6 +79,19 @@ def instrument_mac(destination, bridge):
     text = replace(text, 'if type == "session.exited" {',
                    'if type == "session.exited" {\n            Probe.finish(error: "test fixture exited before measurement completed")')
     main.write_text(text)
+    peer = destination / 'WebRTCPeer.swift'
+    text = replace(peer.read_text(), '// BENCHMARK: WebRTC decode completion (no production logging).',
+                   'object["received"] = value.received\n        object["decoded"] = Probe.now()\n        object["wire_bytes"] = value.bytes.count\n        object["hardware_decoder"] = decoders[id]?.hardwareAccelerated ?? false')
+    text = replace(text, 'private func event(_ kind: Int32, name: String, data: Data) {',
+                   'private func event(_ kind: Int32, name: String, data: Data) {\n        if [5,6,7].contains(kind) { FileHandle.standardError.write(Data(("RTC event " + String(kind) + " " + name + "\\n").utf8)) }')
+    text = replace(text, 'do { try receive(value) } catch { request(value.window) }',
+                   'do { try receive(value) } catch { FileHandle.standardError.write(Data(("RTC decode: \\(error)\\n").utf8)); request(value.window) }')
+    text = text.replace('if status < 0 { self.failure() }',
+                        'if status < 0 { FileHandle.standardError.write(Data(("RTC signal rejected " + String(status) + "\\n").utf8)); self.failure() }')
+    if simulate_media_stall:
+        text = replace(text, 'private func accept(_ value: RTCFrame) {',
+                       'private func accept(_ value: RTCFrame) {\n        Probe.lock.lock(); let drop = (Probe.current?["count"] as? Int ?? 0) >= 9; Probe.lock.unlock()\n        if drop { return }')
+    peer.write_text(text)
     surface = destination / 'SurfaceView.swift'
     text = replace(surface.read_text(), '        if hasMarkedText() {\n',
                    '        Probe.drew(image)\n        if hasMarkedText() {\n')
@@ -97,7 +112,7 @@ def summary(values):
                 min=round(min(values), 2), max=round(max(values), 2))
 
 
-def analyze(mac, remote):
+def analyze(mac, remote, video_transport='ssh'):
     assert 'error' not in mac, mac.get('error')
     received = {x['count']: x['ns'] for x in remote['agent'] if x['kind'] == 'received'}
     dispatched = {x['count']: x['ns'] for x in remote['agent'] if x['kind'] == 'dispatched'}
@@ -108,6 +123,10 @@ def analyze(mac, remote):
         count = frame['count']
         assert fixture[count]['kind'] == frame['mode'], (count, fixture[count], frame['mode'])
         assert frame['codec'] == 'h264' and frame['hardware_decoder'], 'video/hardware decoder fallback'
+        actual = frame.get('transport', 'ssh')
+        assert actual in ('ssh', 'webrtc') if video_transport == 'auto-mixed' else actual == video_transport, 'wrong media transport or silent fallback'
+        if actual == 'webrtc':
+            assert ' udp ' in frame.get('media_pair', '').lower(), 'WebRTC did not establish a UDP candidate pair'
         if frame['warmup']:
             continue
         p = frame['_probe']
@@ -147,6 +166,9 @@ def analyze(mac, remote):
                   remote_encode=('encoder_queue', 'encode', 'server_prepare'),
                   transport=('ssh_network',), mac=('decode', 'main_queue', 'draw'))
     grouped = {name: summary([sum(row[key] for key in keys) for row in rows]) for name, keys in groups.items()}
+    if video_transport == 'auto-mixed':
+        assert {frame.get('transport', 'ssh') for frame in mac['frames']} == {'ssh', 'webrtc'}
+        assert mac['frames'][-1].get('transport') == 'ssh', 'stalled media did not recover through SSH'
     return dict(samples=len(rows), stages_ms=metrics, modes_ms=modes, groups_ms=grouped,
                 response_packet_bytes=summary([row['bytes'] for row in rows]), rows=rows)
 
@@ -163,11 +185,20 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--remote-build-cache', help='existing task-owned Cargo target directory')
     parser.add_argument('--mac-module-cache', type=Path, help='task-owned Swift module cache reused across runs')
+    parser.add_argument('--video-transport', choices=['ssh', 'webrtc', 'auto'], default='ssh')
+    parser.add_argument('--expect-transport', choices=['ssh', 'webrtc'], help='verify an intentional auto fallback')
+    parser.add_argument('--mac-webrtc-library', type=Path)
+    parser.add_argument('--remote-webrtc-library')
+    parser.add_argument('--mac-webrtc-bind')
+    parser.add_argument('--remote-webrtc-bind')
+    parser.add_argument('--simulate-media-stall', action='store_true', help='test-only: discard media after two measured responses to verify auto recovery')
     args = parser.parse_args()
     assert re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}', args.host)
     assert re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}', args.user)
     assert 0 < args.port < 65536 and 1 <= args.samples <= 70
     assert 320 <= args.width <= 4096 and 128 <= args.height <= 2160 and args.width * args.height <= 8_000_000
+    assert not args.simulate_media_stall or args.video_transport == 'auto'
+    expected = 'auto-mixed' if args.simulate_media_stall else args.expect_transport or ('webrtc' if args.video_transport == 'auto' else args.video_transport)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     ssh = ['/usr/bin/ssh', '-F', '/dev/null', '-S', '~/.ssh/lan-remoteapp-%C', '-T',
            '-oBatchMode=yes', '-oStrictHostKeyChecking=yes', '-oConnectTimeout=8',
@@ -207,6 +238,13 @@ def main():
             home = remote_dir + '/home'
             command = ['/usr/bin/python3', remote_dir + '/source/tests/performance/remote.py',
                        '--agent', agent, '--home', home, '--width', str(args.width), '--height', str(args.height)]
+            settings = []
+            if args.remote_webrtc_library:
+                settings.append('REMOTEAPP_WEBRTC_LIBRARY=' + args.remote_webrtc_library)
+            if args.remote_webrtc_bind:
+                settings.append('REMOTEAPP_WEBRTC_BIND=' + args.remote_webrtc_bind)
+            if settings:
+                command = ['/usr/bin/env', *settings, *command]
             if args.animated:
                 command.append('--animated')
             manager = subprocess.Popen(ssh + [shlex.join(command)], stdin=subprocess.PIPE,
@@ -215,7 +253,7 @@ def main():
             assert ready['ready'], ready
             bridge = shlex.join(['/usr/bin/env', 'HOME=' + home, agent, 'bridge'])
             mac_source = scratch / 'mac-source'
-            instrument_mac(mac_source, bridge)
+            instrument_mac(mac_source, bridge, args.simulate_media_stall)
             bundle = scratch / 'RemoteAppLatencyProbe.app'
             (bundle / 'Contents/MacOS').mkdir(parents=True)
             binary = bundle / 'Contents/MacOS/RemoteAppLatencyProbe'
@@ -229,9 +267,15 @@ def main():
                             *map(str, sorted(mac_source.glob('*.swift'))), '-o', str(binary)], check=True, timeout=120)
             env = dict(os.environ, PROBE_WIDTH=str(args.width), PROBE_HEIGHT=str(args.height),
                        PROBE_SAMPLES=str(args.samples), PROBE_OUTPUT=str(scratch / 'mac.json'))
+            if args.mac_webrtc_library:
+                env['REMOTEAPP_WEBRTC_LIBRARY'] = str(args.mac_webrtc_library.resolve())
+            if args.mac_webrtc_bind:
+                env['REMOTEAPP_WEBRTC_BIND'] = args.mac_webrtc_bind
             print(f'Measuring {args.samples * 3} steady-state input responses at {args.width}x{args.height}...', flush=True)
             run = subprocess.run([str(binary), '--host', args.host, '--user', args.user, '--port', str(args.port),
-                                  '--app', 'latency'], env=env, timeout=100)
+                                  '--app', 'latency', '--video-transport', args.video_transport], env=env, timeout=100)
+            if not (scratch / 'mac.json').exists():
+                raise AssertionError(f'AppKit probe exited with code {run.returncode} before producing a measurement')
             mac = json.loads((scratch / 'mac.json').read_text())
             stdout, stderr = manager.communicate('stop\n', timeout=20)
             assert manager.returncode == 0, stderr
@@ -243,7 +287,9 @@ def main():
             report = dict(host=args.host, width=args.width, height=args.height,
                           animated=args.animated, measured_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                           endpoint=mac['endpoint'], injection=mac['injection'],
-                          **analyze(mac, remote), raw=dict(mac=mac, remote=remote))
+                          video_transport=expected,
+                          requested_video_transport=args.video_transport,
+                          **analyze(mac, remote, expected), raw=dict(mac=mac, remote=remote))
             args.output.write_text(json.dumps(report, indent=2) + '\n')
             print(json.dumps({key: value for key, value in report.items() if key not in ('raw', 'rows')}, indent=2))
     finally:
