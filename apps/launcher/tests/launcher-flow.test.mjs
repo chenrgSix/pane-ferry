@@ -182,3 +182,84 @@ test("focus refresh never swallows the first connection click or overwrites newe
     mounted.unmount();
   }
 });
+
+test("network restoration and explicit SSH login recover metadata without replaying app operations", async () => {
+  let phase = "online";
+  function requireConnection() {
+    if (phase === "offline") throw { kind: "connection", message: "SSH 网络离线" };
+    if (phase === "authentication") throw { kind: "authentication_required", message: "SSH 登录已失效，请重新登录 SSH" };
+  }
+  const mounted = mount(storage(), {
+    list_sessions: () => { requireConnection(); return [session("remote", "firefox", 228)]; },
+    list_desktop_windows: () => { requireConnection(); return { windows: [], unavailable_reason: null }; },
+    resume_session: () => { requireConnection(); return { session_id: "remote", pid: 123, message: "客户端已启动" }; },
+    open_ssh_login: () => undefined,
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    phase = "offline";
+    await state.refresh();
+    assert.match(state.windowWarning, /SSH 网络离线/);
+    assert.equal(state.apps[0].name, "Firefox");
+    phase = "authentication";
+    await state.refresh();
+    assert.match(state.sessionWarning, /SSH 登录已失效/);
+    assert.doesNotMatch(state.windowWarning, /object Object/);
+    await state.connect(state.runningConnections[0]);
+    assert.match(state.error, /SSH 登录已失效/);
+    phase = "online";
+    mounted.listeners.get("online")();
+    await settled(state);
+    assert.equal(state.error, "");
+    assert.equal(state.sessionWarning, "");
+    assert.equal(state.windowWarning, "");
+    assert.equal(actions(mounted).length, 1, "online event must not replay the failed resume");
+    phase = "authentication";
+    await state.refresh();
+    await state.login();
+    assert.equal(mounted.calls.filter(c => c.command === "open_ssh_login").length, 1);
+    assert.equal(state.waitingForLogin, true);
+    assert.match(state.notice, /系统终端/);
+    phase = "online";
+    mounted.listeners.get("focus")();
+    await settled(state);
+    assert.equal(state.waitingForLogin, false);
+    assert.match(state.notice, /SSH 登录已恢复/);
+    assert.equal(state.runningConnections[0].sessionId, "remote");
+    assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 1);
+    assert.equal(actions(mounted).length, 1);
+  } finally { mounted.unmount(); }
+  assert.equal(mounted.listeners.size, 0);
+});
+
+test("a stuck previous connection cannot block online or post-login recovery", async () => {
+  for (const recovery of ["online", "login"]) {
+    let stalled = false;
+    const rejectOld = [];
+    const mounted = mount(storage(), {
+      list_sessions: () => stalled ? new Promise((_, reject) => rejectOld.push(reject)) : [session("remote", "firefox", 228)],
+      list_desktop_windows: () => stalled ? new Promise((_, reject) => rejectOld.push(reject)) : { windows: [], unavailable_reason: null },
+      open_ssh_login: () => undefined,
+    });
+    try {
+      await settled(mounted.state);
+      stalled = true;
+      mounted.state.onFocus();
+      assert.equal(rejectOld.length, 2);
+      if (recovery === "login") await mounted.state.login();
+      stalled = false;
+      mounted.listeners.get(recovery === "online" ? "online" : "focus")();
+      await settled(mounted.state);
+      assert.equal(mounted.calls.filter(c => c.command === "list_sessions").length, 3);
+      for (const reject of rejectOld) reject({ kind: "connection", message: "old TCP connection failed" });
+      await settled(mounted.state);
+      assert.equal(mounted.state.windowWarning, "");
+      assert.equal(mounted.state.sessionWarning, "");
+      assert.equal(actions(mounted).length, 0);
+    } finally {
+      for (const reject of rejectOld) reject(new Error("test cleanup"));
+      mounted.unmount();
+    }
+  }
+});

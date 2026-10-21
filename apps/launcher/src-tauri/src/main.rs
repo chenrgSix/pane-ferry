@@ -6,6 +6,7 @@ use std::{
     process::{Command, Stdio},
 };
 use tauri::Manager;
+mod ssh_login;
 #[derive(Serialize)]
 struct LaunchResult {
     session_id: Option<String>,
@@ -16,34 +17,68 @@ struct LaunchResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LaunchFailure {
+    kind: &'static str,
     message: String,
     retry_same_request: bool,
 }
 impl From<transport::Error> for LaunchFailure {
     fn from(error: transport::Error) -> Self {
         Self {
+            kind: error.kind(),
             message: error.to_string(),
             retry_same_request: error.retry_same_request(),
         }
     }
 }
+#[derive(Serialize)]
+struct RequestFailure {
+    kind: &'static str,
+    message: String,
+}
+impl From<transport::Error> for RequestFailure {
+    fn from(error: transport::Error) -> Self {
+        Self {
+            kind: error.kind(),
+            message: error.to_string(),
+        }
+    }
+}
+impl RequestFailure {
+    fn local(message: impl Into<String>) -> Self {
+        Self {
+            kind: "client",
+            message: message.into(),
+        }
+    }
+}
 #[tauri::command]
-async fn list_apps(endpoint: Endpoint) -> Result<AppCatalog, String> {
+async fn list_apps(endpoint: Endpoint) -> Result<AppCatalog, RequestFailure> {
     transport::catalog(&endpoint)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(RequestFailure::from)
 }
 #[tauri::command]
-async fn list_desktop_windows(endpoint: Endpoint) -> Result<transport::DesktopWindows, String> {
+async fn list_desktop_windows(
+    endpoint: Endpoint,
+) -> Result<transport::DesktopWindows, RequestFailure> {
     transport::desktop_windows(&endpoint)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(RequestFailure::from)
 }
 #[tauri::command]
-async fn list_sessions(endpoint: Endpoint) -> Result<Vec<transport::SessionInfo>, String> {
+async fn list_sessions(endpoint: Endpoint) -> Result<Vec<transport::SessionInfo>, RequestFailure> {
     transport::sessions(&endpoint)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(RequestFailure::from)
+}
+#[tauri::command]
+async fn open_ssh_login(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
+    endpoint.validate().map_err(|error| error.to_string())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| "无法定位本机登录目录。")?;
+    ssh_login::open(&cache, &endpoint)
 }
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {
@@ -89,19 +124,26 @@ async fn resume_session(
     app: tauri::AppHandle,
     endpoint: Endpoint,
     session_id: String,
-) -> Result<LaunchResult, String> {
-    endpoint.validate().map_err(|e| e.to_string())?;
-    transport::validate_id(&session_id).map_err(|e| e.to_string())?;
+) -> Result<LaunchResult, RequestFailure> {
+    endpoint.validate()?;
+    transport::validate_id(&session_id)?;
     let session = transport::sessions(&endpoint)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(RequestFailure::from)?
         .into_iter()
         .find(|s| s.session_id == session_id)
-        .ok_or("远端会话已退出，请刷新列表。")?;
+        .ok_or_else(|| RequestFailure::local("远端会话已退出，请刷新列表。"))?;
     if session.controlled {
-        return Err("该会话已连接，请先在原宿主中断开，再重新连接。".into());
+        return Err(RequestFailure::local(
+            "该会话已连接，请先在原宿主中断开，再重新连接。",
+        ));
     }
-    let pid = spawn_host(native_host(&app)?, &endpoint, &session_id)?;
+    let pid = spawn_host(
+        native_host(&app).map_err(RequestFailure::local)?,
+        &endpoint,
+        &session_id,
+    )
+    .map_err(RequestFailure::local)?;
     Ok(LaunchResult {
         session_id: Some(session_id),
         display: Some(session.display.to_string()),
@@ -121,6 +163,7 @@ async fn launch_app(
     transport::validate_id(&app_id)?;
     transport::validate_id(&request_id)?;
     let path = native_host(&app).map_err(|message| LaunchFailure {
+        kind: "client",
         message,
         retry_same_request: false,
     })?;
@@ -139,6 +182,7 @@ async fn launch_app(
     let session = transport::launch_native(&endpoint, &app_id, &request_id, scale).await?;
     let pid =
         spawn_host(path, &endpoint, &session.session_id).map_err(|message| LaunchFailure {
+            kind: "client",
             message,
             retry_same_request: true,
         })?;
@@ -163,7 +207,8 @@ fn main() {
             list_desktop_windows,
             list_sessions,
             launch_app,
-            resume_session
+            resume_session,
+            open_ssh_login
         ])
         .run(tauri::generate_context!())
         .expect("launcher startup failed");

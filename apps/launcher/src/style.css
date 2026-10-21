@@ -5,3 +5,4 @@
 .app-icon img{display:block;width:100%;height:100%;object-fit:contain}.desktop-window-row{display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #e0e6d8}.desktop-window-row .app-icon{flex-shrink:0;margin:0}.window-label{flex:1;min-width:0}.window-label strong{font-size:13px}.window-label p{margin:6px 0 0;color:#78866e;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.window-state{color:#78866e;font-size:10px}.desktop-windows>.hint{margin-bottom:12px}
 .catalog .app-grid{max-height:412px;overflow-y:auto;padding:3px}.desktop-windows .session-action{white-space:nowrap}
 .catalog-actions{display:flex;align-items:center;gap:12px}.catalog-actions .session-action{white-space:nowrap}.catalog>.hint{margin:0 0 14px}
+.fields>.secondary-action{background:#edf3e3;color:#405d31;border:1px solid #cdd9c0;padding:10px 12px}

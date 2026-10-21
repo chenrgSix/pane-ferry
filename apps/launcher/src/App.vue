@@ -6,6 +6,7 @@ import { launchFailure } from "./launch-failure";
 import { CatalogCache, readCatalog } from "./catalog-cache";
 import { endpointKey } from "./launcher-types";
 import { connections } from "./connections";
+import { isConnectionFailure, requestFailure } from "./request-failure";
 import type { Connection } from "./connections";
 import type { AppCatalog, AppInfo, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
@@ -30,6 +31,9 @@ const busy = ref(false),
   catalogPersisted = ref(false),
   connected = ref(""),
   runtimeEndpoint = ref(""),
+  attemptedEndpoint = ref(""),
+  actionConnectionError = ref(false),
+  waitingForLogin = ref(false),
   sessions = ref<SessionInfo[]>([]),
   launches = ref<{ name: string; result: Result }[]>([]);
 let storage: Storage | undefined;
@@ -95,6 +99,9 @@ function restoreCatalog() {
   desktopWindows.value = [];
   sessions.value = [];
   runtimeEndpoint.value = "";
+  attemptedEndpoint.value = cached ? signature() : "";
+  actionConnectionError.value = false;
+  waitingForLogin.value = false;
   runtimeRevision++;
   focusRead = undefined;
   discoveryWarning.value = "";
@@ -109,6 +116,7 @@ async function load(refreshApps = false) {
   error.value = "";
   notice.value = "";
   const sent = { ...endpoint.value };
+  attemptedEndpoint.value = endpointKey(sent);
   try {
     const [catalog] = await Promise.allSettled([
       readCatalog(catalogCache, endpointKey(sent), () => invoke<AppCatalog>("list_apps", { endpoint: sent }), refreshApps),
@@ -123,7 +131,8 @@ async function load(refreshApps = false) {
       catalogPersisted.value = catalog.value.persisted;
       connected.value = endpointKey(sent);
       notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
-    } else failures.push(`应用读取失败：${String(catalog.reason)}`);
+    } else failures.push(`应用读取失败：${requestFailure(catalog.reason).message}`);
+    actionConnectionError.value = catalog.status === "rejected" && isConnectionFailure(catalog.reason);
     error.value = failures.join(" ");
     save();
   } finally {
@@ -142,12 +151,16 @@ async function readRuntime(sent = { ...endpoint.value }) {
     sessions.value = running.value;
     sessionWarning.value = "";
     runtimeEndpoint.value = endpointKey(sent);
-  } else sessionWarning.value = `会话读取失败：${String(running.reason)}`;
+  } else sessionWarning.value = `会话读取失败：${requestFailure(running.reason).message}`;
   if (desktop.status === "fulfilled") {
     desktopWindows.value = desktop.value.windows;
     windowWarning.value = desktop.value.unavailable_reason || "";
     runtimeEndpoint.value = endpointKey(sent);
-  } else windowWarning.value = `运行窗口读取失败：${String(desktop.reason)}`;
+  } else windowWarning.value = `运行窗口读取失败：${requestFailure(desktop.reason).message}`;
+  if (running.status === "fulfilled" && desktop.status === "fulfilled") {
+    if (actionConnectionError.value) { error.value = ""; actionConnectionError.value = false; }
+    if (waitingForLogin.value) { notice.value = "SSH 登录已恢复，窗口与会话列表已更新。"; waitingForLogin.value = false; }
+  }
 }
 async function refresh() {
   if (busy.value || !valid.value) return;
@@ -157,6 +170,25 @@ async function refresh() {
   } finally {
     busy.value = false;
   }
+}
+async function login() {
+  if (busy.value || !valid.value) return;
+  busy.value = true;
+  error.value = "";
+  actionConnectionError.value = false;
+  runtimeRevision++;
+  focusRead = undefined;
+  const sent = { ...endpoint.value };
+  attemptedEndpoint.value = endpointKey(sent);
+  try {
+    await invoke<void>("open_ssh_login", { endpoint: sent });
+    if (signature() !== endpointKey(sent)) return;
+    waitingForLogin.value = true;
+    notice.value = "已在系统终端打开 SSH 登录；完成认证后返回这里，会自动恢复窗口与会话列表。";
+    save();
+  } catch (reason) {
+    if (signature() === endpointKey(sent)) error.value = requestFailure(reason).message;
+  } finally { busy.value = false; }
 }
 function record(name: string, result: Result) {
   launches.value.unshift({ name, result });
@@ -168,6 +200,7 @@ async function launch(app: LaunchTarget) {
   if (busy.value || !valid.value || app.unavailable_reason) return;
   busy.value = true;
   error.value = "";
+  actionConnectionError.value = false;
   notice.value = "";
   const sent = { ...endpoint.value };
   const key = `${signature()}:${app.id}:native:${renderScale.value}`;
@@ -184,8 +217,11 @@ async function launch(app: LaunchTarget) {
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
-    if (signature() === endpointKey(sent)) error.value = failure.message + (failure.retrySameRequest
-      ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
+    if (signature() === endpointKey(sent)) {
+      actionConnectionError.value = isConnectionFailure(e);
+      error.value = failure.message + (failure.retrySameRequest
+        ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
+    }
   } finally {
     await readRuntime(sent);
     busy.value = false;
@@ -195,6 +231,7 @@ async function resume(sessionId: string, name: string) {
   if (busy.value || !valid.value) return;
   busy.value = true;
   error.value = "";
+  actionConnectionError.value = false;
   notice.value = "";
   const sent = { ...endpoint.value };
   try {
@@ -204,7 +241,10 @@ async function resume(sessionId: string, name: string) {
     });
     if (signature() === endpointKey(sent)) record(name, result);
   } catch (e) {
-    if (signature() === endpointKey(sent)) error.value = String(e);
+    if (signature() === endpointKey(sent)) {
+      error.value = requestFailure(e).message;
+      actionConnectionError.value = isConnectionFailure(e);
+    }
   } finally {
     await readRuntime(sent);
     busy.value = false;
@@ -216,19 +256,29 @@ async function connect(row: Connection) {
   else await launch({ id: row.appId, name: row.name });
 }
 function onFocus() {
-  if (!valid.value || !(catalogCurrent.value || runtimeCurrent.value) || focusRead) return;
+  if (!valid.value || attemptedEndpoint.value !== signature() || focusRead) return;
   // Returning to the launcher must not disable or swallow the user's first click.
   const pending = readRuntime();
   focusRead = pending;
   void pending.finally(() => { if (focusRead === pending) focusRead = undefined; });
 }
+function onOnline() {
+  // A request on the previous TCP connection must not block recovery on a new one.
+  runtimeRevision++;
+  focusRead = undefined;
+  onFocus();
+}
 watch(signature, restoreCatalog);
 onMounted(() => {
   window.addEventListener("focus", onFocus);
+  window.addEventListener("online", onOnline);
   restoreCatalog();
   if (valid.value) void load();
 });
-onUnmounted(() => window.removeEventListener("focus", onFocus));
+onUnmounted(() => {
+  window.removeEventListener("focus", onFocus);
+  window.removeEventListener("online", onOnline);
+});
 </script>
 <template>
   <div class="shell">
@@ -285,10 +335,11 @@ onUnmounted(() => window.removeEventListener("focus", onFocus));
               max="65535" /></label
           ><button :disabled="!valid || busy" @click="load()">
             {{ busy ? "处理中…" : catalogCurrent ? "刷新运行状态 →" : "连接并读取 →" }}
-          </button>
+          </button><button class="secondary-action" :disabled="!valid || busy" @click="login">重新登录 SSH</button>
         </div>
         <p class="hint">
           首次连接请先在终端核验主机指纹并完成 SSH 登录。不会自动信任未知主机。
+          仅使用密码时，断网或登录过期后可点“重新登录 SSH”，在系统终端完成认证。
         </p>
       </section>
       <section class="options">
