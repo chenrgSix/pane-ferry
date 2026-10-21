@@ -101,7 +101,7 @@ final class PublishedSession {
     }
     func focus() throws {
         let window=try axWindow()
-        target.application.activate(options:[.activateIgnoringOtherApps])
+        target.application.activate(options:[])
         guard AXUIElementPerformAction(window,kAXRaiseAction as CFString) == .success else { throw NodeError.window_unavailable }
     }
     func release() {
@@ -114,7 +114,8 @@ final class PublishedSession {
         guard !desktopLocked() else { throw NodeError.desktop_locked }
     }
     func pointer(_ x:Int,_ y:Int,_ button:Int,_ pressed:Bool) throws {
-        try ensureInput()
+        if pressed || button == 0 { try ensureInput() }
+        else { guard valid() else { throw NodeError.session_exited } }
         guard x>=0,y>=0,x<width,y<height,(0...7).contains(button) else { throw NodeError.invalid_request }
         if button != 0 && pressed { try focus() }
         let point=CGPoint(x:lastFrame.minX+Double(x)*lastFrame.width/Double(width),y:lastFrame.minY+Double(y)*lastFrame.height/Double(height))
@@ -140,7 +141,7 @@ final class PublishedSession {
         return result
     }
     func keyEvent(_ key:String,_ pressed:Bool) throws {
-        try ensureInput()
+        if pressed { try ensureInput() } else { guard valid() else { throw NodeError.session_exited } }
         let map:[String:CGKeyCode] = ["a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,"q":12,"w":13,"e":14,"r":15,"y":16,"t":17,
             "1":18,"2":19,"3":20,"4":21,"6":22,"5":23,"equal":24,"9":25,"7":26,"minus":27,"8":28,"0":29,"bracketright":30,"o":31,"u":32,"bracketleft":33,"i":34,"p":35,
             "Return":36,"l":37,"j":38,"apostrophe":39,"k":40,"semicolon":41,"backslash":42,"comma":43,"slash":44,"n":45,"m":46,"period":47,"Tab":48,"space":49,"grave":50,
@@ -154,8 +155,11 @@ final class PublishedSession {
     func text(_ text:String) throws {
         try ensureInput();guard !text.isEmpty,text.utf8.count<=8192,!text.contains("\0") else { throw NodeError.invalid_request }
         let utf16=Array(text.utf16)
-        for start in stride(from:0,to:utf16.count,by:16) {
-            let part=Array(utf16[start..<min(start+16,utf16.count)])
+        var start=0
+        while start<utf16.count {
+            var end=min(start+16,utf16.count)
+            if end<utf16.count && (0xD800...0xDBFF).contains(utf16[end-1]) { end-=1 }
+            let part=Array(utf16[start..<end]);start=end
             for down in [true,false] {
                 guard let event=CGEvent(keyboardEventSource:nil,virtualKey:0,keyDown:down) else { throw NodeError.input_unsupported }
                 event.flags=[];part.withUnsafeBufferPointer { event.keyboardSetUnicodeString(stringLength:part.count,unicodeString:$0.baseAddress!) }
@@ -179,7 +183,7 @@ final class Publisher {
     init(directory:URL) throws {
         self.directory=directory;try privateDirectory(directory)
         let path=directory.appendingPathComponent("device-id")
-        if let value=try? String(contentsOf:path),UUID(uuidString:value) != nil { deviceID=value }
+        if let value=try? String(contentsOf:path,encoding:.utf8),UUID(uuidString:value) != nil { deviceID=value }
         else { let value=UUID().uuidString.lowercased();try value.write(to:path,atomically:true,encoding:.utf8);chmod(path.path,0o600);deviceID=value }
         sharing=(try? Data(contentsOf:directory.appendingPathComponent("sharing.json"))).flatMap{try? JSONSerialization.jsonObject(with:$0) as? [String:Bool]}?["enabled"] ?? false
     }
@@ -212,6 +216,7 @@ final class Publisher {
             guard let session=sessions[id],session.valid() else { throw NodeError.session_exited }
             guard session.appID==appID else { throw NodeError.request_id_conflict };return session
         }
+        sessions=sessions.filter{$0.value.valid()}
         guard sessions.count<16, requests.count<4096 else { throw NodeError.session_limit }
         var target=targets[appID]
         if target == nil {

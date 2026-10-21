@@ -1,6 +1,9 @@
 import AppKit
 import ScreenCaptureKit
 import Darwin
+// Readiness probes intentionally connect and close without a hello. Closed
+// peers must only end their connection, never terminate the graphical service.
+signal(SIGPIPE,SIG_IGN)
 
 final class Client {
     let id=UUID(),wire:Wire,local:Bool
@@ -10,8 +13,14 @@ final class Client {
 }
 @MainActor final class Node: NSObject, NSApplicationDelegate {
     let publisher:Publisher
+    let instanceLock:Int32
     var clients=[UUID:Client](),timer:Timer?
-    init(_ directory:URL) throws { publisher=try Publisher(directory:directory);super.init() }
+    init(_ directory:URL) throws {
+        try privateDirectory(directory)
+        instanceLock=open(directory.appendingPathComponent(".service.lock").path,O_RDWR|O_CREAT|O_NOFOLLOW,0o600)
+        guard instanceLock>=0,flock(instanceLock,LOCK_EX|LOCK_NB)==0 else { throw NodeError.invalid_request }
+        publisher=try Publisher(directory:directory);super.init()
+    }
     func applicationDidFinishLaunching(_ notification:Notification) {
         do { try listen("node.sock",local:false);try listen("management.sock",local:true) }
         catch { fputs("LAN RemoteApp: local service already running or unavailable\n",stderr);NSApplication.shared.terminate(nil);return }
@@ -72,6 +81,7 @@ final class Client {
         guard CGPreflightScreenCaptureAccess() else { throw NodeError.screen_recording_required }
         session.controller=client.id;client.session=session
         let list=try await publisher.scan()
+        guard publisher.sharing,session.controller==client.id else { client.detach();throw NodeError.sharing_disabled }
         guard let window=list.first(where:{$0.id==session.target.id})?.window else { client.detach();throw NodeError.session_exited }
         let capture=WindowCapture(wire:client.wire,session:session.id,windowID:window.windowID,width:session.width,height:session.height,revision:session.revision)
         client.capture=capture
@@ -169,6 +179,8 @@ final class Client {
                     if NSPasteboard.general.changeCount != generation { break }
                 }
                 guard NSPasteboard.general.changeCount != generation else { throw NodeError.clipboard_copy_failed }
+                guard publisher.sharing,session.controller==client.id,session.valid(),
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier==session.target.application.processIdentifier else { throw NodeError.clipboard_copy_failed }
                 let bundle=try readClipboard()
                 if type=="clipboard.inline.copy" { client.wire.send(["type":"clipboard.inline.data","window_id":window,"request_id":id,"bundle":bundle],session:session.id) }
                 else { guard let text=bundle["text"] as? String else { throw NodeError.clipboard_invalid };client.wire.send(["type":"clipboard.data","window_id":window,"request_id":id,"text":text],session:session.id) }
