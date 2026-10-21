@@ -18,9 +18,11 @@ from windowhost import Gtk,Gdk,Viewer
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--peer',required=True)
+parser.add_argument('--capture-only',action='store_true',help='verify real video/reconnect without sending input')
 args=parser.parse_args();uuid.UUID(args.peer)
 info=request(args.peer,'node.info')
-assert info['sharing_enabled'] and info['permissions']['screen_recording'] and info['permissions']['accessibility'], 'user permission required'
+assert info['sharing_enabled'] and info['permissions']['screen_recording'], 'user sharing/recording permission required'
+assert args.capture_only or info['permissions']['accessibility'], 'user accessibility permission required'
 apps=request(args.peer,'app.list')['apps']
 assert not any('WindowHosts' in a.get('id','') or a.get('name')=='LAN RemoteApp WindowHost' for a in apps)
 windows=request(args.peer,'window.list')['windows']
@@ -30,6 +32,9 @@ sid=response['session_id']
 class FixedViewer(Viewer):
     def allocated(self,*args):
         pass  # Keep initial 2x source geometry until the explicit resize check.
+    def send(self,**fields):
+        if not args.capture_only:
+            return super().send(**fields)
 app=Gtk.Application(application_id='dev.lra.LiveReceiverFixture');app.register(None)
 viewer=FixedViewer(app,args.peer,'Mac 发布实测',session_id=sid)
 def until(predicate,timeout=12):
@@ -45,18 +50,30 @@ def key(name):
     send(type='input.key.logical',key=name,pressed=True);send(type='input.key.logical',key=name,pressed=False)
 def click(x,y):
     send(type='input.pointer',x=x,y=y,button=1,pressed=True);send(type='input.pointer',x=x,y=y,button=1,pressed=False)
+def reconnect_and_detach():
+    old_epoch,old_pixels=viewer.epoch,viewer.pixels
+    viewer.wire.socket.shutdown(2)
+    until(lambda:viewer.epoch>old_epoch and viewer.ready and viewer.pixels is not old_pixels,timeout=20)
+    assert viewer.session_id==sid,'reconnected to a different session'
+    viewer.close()
+    until(lambda:not next(s for s in request(args.peer,'session.list')['sessions'] if s['session_id']==sid)['controlled'])
+    assert any(w['id']==target['id'] for w in request(args.peer,'window.list')['windows']), 'local close ended remote app'
 try:
+    started=time.monotonic()
     until(lambda:viewer.ready and viewer.pixels is not None)
     assert viewer.window_id==target['window_id']
     first=(viewer.width,viewer.height)
+    print('Real H.264 first frame:',first,'startup_seconds:',round(time.monotonic()-started,3),flush=True)
+    if args.capture_only:
+        reconnect_and_detach()
+        print('PASS: actual Mac SCK/H264 -> Ubuntu GTK; new decoded frame after same-session reconnect; detach preserves Mac app; no input sent')
+        sys.exit(0)
     # Source fixture content is 800x560 points, with the system titlebar above.
     # SCK publishes at 2x. These hit only the fixture's fixed button/text area.
     click(208,140)
     click(160,310)
     viewer.im.emit('commit','反向链路中文🙂 Mac → Ubuntu')
-    until(lambda:viewer.outbound.empty())
-    time.sleep(.3)
-    key('Control_L');send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
+    send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
     request_id=uuid.uuid4().hex
     viewer.copy_request=(request_id,clipboard.begin_copy())
     send(type='clipboard.inline.copy',request_id=request_id,cut=False)
@@ -64,7 +81,6 @@ try:
     board=Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
     assert board.wait_for_text()=='反向链路中文🙂 Mac → Ubuntu','Mac text input/copy round trip failed'
     board.set_text('剪贴板从 Ubuntu 到 Mac',-1);viewer.paste()
-    until(lambda:viewer.outbound.empty());time.sleep(.2)
     send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
     request_id=uuid.uuid4().hex;viewer.copy_request=(request_id,clipboard.begin_copy())
     send(type='clipboard.inline.copy',request_id=request_id,cut=False)
@@ -72,12 +88,7 @@ try:
     assert board.wait_for_text()=='剪贴板从 Ubuntu 到 Mac','paste round trip failed'
     send(type='window.configure',width=1200,height=840)
     until(lambda:viewer.width==1200 and viewer.height==840 and viewer.pixels.get_width()==1200 and viewer.pixels.get_height()==840)
-    old_epoch=viewer.epoch;viewer.wire.socket.shutdown(2)
-    until(lambda:viewer.epoch>old_epoch and viewer.ready,timeout=20)
-    assert viewer.session_id==sid,'reconnected to a different session'
-    viewer.close()
-    until(lambda:not next(s for s in request(args.peer,'session.list')['sessions'] if s['session_id']==sid)['controlled'])
-    assert any(w['id']==target['id'] for w in request(args.peer,'window.list')['windows']), 'local close ended remote app'
+    reconnect_and_detach()
     print('PASS: actual Mac SCK/H264 -> Ubuntu GTK; click, controller Unicode, native shortcuts, bidirectional text clipboard, resize, same-session reconnect, detach preserves Mac app; initial resolution',first)
 finally:
     viewer.close()

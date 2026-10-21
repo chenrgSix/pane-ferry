@@ -249,7 +249,11 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 最终开发产物 SHA-256：Mac launcher `91eeb88be9dc3bbaad542c2e40a6810f6642bbd3ffc596409d556d24cbf5e7ca`，Mac 发布辅助组件 `ac5a394f3aac37faa8a13a44cbca9d7775747f2b93018211aecc9bf34a775d46`，原 Mac 接收宿主仍为 `dcf74f48ea7ca51526a710d47e71db5d88242901c4e083b2473df729b244ad88`；Ubuntu Agent 的已安装文件与最终 release 产物均为 `44016c817913a94b3749d6e9a9df5629a7ccc75f88b33df6bd00de5b06957a48`。
 
-真实 Mac → Ubuntu 窗口测试尚未完成：开启 Mac 共享的 UI 操作被自动审批拒绝，要求用户在操作时明确确认接收方和共享范围；Mac 服务查询也报告录屏、辅助功能尚未授权。已请求用户确认向 `chenrg@10.0.1.66` 共享并完成首次系统权限，未通过其他接口绕过拒绝。准备了只匹配专用 `MacPublishingFixture` 窗口的 `mac_to_linux_live.py`，它不会开启共享或授予系统权限。实际 SCK 画面、Mac 原生输入、双向同时使用、物理断网、多台远端并发、复杂弹窗与长期稳定性均不能据隔离测试宣称通过。
+用户已明确允许向 `chenrg@10.0.1.66` 共享本机应用目录、所选窗口画面、输入及主动剪贴板，并在系统设置开启两项权限。重启本产品后，真实服务的录屏检测已为 true；辅助功能检测仍为 false，尽管系统设置中的 LAN RemoteApp 条目显示开启。代点“允许共享所需权限”被自动审批拒绝，要求由用户完成这次权限确认，未通过其他接口绕过。
+
+真实 Mac → Ubuntu 的画面部分已通过：`mac_to_linux_live.py --capture-only` 只匹配专用 `MacPublishingFixture` 窗口，在 Ubuntu 原图形用户环境运行实际 GTK 接收端，收到 SCK → VideoToolbox H.264 → SSH 返回通道的 1600 × 1184 解码图像，本次从接收端启动到首帧约 0.255 秒（不代表输入到显示延迟）。主动中断接收 socket 后，确认同会话恢复且收到新的解码图像；关闭接收窗口后原 Mac 测试窗口仍在。此模式不发送输入，也不会开启共享或授予权限。测试应用须通过 LaunchServices 启动，直接执行其二进制没有 NSRunningApplication 启动时间，无法通过窗口身份校验。
+
+Mac 原生输入、双向同时使用、物理断网、多台远端并发、复杂弹窗与长期稳定性仍未完成真实验收。
 
 ## 尚未覆盖
 
