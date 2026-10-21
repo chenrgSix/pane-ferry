@@ -10,6 +10,7 @@ BIN_DIR="$(swift build -c release --show-bin-path)"
 APP="dist/RemoteAppWindowHost.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/RemoteAppWindowHost" "$APP/Contents/MacOS/RemoteAppWindowHost"
+cp ../launcher/src-tauri/icons/icon.png "$APP/Contents/Resources/RemoteApp.png"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

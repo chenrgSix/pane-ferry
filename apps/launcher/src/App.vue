@@ -254,6 +254,7 @@ async function launch(app: LaunchTarget) {
       appId: app.id,
       requestId,
       renderScale: renderScale.value === "auto" ? null : Number(renderScale.value),
+      iconPng: app.icon_png ?? null,
     });
     attempts.resolve(key);
     if (signature() === endpointKey(sent)) record(app.name, result);
@@ -270,7 +271,7 @@ async function launch(app: LaunchTarget) {
     busy.value = false;
   }
 }
-async function resume(sessionId: string, name: string) {
+async function resume(sessionId: string, name: string, iconPng?: string | null) {
   if (busy.value || !valid.value) return;
   busy.value = true;
   error.value = "";
@@ -281,6 +282,7 @@ async function resume(sessionId: string, name: string) {
     const result = await invoke<Result>("resume_session", {
       endpoint: sent,
       sessionId,
+      iconPng: iconPng ?? null,
     });
     if (signature() === endpointKey(sent)) record(name, result);
   } catch (e) {
@@ -295,8 +297,8 @@ async function resume(sessionId: string, name: string) {
 }
 async function connect(row: Connection) {
   if (row.controlled) return;
-  if (row.sessionId) await resume(row.sessionId, row.name);
-  else await launch({ id: row.appId, name: row.name });
+  if (row.sessionId) await resume(row.sessionId, row.name, row.icon_png);
+  else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png });
 }
 function onFocus() {
   if (disposed || !valid.value || attemptedEndpoint.value !== signature() || focusRead) return;

@@ -31,9 +31,9 @@ const renderer = createRenderer({
   nextSibling: () => null,
 });
 const endpoint = { host: "ubuntu", user: "alice", port: 22 };
-const app = { id: "firefox", name: "Firefox", source: "desktop", description: "浏览器" };
+const app = { id: "firefox", name: "Firefox", source: "desktop", description: "浏览器", icon_png: "Y2FjaGVkLWFwcC1pY29u" };
 const session = (id, appId, display = 0, controlled = false) => ({ session_id: id, app_id: appId, display, controlled, backend: "native" });
-const window = (id, sessionId = null, controlled = false) => ({ id, session_id: sessionId, controlled, name: "Firefox", title: "测试页面", minimized: false, window_id: 100 });
+const window = (id, sessionId = null, controlled = false) => ({ id, session_id: sessionId, controlled, name: "Firefox", title: "测试页面", minimized: false, window_id: 100, icon_png: "bGl2ZS13aW5kb3ctaWNvbg==" });
 function storage() {
   const data = new Map([["lan-remoteapp.connection", JSON.stringify({ endpoint, renderScale: "auto" })]]);
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
@@ -106,11 +106,14 @@ test("one connection action resumes sessions, takes over untouched windows, and 
     await state.connect(state.runningConnections.find(r => r.sessionId === "owned"));
     assert.equal(actions(mounted).at(-1).command, "resume_session");
     assert.equal(actions(mounted).at(-1).args.sessionId, "owned");
+    assert.equal(actions(mounted).at(-1).args.iconPng, "bGl2ZS13aW5kb3ctaWNvbg==");
     await state.connect(state.runningConnections.find(r => r.sessionId === "remote"));
     assert.equal(actions(mounted).at(-1).args.sessionId, "remote");
+    assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
     await state.connect(state.runningConnections.find(r => r.appId === "window-new"));
     assert.equal(actions(mounted).at(-1).command, "launch_app");
     assert.equal(actions(mounted).at(-1).args.appId, "window-new");
+    assert.equal(actions(mounted).at(-1).args.iconPng, "bGl2ZS13aW5kb3ctaWNvbg==");
     const before = actions(mounted).length;
     await state.connect(state.runningConnections.find(r => r.sessionId === "busy"));
     assert.equal(actions(mounted).length, before);
@@ -119,6 +122,20 @@ test("one connection action resumes sessions, takes over untouched windows, and 
     assert.equal(actions(mounted).length, before + 1);
     assert.equal(actions(mounted).at(-1).command, "resume_session");
     assert.match(state.error, /会话已退出/);
+  } finally { mounted.unmount(); }
+});
+
+test("launching a cached application forwards its Ubuntu icon without scanning again", async () => {
+  const saved = storage();
+  const first = mount(saved);
+  await settled(first.state);
+  first.unmount();
+  const mounted = mount(saved);
+  try {
+    await settled(mounted.state);
+    await mounted.state.launch(mounted.state.apps[0]);
+    assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
+    assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
   } finally { mounted.unmount(); }
 });
 

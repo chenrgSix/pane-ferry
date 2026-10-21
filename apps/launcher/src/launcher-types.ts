@@ -1,8 +1,7 @@
 export type Endpoint = { host: string; user: string; port: number };
-export type LaunchTarget = { id: string; name: string; unavailable_reason?: string | null };
+export type LaunchTarget = { id: string; name: string; icon_png?: string | null; unavailable_reason?: string | null };
 export type AppInfo = LaunchTarget & {
   description: string;
-  icon_png?: string | null;
   source: "desktop" | "custom";
 };
 export type AppCatalog = { apps: AppInfo[]; discovery_error: string | null };

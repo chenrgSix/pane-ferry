@@ -19,11 +19,17 @@ struct Options {
     let port: UInt16
     let app: String?
     let session: String?
+    var iconFromStdin = false
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
+        var iconFromStdin = false
         let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session"]
         while i < args.count {
+            if args[i] == "--icon-stdin" {
+                guard !iconFromStdin else { throw HostError.message("图标参数重复") }
+                iconFromStdin = true; i += 1; continue
+            }
             guard allowed.contains(args[i]), i + 1 < args.count, values[args[i]] == nil else {
                 throw HostError.message("参数格式错误；使用 --host HOST --user USER [--port 22] --app APP_ID 或 --session SESSION_ID")
             }
@@ -44,7 +50,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(host: host, user: user, port: port, app: app, session: session)
+        return Options(host: host, user: user, port: port, app: app, session: session, iconFromStdin: iconFromStdin)
     }
 }
 enum HostError: Error { case message(String) }
@@ -244,6 +250,7 @@ final class SSHTransport {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
+    let applicationIcon: NSImage?
     var transport = SSHTransport()
     var makeTransport: () -> SSHTransport = { SSHTransport() }
     var windows: [UInt32: HostedWindow] = [:]
@@ -274,9 +281,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var clipboardTimer: Timer?
     var clipboardChangeCount = 0
     var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(host: options.host, user: options.user, port: options.port) }
-    init(options: Options, clipboard: NSPasteboard = .general) { self.options = options; controllerClipboard = clipboard; super.init() }
+    init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
+        self.options = options; self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        if let icon = applicationIcon { NSApp.applicationIconImage = icon }
         let mainMenu = NSMenu()
         let appItem = NSMenuItem(); mainMenu.addItem(appItem)
         let menu = NSMenu(); appItem.submenu = menu
@@ -347,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     private func alert(_ message: String) {
         let alert = NSAlert(); alert.messageText = "LAN RemoteApp"; alert.informativeText = message
+        if let icon = applicationIcon { alert.icon = icon }
         alert.addButton(withTitle: "好"); alert.runModal()
     }
     func pump() {
@@ -662,7 +673,8 @@ let application = NSApplication.shared
 var applicationDelegate: AppDelegate?
 do {
     let options = try Options.parse(Array(CommandLine.arguments.dropFirst()))
-    applicationDelegate = AppDelegate(options: options)
+    let icon = options.iconFromStdin ? ApplicationIcon.read(from: .standardInput) : nil
+    applicationDelegate = AppDelegate(options: options, applicationIcon: icon ?? ApplicationIcon.fallback())
     application.delegate = applicationDelegate
     application.run()
 } catch HostError.message(let message) {

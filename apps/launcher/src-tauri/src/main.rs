@@ -2,6 +2,7 @@
 use remoteapp_transport::{self as transport, AppCatalog, Endpoint};
 use serde::Serialize;
 use std::{
+    io::Write,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -109,25 +110,45 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
-fn spawn_host(path: PathBuf, endpoint: &Endpoint, session_id: &str) -> Result<u32, String> {
-    let mut child = Command::new(path)
-        .args([
-            "--host",
-            &endpoint.host,
-            "--user",
-            &endpoint.user,
-            "--port",
-            &endpoint.port.to_string(),
-            "--session",
-            session_id,
-        ])
-        .stdin(Stdio::null())
+fn spawn_host(
+    path: PathBuf,
+    endpoint: &Endpoint,
+    session_id: &str,
+    icon_png: Option<String>,
+) -> Result<u32, String> {
+    // Icons are already in the launcher catalog/window cache. Deliver once over
+    // stdin, without command-line image data, temporary files or another scan.
+    let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
+    let mut command = Command::new(path);
+    command.args([
+        "--host",
+        &endpoint.host,
+        "--user",
+        &endpoint.user,
+        "--port",
+        &endpoint.port.to_string(),
+        "--session",
+        session_id,
+    ]);
+    if icon.is_some() {
+        command.arg("--icon-stdin");
+    }
+    let mut child = command
+        .stdin(if icon.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| format!("原生宿主启动失败。远端会话 {session_id} 已保留，可重新连接。"))?;
     let pid = child.id();
     std::thread::spawn(move || {
+        // A missing or corrupt icon never prevents the session from connecting.
+        if let (Some(mut input), Some(icon)) = (child.stdin.take(), icon) {
+            let _ = input.write_all(icon.as_bytes());
+        }
         let _ = child.wait();
     });
     Ok(pid)
@@ -137,6 +158,7 @@ async fn resume_session(
     app: tauri::AppHandle,
     endpoint: Endpoint,
     session_id: String,
+    icon_png: Option<String>,
 ) -> Result<LaunchResult, RequestFailure> {
     endpoint.validate()?;
     transport::validate_id(&session_id)?;
@@ -155,6 +177,7 @@ async fn resume_session(
         native_host(&app).map_err(RequestFailure::local)?,
         &endpoint,
         &session_id,
+        icon_png,
     )
     .map_err(RequestFailure::local)?;
     Ok(LaunchResult {
@@ -171,6 +194,7 @@ async fn launch_app(
     app_id: String,
     request_id: String,
     render_scale: Option<u8>,
+    icon_png: Option<String>,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
     transport::validate_id(&app_id)?;
@@ -193,12 +217,13 @@ async fn launch_app(
         }
     });
     let session = transport::launch_native(&endpoint, &app_id, &request_id, scale).await?;
-    let pid =
-        spawn_host(path, &endpoint, &session.session_id).map_err(|message| LaunchFailure {
+    let pid = spawn_host(path, &endpoint, &session.session_id, icon_png).map_err(|message| {
+        LaunchFailure {
             kind: "client",
             message,
             retry_same_request: true,
-        })?;
+        }
+    })?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),
