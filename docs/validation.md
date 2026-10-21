@@ -84,6 +84,25 @@ Ubuntu 上的 `tests/e2e/app_discovery_smoke.py` 使用独立 HOME、XDG 应用�
 
 窗口发现和接管当前支持 X11 / XWayland；原生 Wayland 窗口暂不支持。48 个入口成功发现不等于全部应用的独立启动及完整交互均已验收。
 
+## 2026-10-21 Firefox 连续输入与关闭行为
+
+用户报告 Firefox 百度搜索框在跳转、关闭页面等操作后，控制端候选框正常，但中文提交不上屏。排查使用独立 Firefox 资料、自有 Xvfb 和仅监听 loopback 的测试页，未操作原桌面 ChatGPT 或其他已登录内容。校准后的旧版测试在地址栏提交新 URL 后仍导航至旧地址；单独保留原焦点没有解决。仅增加剪贴板广告间隔仍在第 5 轮失败，配合 Firefox 专用快捷键节奏后通过完整循环。由此定位到本实现对 Firefox 异步剪贴板与快速快捷键的交付时序处理不足；这不等于已经重现百度页面上当时的全部具体操作。
+
+当前修复保留已聚焦的子窗口，对 Firefox 新 selection 留出 16ms，再以每个转换 4ms 的节奏发送复制/粘贴快捷键；提前读取的 selection 数据也计入完成判断，避免等待不存在的第二次读取。普通 X11 GTK 应用保留原快速路径。新建自有应用显式使用 GTK simple / Qt compose 和 `@im=none`，不会继承桌面 IM daemon；现有应用环境不被改写。Mozilla 也记录了 GTK/X11 快速键序列的合并问题，见 [Bug 1098981](https://bugzilla.mozilla.org/show_bug.cgi?id=1098981)；本次交付结论以本项目的实际对照和回归为准。
+
+`tests/e2e/browser_text_smoke.py` 的最终版本在 Ubuntu 通过：
+
+- 物理字母输入校准；8 轮中文/emoji 提交、主动复制/粘贴和地址栏导航。
+- 新建标签输入中文、关闭标签后回到原页面继续输入中文；40 次连续 Unicode 提交完整保留。
+- `session.detach` 后同一会话恢复，内容保留，继续提交中文成功；实际收到 H.264 帧，重连后仍收到 H.264 帧。
+- 即使服务进程继承 Fcitx 环境，新建测试 Firefox 进程仍使用本项目指定的输入上下文。
+
+最终改动另通过根 workspace Rust 34 项测试（4 项 Linux 专用忽略）、Clippy、格式与 Python 语法检查；Ubuntu 的现有窗口/显式双向剪贴板及应用发现/新建 XTerm 中文回归通过。普通 GTK 本机输入测量 5 个样本的文字中位数 0.6ms、按键中位数 0.2ms，30 次连续文字提交 1.6ms，仅作为快速路径回归，不含 LAN、Mac 解码或显示，也不是 Firefox 的全链路延迟。Firefox 专用兼容等待会增加提交端开销，本次未重测完整 input-to-photon 延迟。
+
+Mac 红色关闭按钮现调用宿主的断开退出流程，不发送 `window.close.request`。真实 `NSWindow.performClose` 回归确认只触发一次断开回调、没有远端关闭请求，远端销毁窗口时也不会反向触发断开。另用真实 Ubuntu 会话验证断开后控制权释放、同一 session/window ID 可重连，最后只清理本轮自建测试终端。完整 Mac GUI 点击自动化曾因界面工具长时间超时而中断，未将那次尝试记作完整 UI 验收。
+
+Swift release 与 Tauri macOS 包构建通过，新的 WindowHost 已安装。Ubuntu 正式非诊断 Agent 已备份更新，服务 active；升级前确认没有控制端和自有应用会话，2 个外部原进程升级后身份不变。新服务读取 48 个应用、48 个图标和 1 个可见原桌面窗口，测试会话已清理。安装 Agent SHA-256：`d8f78615d00e474f7bf2f83988fa5e2f0cb6f8393b988bece9f2bb0f1a2ec798`。服务重启会刷新内存中的会话目录，需要在启动器重新读取应用与窗口；原桌面应用继续保留。需要结束远端程序时，应使用其画面内的关闭按钮或退出菜单。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
