@@ -1,40 +1,46 @@
 import Foundation
-import Security
 
 @main
 struct SSHPasswordSmoke {
     static func main() throws {
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
-        precondition(!SSHAuthentication.trustedAskpassCaller(), "a direct CLI invocation cannot export credentials")
-        let path = root.appendingPathComponent("fixture.keychain-db").path
-        var keychain: SecKeychain?
-        let keychainPassword = Array("private-test-keychain".utf8)
-        let status = keychainPassword.withUnsafeBytes { bytes in
-            SecKeychainCreate(path, UInt32(bytes.count), bytes.baseAddress, false, nil, &keychain)
-        }
-        precondition(status == errSecSuccess, "isolated test Keychain could not be created: \(status)")
-        guard let keychain = keychain else { fatalError("missing private test Keychain") }
-        defer { SecKeychainDelete(keychain) }
+        let file = root.appendingPathComponent("ssh-connections.json")
+        precondition(!SSHAuthentication.trustedAskpassCaller(), "direct CLI cannot export saved credentials")
         let account = SSHPassword.account(host:"fixture.invalid", user:"fixture", port:22)
-        let secret = Data("fixture-password-value".utf8)
-        precondition(!SSHPassword.contains(account, keychain:keychain))
-        precondition(SSHPassword.save(secret, account:account, keychain:keychain))
-        precondition(SSHPassword.contains(account, keychain:keychain))
-        precondition(SSHPassword.read(account, keychain:keychain) == secret)
-        precondition(SSHPassword.askpass(prompt:"fixture@fixture.invalid's password: ", account:account, keychain:keychain) == secret)
-        for prompt in ["Enter passphrase for key:", "Are you sure you want to continue connecting (yes/no)?", "Verification code:"] {
-            precondition(SSHPassword.askpass(prompt:prompt, account:account, keychain:keychain) == nil)
+        let first = SSHPassword.Connection(host:"fixture.invalid", user:"fixture", port:22, password:"fixture-password-value")
+        func write(_ entries: [SSHPassword.Connection], version: Int = 1) throws {
+            let bytes = try JSONEncoder().encode(SSHPassword.Configuration(version:version, connections:entries))
+            try bytes.write(to:file, options:.atomic)
+            try FileManager.default.setAttributes([.posixPermissions:0o600], ofItemAtPath:file.path)
+        }
+        precondition(!SSHPassword.contains(account, configuration:file))
+        try write([first])
+        precondition(SSHPassword.contains(account, configuration:file))
+        precondition(SSHPassword.read(account, configuration:file) == Data(first.password.utf8))
+        precondition(SSHPassword.askpass(prompt:"fixture@fixture.invalid's password: ", account:account, configuration:file) == Data(first.password.utf8))
+        for prompt in ["Enter passphrase for key:", "Continue connecting (yes/no)?", "Verification code:"] {
+            precondition(SSHPassword.askpass(prompt:prompt, account:account, configuration:file) == nil)
         }
         for other in [SSHPassword.account(host:"other.invalid", user:"fixture", port:22),
                       SSHPassword.account(host:"fixture.invalid", user:"other", port:22),
                       SSHPassword.account(host:"fixture.invalid", user:"fixture", port:2222)] {
-            precondition(SSHPassword.read(other, keychain:keychain) == nil)
+            precondition(SSHPassword.read(other, configuration:file) == nil)
         }
-        let updated = Data("updated-fixture-password".utf8)
-        precondition(SSHPassword.save(updated, account:account, keychain:keychain))
-        precondition(SSHPassword.read(account, keychain:keychain) == updated)
-        precondition(!SSHPassword.save(Data("invalid\nsecret".utf8), account:account, keychain:keychain))
-        precondition(SSHPassword.read(account, keychain:keychain) == updated)
-        print("PASS: private Keychain password storage/update, endpoint isolation, bounded secrets and password-only askpass; system credentials unchanged")
+        let updated = SSHPassword.Connection(host:first.host, user:first.user, port:first.port, password:"changed fixture 密码")
+        try write([updated]); precondition(SSHPassword.read(account, configuration:file) == Data(updated.password.utf8))
+        try FileManager.default.setAttributes([.posixPermissions:0o644], ofItemAtPath:file.path)
+        precondition(SSHPassword.read(account, configuration:file) == nil)
+        try write([updated], version:2); precondition(SSHPassword.read(account, configuration:file) == nil)
+        try write([first, first]); precondition(SSHPassword.read(account, configuration:file) == nil)
+        try write([SSHPassword.Connection(host:first.host, user:first.user, port:first.port, password:"bad\nsecret")])
+        precondition(SSHPassword.read(account, configuration:file) == nil)
+        try write([SSHPassword.Connection(host:first.host, user:first.user, port:first.port, password:String(repeating:"a", count:4097))])
+        precondition(SSHPassword.read(account, configuration:file) == nil)
+        try Data("corrupt fixture".utf8).write(to:file)
+        precondition(SSHPassword.read(account, configuration:file) == nil)
+        try write([first]); let linked = root.appendingPathComponent("linked.json")
+        try FileManager.default.createSymbolicLink(at:linked, withDestinationURL:file)
+        precondition(SSHPassword.read(account, configuration:linked) == nil)
+        print("PASS: private Mac service configuration, credential updates, endpoint isolation, permissions, corruption/version limits and password-only askpass; no Keychain access")
     }
 }

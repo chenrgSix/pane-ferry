@@ -9,7 +9,7 @@ Linux 用户安装的桌面入口及可选自定义配置是本地可信输入�
 ## 必须保持的控制
 
 - 使用严格 known_hosts 校验，主机未知或变化时停止，不默默 accept-new/no。
-- 禁止密码出现在参数、URL、配置或日志；使用用户预先配置的 SSH 认证。
+- 按用户选择，SSH 密码仅由 Mac 后端保存在本应用私有连接配置（目录 0700、文件 0600），不使用系统钥匙串。禁止密码进入参数、URL、普通日志或 WebView localStorage；SSH askpass 仅向本应用启动的系统 SSH 提供匹配端点的密码。
 - 本地 subprocess argv 不等于远端 shell 安全。远端入口固定，业务请求在 stdin；不拼接客户端传入的 shell 片段。
 - 检查 host/user/port/app_id/session_id，拒绝选项注入、控制字符和路径遍历。
 - Agent socket 与会话目录仅当前用户可访问；Xvfb 需独立 Xauthority cookie，不用 `-ac`，不监听 TCP。

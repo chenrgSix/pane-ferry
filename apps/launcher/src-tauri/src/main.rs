@@ -2,11 +2,11 @@
 use remoteapp_transport::{self as transport, AppCatalog, Endpoint};
 use serde::Serialize;
 use std::{
-    io::Write,
     path::PathBuf,
     process::{Command, Stdio},
 };
 use tauri::Manager;
+mod credential_store;
 mod ssh_login;
 #[derive(Serialize)]
 struct LaunchResult {
@@ -87,39 +87,11 @@ async fn save_ssh_password(
     endpoint: Endpoint,
     password: String,
 ) -> Result<(), String> {
-    endpoint.validate().map_err(|error| error.to_string())?;
-    if password.is_empty() || password.len() > 4096 || password.contains(['\0', '\n', '\r']) {
-        return Err("密码格式无效。".into());
-    }
-    let mut child = Command::new(native_host(&app)?)
-        .args([
-            "--credential-store",
-            &endpoint.host,
-            &endpoint.user,
-            &endpoint.port.to_string(),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "无法打开系统钥匙串。")?;
-    let result = child
-        .stdin
-        .take()
-        .ok_or("无法传递登录凭据。")?
-        .write_all(password.as_bytes());
-    // Do not put the secret in argv, environment, localStorage or diagnostics.
-    if result.is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("无法保存登录凭据。".into());
-    }
-    let status = child.wait().map_err(|_| "无法保存登录凭据。")?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("系统钥匙串未能保存密码，请重试。".into())
-    }
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "无法定位连接配置目录。")?;
+    credential_store::save(&directory, endpoint, password)
 }
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {

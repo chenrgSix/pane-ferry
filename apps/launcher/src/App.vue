@@ -137,7 +137,7 @@ async function connectHost() {
       await invoke<void>("save_ssh_password", { endpoint: sent, password: password.value });
       password.value = "";
     } catch {
-      error.value = "密码未能保存到系统钥匙串，请重试。";
+      error.value = "连接配置未能保存，请重试。";
       return;
     } finally { busy.value = false; }
   }
@@ -350,7 +350,7 @@ onUnmounted(() => {
       <section class="connection">
         <div class="section-title">
           <h2>01 <span>连接主机</span></h2>
-          <span>密码保存在系统钥匙串</span>
+          <span>连接配置由本机服务保存</span>
         </div>
         <div class="fields">
           <label
@@ -384,7 +384,7 @@ onUnmounted(() => {
           </button>
         </div>
         <p class="hint">
-          首次填写账号和密码，之后自动连接。断网恢复后会继续原窗口，远端应用和内容会保留。
+          使用这里填写的账号和密码连接，留空使用已保存配置。断网恢复后自动继续原窗口。
         </p>
       </section>
       <section class="options">

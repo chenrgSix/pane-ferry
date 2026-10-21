@@ -4,7 +4,7 @@
 
 ## 构建与运行
 
-macOS 12+，Xcode Command Line Tools / Swift 5.9+。先在 Ubuntu 安装并配置 Agent，在 Mac 手动核实 SSH 主机指纹，确认能用现有密钥/ssh-agent 登录。WindowHost 不生成密钥，不自动保存密码，不会接受未知主机。
+macOS 12+，Xcode Command Line Tools / Swift 5.9+。先在 Ubuntu 安装并配置 Agent，在 Mac 手动核实 SSH 主机指纹，在 Mac 启动器填写连接账号密码。WindowHost 使用本机服务保存的私有连接配置，不使用系统钥匙串，不生成密钥，也不会接受未知主机。
 
 ```sh
 cd apps/mac-windowhost
@@ -18,7 +18,7 @@ swift build -c release
 
 默认读取 OpenSSH 的 known_hosts 与已有密钥/ssh-agent。`-F /dev/null` 禁用用户 SSH 配置，因此这里必须用真实主机名/IP，不能仅填自定义 SSH 别名；不支持 ProxyCommand 跳板。参数无 shell 插值；远端入口固定为 `.local/bin/remoteapp-agent bridge`。
 
-也会复用 `~/.ssh/lan-remoteapp-%C` 的现有项目 SSH 连接。密码用户可先在项目根目录运行 `bash scripts/connect-ssh.sh HOST USER 22`，由系统 SSH 完成登录，不向 WindowHost 提供密码。
+配置密码后使用 `~/.ssh/lra-pw-%C` 自动重新认证与复用，askpass 读取同一份 Mac 服务配置。未保存密码时仍兼容 `~/.ssh/lan-remoteapp-%C` 的已有登录连接；维护脚本不再是日常连接必需步骤。
 
 菜单“复制会话 ID”只在用户点击时写入 Mac 剪贴板，用于手动重连。菜单“断开并退出”和 Mac 窗口红色关闭按钮都会断开当前会话并退出连接宿主，保留 Linux 应用和内容，之后可从启动器重连。需要结束远端程序时，使用其画面内的关闭按钮或退出菜单。
 

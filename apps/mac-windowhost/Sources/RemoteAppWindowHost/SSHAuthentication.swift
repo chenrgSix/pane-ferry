@@ -1,46 +1,42 @@
 import Foundation
-import Security
 import Darwin
 
 enum SSHPassword {
-    static let service = "io.lanremoteapp.ssh-password"
+    struct Connection: Codable {
+        let host: String, user: String, port: UInt16, password: String
+    }
+    struct Configuration: Codable {
+        let version: Int
+        let connections: [Connection]
+    }
+    static var configuration: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("io.lanremoteapp.launcher/ssh-connections.json")
+    }
     static func account(host: String, user: String, port: UInt16) -> String { "\(user)@\(host):\(port)" }
-    static func query(_ account: String, keychain: SecKeychain? = nil) -> [String: Any] {
-        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                   kSecAttrService as String: service, kSecAttrAccount as String: account]
-        if let keychain = keychain { query[kSecMatchSearchList as String] = [keychain] }
-        return query
+    static func contains(_ account: String, configuration: URL = configuration) -> Bool {
+        read(account, configuration: configuration) != nil
     }
-    static func contains(_ account: String, keychain: SecKeychain? = nil) -> Bool {
-        var value = query(account, keychain: keychain)
-        value[kSecReturnAttributes as String] = true
-        value[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        var attributes: CFTypeRef?
-        return SecItemCopyMatching(value as CFDictionary, &attributes) == errSecSuccess
+    static func read(_ account: String, configuration: URL = configuration) -> Data? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: configuration.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let owner = attributes[.ownerAccountID] as? NSNumber, owner.uint32Value == geteuid(),
+              let mode = attributes[.posixPermissions] as? NSNumber, mode.intValue & 0o077 == 0,
+              let size = attributes[.size] as? NSNumber, size.intValue <= 1024 * 1024,
+              let bytes = try? Data(contentsOf: configuration), bytes.count <= 1024 * 1024,
+              let document = try? JSONDecoder().decode(Configuration.self, from: bytes),
+              document.version == 1, document.connections.count <= 128 else { return nil }
+        let matching = document.connections.filter { self.account(host:$0.host, user:$0.user, port:$0.port) == account }
+        guard matching.count == 1, let record = matching.first else { return nil }
+        let data = Data(record.password.utf8)
+        guard !data.isEmpty, data.count <= 4096, !data.contains(0), !data.contains(10), !data.contains(13) else { return nil }
+        return data
     }
-    static func read(_ account: String, keychain: SecKeychain? = nil) -> Data? {
-        var value = query(account, keychain: keychain); value[kSecReturnData as String] = true
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(value as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
-    }
-    static func save(_ password: Data, account: String, keychain: SecKeychain? = nil) -> Bool {
-        guard !password.isEmpty, password.count <= 4096, !password.contains(0), !password.contains(10), !password.contains(13) else { return false }
-        let value = query(account, keychain: keychain)
-        let status = SecItemUpdate(value as CFDictionary, [kSecValueData as String: password] as CFDictionary)
-        if status == errSecSuccess { return true }
-        guard status == errSecItemNotFound else { return false }
-        var added = value; added[kSecValueData as String] = password
-        if let keychain = keychain { added.removeValue(forKey:kSecMatchSearchList as String); added[kSecUseKeychain as String] = keychain }
-        return SecItemAdd(added as CFDictionary, nil) == errSecSuccess
-    }
-    /// SSH starts this executable directly as its askpass helper. Only a
-    /// password prompt for the configured endpoint may receive the password.
-    static func askpass(prompt: String, account: String, keychain: SecKeychain? = nil) -> Data? {
+    /// Only a password prompt for the configured endpoint receives its secret.
+    static func askpass(prompt: String, account: String, configuration: URL = configuration) -> Data? {
         let lower = prompt.lowercased()
-        guard lower.contains("password"), !lower.contains("passphrase"), !lower.contains("yes/no"),
-              let password = read(account, keychain: keychain), !password.isEmpty else { return nil }
-        return password
+        guard lower.contains("password"), !lower.contains("passphrase"), !lower.contains("yes/no") else { return nil }
+        return read(account, configuration: configuration)
     }
 }
 
@@ -83,13 +79,11 @@ func runCredentialCommand(_ arguments: [String]) -> Int32? {
               let value = SSHPassword.askpass(prompt: arguments[0], account: account) else { return 1 }
         FileHandle.standardOutput.write(value); FileHandle.standardOutput.write(Data([10])); return 0
     }
-    guard let command = arguments.first, ["--credential-store", "--credential-check"].contains(command) else { return nil }
+    guard let command = arguments.first, command == "--credential-check" else { return nil }
     guard arguments.count == 4, let port = UInt16(arguments[3]), port > 0,
           arguments[1].count <= 253, arguments[1].range(of:"^[A-Za-z0-9][A-Za-z0-9.-]*$", options:.regularExpression) != nil,
           arguments[1].split(separator:".", omittingEmptySubsequences:false).allSatisfy({ !$0.isEmpty && $0.count <= 63 && !$0.hasPrefix("-") && !$0.hasSuffix("-") }),
           arguments[2].range(of:"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$", options:.regularExpression) != nil else { return 2 }
     let account = SSHPassword.account(host: arguments[1], user: arguments[2], port: port)
-    if command == "--credential-check" { return SSHPassword.contains(account) ? 0 : 1 }
-    guard let data = try? FileHandle.standardInput.read(upToCount: 4097), data.count <= 4096 else { return 2 }
-    return SSHPassword.save(data, account: account) ? 0 : 1
+    return SSHPassword.contains(account) ? 0 : 1
 }

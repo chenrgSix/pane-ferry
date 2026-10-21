@@ -306,7 +306,7 @@ test("metadata reconnects with bounded backoff without clicks, catalog scans or 
   }
 });
 
-test("one Connect saves a configured password through native Keychain IPC and never persists it in preferences", async () => {
+test("one Connect sends entered credentials to the Mac service and never persists them in browser preferences", async () => {
   const saved = storage(); let fails = false;
   const mounted = mount(saved, {save_ssh_password: () => { if (fails) throw new Error("storage rejected"); }});
   try {
@@ -323,7 +323,7 @@ test("one Connect saves a configured password through native Keychain IPC and ne
     assert.equal(mounted.calls.filter(c => c.command === "save_ssh_password").length, 1);
     fails = true; mounted.state.password = "rejected secret";
     await mounted.state.connectHost();
-    assert.match(mounted.state.error, /钥匙串/);
+    assert.match(mounted.state.error, /连接配置/);
     assert.doesNotMatch(mounted.state.error, /rejected secret/);
   } finally { mounted.unmount(); }
 });

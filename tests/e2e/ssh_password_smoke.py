@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Credential tests in a temporary Keychain; never use the user's saved items."""
+"""Credential tests in a private service configuration; no system Keychain."""
 from pathlib import Path
 import subprocess
 import tempfile
