@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::{process::Stdio, time::Duration};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
 
@@ -24,7 +24,10 @@ const SSH_OPTIONS: &[&str] = &[
     "-oConnectionAttempts=1",
     "-oClearAllForwardings=yes",
     "-oForwardAgent=no",
+    "-oForwardX11=no",
     "-oPermitLocalCommand=no",
+    "-oServerAliveInterval=10",
+    "-oServerAliveCountMax=2",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,8 +94,14 @@ pub struct SessionInfo {
 pub enum Error {
     #[error("{0}")]
     Invalid(&'static str),
-    #[error("SSH 连接或远端 Agent 未就绪，请检查 known_hosts、SSH 密钥或临时登录会话，以及 Agent 服务。")]
+    #[error("SSH 连接失败，请确认网络恢复后重试；登录会话已失效时可点击“重新登录 SSH”。")]
     Connection,
+    #[error("SSH 登录已失效或需要认证，请点击“重新登录 SSH”完成登录，再返回启动器。")]
+    AuthenticationRequired,
+    #[error("SSH 主机指纹未通过校验，请在系统终端核验主机身份；不会自动信任或修改指纹。")]
+    HostVerification,
+    #[error("SSH 已连接，但 Ubuntu Agent 尚未运行，请在 Ubuntu 启动 remoteapp-agent。")]
+    AgentUnavailable,
     #[error("远端控制请求超时；不会自动重试启动，请先检查远端会话。")]
     Timeout,
     #[error("远端返回无效或过大的消息。")]
@@ -135,6 +144,17 @@ pub fn remote_error_message(code: &str) -> String {
     }
 }
 impl Error {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::AuthenticationRequired => "authentication_required",
+            Self::HostVerification => "host_verification",
+            Self::AgentUnavailable => "agent_unavailable",
+            Self::Connection | Self::Timeout => "connection",
+            Self::Invalid(_) => "invalid",
+            Self::Protocol => "protocol",
+            Self::Remote(_) => "remote",
+        }
+    }
     /// Only explicit rejections prove it is safe to discard an idempotency key.
     pub fn retry_same_request(&self) -> bool {
         match self {
@@ -154,6 +174,24 @@ impl Error {
             ),
             _ => true,
         }
+    }
+}
+fn ssh_failure(stderr: &[u8]) -> Error {
+    // Classify a bounded, C-locale diagnostic. Never return arbitrary SSH or
+    // remote stderr, and never treat an application's error as an SSH login error.
+    let text = String::from_utf8_lossy(stderr);
+    if text.contains("Host key verification failed")
+        || text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+    {
+        Error::HostVerification
+    } else if text.contains("Permission denied (")
+        || text.contains("Too many authentication failures")
+    {
+        Error::AuthenticationRequired
+    } else if text.contains("remoteapp-agent: agent unavailable") {
+        Error::AgentUnavailable
+    } else {
+        Error::Connection
     }
 }
 impl Endpoint {
@@ -266,14 +304,17 @@ async fn read_message<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Res
 async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Value, Error> {
     let mut child = Command::new(SSH)
         .args(endpoint.ssh_args()?)
+        .env("LC_ALL", "C")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|_| Error::Connection)?;
     let mut input = child.stdin.take().ok_or(Error::Connection)?;
     let mut output = BufReader::new(child.stdout.take().ok_or(Error::Connection)?);
+    let mut stderr = child.stderr.take().ok_or(Error::Connection)?.take(8192);
+    let mut received_hello = false;
     let result = tokio::time::timeout(Duration::from_secs(25), async {
         input
             .write_all(b"{\"type\":\"hello\",\"version\":1}\n")
@@ -284,6 +325,7 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
         if hello["type"] != "hello" {
             return Err(Error::Protocol);
         }
+        received_hello = true;
         let mut data = serde_json::to_vec(&body).map_err(|_| Error::Protocol)?;
         data.push(b'\n');
         input
@@ -309,7 +351,23 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
     drop(input);
     let _ = child.kill().await;
     let _ = child.wait().await;
-    result
+    let mut diagnostic = Vec::new();
+    let _ = tokio::time::timeout(
+        Duration::from_millis(250),
+        stderr.read_to_end(&mut diagnostic),
+    )
+    .await;
+    match result {
+        Err(Error::Connection | Error::Timeout) if !received_hello => {
+            let classified = ssh_failure(&diagnostic);
+            if matches!(classified, Error::Connection) {
+                result
+            } else {
+                Err(classified)
+            }
+        }
+        _ => result,
+    }
 }
 pub async fn catalog(endpoint: &Endpoint) -> Result<AppCatalog, Error> {
     let value = request(endpoint, json!({"type":"app.list","version":1}), "app.list").await?;
@@ -523,10 +581,49 @@ mod tests {
         let args = endpoint().ssh_args().unwrap();
         assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
         assert!(args.contains(&"-oStrictHostKeyChecking=yes".into()));
+        assert!(args.contains(&"-oServerAliveInterval=10".into()));
+        assert!(args.contains(&"-oServerAliveCountMax=2".into()));
         assert!(args.contains(&"/dev/null".into()));
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-%C"]));
+    }
+    #[test]
+    fn distinguishes_expired_login_network_and_agent_without_stderr_leaks() {
+        for (stderr, kind) in [
+            (
+                "alice@host: Permission denied (publickey,password). PRIVATE",
+                "authentication_required",
+            ),
+            (
+                "Permission denied (password). PRIVATE",
+                "authentication_required",
+            ),
+            (
+                "Too many authentication failures PRIVATE",
+                "authentication_required",
+            ),
+            ("Host key verification failed. PRIVATE", "host_verification"),
+            (
+                "REMOTE HOST IDENTIFICATION HAS CHANGED PRIVATE",
+                "host_verification",
+            ),
+            (
+                "remoteapp-agent: agent unavailable; start user service PRIVATE",
+                "agent_unavailable",
+            ),
+            ("Connection timed out PRIVATE", "connection"),
+            (
+                "mux_client_read_packet: read header failed: Broken pipe PRIVATE",
+                "connection",
+            ),
+            ("Permission denied while opening PRIVATE file", "connection"),
+        ] {
+            let error = ssh_failure(stderr.as_bytes());
+            assert_eq!(error.kind(), kind);
+            assert!(!error.to_string().contains("PRIVATE"));
+            assert!(error.retry_same_request());
+        }
     }
     #[tokio::test]
     async fn rejects_wrong_version() {
