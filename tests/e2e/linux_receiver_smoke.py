@@ -17,7 +17,7 @@ os.environ['HOME']=temporary.name
 sys.path.insert(0,str(root/'apps/linux-client'))
 from wire import STATE,private,save
 import clipboard
-from windowhost import Gtk,Gdk,GLib,Gst,Viewer
+from windowhost import Gtk,Gdk,GLib,Gst,GdkPixbuf,Viewer,check_sps
 
 private(STATE/'peers')
 peer=str(uuid.uuid4());generation=uuid.uuid4().hex
@@ -74,6 +74,19 @@ try:
     until(lambda:viewer.copy_request is None)
     assert Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()=='中文剪贴板 fixture'
     viewer.paste();until(lambda:any(e['type']=='clipboard.inline.paste' for e in events))
+    board=Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    image=GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB,True,8,32,24);image.fill(0x3a8050ff)
+    board.set_image(image)
+    image_bundle=clipboard.read(board);assert image_bundle['kind']=='image'
+    clipboard.write(board,image_bundle)
+    assert (board.wait_for_image().get_width(),board.wait_for_image().get_height())==(32,24)
+    file_bundle=dict(kind='files',entries=[dict(path='folder',size=0,directory=True),dict(path='folder/中文.txt',size=3,directory=False,data=base64.b64encode(b'abc').decode())])
+    clipboard.write(board,file_bundle)
+    uris=board.wait_for_uris();assert len(uris)==1 and uris[0].endswith('/folder')
+    copied=clipboard.read(board);assert copied['kind']=='files' and copied['entries'][1]['data']==base64.b64encode(b'abc').decode()
+    viewer.paste();until(lambda:any(e['type']=='clipboard.inline.paste' and e['bundle']['kind']=='files' for e in events))
+    try:check_sps(raw,4096,4096);raise AssertionError('false SPS dimensions accepted')
+    except ValueError:pass
     for malicious in ['../file','/file','a//b','a\\b']:
         try:clipboard.validate(dict(kind='files',entries=[dict(path=malicious,size=0,directory=False,data='')]));raise AssertionError('unsafe file accepted')
         except ValueError:pass
@@ -83,7 +96,7 @@ try:
     assert len([e for e in events if e['type']=='input.text.commit'])==1,'input replayed after reconnect'
     assert not any(e['type']=='app.launch' for e in events),'resume relaunched app'
     viewer.close();until(lambda:viewer.closed.is_set())
-    print('PASS: real GTK image, H.264 decode, controller IM commit, keys/pointer, clipboard, same-session automatic reconnect without replay')
+    print('PASS: real GTK image, H.264 decode and SPS bounds, controller IM commit, keys/pointer, text/image/file clipboard, same-session automatic reconnect without replay')
 finally:
     viewer.close();stop.set();listener.close()
     for sock in connections:

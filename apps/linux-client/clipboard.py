@@ -129,7 +129,7 @@ def write(board, bundle):
         # distro versions. Use a local text/uri-list selection owner window.
         owner = Gtk.Invisible(); owner.realize()
         targets = [Gtk.TargetEntry.new('text/uri-list', 0, 0), Gtk.TargetEntry.new('x-special/gnome-copied-files', 0, 1)]
-        owner.selection_add_targets(Gdk.SELECTION_CLIPBOARD, targets)
+        Gtk.selection_add_targets(owner, Gdk.SELECTION_CLIPBOARD, targets)
         def provide(widget, selection, info, timestamp):
             text = ('copy\n' if info == 1 else '') + '\r\n'.join(roots) + '\r\n'
             selection.set(selection.get_target(), 8, text.encode())
