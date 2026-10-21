@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+pub use remoteapp_capture::Image as CapturedImage;
 use remoteapp_protocol::Window;
 use std::{
     cell::RefCell,
@@ -280,7 +281,7 @@ impl Backend {
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
         Ok(out)
     }
-    pub fn capture(&self, w: &Window) -> Result<Vec<u8>> {
+    pub fn capture(&self, w: &Window) -> Result<CapturedImage> {
         self.known(w.window_id)?;
         // A compositor redirects existing desktop windows. Naming that pixmap
         // lets us capture this window even when another window covers it.
@@ -331,15 +332,15 @@ impl Backend {
             .flat_map(|d| &d.visuals)
             .find(|v| v.visual_id == visual_id)
             .ok_or_else(|| anyhow::anyhow!("missing visual"))?;
-        remoteapp_capture::encode(
-            w.width,
-            w.height,
-            &img.data,
-            f.bits_per_pixel,
-            f.scanline_pad,
-            setup.image_byte_order == ImageOrder::LSB_FIRST,
-            (visual.red_mask, visual.green_mask, visual.blue_mask),
-        )
+        Ok(CapturedImage {
+            width: w.width,
+            height: w.height,
+            data: img.data,
+            bpp: f.bits_per_pixel,
+            pad: f.scanline_pad,
+            little: setup.image_byte_order == ImageOrder::LSB_FIRST,
+            masks: (visual.red_mask, visual.green_mask, visual.blue_mask),
+        })
     }
     fn known(&self, id: u32) -> Result<()> {
         if !self.windows.contains_key(&id) || !self.belongs_to_process(id) {

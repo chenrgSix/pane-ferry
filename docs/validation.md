@@ -6,10 +6,10 @@
 
 | 检查 | 结果 | 范围 |
 | --- | --- | --- |
-| `cargo test --workspace --locked` | 23 项通过、0 失败 | 协议 12、transport 5、Agent 2、capture 2、core 2；不是 23 个端到端场景 |
+| `cargo test --workspace --locked` | 28 项通过、0 失败 | 协议 12、transport 6、Agent 5、capture 3、core 2；不是 28 个端到端场景 |
 | `cargo fmt --all -- --check` | 通过 | 根 workspace Rust 格式 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | 通过 | 根 workspace 静态检查 |
-| `npm test` | 3 项通过 | 待确认启动请求的幂等 ID、持久保存与容量限制 |
+| `npm test` | 4 项通过 | 待确认启动请求的幂等 ID、持久保存与容量限制；明确失败与未知结果的重试区分 |
 | `npm run build` | 通过 | Vue TypeScript 类型检查及 Vite 生产构建 |
 | `tests/e2e/ssh_helper_validation.py` | 11 个非法参数案例通过 | SSH 登录辅助脚本参数校验 |
 | `swift build` 与短消息 pipe smoke | 通过 | AppKit 编译；短 SSH 消息无需等待完整缓冲区、EOF 与分段读取 |
@@ -47,6 +47,8 @@ Mac 原生界面已实际显示远端 xterm。新版启动器点击应用卡片�
 自动适应现为默认模式，重新连接后不继承上一宿主的固定分辨率。Mac 实机确认 Firefox 在普通窗口 2940×1612 与全屏 2940×1846 间切换时同步重绘，退出全屏恢复原尺寸，画面铺满无黑边；点击计数和中文/emoji 粘贴再次通过。连续缩放调度另由真实 NSWindow 的 event-tracking 回归测试验证；旧尺寸回包不再反向调整本机窗口。超出 4096×2160 或 8M 像素预算时按本机窗口比例降低渲染像素数。
 
 本轮定位并修正了 WM 内部窗口和从未显示的辅助窗口触发隐藏窗口聚焦、重复 `request_failed` 弹窗的问题；迟到的隐藏/销毁窗口请求使用 `window_unavailable`，不再阻塞界面。另修复 Firefox 恢复到超限最大化尺寸时不发布主窗口的问题，通过 EWMH 解除最大化并调整至预算内。新版重新完成原生会话键鼠、resize、隐藏恢复及 3 次重连测试。其他实际失败仍保留错误提示，不能将此记录解释为所有应用错误均已解决。
+
+2026-10-21 追加回归：`stale_launch_smoke.py` 在隔离 HOME 上验证失效 PID 目录标记、明确错误码、已结束/回收请求 ID 及使用新 ID 启动。`input_latency_smoke.py` 在 Ubuntu 隔离的 2560×1664 GTK 动态窗口上，连续 32 次指针移动后发送按键，5 次样本的旧版/新版输入中位数为 2.3/2.0ms，收到对应 PNG 的中位数为 85.7/48.8ms；每帧约 1.50MB。新版暂停读端制造背压时，远端仍在 11.1ms 响应按键。测量使用缓冲 socket 读取；早先逐字节读端产生的秒级数字已作废。该测量不含 LAN、Mac 解码与显示耗时，不代表视频性能、真实操作到屏幕延迟或 CI/生产验收。高清 resize/输入回归再次通过。
 
 ## 尚未覆盖
 

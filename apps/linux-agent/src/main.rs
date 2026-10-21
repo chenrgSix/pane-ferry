@@ -1,7 +1,6 @@
 #[cfg(not(unix))]
 compile_error!("Linux agent requires Unix");
 use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use remoteapp_backend_x11::Backend;
 use remoteapp_core::{load_catalog, App};
 use remoteapp_protocol::{identifier, read_line_limit, Request, Window};
@@ -9,7 +8,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read},
     os::unix::{
         fs::{MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -26,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod output;
 mod request_error;
 struct Session {
     id: String,
@@ -471,25 +471,15 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
     drop(s);
     Ok(Lease(session))
 }
-fn send(out: &mut UnixStream, mut v: Value, seq: &mut u64, sid: &str) -> Result<()> {
-    *seq += 1;
-    v["version"] = json!(1);
-    v["seq"] = json!(*seq);
-    v["session_id"] = json!(sid);
-    let mut bytes = serde_json::to_vec(&v)?;
-    if bytes.len() + 1 > remoteapp_protocol::MAX_LINE {
-        bail!("outgoing frame too large")
-    };
-    bytes.push(b'\n');
-    out.write_all(&bytes)?;
-    Ok(())
+fn send(out: &mut output::Output, value: Value, session: &str) -> Result<()> {
+    out.message(value, session)
 }
 fn win_value(w: &Window, kind: &str) -> Value {
     let mut v = serde_json::to_value(w).unwrap();
     v["type"] = json!(kind);
     v
 }
-fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
+fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     struct Shutdown(UnixStream);
     impl Drop for Shutdown {
         fn drop(&mut self) {
@@ -518,7 +508,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             }
         }
     });
-    let mut seq = 0;
+    let mut out = output::Output::new(out)?;
     match rx.recv_timeout(Duration::from_secs(10))? {
         Request::Hello { version: 1 } => {}
         _ => bail!("hello version 1 required"),
@@ -526,14 +516,12 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     send(
         &mut out,
         json!({"type":"hello","capabilities":["catalog","native.png","display.scale","input.pointer","input.key","input.text.commit","clipboard.paste","clipboard.copy","session.resume","session.list"]}),
-        &mut seq,
         "",
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
     let mut lease: Option<Lease> = None;
     let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
-    let mut frames: HashMap<u32, Vec<u8>> = HashMap::new();
     while !STOP.load(Ordering::SeqCst) {
         let mut text_pending = false;
         if let Some(l) = &lease {
@@ -546,7 +534,6 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         send(
                             &mut out,
                             json!({"type":"error","code":"controller_text_failed","message":"application did not accept controller text"}),
-                            &mut seq,
                             &sid,
                         )?;
                     }
@@ -554,13 +541,11 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         Ok(Some(copy)) => send(
                             &mut out,
                             json!({"type":"clipboard.data","window_id":copy.window_id,"request_id":copy.request_id,"text":copy.text}),
-                            &mut seq,
                             &sid,
                         )?,
                         Err(_) => send(
                             &mut out,
                             json!({"type":"error","code":"clipboard_copy_failed","message":"application did not provide selected text"}),
-                            &mut seq,
                             &sid,
                         )?,
                         Ok(None) => {}
@@ -599,7 +584,6 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         send(
                             &mut out,
                             json!({"type":"session.list","sessions":sessions}),
-                            &mut seq,
                             "",
                         )?;
                     }
@@ -610,12 +594,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .iter()
                             .map(|a| json!({"id":a.id,"name":a.name,"description":a.description,"unavailable_reason":existing_unavailable_reason(a)}))
                             .collect();
-                        send(
-                            &mut out,
-                            json!({"type":"app.list","apps":apps}),
-                            &mut seq,
-                            "",
-                        )?;
+                        send(&mut out, json!({"type":"app.list","apps":apps}), "")?;
                     }
                     Request::Launch {
                         app_id,
@@ -645,7 +624,6 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             send(
                                 &mut out,
                                 json!({"type":"session.started","backend":"native","display":s.display,"scale_factor":s.scale_factor}),
-                                &mut seq,
                                 &s.id,
                             )?;
                         }
@@ -678,7 +656,6 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             send(
                                 &mut out,
                                 json!({"type":"session.snapshot","windows":values}),
-                                &mut seq,
                                 &s.id,
                             )?;
                         }
@@ -742,12 +719,11 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 send(
                     &mut out,
                     json!({"type":"error","code":code,"message":message}),
-                    &mut seq,
                     &sid,
                 )?;
             }
         }
-        if last_capture.elapsed() < Duration::from_millis(100) {
+        if last_capture.elapsed() < Duration::from_millis(33) {
             continue;
         }
         last_capture = Instant::now();
@@ -760,7 +736,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     for mut c in s.children.drain(..).rev() {
                         stop_child(&mut c);
                     }
-                    send(&mut out, json!({"type":"session.exited"}), &mut seq, &sid)?;
+                    send(&mut out, json!({"type":"session.exited"}), &sid)?;
                     exit_notified = true;
                 }
                 continue;
@@ -771,10 +747,8 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     send(
                         &mut out,
                         json!({"type":"window.destroyed","window_id":id}),
-                        &mut seq,
                         &sid,
                     )?;
-                    frames.remove(id);
                 }
                 for w in &windows {
                     let old = known.get(&w.window_id);
@@ -789,31 +763,20 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                     "window.created"
                                 },
                             ),
-                            &mut seq,
                             &sid,
                         )?;
                     }
                     if !w.visible {
-                        frames.remove(&w.window_id);
                         continue;
                     }
-                    if let Ok(png) = b.capture(w) {
-                        if frames.get(&w.window_id) != Some(&png) {
-                            send(
-                                &mut out,
-                                json!({"type":"frame","window_id":w.window_id,"geometry_revision":w.geometry_revision,"width":w.width,"height":w.height,"png":STANDARD.encode(&png)}),
-                                &mut seq,
-                                &sid,
-                            )?;
-                            frames.insert(w.window_id, png);
-                        }
+                    if let Ok(image) = b.capture(w) {
+                        out.frame(w, image, &sid)?;
                     }
                 }
                 known = windows.into_iter().map(|w| (w.window_id, w)).collect();
             }
         }
     }
-    let _ = out.shutdown(std::net::Shutdown::Both);
     Ok(())
 }
 #[cfg(test)]
