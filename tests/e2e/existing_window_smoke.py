@@ -181,9 +181,15 @@ try:
         assert focused.value == ids[other.pid], 'pointer motion must not activate the controlled window'
         marker = root / 'input-reached-existing-window'
         for char in 'touch ' + str(marker) + '\r':
+            # tempfile suffixes can contain '_'. input.key represents physical
+            # key/modifier events, so this symbol needs Shift on the test US map.
+            if char == '_':
+                peer.send(type='input.key', window_id=ids[target.pid], keysym=0xffe1, pressed=True)
             for pressed in (True, False):
                 peer.send(type='input.key', window_id=ids[target.pid],
                           keysym=0xff0d if char == '\r' else ord(char), pressed=pressed)
+            if char == '_':
+                peer.send(type='input.key', window_id=ids[target.pid], keysym=0xffe1, pressed=False)
         wait_for(marker.exists, 'input must reach the pre-existing process')
         peer.close()
         if editor:
