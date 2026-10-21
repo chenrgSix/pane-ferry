@@ -68,7 +68,8 @@ struct ControllerInputSmoke {
         precondition(messages.last?["x"] as? Int == 960 && messages.last?["y"] as? Int == 360, "pointer maps through the fitted image rectangle")
 
         var resizeMessages: [[String: Any]] = []
-        let host = HostedWindow(id: 7, width: 1280, height: 800, revision: 1, scale: 1, popup: false) { resizeMessages.append($0) }
+        var disconnects = 0
+        let host = HostedWindow(id: 7, width: 1280, height: 800, revision: 1, scale: 1, popup: false, disconnect: { disconnects += 1 }) { resizeMessages.append($0) }
         host.remoteVisible = true
         precondition(host.fixedPixels == nil && !host.surface.preservesAspectRatio, "new windows default to automatic resolution without letterboxing")
         host.window.setContentSize(NSSize(width: 900, height: 600))
@@ -94,9 +95,16 @@ struct ControllerInputSmoke {
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
         precondition(!host.surface.preservesAspectRatio && resizeMessages.last?["width"] as? Int == smaller.width,
                      "switching back to automatic resolution immediately follows the current viewport")
+        host.window.performClose(nil)
+        precondition(disconnects == 1 && !resizeMessages.contains { $0["type"] as? String == "window.close.request" },
+                     "the controller close button disconnects without closing the remote application")
+        host.window.performClose(nil)
+        precondition(disconnects == 1, "repeated close does not start a second detach")
         host.closeLocally()
+        precondition(disconnects == 1, "remote window destruction only closes the local mirror")
         print("PASS: controller-only preedit/commit, on-demand paste/copy, input bounds, correlated clipboard replies without touching the system clipboard")
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
+        print("PASS: controller close disconnects once without a remote close request; remote destruction stays local")
     }
 }

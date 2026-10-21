@@ -411,7 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if justCreated {
             guard create, windows.count < 64 else { return }
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
-                popup: object["role"] as? String == "popup") { [weak self] in self?.send($0) }
+                popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             windows[id] = host
         }
         guard let host = windows[id], rev >= host.revision else { return }

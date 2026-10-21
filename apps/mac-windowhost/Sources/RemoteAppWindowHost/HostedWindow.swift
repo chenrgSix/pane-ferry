@@ -16,9 +16,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         didSet { surface.preservesAspectRatio = fixedPixels != nil }
     }
     var transmit: ([String: Any]) -> Void
+    private let disconnect: () -> Void
+    private var disconnectRequested = false
 
-    init(id: UInt32, width: Int, height: Int, revision: UInt64, scale: Int, popup: Bool, transmit: @escaping ([String: Any]) -> Void) {
+    init(id: UInt32, width: Int, height: Int, revision: UInt64, scale: Int, popup: Bool, disconnect: @escaping () -> Void, transmit: @escaping ([String: Any]) -> Void) {
         self.id = id; self.revision = revision; self.popup = popup; self.transmit = transmit
+        self.disconnect = disconnect
         self.rendering = RenderGeometry(scale: scale)!
         let size = rendering.points(width: width, height: height)
         let style: NSWindow.StyleMask = popup ? [.borderless] : [.titled, .closable, .miniaturizable, .resizable]
@@ -49,7 +52,13 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose { return true }
-        transmit(["type": "window.close.request", "window_id": id]); return false
+        if !disconnectRequested {
+            disconnectRequested = true
+            resizeTimer?.invalidate(); resizeTimer = nil
+            surface.releaseInput()
+            disconnect()
+        }
+        return false
     }
     func windowDidBecomeKey(_ notification: Notification) {
         guard remoteVisible else { return }
