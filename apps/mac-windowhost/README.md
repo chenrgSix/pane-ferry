@@ -16,6 +16,8 @@ swift build -c release
 ./scripts/build-app.sh
 ```
 
+可选 WebRTC 构建见 [WebRTC 指南](../../docs/webrtc.md)。当前默认 `--video-transport ssh`；`--video-transport webrtc` 强制使用真实媒体轨道并拒绝静默回退，`--video-transport auto` 优先尝试可用的 WebRTC，建立失败或断流时回退 SSH，窗口副标题显示实际传输。
+
 默认读取 OpenSSH 的 known_hosts 与已有密钥/ssh-agent。`-F /dev/null` 禁用用户 SSH 配置，因此这里必须用真实主机名/IP，不能仅填自定义 SSH 别名；不支持 ProxyCommand 跳板。参数无 shell 插值；远端入口固定为 `.local/bin/remoteapp-agent bridge`。
 
 也会复用 `~/.ssh/lan-remoteapp-%C` 的现有项目 SSH 连接。密码用户可先在项目根目录运行 `bash scripts/connect-ssh.sh HOST USER 22`，由系统 SSH 完成登录，不向 WindowHost 提供密码。
@@ -25,7 +27,7 @@ swift build -c release
 ## 当前能力与限制
 
 - 每个远端窗口一个 NSWindow；窗口标题、大小、焦点、请求关闭、基础父子窗口层级。
-- H.264 通过系统 VideoToolbox 解码，优先启用硬件加速；解码后由 NSView/CoreGraphics 显示。未实现 Metal 或 WebRTC。依赖的 P 帧全部按顺序解码，只合并已解码的待显示图像；PNG 为兼容/编码失败回退。
+- H.264 通过系统 VideoToolbox 解码，优先启用硬件加速；解码后由 NSView/CoreGraphics 显示。支持默认 SSH 和实验 WebRTC 媒体传输，未实现 Metal。依赖的 P 帧全部按顺序解码，只合并已解码的待显示图像；PNG 为兼容/编码失败回退。
 - 键鼠、滚轮与 Command→Control 快捷键。NSTextInputClient 在控制端保留预编辑，提交 Unicode 后交给 Agent；普通字母与输入法修饰键不再作为物理按键转给 Ubuntu 输入法。候选框以最近点击位置为锚，尚无精确远端插入点和周边文本协议，复杂输入法/替换范围与非 ANSI 快捷键仍待完整验收。
 - 默认自动适应本机窗口，以内容区和本机 backing 像素密度请求远端宽高；拖动中最多每 100ms 合并一次更新，松手发送最终尺寸。远端旧尺寸回包不会拉回本机窗口。自动模式始终铺满内容区，重绘到达前暂时缩放上一帧；超过渲染预算时保留窗口比例降低像素数。
 - “显示”菜单可恢复自动适应窗口、适应可用屏幕、全屏或手动输入固定远端像素宽高；标题栏显示实际收到的分辨率。只有手动固定模式保持远端比例并可能留边，鼠标按对应图像区域换算。

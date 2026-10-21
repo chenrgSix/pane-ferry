@@ -4,6 +4,13 @@ P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
 支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。未协商的连接继续使用 PNG，旧 hello 不变。协商只影响本连接，不能指定客户端编码程序、采集进程或任意编码参数。
+
+可选 WebRTC runtime 可用且支持编码时，hello 另声明 native.webrtc.h264。客户端可在 launch/resume 前改发 webrtc.enable {}，服务端回 video.ready {codec:"h264",transport:"webrtc"}。每窗口一条 sendonly H.264 视频媒体轨道，MID 为十进制 window_id。服务端 webrtc.offer {sdp} / 客户端 webrtc.answer {sdp} 及双向 webrtc.candidate {candidate,mid} 均走既有 SSH；SDP 上限 48KiB，候选上限 2048 字节，MID 为 1–10 位数字，拒绝额外字段、NUL 及候选行注入。保留标准 DTLS 指纹核验，只使用 ICE host candidates。
+
+WebRTC 的 H.264 AU 不以 base64 发到 SSH。对应 frame 元数据另有 transport:"webrtc"、frame_id，连同长度/CRC32 放入标准未注册 SEI，经同一 RTP 媒体轨道交付；移除自有 SEI 后，原始 NAL 内容不变。控制消息 seq 与媒体帧顺序独立，媒体到达不能推进控制事件的 lastSeq，避免丢掉尚未到达的 resize。尺寸通知尚未到达时顺序解码，只保留最新已解码画面等待匹配几何版本；单 AU 上限 12MiB。
+
+服务端 webrtc.state {state} / webrtc.failed {} 通知媒体状态，webrtc.pulse {frames:{window_id:last_frame_id}} 每秒报告已发帧进度；静止帧 ID 不变。客户端可发 video.fallback {}，销毁媒体 peer、清除编码缓存并强制刷新，在同一会话重新发 SSH H.264 关键帧。Mac auto 模式有建立超时和未交付新帧的检测；强制 webrtc 模式明确报错，不静默回退。媒体库、修复缓存和检测细节见 [WebRTC 指南](webrtc.md)。
+
 客户端 app.list，服务端 app.list {apps:[{id,name,description,unavailable_reason?:null|string}]}。unavailable_reason 是现有窗口绑定已失效等稳定错误码，由客户端映射为提示；缺失或 null 表示未发现不可用原因，不保证后续启动必定成功。
 客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，表示界面像素密度，不是固定分辨率；独立会话在启动前设置 GTK/Qt 缩放环境，existing 沿用服务端配置的实际缩放。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
@@ -24,6 +31,6 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 已退出的原进程返回 existing_process_unavailable；已结束/回收的会话返回 session_exited / session_expired。明确拒绝启动后，启动器可清除待确认请求 ID，再由用户触发新启动；网络错误、超时与未知 request_failed 必须保留 ID。客户端只显示本地映射的错误码解释，不显示任意服务端详情。
 
-视频/PNG 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔 33ms，实际帧率受编码、网络及控制端限制；已实现 H.264 over SSH，尚未实现 WebRTC 视频轨道。
+视频/PNG 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔 33ms，实际帧率受编码、网络及控制端限制；默认 H.264 over SSH，可显式协商 WebRTC 视频轨道。
 
 Catalog 用 Linux 用户私有 JSON 配置 ~/.config/lan-remoteapp/apps.json，只接受经审批固定绝对 executable + argv 数组，客户端不能传 executable。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。固定远端 Agent 可由 shell 执行但无客户端参数插值。

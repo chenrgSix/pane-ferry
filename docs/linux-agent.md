@@ -10,7 +10,7 @@
 4. 前台运行 `~/.local/bin/remoteapp-agent serve`。或将 service 文件放入 `~/.config/systemd/user/`，由用户自行执行 `systemctl --user daemon-reload` 和 `systemctl --user enable --now remoteapp-agent`。
 5. Mac 已经通过 SSH 信任主机并能非交互登录后，启动器可连接。
 
-状态目录 `~/.local/state/lan-remoteapp` 权限 0700；agent.sock 0600。Xvfb 使用共享用户 Xauthority 中每显示独立随机 cookie，关闭 TCP。桥接仅 Unix socket，不额外打开网络服务。SSH 认证仍属于系统；不保存密码和私钥。
+状态目录 `~/.local/state/lan-remoteapp` 权限 0700；agent.sock 0600。Xvfb 使用共享用户 Xauthority 中每显示独立随机 cookie，关闭 TCP。Agent 控制入口仅 Unix socket，由 SSH 桥接；可选 WebRTC 在已认证连接协商期间建立临时 UDP 媒体路径。SSH 认证仍属于系统；不保存密码和私钥。
 
 ## 窗口视频流
 
@@ -20,7 +20,7 @@
 
 编码使用 OpenH264 屏幕模式、无 B 帧、关键帧加 P 帧；窗口改变大小、隐藏恢复或重连后从新的关键帧开始。仅在编码之前合并旧画面，已编码的依赖帧不丢弃。实际显示像素尺寸保持不变，奇数宽高为编码补至偶数，Mac 解码后裁掉补边。编码为有损 4:2:0，文本颜色精度与 PNG 不同。
 
-Agent 在 hello 中仅在组件可用时声明 `native.h264`；没有组件或编码失败时保留 PNG，Mac 副标题明确显示回退。当前仍经 SSH 传输，不是 WebRTC/UDP；不会配置 STUN、TURN、公网端口或更改防火墙。Ubuntu 已有组件在实机测试中可用，但其他 Linux 发行版需要自行安装运行依赖。
+Agent 在 hello 中仅在组件可用时声明 `native.h264`；没有组件或编码失败时保留 PNG，Mac 副标题明确显示回退。默认仍经 SSH 传输。安装可选的原生 WebRTC runtime 后另声明 `native.webrtc.h264`，由控制端选择是否使用媒体轨道；不会配置 STUN、TURN、公网转发或更改防火墙。构建、用户库安装路径和传输选择见 [WebRTC 指南](webrtc.md)。Ubuntu 已有编码组件在实机测试中可用，但其他 Linux 发行版需要自行安装运行依赖。
 
 ## 接入现有 X11 窗口
 

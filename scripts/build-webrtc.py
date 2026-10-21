@@ -73,6 +73,7 @@ def main():
                 shutil.copy2(path, licenses / 'OpenSSL-LICENSE.txt')
                 break
     (output / 'libdatachannel-revision.txt').write_text(REVISION + '\n')
+    shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', output / 'THIRD_PARTY_NOTICES.md')
     print('WebRTC runtime:', output / library)
 
 

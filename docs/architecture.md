@@ -4,7 +4,9 @@
 
 保留原方案的 Rust 业务核心、Tauri 管理 UI、Linux 用户 Agent、Swift/AppKit WindowHost。Ubuntu 端只创建产品自己的虚拟 X11 会话，不接管 GNOME/Wayland。
 
-当前 P1 使用 SSH stdio + JSON Lines（RWP/1）。窗口画面默认协商 H.264 视频，保留旧客户端和编码不可用时的 PNG 回退。媒体与控制仍共用有序 SSH 通道，包按 base64 封装；输入处理与编码、写出分离。没有 WebRTC/UDP、QUIC 或 Protobuf，弱网下仍有 TCP 队头阻塞的限制。
+当前 P1 使用 SSH stdio + JSON Lines（RWP/1）。窗口画面默认协商 H.264 视频，保留旧客户端和编码不可用时的 PNG 回退。默认媒体与控制共用有序 SSH 通道，包按 base64 封装；输入处理与编码、写出分离。
+
+实验分支新增可选 WebRTC H.264 媒体轨道。SDP / ICE 经原有 SSH 认证通道传递，视频走 DTLS-SRTP / RTP / UDP，控制仍走 SSH。只使用 host candidates，无 STUN / TURN；不另启浏览器或第二个编码器。每窗口一个视频轨道，几何版本和流/帧 ID 通过同一 AU 的 SEI 传递，避免逐帧依赖 SSH。接收端使用有界重组、NACK / PLI 和 IDR 恢复；自动模式建立失败或断流后可回退 SSH。细节及构建见 [WebRTC 指南](webrtc.md)。QUIC 和 Protobuf 未实现。
 
 ## 窗口与图像
 
@@ -30,4 +32,4 @@ existing 会话只持有 X11 连接和进程身份，不拥有原进程。Agent 
 
 ## 后续
 
-仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、WebRTC/独立媒体传输、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本剪贴板和 GTK HiDPI 的测试范围见 validation.md。
+仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、WebRTC 弱网拥塞与长时间稳定性、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本剪贴板和 GTK HiDPI 的测试范围见 validation.md。
