@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Two isolated localhost WebRTC peers: real ICE/DTLS/SRTP and H264 RTP, no GUI."""
 import argparse
+import base64
 import ctypes as C
 import json
 from pathlib import Path
 import queue
+import re
 import struct
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--library', required=True, type=Path)
+parser.add_argument('--packets', type=Path, help='also round-trip actual Linux video_stream_smoke AUs')
+parser.add_argument('--export', type=Path)
 args = parser.parse_args()
 api = C.CDLL(str(args.library.resolve()))
 callback_type = C.CFUNCTYPE(None, C.c_void_p, C.c_int, C.c_char_p, C.c_void_p, C.c_size_t)
@@ -47,6 +51,7 @@ def pump(predicate, timeout=12):
         if kind == 1:
             assert api.ra_rtc_description(other, payload, label) == 0, ('description', label)
         elif kind == 2:
+            assert payload.startswith(b'candidate:'), 'ICE signal must omit the SDP a= prefix'
             assert api.ra_rtc_candidate(other, payload, label) == 0, 'candidate'
         elif kind == 3:
             assert index == 2
@@ -82,6 +87,24 @@ try:
     pump(lambda: len(frames) == 4)
     assert frames[-1] == (b'9', {}, raw)
     assert api.ra_rtc_send(peers[0], 9, raw, len(raw), b'x' * 4097, 4097) < 0
+    if args.packets:
+        output = []
+        for record in json.loads(args.packets.read_text()):
+            wid = record['window_id']
+            if api.ra_rtc_add_video(peers[0], wid) == 0:
+                pump(lambda: api.ra_rtc_add_video(peers[0], wid) == 1)
+            raw = base64.b64decode(record['data'], validate=True)
+            metadata = {key: value for key, value in record.items() if key != 'data'}
+            header = json.dumps(metadata).encode()
+            count = len(frames)
+            assert api.ra_rtc_send(peers[0], wid, raw, len(raw), header, len(header)) == 0
+            pump(lambda: len(frames) == count + 1)
+            normalized = b''.join(b'\0\0\0\1' + unit for unit in re.split(b'\x00\x00(?:\x00)?\x01', raw)[1:])
+            assert frames[-1] == (str(wid).encode(), metadata, normalized), 'actual H264 NALs changed'
+            output.append(dict(record, data=base64.b64encode(frames[-1][2]).decode()))
+        if args.export:
+            args.export.write_text(json.dumps(output))
+        print(f'PASS: {len(output)} actual H264 AUs preserve every NAL byte through WebRTC media transport')
     print('PASS: ICE/DTLS-SRTP over UDP, 350KB fragmented H264 AU exact round trip, in-media metadata, second-window renegotiation and size bounds')
 finally:
     for peer in peers:

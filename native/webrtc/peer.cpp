@@ -46,7 +46,7 @@ struct Peer : std::enable_shared_from_this<Peer> {
             if (auto self=weak.lock()) self->text(1,description.typeString(),std::string(description));
         });
         pc->onLocalCandidate([weak](rtc::Candidate candidate) {
-            if (auto self=weak.lock()) self->text(2,candidate.mid(),std::string(candidate));
+            if (auto self=weak.lock()) self->text(2,candidate.mid(),candidate.candidate());
         });
         pc->onStateChange([weak](rtc::PeerConnection::State state) {
             if (auto self=weak.lock()) self->emit(5,std::to_string(int(state)));
