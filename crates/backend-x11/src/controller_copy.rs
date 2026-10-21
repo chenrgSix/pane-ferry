@@ -87,7 +87,7 @@ impl Backend {
             ]
             .iter()
             .any(|name| class.contains(name));
-            self.clipboard_shortcut(window_id, b'c', terminal)?;
+            self.clipboard_shortcut(window_id, b'c', terminal, bridge_pid.is_some())?;
             self.conn.flush()?;
             Ok(())
         })();

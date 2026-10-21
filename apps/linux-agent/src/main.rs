@@ -25,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod input_queue;
 mod output;
 mod request_error;
 mod video;
@@ -538,8 +539,10 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut lease: Option<Lease> = None;
     let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
+    let mut pending_request = None;
     while !STOP.load(Ordering::SeqCst) {
         let mut text_pending = false;
+        let mut text_wait_fd = None;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
@@ -567,13 +570,29 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         Ok(None) => {}
                     }
                     text_pending = b.text_pending();
+                    if text_pending {
+                        text_wait_fd = Some(b.event_fd());
+                    }
                 }
             }
         }
         // Preserve ordering: later keys/clicks cannot overtake a text paste.
         let req = if text_pending {
-            thread::sleep(Duration::from_millis(5));
+            // Wake as soon as selection data arrives; retain a bounded timeout
+            // for deadlines and shutdown instead of sleeping between each round trip.
+            if let Some(fd) = text_wait_fd {
+                let mut event = libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                unsafe {
+                    libc::poll(&mut event, 1, 5);
+                }
+            }
             None
+        } else if pending_request.is_some() {
+            pending_request.take()
         } else {
             match rx.recv_timeout(Duration::from_millis(10)) {
                 Ok(r) => Some(r),
@@ -582,6 +601,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             }
         };
         if let Some(req) = req {
+            let req = input_queue::coalesce(req, &rx, &mut pending_request);
             let result: Result<()> = (|| {
                 match req {
                     Request::EnableVideo { codec: _ } => {

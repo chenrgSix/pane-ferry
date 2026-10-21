@@ -25,21 +25,32 @@ pub(super) struct TextTransfer {
     deadline: Instant,
 }
 impl Backend {
-    pub(super) fn clipboard_shortcut(&self, window: u32, letter: u8, terminal: bool) -> Result<()> {
+    pub(super) fn clipboard_shortcut(
+        &self,
+        window: u32,
+        letter: u8,
+        terminal: bool,
+        paced: bool,
+    ) -> Result<()> {
         let mut symbols = vec![0xffe3];
         if terminal {
             symbols.push(0xffe1);
         }
         symbols.push(u32::from(letter));
-        // Desktop input-method dispatch is asynchronous. Allow it to observe
-        // each modifier transition instead of pressing/releasing in one burst.
+        // Only the desktop Wayland bridge needs time to dispatch modifiers.
+        // Native X11 events already carry ordered modifier state; sleeping for
+        // every transition adds 48/72ms to every committed character.
         for symbol in &symbols {
             self.key(window, *symbol, true)?;
-            std::thread::sleep(Duration::from_millis(12));
+            if paced {
+                std::thread::sleep(Duration::from_millis(12));
+            }
         }
         for symbol in symbols.into_iter().rev() {
             self.key(window, symbol, false)?;
-            std::thread::sleep(Duration::from_millis(12));
+            if paced {
+                std::thread::sleep(Duration::from_millis(12));
+            }
         }
         Ok(())
     }
@@ -351,7 +362,12 @@ impl Backend {
                 // The Wayland bridge must first advertise the new selection.
                 // Pasting before it receives TARGETS makes Electron read the old offer.
                 let id = transfer.window_id;
-                self.clipboard_shortcut(id, b'v', transfer.terminal)?;
+                self.clipboard_shortcut(
+                    id,
+                    b'v',
+                    transfer.terminal,
+                    transfer.bridge_pid.is_some(),
+                )?;
                 transfer.pasted_at = Some(Instant::now());
             }
             if transfer.bridge_pid.is_some()

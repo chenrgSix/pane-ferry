@@ -12,7 +12,13 @@ window = Gtk.Window(title='ControllerTextFixture')
 window.set_default_size(600, 400)
 view = Gtk.TextView()
 buffer = view.get_buffer()
-buffer.connect('changed', lambda buf: state.write_text(buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)))
+def changed(buf):
+    text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)
+    state.write_text(text)
+    if len(sys.argv) > 3:
+        import time
+        pathlib.Path(sys.argv[3]).write_text(json.dumps(dict(text=text, received=time.monotonic())))
+buffer.connect('changed', changed)
 window.add(view)
 window.connect('destroy', Gtk.main_quit)
 window.show_all()

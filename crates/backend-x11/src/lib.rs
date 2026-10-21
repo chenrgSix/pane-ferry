@@ -29,6 +29,11 @@ pub struct Backend {
     scale_factor: u8,
 }
 impl Backend {
+    /// Readiness only; ownership remains with this backend for the controller lease.
+    pub fn event_fd(&self) -> std::os::fd::RawFd {
+        use std::os::fd::AsRawFd;
+        self.conn.stream().as_raw_fd()
+    }
     pub fn connect(display: &str) -> Result<Self> {
         let (conn, n) = x11rb::connect(Some(display))?;
         Self::from_connection(conn, n, None)
