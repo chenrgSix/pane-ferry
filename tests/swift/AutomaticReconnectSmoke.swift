@@ -51,17 +51,6 @@ struct AutomaticReconnectSmoke {
         app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
         app.connectionLost(); precondition(app.reconnectTimer == nil)
 
-        // Identity selection is per endpoint and never activates a pending key.
-        let directory = root.appendingPathComponent(".ssh/lan-remoteapp-keys")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories:true)
-        let key = directory.appendingPathComponent("fixture@fixture.invalid-22")
-        try Data().write(to:key)
-        precondition(SSHIdentity.options(host:options.host, user:options.user, port:22, home:root) == ["-S", "~/.ssh/lan-remoteapp-%C"])
-        try Data().write(to:key.appendingPathExtension("enabled"))
-        let active = SSHIdentity.options(host:options.host, user:options.user, port:22, home:root)
-        precondition(active.contains("~/.ssh/lan-remoteapp-auto-%C") && active.contains(key.path))
-        precondition(!SSHIdentity.options(host:options.host, user:options.user, port:2222, home:root).contains(key.path))
-
         // A lost initial launch response must reuse its request ID. Once a
         // session is known, even --app startup resumes instead of relaunching.
         let launch = AppDelegate(options:Options(host:options.host, user:options.user, port:22, app:"fixture-app", session:nil), clipboard:board)
@@ -73,6 +62,6 @@ struct AutomaticReconnectSmoke {
         launch.session = "known"; launch.ready = false; launch.receive(hello)
         precondition(sent.last?["type"] as? String == "session.resume" && sent.last?["session_id"] as? String == "known")
         launch.stopRecovery()
-        print("PASS: real transport subprocess loss automatically resumes the same NSWindow/session, resets stream sequence, preserves resolution, drops offline input and stops on quit; restricted identities and launch idempotence")
+        print("PASS: real transport subprocess loss automatically resumes the same NSWindow/session, resets stream sequence, preserves resolution, drops offline input and stops on quit; launch idempotence")
     }
 }

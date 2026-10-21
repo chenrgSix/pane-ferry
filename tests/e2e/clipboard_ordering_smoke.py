@@ -6,7 +6,7 @@ import tempfile
 root=Path(__file__).resolve().parents[2];source=root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
 with tempfile.TemporaryDirectory(prefix='remoteapp-clipboard-order-') as directory:
     scratch=Path(directory);types=scratch/'WindowHostTypes.swift'
-    text=(source/'main.swift').read_text();marker='\nlet application = NSApplication.shared\n';assert text.count(marker)==1
+    text=(source/'main.swift').read_text();marker='\n// WINDOWHOST_ENTRYPOINT\n';assert text.count(marker)==1
     types.write_text(text.split(marker)[0])
     files=[str(file) for file in source.glob('*.swift') if file.name!='main.swift']
     binary=scratch/'smoke'

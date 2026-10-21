@@ -2,7 +2,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{path::Path, process::Stdio, time::Duration};
+use std::{path::PathBuf, process::Stdio, sync::OnceLock, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -12,6 +12,12 @@ use tokio::{
 const REMOTE_COMMAND: &str = ".local/bin/remoteapp-agent bridge";
 const SSH: &str = "/usr/bin/ssh";
 const MAX_CONTROL_LINE: usize = 16 * 1024 * 1024;
+static PASSWORD_HELPER: OnceLock<PathBuf> = OnceLock::new();
+pub fn set_password_helper(path: PathBuf) {
+    if path.is_absolute() && path.is_file() {
+        let _ = PASSWORD_HELPER.set(path);
+    }
+}
 const SSH_OPTIONS: &[&str] = &[
     "-F",
     "/dev/null",
@@ -94,9 +100,9 @@ pub struct SessionInfo {
 pub enum Error {
     #[error("{0}")]
     Invalid(&'static str),
-    #[error("SSH 连接失败，请确认网络恢复后重试；登录会话已失效时可点击“重新登录 SSH”。")]
+    #[error("连接暂时中断，请等待网络恢复。")]
     Connection,
-    #[error("SSH 登录已失效或需要认证，请点击“重新登录 SSH”完成登录，再返回启动器。")]
+    #[error("账号或密码需要更新，请在连接配置中填写密码后重试。")]
     AuthenticationRequired,
     #[error("SSH 主机指纹未通过校验，请在系统终端核验主机身份；不会自动信任或修改指纹。")]
     HostVerification,
@@ -231,26 +237,27 @@ impl Endpoint {
         Ok(())
     }
     pub fn ssh_args(&self) -> Result<Vec<String>, Error> {
+        self.ssh_args_with_password(false)
+    }
+    fn ssh_args_with_password(&self, password: bool) -> Result<Vec<String>, Error> {
         self.validate()?;
         let mut args = SSH_OPTIONS
             .iter()
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
-        if let Some(home) = std::env::var_os("HOME") {
-            let automatic = self.automatic_identity(Path::new(&home));
-            if let Some(key) = automatic {
-                // A separate mux prevents the restricted key from resetting or
-                // changing the user's existing password-authenticated session.
-                let control = args.iter().position(|argument| argument == "-S").unwrap();
-                args[control + 1] = "~/.ssh/lan-remoteapp-auto-%C".into();
-                args.extend([
-                    "-i".into(),
-                    key.to_string_lossy().into_owned(),
-                    "-oIdentitiesOnly=yes".into(),
-                    "-oControlMaster=auto".into(),
-                    "-oControlPersist=10m".into(),
-                ]);
-            }
+        if password {
+            let control = args.iter().position(|argument| argument == "-S").unwrap();
+            args[control + 1] = "~/.ssh/lan-remoteapp-password-%C".into();
+            let batch = args
+                .iter()
+                .position(|argument| argument == "-oBatchMode=yes")
+                .unwrap();
+            args[batch] = "-oBatchMode=no".into();
+            args.extend([
+                "-oNumberOfPasswordPrompts=1".into(),
+                "-oControlMaster=auto".into(),
+                "-oControlPersist=10m".into(),
+            ]);
         }
         args.extend([
             "-p".into(),
@@ -262,17 +269,6 @@ impl Endpoint {
             REMOTE_COMMAND.into(),
         ]);
         Ok(args)
-    }
-    fn automatic_identity(&self, home: &Path) -> Option<std::path::PathBuf> {
-        let key = home
-            .join(".ssh/lan-remoteapp-keys")
-            .join(format!("{}@{}-{}", self.user, self.host, self.port));
-        let marker =
-            key.with_file_name(format!("{}@{}-{}.enabled", self.user, self.host, self.port));
-        let regular = |path: &Path| {
-            std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
-        };
-        (regular(&key) && regular(&marker)).then_some(key)
     }
 }
 pub fn validate_id(id: &str) -> Result<(), Error> {
@@ -329,15 +325,39 @@ async fn read_message<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Res
     Ok(value)
 }
 async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Value, Error> {
-    let mut child = Command::new(SSH)
-        .args(endpoint.ssh_args()?)
+    endpoint.validate()?;
+    let helper = PASSWORD_HELPER.get().filter(|helper| {
+        std::process::Command::new(helper)
+            .args([
+                "--credential-check",
+                &endpoint.host,
+                &endpoint.user,
+                &endpoint.port.to_string(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    });
+    let mut command = Command::new(SSH);
+    command
+        .args(endpoint.ssh_args_with_password(helper.is_some())?)
         .env("LC_ALL", "C")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|_| Error::Connection)?;
+        .kill_on_drop(true);
+    if let Some(helper) = helper {
+        command
+            .env("SSH_ASKPASS", helper)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env(
+                "REMOTEAPP_SSH_ASKPASS_ACCOUNT",
+                format!("{}@{}:{}", endpoint.user, endpoint.host, endpoint.port),
+            );
+    }
+    let mut child = command.spawn().map_err(|_| Error::Connection)?;
     let mut input = child.stdin.take().ok_or(Error::Connection)?;
     let mut output = BufReader::new(child.stdout.take().ok_or(Error::Connection)?);
     let mut stderr = child.stderr.take().ok_or(Error::Connection)?.take(8192);
@@ -581,43 +601,6 @@ mod tests {
         }
     }
     #[test]
-    fn automatic_identity_requires_successful_activation_for_the_same_endpoint() {
-        let root = std::env::temp_dir().join(format!(
-            "remoteapp-identity-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let directory = root.join(".ssh/lan-remoteapp-keys");
-        std::fs::create_dir_all(&directory).unwrap();
-        let endpoint = endpoint();
-        let key = directory.join("alice@192.168.1.20-22");
-        assert!(endpoint.automatic_identity(&root).is_none());
-        std::fs::write(&key, b"test identity").unwrap();
-        assert!(
-            endpoint.automatic_identity(&root).is_none(),
-            "pending keys are not active"
-        );
-        let marker = directory.join("alice@192.168.1.20-22.enabled");
-        std::fs::write(&marker, b"active").unwrap();
-        assert_eq!(endpoint.automatic_identity(&root), Some(key));
-        let mut other = endpoint.clone();
-        other.port = 2222;
-        assert!(other.automatic_identity(&root).is_none());
-        other = endpoint.clone();
-        other.user = "other".into();
-        assert!(other.automatic_identity(&root).is_none());
-        #[cfg(unix)]
-        {
-            std::fs::remove_file(&marker).unwrap();
-            std::os::unix::fs::symlink(directory.join("alice@192.168.1.20-22"), &marker).unwrap();
-            assert!(endpoint.automatic_identity(&root).is_none());
-        }
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
     fn refuses_injection() {
         for host in [
             "-oProxyCommand=evil",
@@ -651,6 +634,28 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-%C"]));
+    }
+    #[test]
+    fn saved_password_uses_one_ssh_prompt_and_an_independent_reusable_connection() {
+        let args = endpoint().ssh_args_with_password(true).unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-password-%C"]));
+        for option in [
+            "-oBatchMode=no",
+            "-oNumberOfPasswordPrompts=1",
+            "-oControlMaster=auto",
+            "-oControlPersist=10m",
+            "-oStrictHostKeyChecking=yes",
+            "-oForwardAgent=no",
+            "-oForwardX11=no",
+        ] {
+            assert!(args.iter().any(|argument| argument == option));
+        }
+        assert!(!args
+            .iter()
+            .any(|argument| argument == "-i" || argument == "-oBatchMode=yes"));
+        assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
     }
     #[test]
     fn distinguishes_expired_login_network_and_agent_without_stderr_leaks() {

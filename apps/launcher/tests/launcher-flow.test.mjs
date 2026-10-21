@@ -305,3 +305,25 @@ test("metadata reconnects with bounded backoff without clicks, catalog scans or 
     mounted.unmount(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
   }
 });
+
+test("one Connect saves a configured password through native Keychain IPC and never persists it in preferences", async () => {
+  const saved = storage(); let fails = false;
+  const mounted = mount(saved, {save_ssh_password: () => { if (fails) throw new Error("storage rejected"); }});
+  try {
+    await settled(mounted.state);
+    mounted.state.password = "fixture secret value";
+    await mounted.state.connectHost();
+    const writes = mounted.calls.filter(c => c.command === "save_ssh_password");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].args.password, "fixture secret value");
+    assert.deepEqual(writes[0].args.endpoint, endpoint);
+    assert.equal(mounted.state.password, "");
+    assert.doesNotMatch(saved.getItem("lan-remoteapp.connection"), /fixture secret|password/i);
+    await mounted.state.connectHost();
+    assert.equal(mounted.calls.filter(c => c.command === "save_ssh_password").length, 1);
+    fails = true; mounted.state.password = "rejected secret";
+    await mounted.state.connectHost();
+    assert.match(mounted.state.error, /钥匙串/);
+    assert.doesNotMatch(mounted.state.error, /rejected secret/);
+  } finally { mounted.unmount(); }
+});

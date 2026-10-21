@@ -17,6 +17,7 @@ type Result = {
   message: string;
 };
 const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
+  password = ref(""),
   apps = ref<AppInfo[]>([]),
   desktopWindows = ref<DesktopWindow[]>([]),
   discoveryWarning = ref(""),
@@ -106,6 +107,7 @@ try {
 } catch {}
 function restoreCatalog() {
   stopRetry();
+  password.value = "";
   const cached = catalogCache.get(signature());
   apps.value = cached?.apps ?? [];
   connected.value = cached ? signature() : "";
@@ -125,6 +127,21 @@ function restoreCatalog() {
   sessionWarning.value = "";
   error.value = "";
   notice.value = "";
+}
+async function connectHost() {
+  if (busy.value || !valid.value) return;
+  if (password.value) {
+    busy.value = true;
+    const sent = { ...endpoint.value };
+    try {
+      await invoke<void>("save_ssh_password", { endpoint: sent, password: password.value });
+      password.value = "";
+    } catch {
+      error.value = "密码未能保存到系统钥匙串，请重试。";
+      return;
+    } finally { busy.value = false; }
+  }
+  await load();
 }
 async function load(refreshApps = false) {
   if (!valid.value || busy.value) return;
@@ -333,7 +350,7 @@ onUnmounted(() => {
       <section class="connection">
         <div class="section-title">
           <h2>01 <span>连接主机</span></h2>
-          <span>密码由系统处理</span>
+          <span>密码保存在系统钥匙串</span>
         </div>
         <div class="fields">
           <label
@@ -354,6 +371,7 @@ onUnmounted(() => {
               autocorrect="off"
               spellcheck="false"
               autocomplete="off" /></label
+          ><label>密码<input v-model="password" type="password" :disabled="busy" placeholder="已保存时可留空" autocomplete="current-password" /></label
           ><label class="port"
             >端口<input
               v-model.number="endpoint.port"
@@ -361,12 +379,12 @@ onUnmounted(() => {
               type="number"
               min="1"
               max="65535" /></label
-          ><button :disabled="!valid || busy" @click="load()">
-            {{ busy ? "处理中…" : catalogCurrent ? "刷新运行状态 →" : "连接并读取 →" }}
-          </button><button v-if="loginNeeded || waitingForLogin" class="secondary-action" :disabled="!valid || busy" @click="login">重新登录</button>
+          ><button :disabled="!valid || busy" @click="connectHost">
+            {{ busy ? "连接中…" : "连接" }}
+          </button>
         </div>
         <p class="hint">
-          记住此设备后，网络恢复会自动连接，远端应用和内容会保留。仅首次登录或设备授权失效时需要重新登录。
+          首次填写账号和密码，之后自动连接。断网恢复后会继续原窗口，远端应用和内容会保留。
         </p>
       </section>
       <section class="options">

@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-auto-resume-') as directory:
     scratch = Path(directory)
     types = scratch/'WindowHostTypes.swift'
     text = (source/'main.swift').read_text()
-    marker = '\nlet application = NSApplication.shared\n'
+    marker = '\n// WINDOWHOST_ENTRYPOINT\n'
     assert text.count(marker) == 1
     types.write_text(text.split(marker)[0])
     fixture = scratch/'fake-ssh'

@@ -80,9 +80,8 @@ final class SSHTransport {
 
     func start(_ options: Options) throws {
         process.executableURL = executable
-        process.environment = ProcessInfo.processInfo.environment.merging(["LC_ALL": "C"]) { _, fixed in fixed }
         // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
-        process.arguments = ["-F", "/dev/null", "-T"] + SSHIdentity.options(host: options.host, user: options.user, port: options.port) + ["-oBatchMode=yes", "-oStrictHostKeyChecking=yes",
+        process.arguments = ["-F", "/dev/null", "-T"] + SSHAuthentication.configure(process, host: options.host, user: options.user, port: options.port) + ["-oStrictHostKeyChecking=yes",
             "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no",
             "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2",
             "-p", String(options.port), "-l", options.user, "--", options.host,
@@ -657,6 +656,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) { stopping = true; networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
 }
 
+// WINDOWHOST_ENTRYPOINT
+if let result = runCredentialCommand(Array(CommandLine.arguments.dropFirst())) { exit(result) }
 let application = NSApplication.shared
 var applicationDelegate: AppDelegate?
 do {

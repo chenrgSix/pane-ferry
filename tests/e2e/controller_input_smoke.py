@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-input-', dir='/tmp') as direc
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
                     str(source / 'SurfaceView.swift'), str(source / 'ClipboardCopyGate.swift'), str(source / 'RenderGeometry.swift'),
                     str(source / 'HostedWindow.swift'),
-                    str(source / 'ClipboardBundle.swift'), str(source / 'ClipboardBulkTransfer.swift'), str(source / 'SSHIdentity.swift'),
+                    str(source / 'ClipboardBundle.swift'), str(source / 'ClipboardBulkTransfer.swift'), str(source / 'SSHAuthentication.swift'),
                     str(root / 'tests/swift/ClipboardBundleSmoke.swift'),
                     str(root / 'tests/swift/ControllerInputSmoke.swift'), '-o', str(binary)],
                    check=True, timeout=120)

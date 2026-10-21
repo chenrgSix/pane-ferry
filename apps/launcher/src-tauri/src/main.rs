@@ -2,6 +2,7 @@
 use remoteapp_transport::{self as transport, AppCatalog, Endpoint};
 use serde::Serialize;
 use std::{
+    io::Write,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -79,6 +80,46 @@ async fn open_ssh_login(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(),
         .app_cache_dir()
         .map_err(|_| "无法定位本机登录目录。")?;
     ssh_login::open(&cache, &endpoint)
+}
+#[tauri::command]
+async fn save_ssh_password(
+    app: tauri::AppHandle,
+    endpoint: Endpoint,
+    password: String,
+) -> Result<(), String> {
+    endpoint.validate().map_err(|error| error.to_string())?;
+    if password.is_empty() || password.len() > 4096 || password.contains(['\0', '\n', '\r']) {
+        return Err("密码格式无效。".into());
+    }
+    let mut child = Command::new(native_host(&app)?)
+        .args([
+            "--credential-store",
+            &endpoint.host,
+            &endpoint.user,
+            &endpoint.port.to_string(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "无法打开系统钥匙串。")?;
+    let result = child
+        .stdin
+        .take()
+        .ok_or("无法传递登录凭据。")?
+        .write_all(password.as_bytes());
+    // Do not put the secret in argv, environment, localStorage or diagnostics.
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("无法保存登录凭据。".into());
+    }
+    let status = child.wait().map_err(|_| "无法保存登录凭据。")?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("系统钥匙串未能保存密码，请重试。".into())
+    }
 }
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {
@@ -202,13 +243,20 @@ async fn launch_app(
 }
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Ok(path) = native_host(app.handle()) {
+                transport::set_password_helper(path);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_apps,
             list_desktop_windows,
             list_sessions,
             launch_app,
             resume_session,
-            open_ssh_login
+            open_ssh_login,
+            save_ssh_password
         ])
         .run(tauri::generate_context!())
         .expect("launcher startup failed");
