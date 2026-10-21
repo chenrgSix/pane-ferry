@@ -102,6 +102,8 @@ final class PublishedSession {
     func focus() throws {
         let window=try axWindow()
         target.application.activate(options:[])
+        let app=AXUIElementCreateApplication(target.application.processIdentifier)
+        AXUIElementSetAttributeValue(app,kAXFocusedWindowAttribute as CFString,window)
         guard AXUIElementPerformAction(window,kAXRaiseAction as CFString) == .success else { throw NodeError.window_unavailable }
     }
     func release() {
@@ -129,6 +131,8 @@ final class PublishedSession {
             : button==1 ? (pressed ? .leftMouseDown:.leftMouseUp) : button==3 ? (pressed ? .rightMouseDown:.rightMouseUp) : (pressed ? .otherMouseDown:.otherMouseUp)
         guard let event=CGEvent(mouseEventSource:nil,mouseType:type,mouseCursorPosition:point,mouseButton:mouse) else { throw NodeError.input_unsupported }
         event.flags=flags;event.setIntegerValueField(.mouseEventClickState,value:1)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer,value:Int64(target.window.windowID))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent,value:Int64(target.window.windowID))
         event.postToPid(target.application.processIdentifier)
         if button>0 { if pressed { buttons.insert(button) } else { buttons.remove(button) } }
     }
