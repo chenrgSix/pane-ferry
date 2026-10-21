@@ -39,6 +39,8 @@ pub struct AppInfo {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub unavailable_reason: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Started {
@@ -65,8 +67,51 @@ pub enum Error {
     Timeout,
     #[error("远端返回无效或过大的消息。")]
     Protocol,
-    #[error("远端拒绝请求：{0}")]
+    #[error("远端拒绝请求：{}", remote_error_message(.0))]
     Remote(String),
+}
+pub fn remote_error_message(code: &str) -> String {
+    match code {
+        "existing_process_unavailable" => {
+            "原窗口对应的进程已退出。请在 Ubuntu 更新该应用的窗口绑定，或打开独立应用会话。".into()
+        }
+        "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
+        "existing_window_unavailable" => {
+            "该应用目前没有可接入的 X11 窗口。请先在 Ubuntu 打开窗口。".into()
+        }
+        "session_expired" | "session_exited" => "上次会话已结束。再次打开将创建新会话。".into(),
+        "session_controlled" => "该会话已有控制端，请先断开原控制端。".into(),
+        "request_id_conflict" => "启动参数已变化，请重新打开应用。".into(),
+        "app_not_approved" => "应用已不在获准目录中，请重新读取目录。".into(),
+        "session_limit" => "运行中的会话已达上限，请保存工作并关闭不用的远端应用。".into(),
+        "request_history_limit" => "启动记录已达上限，请保存远端工作后重启 Agent。".into(),
+        _ => code
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .take(64)
+            .collect(),
+    }
+}
+impl Error {
+    /// Only explicit rejections prove it is safe to discard an idempotency key.
+    pub fn retry_same_request(&self) -> bool {
+        match self {
+            Error::Invalid(_) => false,
+            Error::Remote(code) => !matches!(
+                code.as_str(),
+                "existing_process_unavailable"
+                    | "existing_process_mismatch"
+                    | "existing_window_unavailable"
+                    | "session_expired"
+                    | "session_exited"
+                    | "request_id_conflict"
+                    | "app_not_approved"
+                    | "session_limit"
+                    | "request_history_limit"
+            ),
+            _ => true,
+        }
+    }
 }
 impl Endpoint {
     pub fn validate(&self) -> Result<(), Error> {
@@ -225,15 +270,18 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
 }
 pub async fn catalog(endpoint: &Endpoint) -> Result<Vec<AppInfo>, Error> {
     let value = request(endpoint, json!({"type":"app.list","version":1}), "app.list").await?;
-    let apps: Vec<AppInfo> =
+    let mut apps: Vec<AppInfo> =
         serde_json::from_value(value["apps"].clone()).map_err(|_| Error::Protocol)?;
     if apps.len() > 1024 {
         return Err(Error::Protocol);
     }
-    for app in &apps {
+    for app in &mut apps {
         validate_id(&app.id)?;
         if app.name.len() > 1024 || app.description.len() > 4096 {
             return Err(Error::Protocol);
+        }
+        if let Some(code) = &app.unavailable_reason {
+            app.unavailable_reason = Some(remote_error_message(code));
         }
     }
     Ok(apps)
@@ -309,6 +357,20 @@ fn parse_started(value: Value) -> Result<Started, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn stale_process_errors_are_actionable_without_private_details() {
+        let mut reader = BufReader::new(&b"{\"type\":\"error\",\"version\":1,\"code\":\"existing_process_unavailable\",\"message\":\"PRIVATE COMMAND\"}\n"[..]);
+        let error = read_message(&mut reader).await.unwrap_err();
+        assert!(error.to_string().contains("进程已退出"));
+        assert!(!error.to_string().contains("PRIVATE"));
+        assert!(!error.retry_same_request());
+        for code in ["session_exited", "session_expired", "request_id_conflict"] {
+            assert!(!Error::Remote(code.into()).retry_same_request());
+        }
+        assert!(Error::Remote("request_failed".into()).retry_same_request());
+        assert!(Error::Timeout.retry_same_request());
+        assert!(Error::Connection.retry_same_request());
+    }
     fn endpoint() -> Endpoint {
         Endpoint {
             host: "192.168.1.20".into(),

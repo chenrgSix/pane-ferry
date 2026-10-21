@@ -13,6 +13,20 @@ struct LaunchResult {
     pid: u32,
     message: String,
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchFailure {
+    message: String,
+    retry_same_request: bool,
+}
+impl From<transport::Error> for LaunchFailure {
+    fn from(error: transport::Error) -> Self {
+        Self {
+            message: error.to_string(),
+            retry_same_request: error.retry_same_request(),
+        }
+    }
+}
 #[tauri::command]
 async fn list_apps(endpoint: Endpoint) -> Result<Vec<AppInfo>, String> {
     transport::catalog(&endpoint)
@@ -96,11 +110,14 @@ async fn launch_app(
     app_id: String,
     request_id: String,
     render_scale: Option<u8>,
-) -> Result<LaunchResult, String> {
-    endpoint.validate().map_err(|e| e.to_string())?;
-    transport::validate_id(&app_id).map_err(|e| e.to_string())?;
-    transport::validate_id(&request_id).map_err(|e| e.to_string())?;
-    let path = native_host(&app)?;
+) -> Result<LaunchResult, LaunchFailure> {
+    endpoint.validate()?;
+    transport::validate_id(&app_id)?;
+    transport::validate_id(&request_id)?;
+    let path = native_host(&app).map_err(|message| LaunchFailure {
+        message,
+        retry_same_request: false,
+    })?;
     let scale = render_scale.unwrap_or_else(|| {
         if app
             .get_webview_window("main")
@@ -113,10 +130,12 @@ async fn launch_app(
             1
         }
     });
-    let session = transport::launch_native(&endpoint, &app_id, &request_id, scale)
-        .await
-        .map_err(|e| e.to_string())?;
-    let pid = spawn_host(path, &endpoint, &session.session_id)?;
+    let session = transport::launch_native(&endpoint, &app_id, &request_id, scale).await?;
+    let pid =
+        spawn_host(path, &endpoint, &session.session_id).map_err(|message| LaunchFailure {
+            message,
+            retry_same_request: true,
+        })?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),

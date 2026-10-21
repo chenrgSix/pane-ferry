@@ -2,8 +2,9 @@
 import { computed, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { PendingLaunches } from "./session-store";
+import { launchFailure } from "./launch-failure";
 type Endpoint = { host: string; user: string; port: number };
-type AppInfo = { id: string; name: string; description: string };
+type AppInfo = { id: string; name: string; description: string; unavailable_reason?: string | null };
 type Result = {
   session_id: string | null;
   display: string | null;
@@ -124,7 +125,7 @@ function record(name: string, result: Result) {
   save();
 }
 async function launch(app: AppInfo) {
-  if (busy.value || !catalogCurrent.value) return;
+  if (busy.value || !catalogCurrent.value || app.unavailable_reason) return;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -140,8 +141,10 @@ async function launch(app: AppInfo) {
     record(app.name, result);
     attempts.resolve(key);
   } catch (e) {
-    error.value =
-      String(e) + " 再次点击会复用请求 ID；也可刷新并连接已有会话。";
+    const failure = launchFailure(e);
+    if (!failure.retrySameRequest) attempts.resolve(key);
+    error.value = failure.message + (failure.retrySameRequest
+      ? " 可先刷新会话；再次点击会安全重试同一次启动。" : "");
   } finally {
     await readSessions().catch(() => {});
     busy.value = false;
@@ -268,15 +271,15 @@ async function resume(session: SessionInfo) {
             v-for="app in filtered"
             :key="app.id"
             class="app-card"
-            :disabled="busy || !catalogCurrent"
+            :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)"
             @click="launch(app)"
           >
             <span class="app-icon">{{
               app.name.slice(0, 1).toUpperCase()
             }}</span
             ><strong>{{ app.name }}</strong>
-            <p>{{ app.description || app.id }}</p>
-            <span class="launch-label">打开应用 <span>↗</span></span>
+            <p>{{ app.unavailable_reason || app.description || app.id }}</p>
+            <span class="launch-label">{{ app.unavailable_reason ? "原窗口不可用" : "打开应用 ↗" }}</span>
           </button>
         </div>
         <p v-if="apps.length && !catalogCurrent" class="hint">

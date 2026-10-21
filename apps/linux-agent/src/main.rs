@@ -26,6 +26,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod request_error;
 struct Session {
     id: String,
     app_id: String,
@@ -65,6 +66,16 @@ fn process_identity(pid: u32) -> Result<ProcessIdentity> {
         started: process_start_time(&fs::read_to_string(root.join("stat"))?)?,
         executable: fs::read_link(root.join("exe"))?,
     })
+}
+fn existing_unavailable_reason(app: &App) -> Option<&'static str> {
+    let existing = app.existing.as_ref()?;
+    let Ok(identity) = process_identity(existing.process_id) else {
+        return Some("existing_process_unavailable");
+    };
+    if fs::canonicalize(&app.executable).ok().as_ref() != Some(&identity.executable) {
+        return Some("existing_process_mismatch");
+    }
+    None
 }
 impl Session {
     fn has_exited(&mut self) -> Result<bool> {
@@ -597,7 +608,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         let apps: Vec<_> = st
                             .apps
                             .iter()
-                            .map(|a| json!({"id":a.id,"name":a.name,"description":a.description}))
+                            .map(|a| json!({"id":a.id,"name":a.name,"description":a.description,"unavailable_reason":existing_unavailable_reason(a)}))
                             .collect();
                         send(
                             &mut out,
@@ -727,10 +738,7 @@ fn client(mut out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     .map(|l| l.0.lock().unwrap().id.clone())
                     .unwrap_or_default();
                 let message = e.to_string();
-                let code = match message.as_str() {
-                    "window is hidden" | "unknown window" => "window_unavailable",
-                    _ => "request_failed",
-                };
+                let code = request_error::code(&message);
                 send(
                     &mut out,
                     json!({"type":"error","code":code,"message":message}),

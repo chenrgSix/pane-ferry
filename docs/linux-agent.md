@@ -34,6 +34,8 @@
 
 同一进程的重复连接请求复用会话，并保持单控制端限制。断开或停止 Agent 不结束此类原有进程；关闭 Mac 窗口仍会向原窗口发送关闭请求。原进程退出后需要在本地重新核对并更新 PID。原生 Wayland 窗口不支持此方式；现有桌面上的尺寸和输入会作用于原窗口。
 
+应用目录会标明已退出或不匹配的现有进程，启动器禁用该入口并解释原因；不会自动接管同名的新进程。请求期间进程退出会返回 `existing_process_unavailable`。已结束/回收的会话分别返回 `session_exited` / `session_expired`，启动器在明确拒绝后清除旧启动请求 ID；网络超时和未知错误仍保留 ID，避免重试重复启动。
+
 `existing.scale_factor` 可选，默认为 1，仅用于声明应用已经采用的 1×/2× 缩放；Agent 不更改原桌面的全局 DPI。新独立会话的 `app.launch.scale_factor` 会配置 GTK/Qt 缩放；GTK 已实测，Qt 和传统 Xlib 应用仍需逐项验证。不支持界面缩放的应用可在启动器选择 100%。
 
 Firefox Snap 可选用 `deploy/firefox-x11.sh` 作为经过审核的固定 executable：安装到用户目录，并为独立测试资料指定固定 argv。脚本仅抽取本显示号的 cookie 到 Snap 可读的私有文件，保持 0600 权限；在临时用户 scope 前台运行 Firefox，以满足 Snap 的 cgroup 要求，不关闭其沙箱或认证。退出 Agent 时仍通过原进程组清理自己启动的程序。
