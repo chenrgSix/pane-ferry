@@ -104,9 +104,14 @@ try:
         # A real vector icon is rasterized, not forwarded as SVG or a remote path.
         icon = root/'fixture.svg'
         icon.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#24805c"/></svg>')
+        terminal_input = root/'terminal-input.txt'
+        terminal_program = root/'terminal-input.py'
+        terminal_program.write_text('import sys,time\nfrom pathlib import Path\n'
+                                    f'Path({str(terminal_input)!r}).write_text(sys.stdin.readline())\n'
+                                    'time.sleep(60)\n')
         def desktop(directory, name, extra=''):
             (directory/'applications'/name).write_text('[Desktop Entry]\nType=Application\nName=Base Name\nName[zh_CN]=发现测试\n'
-                f'Icon={icon}\nExec=/usr/bin/xterm -title "Discovered-only" -e /usr/bin/sleep 60 %U\n'+extra)
+                f'Icon={icon}\nExec=/usr/bin/xterm -title "Discovered-only" -e /usr/bin/python3 {terminal_program} %U\n'+extra)
         desktop(system_data, 'sample.desktop')
         desktop(user_data, 'sample.desktop', 'Comment=User override\n')
         desktop(system_data, 'masked.desktop')
@@ -172,6 +177,11 @@ try:
         started = launch.request('app.launch', 'session.started', app_id=app['id'], request_id='desktop-test', backend='native')
         frame = launch.until('frame')
         assert frame.get('png') and started['session_id']
+        launch.send(type='input.text.commit', window_id=frame['window_id'], text='终端输入中文🙂')
+        launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=True)
+        launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=False)
+        wait(terminal_input.exists, 'owned xterm accepted controller text')
+        assert terminal_input.read_text().strip() == '终端输入中文🙂'
         sessions = Peer(sock)
         assert len(sessions.request('session.list')['sessions']) == 1
         # Private RemoteApp desktops must not appear as original desktop windows.

@@ -490,6 +490,19 @@ fn launch(
             .context("openbox not installed")?,
     );
     thread::sleep(Duration::from_millis(250));
+    let mut application_args = Vec::new();
+    if fs::canonicalize(&app.executable).ok().is_some_and(|path| {
+        [
+            std::path::Path::new("/usr/bin/xterm"),
+            std::path::Path::new("/usr/bin/uxterm"),
+        ]
+        .contains(&path.as_path())
+    }) {
+        // Per-instance Xt resources, not ~/.Xresources or the desktop resource DB.
+        // Bare xterm has no Ctrl+Shift+C/V bindings and Ctrl+V quotes the next key.
+        application_args.extend(["-xrm", r"*VT100*translations: #override \n Ctrl Shift <Key>C: copy-selection(CLIPBOARD) \n Ctrl Shift <Key>V: insert-selection(CLIPBOARD)"]);
+    }
+    application_args.extend(app.argv.iter().map(String::as_str));
     let mut command = Command::new("dbus-run-session");
     command.arg("--");
     if let Some(snap) = discovered.as_ref().and_then(|app| app.snap.as_ref()) {
@@ -518,14 +531,14 @@ fn launch(
         command
             .args(["--user", "--scope", "--collect", "--quiet"])
             .arg(&app.executable)
-            .args(&app.argv)
+            .args(&application_args)
             .env(
                 "DBUS_SESSION_BUS_ADDRESS",
                 format!("unix:path=/run/user/{}/bus", unsafe { libc::geteuid() }),
             )
             .env("XAUTHORITY", authority);
     } else {
-        command.arg(&app.executable).args(&app.argv);
+        command.arg(&app.executable).args(&application_args);
     }
     if let Some(cwd) = discovered.as_ref().and_then(|app| app.cwd.as_ref()) {
         command.current_dir(cwd);
