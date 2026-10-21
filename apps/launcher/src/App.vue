@@ -311,7 +311,7 @@ async function resume(session: SessionInfo) {
           >
             <AppIcon :icon="app.icon_png" :name="app.name" />
             <strong>{{ app.name }}</strong>
-            <p>{{ app.unavailable_reason || app.description || app.id }}</p>
+            <p>{{ app.unavailable_reason || app.description }}</p>
             <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : "打开应用 ↗" }}</span>
           </button>
         </div>
