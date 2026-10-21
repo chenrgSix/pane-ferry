@@ -13,6 +13,14 @@ mkdir -p "$HOME/.local/bin" "$HOME/.local/share/lan-remoteapp" "$HOME/.local/sha
 install -m 755 bin/* "$HOME/.local/bin/"
 install -m 644 share/lan-remoteapp/*.py "$HOME/.local/share/lan-remoteapp/"
 install -m 644 share/applications/*.desktop "$HOME/.local/share/applications/"
+python3 - <<'PY'
+from pathlib import Path
+entry=Path.home()/'.local/share/applications/io.lanremoteapp.launcher.desktop'
+executable=str(Path.home()/'.local/bin/lan-remoteapp')
+for character in ('\\','"','`','$'):
+    executable=executable.replace(character,'\\'+character)
+entry.write_text(entry.read_text().replace('Exec=lan-remoteapp\n','Exec="'+executable+'"\n'))
+PY
 install -m 644 share/icons/hicolor/128x128/apps/* "$HOME/.local/share/icons/hicolor/128x128/apps/"
 install -m 644 systemd/remoteapp-agent.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
