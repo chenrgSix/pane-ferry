@@ -29,11 +29,15 @@ PAGE = b'''<!doctype html><meta charset="utf-8"><title>RemoteApp browser regress
 <style>body{margin:30px}textarea{width:650px;height:180px;font:22px sans-serif}</style>
 <textarea id="entry" autofocus></textarea><button id="button">Click</button>
 <script>
-const entry=document.querySelector('textarea'),documentId=Math.random().toString(16); let clicks=0,lastKey='';
+const entry=document.querySelector('textarea'),documentId=Math.random().toString(16); let clicks=0,lastKey='',pasted=[];
+document.addEventListener('paste',e=>{
+ const files=Array.from(e.clipboardData.files); if(!files.length)return; e.preventDefault();
+ Promise.all(files.map(async f=>({name:f.name,type:f.type,size:f.size,sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await f.arrayBuffer()))).map(v=>v.toString(16).padStart(2,'0')).join('')}))).then(v=>{pasted=v;report()})
+},true);
 document.addEventListener('keydown',e=>{lastKey=e.key;report()},true);
 document.querySelector('button').onclick=()=>{clicks++;report()};
 function report(){const r=entry.getBoundingClientRect();fetch('/state',{method:'POST',body:JSON.stringify({
- documentId,value:entry.value,focused:document.activeElement.id,page:location.search,clicks,scale:devicePixelRatio,lastKey,hasFocus:document.hasFocus(),
+ documentId,value:entry.value,focused:document.activeElement.id,page:location.search,clicks,pasted,scale:devicePixelRatio,lastKey,hasFocus:document.hasFocus(),
  x:mozInnerScreenX-screenX+r.x+r.width/2,y:mozInnerScreenY-screenY+r.y+r.height/2})}).catch(()=>{})}
 for(const kind of ['input','focus','blur','keyup'])document.addEventListener(kind,report,true);
 setInterval(report,100);report();
@@ -226,6 +230,10 @@ try:
                     shortcut('a')
                     peer.send(type='clipboard.copy', window_id=wid, request_id=f'copy-{iteration}')
                     assert peer.until('clipboard.data')['text'] == expected
+                    peer.send(type='clipboard.cut', window_id=wid, request_id=f'cut-{iteration}')
+                    cut = peer.until('clipboard.data')
+                    assert cut['request_id'] == f'cut-{iteration}' and cut['text'] == expected
+                    wait(lambda: state.get('value') == '', 'browser native cut')
                     expected = f'控制端主动粘贴🙂{iteration}'
                     peer.send(type='clipboard.paste', window_id=wid, text=expected)
                     wait(lambda: state.get('value') == expected, 'browser explicit paste')
@@ -233,7 +241,27 @@ try:
                     peer.send(type='input.text.commit', window_id=wid, text=url+f'?page={iteration}')
                     enter()
                     wait(lambda: state.get('page') == f'?page={iteration}' and state.get('value') == '', 'browser navigation')
-                    print(f'Navigation/copy/paste cycle {iteration+1}/8 passed', flush=True)
+                    print(f'Navigation/copy/cut/paste cycle {iteration+1}/8 passed', flush=True)
+                # Real web paste receives image/file objects, not textual paths.
+                import hashlib, struct, zlib
+                def png_chunk(kind, data):
+                    return struct.pack('>I', len(data))+kind+data+struct.pack('>I', zlib.crc32(kind+data))
+                pixels=b''.join(b'\0'+secrets.token_bytes(513*3) for _ in range(257))
+                image=b'\x89PNG\r\n\x1a\n'+png_chunk(b'IHDR', struct.pack('>IIBBBBB',513,257,8,2,0,0,0))+png_chunk(b'IDAT',zlib.compress(pixels))+png_chunk(b'IEND',b'')
+                def upload_clipboard(kind, entries, data):
+                    stream=json.dumps(dict(kind=kind,entries=entries)).encode()+b'\n'+data
+                    response=subprocess.run([str(args.agent.resolve()),'clipboard-upload'],input=stream,env=dict(env,HOME=str(home)),stdout=subprocess.PIPE,check=True,timeout=30)
+                    return response.stdout.decode().strip()
+                focus_entry()
+                transfer=upload_clipboard('image',[dict(path='image.png',size=len(image),directory=False)],image)
+                peer.send(type='clipboard.paste.bundle',window_id=wid,transfer_id=transfer)
+                wait(lambda: state.get('pasted') and state['pasted'][0]['sha256']==hashlib.sha256(image).hexdigest(),'browser PNG paste as actual image')
+                print('Firefox PNG paste exposed the original image file to the web page',flush=True)
+                content=b'remoteapp-file-paste\0'+secrets.token_bytes(150000)
+                transfer=upload_clipboard('files',[dict(path='report.txt',size=len(content),directory=False)],content)
+                peer.send(type='clipboard.paste.bundle',window_id=wid,transfer_id=transfer)
+                wait(lambda: state.get('pasted') and state['pasted'][0]['sha256']==hashlib.sha256(content).hexdigest(),'browser file paste as actual file')
+                print('Firefox native file paste exposed the complete file to the web page',flush=True)
                 shortcut('t')
                 peer.send(type='input.text.commit', window_id=wid, text=url+'?tab=temporary')
                 enter()
@@ -266,7 +294,7 @@ try:
                 if not args.artifacts:
                     wait(lambda: peer.h264_frames > 0, 'H.264 resumes after reconnect')
                 media = 'PNG diagnostic' if args.artifacts else 'H.264'
-                print(f'PASS: Firefox {media}, 8 navigation/copy/paste cycles, new/closed tab input, 40 Unicode commits, detach/resume and controller-only composition')
+                print(f'PASS: Firefox {media}, 8 navigation/copy/cut/paste cycles, new/closed tab input, 40 Unicode commits, detach/resume and controller-only composition')
             except BaseException:
                 if args.artifacts:
                     args.artifacts.mkdir(mode=0o700, parents=True, exist_ok=True)

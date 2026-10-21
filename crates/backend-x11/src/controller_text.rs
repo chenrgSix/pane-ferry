@@ -20,7 +20,8 @@ pub(super) struct TextTransfer {
     completed: bool,
     target_pid: u32,
     bridge_pid: Option<u32>,
-    bytes: Vec<u8>,
+    offers: HashMap<u32, Vec<u8>>,
+    incremental: HashMap<(u32, u32), (u32, usize)>,
     timestamp: u32,
     requestor: Option<(u32, u32)>,
     data_consumed: bool,
@@ -142,6 +143,27 @@ impl Backend {
     }
     pub fn commit_text(&mut self, window_id: u32, text: String) -> Result<()> {
         remoteapp_protocol::validate_text(&text)?;
+        let offers = [
+            "UTF8_STRING",
+            "TEXT",
+            "text/plain;charset=utf-8",
+            "text/plain",
+        ]
+        .into_iter()
+        .map(|name| (name.to_string(), text.as_bytes().to_vec()))
+        .collect();
+        self.paste_payload(window_id, offers, false)
+    }
+    pub fn paste_bundle(&mut self, window_id: u32, transfer_id: &str) -> Result<()> {
+        let offers = crate::clipboard_store::ClipboardStore::open()?.offers(transfer_id)?;
+        self.paste_payload(window_id, offers, true)
+    }
+    fn paste_payload(
+        &mut self,
+        window_id: u32,
+        offers: Vec<(String, Vec<u8>)>,
+        rich: bool,
+    ) -> Result<()> {
         self.known(window_id)?;
         if self.text_pending() {
             bail!("controller text transfer already pending")
@@ -238,11 +260,15 @@ impl Backend {
                 completed: false,
                 target_pid,
                 bridge_pid,
-                bytes: text.into_bytes(),
+                offers: offers
+                    .into_iter()
+                    .map(|(name, data)| (self.atom(&name), data))
+                    .collect(),
+                incremental: HashMap::new(),
                 timestamp,
                 requestor: None,
                 data_consumed: false,
-                deadline: Instant::now() + Duration::from_secs(3),
+                deadline: Instant::now() + Duration::from_secs(if rich { 30 } else { 3 }),
             });
             self.conn.flush()?;
             Ok(())
@@ -291,14 +317,10 @@ impl Backend {
                                     e.requestor,
                                     property,
                                     AtomEnum::ATOM,
-                                    &[
-                                        self.atom("TARGETS"),
-                                        self.atom("TIMESTAMP"),
-                                        self.atom("UTF8_STRING"),
-                                        self.atom("TEXT"),
-                                        self.atom("text/plain;charset=utf-8"),
-                                        self.atom("text/plain"),
-                                    ],
+                                    &std::iter::once(self.atom("TARGETS"))
+                                        .chain(std::iter::once(self.atom("TIMESTAMP")))
+                                        .chain(transfer.offers.keys().copied())
+                                        .collect::<Vec<_>>(),
                                 )?
                                 .check()?;
                             accepted = true;
@@ -313,15 +335,7 @@ impl Backend {
                                 )?
                                 .check()?;
                             accepted = true;
-                        } else if authorized
-                            && [
-                                self.atom("UTF8_STRING"),
-                                self.atom("TEXT"),
-                                self.atom("text/plain;charset=utf-8"),
-                                self.atom("text/plain"),
-                            ]
-                            .contains(&e.target)
-                        {
+                        } else if authorized && transfer.offers.contains_key(&e.target) {
                             self.conn
                                 .change_window_attributes(
                                     e.requestor,
@@ -329,19 +343,35 @@ impl Backend {
                                         .event_mask(EventMask::PROPERTY_CHANGE),
                                 )?
                                 .check()?;
-                            self.conn
-                                .change_property8(
-                                    PropMode::REPLACE,
-                                    e.requestor,
-                                    property,
-                                    if e.target == self.atom("TEXT") {
-                                        self.atom("UTF8_STRING")
-                                    } else {
-                                        e.target
-                                    },
-                                    &transfer.bytes,
-                                )?
-                                .check()?;
+                            let bytes = &transfer.offers[&e.target];
+                            if bytes.len() > 32 * 1024 {
+                                self.conn
+                                    .change_property32(
+                                        PropMode::REPLACE,
+                                        e.requestor,
+                                        property,
+                                        self.atom("INCR"),
+                                        &[bytes.len() as u32],
+                                    )?
+                                    .check()?;
+                                transfer
+                                    .incremental
+                                    .insert((e.requestor, property), (e.target, 0));
+                            } else {
+                                self.conn
+                                    .change_property8(
+                                        PropMode::REPLACE,
+                                        e.requestor,
+                                        property,
+                                        if e.target == self.atom("TEXT") {
+                                            self.atom("UTF8_STRING")
+                                        } else {
+                                            e.target
+                                        },
+                                        bytes,
+                                    )?
+                                    .check()?;
+                            }
                             transfer.requestor = Some((e.requestor, property));
                             accepted = true;
                         }
@@ -362,12 +392,29 @@ impl Backend {
                             )?
                             .check()?;
                     }
-                    Event::PropertyNotify(e)
-                        if e.state == Property::DELETE
-                            && transfer.requestor == Some((e.window, e.atom)) =>
-                    {
-                        // A browser may preload the offer before the shortcut.
-                        transfer.data_consumed = true;
+                    Event::PropertyNotify(e) if e.state == Property::DELETE => {
+                        let key = (e.window, e.atom);
+                        if let Some((target, offset)) = transfer.incremental.get_mut(&key) {
+                            let bytes = &transfer.offers[target];
+                            if *offset > bytes.len() {
+                                transfer.data_consumed = true;
+                                transfer.incremental.remove(&key);
+                            } else {
+                                let end = (*offset + 32 * 1024).min(bytes.len());
+                                self.conn
+                                    .change_property8(
+                                        PropMode::REPLACE,
+                                        e.window,
+                                        e.atom,
+                                        *target,
+                                        &bytes[*offset..end],
+                                    )?
+                                    .check()?;
+                                *offset = if end == *offset { bytes.len() + 1 } else { end };
+                            }
+                        } else if transfer.requestor == Some(key) {
+                            transfer.data_consumed = true;
+                        }
                     }
                     Event::SelectionClear(e) if e.owner == transfer.owner => {
                         if transfer.completed {

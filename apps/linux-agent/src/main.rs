@@ -165,6 +165,17 @@ fn main() {
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("clipboard-upload") => {
+            let store = remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?;
+            let id = store.receive(&mut std::io::BufReader::new(std::io::stdin().lock()))?;
+            println!("{id}");
+            Ok(())
+        }
+        Some("clipboard-download") => {
+            let id = args.get(2).context("clipboard transfer id required")?;
+            remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?
+                .send(id, &mut std::io::stdout().lock())
+        }
         Some("serve") => serve(),
         Some("bridge") => bridge(),
         Some("check") => {
@@ -658,6 +669,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "input.text.commit",
         "clipboard.paste",
         "clipboard.copy",
+        "clipboard.cut",
+        "clipboard.bundle",
         "session.resume",
         "session.list",
         "app.discovery",
@@ -694,15 +707,19 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
+                    let cutting = b.cut_pending();
                     match b.pump_copy() {
-                        Ok(Some(copy)) => send(
-                            &mut out,
-                            json!({"type":"clipboard.data","window_id":copy.window_id,"request_id":copy.request_id,"text":copy.text}),
-                            &sid,
-                        )?,
+                        Ok(Some(copy)) => {
+                            let value = if let Some(id) = copy.bundle {
+                                json!({"type":"clipboard.bundle","window_id":copy.window_id,"request_id":copy.request_id,"transfer_id":id})
+                            } else {
+                                json!({"type":"clipboard.data","window_id":copy.window_id,"request_id":copy.request_id,"text":copy.text})
+                            };
+                            send(&mut out, value, &sid)?;
+                        }
                         Err(_) => send(
                             &mut out,
-                            json!({"type":"error","code":"clipboard_copy_failed","message":"application did not provide selected text"}),
+                            json!({"type":"error","code":if cutting {"clipboard_cut_failed"} else {"clipboard_copy_failed"},"message":"application did not provide selected text"}),
                             &sid,
                         )?,
                         Ok(None) => {}
@@ -947,6 +964,19 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 window_id,
                                 request_id,
                             } => b.copy_text(window_id, request_id)?,
+                            Request::Cut {
+                                window_id,
+                                request_id,
+                            } => b.cut_text(window_id, request_id)?,
+                            Request::CopyBundle {
+                                window_id,
+                                request_id,
+                                cut,
+                            } => b.copy_bundle(window_id, request_id, cut)?,
+                            Request::PasteBundle {
+                                window_id,
+                                transfer_id,
+                            } => b.paste_bundle(window_id, &transfer_id)?,
                             _ => unreachable!(),
                         }
                     }

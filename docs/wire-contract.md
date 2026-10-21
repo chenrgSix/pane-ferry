@@ -23,7 +23,9 @@ window.configure 是请求任意合法像素宽高，不是把原窗口机械翻
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。
 input.key {window_id,keysym:u32,pressed:bool}，用于导航、快捷键与非文字按键。控制端输入法预编辑保留在本地；input.text.commit {window_id,text} 只传已经提交的 Unicode，不把物理字母键或输入法切换修饰键发往被控端。
 clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy {window_id,request_id} 由主动复制触发；成功返回 clipboard.data {window_id,request_id,text}。控制端只接受仍有效、窗口和请求 ID 相符的复制回包，其他事件不得修改其剪贴板。没有通用 clipboard.read 接口或后台剪贴板同步。
-文字提交与剪贴板均只支持非空 UTF-8 纯文本，单次上限 8192 字节，禁止 NUL，超限报错而非截断。Agent 用 X11 selection 交付文字；XRes 校验请求方/selection owner 属于目标应用或经进程身份核验的桌面合成器桥接进程。原生 X11 等待读取完成；Xwayland 桥接完成数据请求后保留 selection source，以支持异步读取，后续文字/复制操作或断开时替换并清理。桥接读取不代表应用已经完成语义上的粘贴。复制先清除旧 selection 再触发本次 Ctrl+C，未产生新内容则超时失败，不返回之前的剪贴板。所有未完成操作有 3 秒超时；不会恢复或保存操作前的被控端剪贴板。
+文字提交与旧版文本剪贴板接口只支持非空 UTF-8 纯文本，单次上限 8192 字节，禁止 NUL，超限报错而非截断。Agent 用 X11 selection 交付文字；XRes 校验请求方/selection owner 属于目标应用或经进程身份核验的桌面合成器桥接进程。原生 X11 等待读取完成；Xwayland 桥接完成数据请求后保留 selection source，以支持异步读取，后续文字/复制操作或断开时替换并清理。桥接读取不代表应用已经完成语义上的粘贴。复制先清除旧 selection 再触发本次 Ctrl+C，未产生新内容则超时失败，不返回之前的剪贴板。所有未完成操作有 3 秒超时；不会恢复或保存操作前的被控端剪贴板。
+图片、文件/文件夹及剪切使用 `clipboard.bundle` 能力与独立 SSH 字节流，完整消息、限制、INCR 和缓存规则见[剪贴板说明](clipboard.md)。新旧文本接口保持兼容，没有后台同步。
+
 新建自有实例使用不连接桌面 IM daemon 的 GTK/Qt 输入上下文，组合仍在控制端完成；现有进程的输入法环境不被修改。普通 X11 应用保持快速路径；Firefox 对新剪贴板快照增加 16ms 广告时间，并为快捷键转换保留 4ms 节奏，提前读取也会计入交付状态。selection 的读取确认不等同于编辑器的语义提交确认，客户端不得将其解释为网页已经接受输入。
 服务端 error {code,message}，无敏感数据。会话退出 session.exited。
 

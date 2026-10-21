@@ -135,7 +135,7 @@ final class SSHTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data"]
+                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
                     if ["session.snapshot", "session.exited"].contains(object["type"] as? String ?? "") { videoDecoders.removeAll(); videoPixels.removeAll() }
                     if object["type"] as? String == "window.destroyed" ||
@@ -232,8 +232,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var poll: Timer?
     var statusItem: NSStatusItem?
     var capabilities = Set<String>()
+    let controllerClipboard: NSPasteboard
+    var wireSink: (([String: Any]) -> Void)?
+    private func writeWire(_ message: [String: Any]) { if let sink = wireSink { sink(message) } else { transport.send(message) } }
     var clipboardCopyGate = ClipboardCopyGate()
-    init(options: Options) { self.options = options; super.init() }
+    var clipboardBusy = false
+    var clipboardReading = false
+    var clipboardDeferred: [[String: Any]] = []
+    var clipboardJob: UUID?
+    var clipboardTimer: Timer?
+    var clipboardChangeCount = 0
+    var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(host: options.host, user: options.user, port: options.port) }
+    init(options: Options, clipboard: NSPasteboard = .general) { self.options = options; controllerClipboard = clipboard; super.init() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let mainMenu = NSMenu()
@@ -246,6 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.mainMenu = mainMenu
         let editItem = NSMenuItem(); mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "编辑"); editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "剪切到控制端", action: #selector(SurfaceView.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "复制到控制端", action: #selector(SurfaceView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "从控制端粘贴", action: #selector(SurfaceView.paste(_:)), keyEquivalent: "v")
         let displayItem = NSMenuItem(); mainMenu.addItem(displayItem)
@@ -258,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusItem?.button?.title = "RemoteApp · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         do {
             try transport.start(options)
-            transport.send(["type": "hello"])
+            writeWire(["type": "hello"])
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.pump() }
             RunLoop.main.add(timer, forMode: .common); poll = timer
             DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
@@ -299,7 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func copySession() {
         guard let session = session else { return }
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(session, forType: .string)
+        controllerClipboard.clearContents(); controllerClipboard.setString(session, forType: .string)
     }
     private func alert(_ message: String) {
         let alert = NSAlert(); alert.messageText = "LAN RemoteApp"; alert.informativeText = message
@@ -309,22 +320,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let (events, error) = transport.drain()
         for event in events { receive(event) }
         if let error = error, connected {
-            connected = false; statusItem?.button?.title = "RemoteApp · 已断开"
+            connected = false; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll(); statusItem?.button?.title = "RemoteApp · 已断开"
             for host in windows.values { host.surface.transmit = nil; host.window.title += " [已断开]" }
             alert(error + (session.map { "\n会话 ID：\($0)" } ?? ""))
         }
     }
-    func send(_ message: [String: Any]) {
-        guard connected else { return }
-        if let type = message["type"] as? String, ["input.text.commit", "clipboard.paste", "clipboard.copy"].contains(type) {
-            guard capabilities.contains(type) else { NSSound.beep(); return }
-            if type == "clipboard.copy", let id = message["request_id"] as? String,
-               let window = message["window_id"] as? UInt32 {
-                clipboardCopyGate.begin(id: id, window: window)
+    private func beginClipboard(timeout: TimeInterval, reading: Bool = false) -> UUID {
+        clipboardBusy = true; clipboardReading = reading
+        let job = UUID(); clipboardJob = job; clipboardChangeCount = controllerClipboard.changeCount
+        clipboardTimer?.invalidate()
+        clipboardTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            guard let self = self, self.clipboardJob == job else { return }; self.clipboardFailed()
+        }
+        return job
+    }
+    private func finishClipboard() {
+        clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil; clipboardBusy = false; clipboardReading = false
+        if connected { statusItem?.button?.title = "RemoteApp · 已连接" }
+        let queued = clipboardDeferred; clipboardDeferred.removeAll()
+        for message in queued { send(message) }
+    }
+    private func clipboardFailed() {
+        if clipboardReading {
+            var replacement = false
+            clipboardDeferred = clipboardDeferred.filter { message in
+                let type = message["type"] as? String ?? ""
+                if ["clipboard.copy", "clipboard.cut"].contains(type) { replacement = true }
+                return type != "controller.paste" || replacement
             }
         }
-        // The bridge owns one attached session. Only session.resume carries session_id.
-        transport.send(message)
+        NSSound.beep(); finishClipboard(); statusItem?.button?.title = "RemoteApp · 剪贴板操作失败"
+    }
+    private func pasteController(_ window: UInt32) {
+        do {
+            guard capabilities.contains("clipboard.paste") else { throw ClipboardFailure.unsupported }
+            guard let payload = try ControllerClipboard.read(controllerClipboard) else { throw ClipboardFailure.unsupported }
+            switch payload {
+            case .text(let text): writeWire(["type":"clipboard.paste", "window_id":window, "text":text])
+            case .bundle(let payload):
+                guard capabilities.contains("clipboard.bundle") else { throw ClipboardFailure.unsupported }
+                let job = beginClipboard(timeout: 310); let transfer = bulk
+                statusItem?.button?.title = "RemoteApp · 正在传输剪贴板"
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let result = Result { try transfer.upload(payload) }
+                    DispatchQueue.main.async {
+                        guard let self = self, self.connected, self.clipboardJob == job, self.windows[window] != nil else { return }
+                        switch result {
+                        case .success(let id): self.writeWire(["type":"clipboard.paste.bundle", "window_id":window, "transfer_id":id]); self.finishClipboard()
+                        case .failure: self.clipboardFailed()
+                        }
+                    }
+                }
+            }
+        } catch { clipboardFailed() }
+    }
+    func send(_ message: [String: Any]) {
+        guard connected else { return }
+        let type = message["type"] as? String ?? ""
+        if clipboardBusy && type != "session.detach" {
+            if type == "input.pointer", message["button"] as? Int == 0,
+               clipboardDeferred.last?["type"] as? String == type, clipboardDeferred.last?["button"] as? Int == 0,
+               clipboardDeferred.last?["window_id"] as? UInt32 == message["window_id"] as? UInt32 { clipboardDeferred.removeLast() }
+            guard clipboardDeferred.count < 256 else { transport.disconnect(); return }
+            clipboardDeferred.append(message); return
+        }
+        if type == "controller.paste", let window = message["window_id"] as? UInt32 { pasteController(window); return }
+        var wire = message
+        if ["input.text.commit", "clipboard.paste", "clipboard.copy", "clipboard.cut"].contains(type) {
+            guard capabilities.contains(type) else { NSSound.beep(); return }
+            if ["clipboard.copy", "clipboard.cut"].contains(type), let id = message["request_id"] as? String,
+               let window = message["window_id"] as? UInt32 {
+                let rich = capabilities.contains("clipboard.bundle")
+                _ = beginClipboard(timeout: rich ? 35 : 5, reading: true)
+                clipboardCopyGate.begin(id: id, window: window, timeout: rich ? 35 : 5)
+                if rich { wire["type"] = "clipboard.copy.bundle"; wire["cut"] = type == "clipboard.cut" }
+            }
+        }
+        // One attached session; bulk bytes travel in our separate SSH stream.
+        writeWire(wire)
     }
     func receive(_ incoming: Incoming) {
         let object = incoming.object
@@ -346,9 +419,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
             if code == "window_unavailable" { return }
-            if ["controller_text_failed", "clipboard_copy_failed"].contains(code) {
+            if ["controller_text_failed", "clipboard_copy_failed", "clipboard_cut_failed", "clipboard_cut_unavailable"].contains(code) {
                 statusItem?.button?.title = "RemoteApp · 输入或剪贴板失败"
-                NSSound.beep(); return
+                if code == "controller_text_failed" { NSSound.beep() } else { clipboardFailed() }; return
             }
             alert("远端返回错误：" + String(code.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(80))); return
         }
@@ -365,7 +438,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
                   windows[UInt32(number)] != nil, let text = object["text"] as? String,
                   let accepted = clipboardCopyGate.accept(id: id, window: UInt32(number), text: text) else { return }
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(accepted, forType: .string)
+            if controllerClipboard.changeCount == clipboardChangeCount {
+                controllerClipboard.clearContents(); controllerClipboard.setString(accepted, forType: .string)
+            }
+            finishClipboard(); return
+        }
+        if type == "clipboard.bundle" {
+            guard let id = object["request_id"] as? String,
+                  let number = unsignedInteger(object["window_id"]), number <= UInt32.max, windows[UInt32(number)] != nil,
+                  let transferID = object["transfer_id"] as? String, ClipboardBulkTransfer.validID(transferID),
+                  clipboardCopyGate.claim(id: id, window: UInt32(number)), let job = clipboardJob else { return }
+            clipboardTimer?.invalidate()
+            clipboardTimer = Timer.scheduledTimer(withTimeInterval: 310, repeats: false) { [weak self] _ in
+                guard let self = self, self.clipboardJob == job else { return }; self.clipboardFailed()
+            }
+            let transfer = bulk
+            let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("LAN RemoteApp/Clipboard")
+            let urls = controllerClipboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+            let pins = Set(urls.filter { $0.path.hasPrefix(root.path + "/") }.compactMap { $0.path.dropFirst(root.path.count + 1).split(separator: "/").first.map(String.init) })
+            statusItem?.button?.title = "RemoteApp · 正在接收剪贴板"
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Result { try transfer.download(transferID, into: root, protecting: pins) }
+                DispatchQueue.main.async {
+                    guard let self = self, self.connected, self.clipboardJob == job, self.windows[UInt32(number)] != nil else { return }
+                    do {
+                        let (directory, manifest) = try result.get()
+                        if self.controllerClipboard.changeCount == self.clipboardChangeCount { try ControllerClipboard.write(directory, manifest: manifest, to: self.controllerClipboard) }
+                        self.finishClipboard()
+                    } catch { self.clipboardFailed() }
+                }
+            }
             return
         }
         if type == "session.snapshot" {
@@ -415,9 +517,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             windows[id] = host
         }
         guard let host = windows[id], rev >= host.revision else { return }
+        host.surface.requestControllerPaste = { [weak self] in self?.send(["type":"controller.paste", "window_id":id]) }
         host.surface.controllerTextEnabled = capabilities.contains("input.text.commit")
         host.surface.controllerPasteEnabled = capabilities.contains("clipboard.paste")
         host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
+        host.surface.controllerCutEnabled = capabilities.contains("clipboard.cut")
         host.revision = rev
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
@@ -448,7 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         send(["type": "session.detach"])
         // An intentional detach can finish SSH before AppKit completes quit.
         // Stop diagnostics now so the polling timer cannot open a modal alert.
-        connected = false
+        connected = false; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll()
         poll?.invalidate(); poll = nil
         // Give the serial write queue a brief opportunity, then close local transport only.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in

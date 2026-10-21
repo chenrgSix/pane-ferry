@@ -13,6 +13,7 @@ use x11rb::{
     protocol::{composite::ConnectionExt as _, xproto::*, xtest::ConnectionExt as _},
     rust_connection::{DefaultStream, RustConnection},
 };
+pub mod clipboard_store;
 mod controller_copy;
 mod controller_text;
 mod damage;
@@ -97,6 +98,11 @@ impl Backend {
             "WM_CLASS",
             "CLIPBOARD",
             "TARGETS",
+            "INCR",
+            "image/png",
+            "text/uri-list",
+            "x-special/gnome-copied-files",
+            "application/x-kde-cutselection",
             "TEXT",
             "TIMESTAMP",
             "text/plain;charset=utf-8",

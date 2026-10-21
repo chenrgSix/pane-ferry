@@ -1,5 +1,7 @@
-//! Copy only after an explicit command to the currently controlled application.
+//! Explicit selection reads, including ICCCM INCR, scoped to the controlled app.
 use super::*;
+use clipboard_store::{validate_png, ClipboardStore};
+use remoteapp_protocol::clipboard::MAX_IMAGE_BYTES;
 use std::time::{Duration, Instant};
 use x11rb::protocol::{res::ConnectionExt as _, Event};
 
@@ -10,31 +12,81 @@ pub(super) struct CopyTransfer {
     target_pid: u32,
     bridge_pid: Option<u32>,
     requested: bool,
+    cut: bool,
+    cut_sent: bool,
+    key_interval: Duration,
+    target: Option<String>,
+    incremental: bool,
+    bytes: Vec<u8>,
     deadline: Instant,
+    owner_deadline: Instant,
 }
 pub struct CopiedText {
     pub window_id: u32,
     pub request_id: String,
     pub text: String,
+    pub bundle: Option<String>,
 }
 impl Backend {
     pub(super) fn cancel_copy(&mut self) {
-        if let Some(transfer) = self.copy_transfer.take() {
-            let _ = self.conn.destroy_window(transfer.owner);
+        if let Some(t) = self.copy_transfer.take() {
+            let _ = self.conn.destroy_window(t.owner);
             let _ = self.conn.flush();
         }
     }
-    pub fn copy_text(&mut self, window_id: u32, request_id: String) -> Result<()> {
-        self.known(window_id)?;
+    pub fn copy_text(&mut self, window: u32, id: String) -> Result<()> {
+        self.copy_or_cut(window, id, false, false)
+    }
+    pub fn cut_text(&mut self, window: u32, id: String) -> Result<()> {
+        self.copy_or_cut(window, id, true, false)
+    }
+    pub fn copy_bundle(&mut self, window: u32, id: String, cut: bool) -> Result<()> {
+        self.copy_or_cut(window, id, cut, true)
+    }
+    pub fn cut_pending(&self) -> bool {
+        self.copy_transfer.as_ref().is_some_and(|t| t.cut)
+    }
+    fn prepare_copy_owner(&self, owner: u32) -> Result<()> {
+        self.conn
+            .set_selection_owner(owner, self.atom("CLIPBOARD"), x11rb::CURRENT_TIME)?
+            .check()?;
+        if self
+            .conn
+            .get_selection_owner(self.atom("CLIPBOARD"))?
+            .reply()?
+            .owner
+            != owner
+        {
+            bail!("cannot prepare explicit copy")
+        }
+        Ok(())
+    }
+    fn copy_or_cut(&mut self, window: u32, id: String, cut: bool, rich: bool) -> Result<()> {
+        self.known(window)?;
         if self.text_pending() {
             bail!("clipboard operation already pending")
         }
+        let class = self.prop(window, "WM_CLASS", AtomEnum::STRING)?.value;
+        let class = String::from_utf8_lossy(&class).to_ascii_lowercase();
+        let terminal = [
+            "xterm",
+            "terminal",
+            "konsole",
+            "kitty",
+            "alacritty",
+            "tilix",
+        ]
+        .iter()
+        .any(|s| class.contains(s));
+        if cut && terminal {
+            bail!("terminal clipboard cut unavailable")
+        }
         self.cancel_text();
         self.conn.res_query_version(1, 2)?.reply()?;
-        let target_pid = self.application_pid(window_id)?;
+        let target_pid = self.application_pid(window)?;
         let bridge_pid = self.clipboard_bridge_pid();
         self.release_all();
-        self.focus_for_input(window_id)?;
+        self.focus_for_input(window)?;
         let owner = self.conn.generate_id()?;
         self.conn
             .create_window(
@@ -52,47 +104,29 @@ impl Backend {
             )?
             .check()?;
         let result = (|| {
-            // Taking ownership first prevents returning old unrelated clipboard
-            // contents when Ctrl+C has no current selection to copy.
-            self.conn
-                .set_selection_owner(owner, self.atom("CLIPBOARD"), x11rb::CURRENT_TIME)?
-                .check()?;
-            if self
-                .conn
-                .get_selection_owner(self.atom("CLIPBOARD"))?
-                .reply()?
-                .owner
-                != owner
-            {
-                bail!("cannot prepare explicit copy")
-            }
+            self.prepare_copy_owner(owner)?;
+            let interval = Self::clipboard_key_interval(&class, bridge_pid.is_some());
             self.copy_transfer = Some(CopyTransfer {
                 owner,
-                window_id,
-                request_id,
+                window_id: window,
+                request_id: id,
                 target_pid,
                 bridge_pid,
                 requested: false,
-                deadline: Instant::now() + Duration::from_secs(3),
+                cut,
+                cut_sent: false,
+                key_interval: interval,
+                target: if rich {
+                    None
+                } else {
+                    Some("UTF8_STRING".into())
+                },
+                incremental: false,
+                bytes: Vec::new(),
+                owner_deadline: Instant::now() + Duration::from_secs(3),
+                deadline: Instant::now() + Duration::from_secs(if rich { 30 } else { 3 }),
             });
-            let class = self.prop(window_id, "WM_CLASS", AtomEnum::STRING)?.value;
-            let class = String::from_utf8_lossy(&class).to_ascii_lowercase();
-            let terminal = [
-                "xterm",
-                "terminal",
-                "konsole",
-                "kitty",
-                "alacritty",
-                "tilix",
-            ]
-            .iter()
-            .any(|name| class.contains(name));
-            self.clipboard_shortcut(
-                window_id,
-                b'c',
-                terminal,
-                Self::clipboard_key_interval(&class, bridge_pid.is_some()),
-            )?;
+            self.clipboard_shortcut(window, b'c', terminal, interval)?;
             self.conn.flush()?;
             Ok(())
         })();
@@ -103,31 +137,85 @@ impl Backend {
         }
         result
     }
+    fn request_copy_target(&self, t: &CopyTransfer) -> Result<()> {
+        self.conn.convert_selection(
+            t.owner,
+            self.atom("CLIPBOARD"),
+            self.atom(t.target.as_deref().unwrap_or("TARGETS")),
+            self.atom("_LAN_REMOTEAPP_CLIPBOARD"),
+            x11rb::CURRENT_TIME,
+        )?;
+        self.conn.flush()?;
+        Ok(())
+    }
+    fn complete_copy(&self, t: &mut CopyTransfer, bytes: Vec<u8>) -> Result<Option<CopiedText>> {
+        let kind = t.target.as_deref().context("clipboard target missing")?;
+        let files = ["text/uri-list", "x-special/gnome-copied-files"].contains(&kind);
+        let text = if kind == "UTF8_STRING" {
+            let s = String::from_utf8(bytes.clone())?;
+            remoteapp_protocol::validate_text(&s)?;
+            s
+        } else {
+            String::new()
+        };
+        if kind == "image/png" {
+            validate_png(&bytes)?;
+        }
+        if t.cut && !t.cut_sent {
+            // File moves need destination acknowledgement; cross-host file
+            // clipboard copies never delete or mark the original for deletion.
+            if files {
+                bail!("cross-host file cut unavailable")
+            }
+            if t.deadline.saturating_duration_since(Instant::now()) < Duration::from_secs(1) {
+                bail!("clipboard cut preflight timed out")
+            }
+            self.known(t.window_id)?;
+            self.focus_for_input(t.window_id)?;
+            self.prepare_copy_owner(t.owner)?;
+            t.requested = false;
+            t.owner_deadline = Instant::now() + Duration::from_secs(3);
+            t.cut_sent = true;
+            t.incremental = false;
+            t.bytes.clear();
+            self.clipboard_shortcut(t.window_id, b'x', false, t.key_interval)?;
+            return Ok(None);
+        }
+        let bundle = if files {
+            Some(ClipboardStore::open()?.files(&bytes)?)
+        } else if kind == "image/png" {
+            Some(ClipboardStore::open()?.image(&bytes)?)
+        } else {
+            None
+        };
+        Ok(Some(CopiedText {
+            window_id: t.window_id,
+            request_id: t.request_id.clone(),
+            text,
+            bundle,
+        }))
+    }
     pub fn pump_copy(&mut self) -> Result<Option<CopiedText>> {
-        let Some(mut transfer) = self.copy_transfer.take() else {
+        let Some(mut t) = self.copy_transfer.take() else {
             return Ok(None);
         };
         let result = (|| {
-            if !transfer.requested {
+            if !t.requested {
+                if Instant::now() >= t.owner_deadline {
+                    bail!("application did not offer clipboard contents")
+                }
                 let owner = self
                     .conn
                     .get_selection_owner(self.atom("CLIPBOARD"))?
                     .reply()?
                     .owner;
-                if owner != 0 && owner != transfer.owner {
+                if owner != 0 && owner != t.owner {
                     let pid = self.client_pid(owner)?;
-                    if pid != transfer.target_pid && Some(pid) != transfer.bridge_pid {
+                    if pid != t.target_pid && Some(pid) != t.bridge_pid {
                         bail!("clipboard owner does not belong to copied application")
                     }
-                    self.conn.convert_selection(
-                        transfer.owner,
-                        self.atom("CLIPBOARD"),
-                        self.atom("UTF8_STRING"),
-                        self.atom("_LAN_REMOTEAPP_CLIPBOARD"),
-                        x11rb::CURRENT_TIME,
-                    )?;
-                    self.conn.flush()?;
-                    transfer.requested = true;
+                    self.request_copy_target(&t)?;
+                    t.requested = true;
                 }
             }
             for _ in 0..256 {
@@ -136,41 +224,109 @@ impl Backend {
                 };
                 match event {
                     Event::SelectionNotify(e)
-                        if transfer.requested
-                            && e.requestor == transfer.owner
+                        if t.requested
+                            && e.requestor == t.owner
                             && e.selection == self.atom("CLIPBOARD")
-                            && e.target == self.atom("UTF8_STRING") =>
+                            && e.target == self.atom(t.target.as_deref().unwrap_or("TARGETS")) =>
                     {
                         if e.property != self.atom("_LAN_REMOTEAPP_CLIPBOARD") {
-                            bail!("application refused text copy")
+                            bail!("application refused clipboard format")
                         }
                         let value = self
                             .conn
                             .get_property(
                                 true,
-                                transfer.owner,
+                                t.owner,
                                 e.property,
                                 AtomEnum::ANY,
                                 0,
-                                (remoteapp_protocol::MAX_TEXT_BYTES / 4 + 1) as u32,
+                                (MAX_IMAGE_BYTES / 4 + 1) as u32,
                             )?
                             .reply()?;
-                        if value.format != 8
-                            || value.bytes_after != 0
-                            || value.value.len() > remoteapp_protocol::MAX_TEXT_BYTES
-                            || value.type_ != self.atom("UTF8_STRING")
-                        {
-                            bail!("copied text is unsupported or too large")
+                        if t.target.is_none() {
+                            if value.format != 32
+                                || value.type_ != u32::from(AtomEnum::ATOM)
+                                || value.bytes_after != 0
+                            {
+                                bail!("invalid clipboard targets")
+                            }
+                            let atoms: Vec<_> = value
+                                .value32()
+                                .context("clipboard targets missing")?
+                                .collect();
+                            t.target = [
+                                "x-special/gnome-copied-files",
+                                "text/uri-list",
+                                "image/png",
+                                "UTF8_STRING",
+                            ]
+                            .into_iter()
+                            .find(|n| atoms.contains(&self.atom(n)))
+                            .map(String::from);
+                            if t.target.is_none() {
+                                bail!("application has no supported clipboard format")
+                            }
+                            self.request_copy_target(&t)?;
+                            return Ok(None);
                         }
-                        let text = String::from_utf8(value.value)?;
-                        remoteapp_protocol::validate_text(&text)?;
-                        return Ok(Some(CopiedText {
-                            window_id: transfer.window_id,
-                            request_id: transfer.request_id.clone(),
-                            text,
-                        }));
+                        if value.type_ == self.atom("INCR") {
+                            if value.format != 32
+                                || value
+                                    .value32()
+                                    .and_then(|mut n| n.next())
+                                    .is_none_or(|n| n as usize > MAX_IMAGE_BYTES)
+                            {
+                                bail!("clipboard INCR size exceeded")
+                            }
+                            t.incremental = true;
+                        } else {
+                            if value.format != 8
+                                || value.type_ != self.atom(t.target.as_deref().unwrap())
+                                || value.bytes_after != 0
+                                || value.value.len() > MAX_IMAGE_BYTES
+                            {
+                                bail!("clipboard format or size exceeded")
+                            }
+                            return self.complete_copy(&mut t, value.value);
+                        }
                     }
-                    Event::SelectionRequest(e) if e.owner == transfer.owner => {
+                    Event::PropertyNotify(e)
+                        if t.incremental
+                            && e.window == t.owner
+                            && e.atom == self.atom("_LAN_REMOTEAPP_CLIPBOARD")
+                            && e.state == Property::NEW_VALUE =>
+                    {
+                        let value = self
+                            .conn
+                            .get_property(
+                                true,
+                                t.owner,
+                                e.atom,
+                                AtomEnum::ANY,
+                                0,
+                                (MAX_IMAGE_BYTES / 4 + 1) as u32,
+                            )?
+                            .reply()?;
+                        // A queued notification for the initial INCR property can
+                        // precede the first actual chunk; its deleted property is absent.
+                        if value.type_ == 0 {
+                            continue;
+                        }
+                        if value.format != 8
+                            || value.type_ != self.atom(t.target.as_deref().unwrap())
+                            || value.bytes_after != 0
+                            || t.bytes.len() + value.value.len() > MAX_IMAGE_BYTES
+                        {
+                            bail!("invalid clipboard INCR chunk")
+                        }
+                        if value.value.is_empty() {
+                            t.incremental = false;
+                            let bytes = std::mem::take(&mut t.bytes);
+                            return self.complete_copy(&mut t, bytes);
+                        }
+                        t.bytes.extend(value.value);
+                    }
+                    Event::SelectionRequest(e) if e.owner == t.owner => {
                         self.conn.send_event(
                             false,
                             e.requestor,
@@ -189,16 +345,17 @@ impl Backend {
                     _ => {}
                 }
             }
-            if Instant::now() >= transfer.deadline {
-                bail!("application did not copy selected text")
+            if Instant::now() >= t.deadline {
+                bail!("application did not provide clipboard contents")
             }
             self.conn.flush()?;
             Ok(None)
         })();
         if matches!(&result, Ok(None)) {
-            self.copy_transfer = Some(transfer);
+            self.copy_transfer = Some(t)
         } else {
-            let _ = self.conn.destroy_window(transfer.owner);
+            self.release_all();
+            let _ = self.conn.destroy_window(t.owner);
             let _ = self.conn.flush();
         }
         result

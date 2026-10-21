@@ -5,6 +5,8 @@ struct ControllerInputSmoke {
     static func main() {
         _ = NSApplication.shared
         verifyShortcutRelease()
+        verifyCut()
+        try! verifyClipboardBundles()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
         var messages: [[String: Any]] = []
@@ -156,5 +158,35 @@ struct ControllerInputSmoke {
         surface.keyDown(with: event(.keyDown, 7, [.command]))
         precondition(held.isEmpty, "an intercepted Command shortcut releases any earlier physical chord")
         print("PASS: Command shortcuts, repeat and select-all/cut cannot strand remote keys when AppKit omits keyUp")
+    }
+
+    private static func verifyCut() {
+        let surface = SurfaceView(frame: .zero)
+        surface.remoteID = 42
+        var messages: [[String: Any]] = []
+        surface.transmit = { messages.append($0) }
+        surface.readControllerClipboard = { preconditionFailure("cut never reads the controller clipboard") }
+        surface.cut(nil)
+        precondition(messages.isEmpty, "old agents without clipboard.cut never receive a raw destructive fallback")
+        surface.controllerCutEnabled = true
+        surface.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7)!
+        surface.keyDown(with: down)
+        precondition(!surface.hasMarkedText() && messages.count == 1)
+        precondition(messages[0]["type"] as? String == "clipboard.cut" && messages[0]["window_id"] as? UInt32 == 42)
+        let first = messages[0]["request_id"] as! String
+        let repeated = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: true, keyCode: 7)!
+        surface.keyDown(with: repeated)
+        precondition(messages.count == 1, "holding Command+X cannot queue repeated destructive clipboard requests")
+        surface.cut(nil)
+        precondition(messages.count == 2 && messages[1]["request_id"] as? String != first,
+                     "the edit menu and Command+X use explicit, uniquely correlated cut requests")
+        var deferredPastes = 0
+        surface.requestControllerPaste = { deferredPastes += 1 }
+        surface.paste(nil)
+        precondition(deferredPastes == 1 && messages.count == 2, "paste intent can wait for copy/cut without reading stale clipboard contents")
+        print("PASS: Command+X/menu cut uses negotiated clipboard.cut without raw key fallback or controller clipboard reads")
     }
 }

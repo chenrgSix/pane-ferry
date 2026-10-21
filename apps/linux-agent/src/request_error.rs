@@ -11,6 +11,7 @@ pub fn code(message: &str) -> &'static str {
         }
         "session already controlled" => "session_controlled",
         "request id conflict" => "request_id_conflict",
+        "terminal clipboard cut unavailable" => "clipboard_cut_unavailable",
         "app not approved" => "app_not_approved",
         "desktop application unavailable" => "desktop_application_unavailable",
         "application discovery unavailable" => "application_discovery_unavailable",
@@ -36,6 +37,10 @@ mod tests {
         assert_eq!(code("session expired"), "session_expired");
         assert_eq!(code("session already controlled"), "session_controlled");
         assert_eq!(code("unknown window"), "window_unavailable");
+        assert_eq!(
+            code("terminal clipboard cut unavailable"),
+            "clipboard_cut_unavailable"
+        );
         assert_eq!(code("unanticipated private details"), "request_failed");
     }
 }

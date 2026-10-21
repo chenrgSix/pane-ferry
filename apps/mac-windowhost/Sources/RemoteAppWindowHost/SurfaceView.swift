@@ -12,6 +12,8 @@ final class SurfaceView: NSView, NSTextInputClient {
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
     var controllerCopyEnabled = true
+    var controllerCutEnabled = false
+    var requestControllerPaste: (() -> Void)?
     var readControllerClipboard: () -> String? = { NSPasteboard.general.string(forType: .string) }
     private var markedText = NSAttributedString(string: "")
     private var markedSelection = NSRange(location: 0, length: 0)
@@ -88,9 +90,10 @@ final class SurfaceView: NSView, NSTextInputClient {
             let command = event.modifierFlags.contains(.command)
             if command { releaseKeyboard() }
             defer { if command { releaseKeyboard() } }
+            if command && event.isARepeat && [7, 8].contains(event.keyCode) { return }
             if event.keyCode == 9 { paste(nil); return }
             if event.modifierFlags.contains(.command) && event.keyCode == 8 { copy(nil); return }
-            if event.modifierFlags.contains(.command) && event.keyCode == 7 { NSSound.beep(); return }
+            if event.modifierFlags.contains(.command) && event.keyCode == 7 { cut(nil); return }
             rawKeyDown(event); return
         }
         commandEvent = event
@@ -142,6 +145,9 @@ final class SurfaceView: NSView, NSTextInputClient {
         return window?.convertToScreen(rect) ?? .zero
     }
     @objc func paste(_ sender: Any?) {
+        if let request = requestControllerPaste {
+            inputContext?.discardMarkedText(); unmarkText(); releaseKeyboard(); request(); return
+        }
         guard controllerPasteEnabled, let text = readControllerClipboard(), !text.isEmpty,
               text.utf8.count <= controllerTextLimit, !text.contains("\0") else { NSSound.beep(); return }
         inputContext?.discardMarkedText(); unmarkText(); releaseKeyboard()
@@ -151,6 +157,12 @@ final class SurfaceView: NSView, NSTextInputClient {
         guard controllerCopyEnabled else { NSSound.beep(); return }
         releaseKeyboard()
         transmit?(["type": "clipboard.copy", "window_id": remoteID, "request_id": UUID().uuidString])
+    }
+    @objc func cut(_ sender: Any?) {
+        releaseKeyboard()
+        guard controllerCutEnabled else { NSSound.beep(); return }
+        inputContext?.discardMarkedText(); unmarkText()
+        transmit?(["type": "clipboard.cut", "window_id": remoteID, "request_id": UUID().uuidString])
     }
     private func syncModifiers(_ flags: NSEvent.ModifierFlags) {
         var target = Set<UInt32>()

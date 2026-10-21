@@ -9,3 +9,4 @@ x11rb.workspace = true
 remoteapp-protocol = {path="../protocol"}
 remoteapp-capture = {path="../capture"}
 png.workspace = true
+serde_json.workspace = true

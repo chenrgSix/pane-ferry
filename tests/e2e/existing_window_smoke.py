@@ -167,6 +167,8 @@ try:
         assert [w['window_id'] for w in snapshot['windows']] == [ids[target.pid]], snapshot
         frame = peer.until('frame')
         assert base64.b64decode(frame['png']).startswith(b'\x89PNG\r\n\x1a\n')
+        peer.send(type='clipboard.cut', window_id=ids[target.pid], request_id='terminal-cut')
+        assert peer.until('error')['code'] == 'clipboard_cut_unavailable'
         peer.send(type='window.focus', window_id=ids[other.pid])
         peer.until('error')
         # Hovering a forwarded surface must not repeatedly activate the remote
@@ -211,6 +213,15 @@ try:
             copied = peer.until('clipboard.data')
             assert copied['request_id'] == 'explicit-copy' and copied['window_id'] == editor_window
             assert copied['text'] == expected, copied
+            peer.send(type='clipboard.cut', window_id=editor_window, request_id='explicit-cut')
+            cut = peer.until('clipboard.data')
+            assert cut['request_id'] == 'explicit-cut' and cut['window_id'] == editor_window
+            assert cut['text'] == expected, cut
+            wait_for(lambda: editor_state.read_text() == '', 'native cut removes exactly the copied selection')
+            time.sleep(1.1)
+            assert editor_state.read_text() == '', 'cut must not leave an autorepeating physical key'
+            peer.send(type='clipboard.cut', window_id=editor_window, request_id='empty-cut')
+            assert peer.until('error')['code'] == 'clipboard_cut_failed'
             # Replace the selection with a multiline controller clipboard payload.
             peer.send(type='clipboard.paste', window_id=editor_window, text='第一行\nsecond 🙂')
             wait_for(lambda: editor_state.read_text() == '第一行\nsecond 🙂', 'multiline Unicode paste')
@@ -220,6 +231,18 @@ try:
             assert peer.until('error')['code'] == 'clipboard_copy_failed'
             peer.send(type='clipboard.paste', window_id=editor_window, text='/after-timeout')
             wait_for(lambda: editor_state.read_text() == '第一行\nsecond 🙂/after-timeout', 'input resumes after failed copy')
+            select_all()
+            peer.send(type='clipboard.paste', window_id=editor_window, text='大' * 2000)
+            peer.send(type='input.text.commit', window_id=editor_window, text='大' * 1000)
+            oversized = '大' * 3000
+            wait_for(lambda: editor_state.read_text() == oversized, 'oversized selection fixture')
+            select_all()
+            peer.send(type='clipboard.cut', window_id=editor_window, request_id='oversized-cut')
+            rejected_cut = peer.until('error')
+            assert rejected_cut['code'] == 'clipboard_cut_failed', rejected_cut
+            assert editor_state.read_text() == oversized, 'oversized cut must fail before deleting selected text'
+            peer.send(type='clipboard.paste', window_id=editor_window, text='剪切失败后继续输入🙂')
+            wait_for(lambda: editor_state.read_text() == '剪切失败后继续输入🙂', 'paste resumes after rejected cut')
             peer.close()
         agent.terminate()
         assert agent.wait(timeout=10) == 0
@@ -235,6 +258,7 @@ try:
         print('PASS: process-scoped capture/input, unrelated-window rejection, executable verification, session reuse, existing processes survive Agent restart')
         if editor:
             print('PASS: ordered controller Unicode commit, explicit clipboard paste/copy, multiline UTF-8 round trip, no-selection copy rejection and recovery')
+            print('PASS: UTF-8 native cut, no autorepeat, empty/oversized cut rejection without deletion and recovery; terminal cut rejected')
 finally:
     for child in reversed(children):
         if child.poll() is None:

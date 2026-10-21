@@ -131,6 +131,10 @@ mod tests {
                 window_id: 1,
                 text: "explicit".into(),
             },
+            Request::Cut {
+                window_id: 1,
+                request_id: "cut".into(),
+            },
             Request::Text {
                 window_id: 2,
                 text: "other".into(),

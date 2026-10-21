@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
+pub mod clipboard;
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 8_000_000;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
@@ -71,6 +72,17 @@ pub enum Request {
     Paste { window_id: u32, text: String },
     #[serde(rename = "clipboard.copy")]
     Copy { window_id: u32, request_id: String },
+    #[serde(rename = "clipboard.paste.bundle")]
+    PasteBundle { window_id: u32, transfer_id: String },
+    #[serde(rename = "clipboard.copy.bundle")]
+    CopyBundle {
+        window_id: u32,
+        request_id: String,
+        #[serde(default)]
+        cut: bool,
+    },
+    #[serde(rename = "clipboard.cut")]
+    Cut { window_id: u32, request_id: String },
 }
 fn attach_by_default() -> bool {
     true
@@ -101,9 +113,17 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
     if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
         validate_text(text)?;
     }
-    if let Request::Copy { request_id, .. } = &request {
+    if let Request::Copy { request_id, .. }
+    | Request::Cut { request_id, .. }
+    | Request::CopyBundle { request_id, .. } = &request
+    {
         if !identifier(request_id) {
-            bail!("invalid copy request id")
+            bail!("invalid clipboard request id")
+        }
+    }
+    if let Request::PasteBundle { transfer_id, .. } = &request {
+        if !identifier(transfer_id) {
+            bail!("invalid clipboard transfer id")
         }
     }
     Ok(request)
@@ -283,6 +303,18 @@ mod tests {
         assert!(parse_request(&serde_json::to_vec(&request).unwrap()).is_err());
     }
     #[test]
+    fn rich_clipboard_references_are_scoped_identifiers() {
+        assert!(parse_request(
+            br#"{"type":"clipboard.paste.bundle","version":1,"window_id":1,"transfer_id":"a1b2"}"#
+        )
+        .is_ok());
+        assert!(parse_request(br#"{"type":"clipboard.copy.bundle","version":1,"window_id":1,"request_id":"copy-1","cut":true}"#).is_ok());
+        for id in ["../file", "a;id", "", "/absolute"] {
+            let message = serde_json::json!({"type":"clipboard.paste.bundle","version":1,"window_id":1,"transfer_id":id});
+            assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_err());
+        }
+    }
+    #[test]
     fn controller_text_and_explicit_copy_are_bounded() {
         for kind in ["input.text.commit", "clipboard.paste"] {
             let message = serde_json::json!({"type":kind,"version":1,"window_id":1,"text":"中文🙂\ncontroller"});
@@ -293,10 +325,15 @@ mod tests {
                 assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_err());
             }
         }
-        assert!(parse_request(
-            br#"{"type":"clipboard.copy","version":1,"window_id":1,"request_id":"copy-1"}"#
-        )
-        .is_ok());
+        for kind in ["clipboard.copy", "clipboard.cut"] {
+            let message = serde_json::json!({"type":kind,"version":1,"window_id":1,"request_id":"clipboard-1"});
+            assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_ok());
+            for id in [String::new(), "a/b".into(), "x".repeat(129)] {
+                let message =
+                    serde_json::json!({"type":kind,"version":1,"window_id":1,"request_id":id});
+                assert!(parse_request(&serde_json::to_vec(&message).unwrap()).is_err());
+            }
+        }
         assert!(parse_request(br#"{"type":"clipboard.read","version":1}"#).is_err());
     }
 }

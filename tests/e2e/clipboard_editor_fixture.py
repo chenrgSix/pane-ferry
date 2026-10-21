@@ -19,7 +19,9 @@ def changed(buf):
         import time
         pathlib.Path(sys.argv[3]).write_text(json.dumps(dict(text=text, received=time.monotonic())))
 buffer.connect('changed', changed)
-window.add(view)
+scroll = Gtk.ScrolledWindow()
+scroll.add(view)
+window.add(scroll)
 window.connect('destroy', Gtk.main_quit)
 window.show_all()
 view.grab_focus()

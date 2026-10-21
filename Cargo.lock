@@ -273,6 +273,7 @@ dependencies = [
  "png",
  "remoteapp-capture",
  "remoteapp-protocol",
+ "serde_json",
  "x11rb",
 ]
 
