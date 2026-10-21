@@ -7,6 +7,7 @@
 apps/launcher/src-tauri/gen/
 apps/launcher/src-tauri/resources/RemoteAppWindowHost
 apps/launcher/src-tauri/resources/RemoteAppWindowHost.app/
+apps/launcher/src-tauri/resources/RemoteAppNode.app/
 .DS_Store
 .env
 .env.*

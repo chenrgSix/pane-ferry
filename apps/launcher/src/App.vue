@@ -43,6 +43,33 @@ try {
   storage = localStorage;
 } catch {}
 const attempts = new PendingLaunches(storage);
+type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}; routes?:{endpoint:string; state:string}[]};
+const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
+const devices=ref<Endpoint[]>([]);
+try { const values=JSON.parse(storage?.getItem("lan-remoteapp.devices") || "[]");
+  if(Array.isArray(values)) devices.value=values.filter(v=>typeof v.host==="string" && typeof v.user==="string" && Number.isInteger(v.port)).slice(0,128);
+} catch {}
+async function readLocal() {
+  try {localNode.value=await invoke<LocalNode>("local_node_info"); localWarning.value="";} catch {localWarning.value="本机共享组件尚未就绪。";}
+}
+async function offerDevice(sent={...endpoint.value}) {
+  if (!localNode.value?.sharing_enabled || !sent.host || !sent.user) return;
+  try {await invoke("share_to_device",{endpoint:sent});await readLocal();}
+  catch {localWarning.value="返回通道尚未就绪，请确认 Ubuntu 已升级后重新连接。";}
+}
+async function toggleSharing() {
+  localBusy.value=true;
+  try {localNode.value=await invoke<LocalNode>("set_local_sharing",{enabled:!localNode.value?.sharing_enabled});
+    if(localNode.value.sharing_enabled) for(const device of devices.value) await offerDevice({...device});
+  } catch {localWarning.value="共享状态未能更新，请重试。";} finally {localBusy.value=false;}
+}
+async function requestPermissions() {
+  localBusy.value=true;
+  try {localNode.value=await invoke<LocalNode>("request_local_permissions");}
+  catch {localWarning.value="请在 macOS 系统设置中允许 LAN RemoteApp 的录屏与辅助功能。";}
+  finally {localBusy.value=false;}
+}
+let localTimer:ReturnType<typeof setInterval>|undefined;
 const catalogCache = new CatalogCache(storage);
 const filtered = computed(() =>
   apps.value.filter((a) =>
@@ -88,6 +115,12 @@ function save() {
       JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value }),
     );
   } catch {}
+}
+function rememberDevice(sent:Endpoint) {
+  if(!devices.value.some(d=>endpointKey(d)===endpointKey(sent))) devices.value.push({...sent});
+  devices.value=devices.value.slice(-128);
+  try{storage?.setItem("lan-remoteapp.devices",JSON.stringify(devices.value));}catch{}
+  void offerDevice({...sent});
 }
 try {
   const s = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
@@ -169,6 +202,7 @@ async function load(refreshApps = false) {
     if (catalog.status === "rejected" && requestFailure(catalog.reason).kind === "authentication_required") loginNeeded.value = true;
     error.value = failures.join(" ");
     save();
+    if(catalog.status==="fulfilled") rememberDevice(sent);
   } finally {
     busy.value = false;
   }
@@ -322,9 +356,12 @@ onMounted(() => {
   window.addEventListener("online", onOnline);
   restoreCatalog();
   if (valid.value) void load();
+  void readLocal().then(()=> { for(const device of devices.value) void offerDevice({...device}); });
+  localTimer=setInterval(()=> {void readLocal();},5000);
 });
 onUnmounted(() => {
   disposed = true; runtimeRevision++; stopRetry();
+  if(localTimer) clearInterval(localTimer);
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onOnline);
 });
@@ -338,7 +375,7 @@ onUnmounted(() => {
       <div class="nav">▦　应用工作台</div>
       <div class="aside-bottom">
         ● 本地网络 · 加密连接
-        <p>计算留在 Linux<br />窗口来到 Mac</p>
+        <p>应用留在原设备<br />窗口来到当前桌面</p>
         <small>开发预览 0.1.0</small>
       </div>
     </aside>
@@ -347,15 +384,27 @@ onUnmounted(() => {
         <div>
           <div class="eyebrow">YOUR APPS, A DIFFERENT DESKTOP</div>
           <h1>让工作跨越桌面</h1>
-          <p>连接你的 Ubuntu，查看已安装应用和运行中的窗口。</p>
+          <p>共享本机应用，同时使用其他设备的应用。</p>
         </div>
         <span class="badge">SSH 安全传输</span>
       </header>
+      <section class="connection">
+        <div class="section-title"><h2><span>本机应用共享</span></h2>
+          <button :disabled="localBusy || !localNode" @click="toggleSharing">{{localNode?.sharing_enabled ? "停止共享" : "开启共享"}}</button></div>
+        <p class="hint">{{localNode?.name || "Mac"}} · {{localNode?.sharing_enabled ? "已开启，已连接的 Ubuntu 可读取本机应用" : "未开启"}}。本机应用继续显示在 Mac 桌面；收到的远程应用不会再次发布。</p>
+        <p v-if="localNode && (!localNode.permissions.screen_recording || !localNode.permissions.accessibility)" class="hint">
+          {{!localNode.permissions.screen_recording ? "需要录屏权限。" : ""}} {{!localNode.permissions.accessibility ? "需要辅助功能权限。" : ""}}
+          <button :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button>
+        </p>
+        <p v-for="route in localNode?.routes || []" :key="route.endpoint" class="hint">{{JSON.parse(route.endpoint).host}} · {{route.state}}</p>
+        <p v-if="localWarning" class="alert error">{{localWarning}}</p>
+      </section>
       <section class="connection">
         <div class="section-title">
           <h2>01 <span>连接主机</span></h2>
           <span>连接配置由本机服务保存</span>
         </div>
+        <label v-if="devices.length">已保存设备 <select :value="signature()" :disabled="busy" @change="endpoint={...devices.find(d=>endpointKey(d)===($event.target as HTMLSelectElement).value)!}"><option v-for="device in devices" :key="endpointKey(device)" :value="endpointKey(device)">{{device.user}}@{{device.host}}:{{device.port}}</option></select></label>
         <div class="fields">
           <label
             >主机 IP / DNS<input
@@ -488,7 +537,7 @@ onUnmounted(() => {
         <p class="hint">请以实际窗口确认连接成功。</p>
       </section>
       <footer>
-        Linux 负责运行 · macOS 负责呈现
+        一套软件 · 双向应用共享
         <span>剪贴板按需传输 · 不做后台同步</span>
       </footer>
     </main>

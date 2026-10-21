@@ -8,8 +8,28 @@ use std::{
 };
 use tauri::Manager;
 mod credential_store;
+mod local_node;
 mod ssh_login;
 mod window_host;
+#[tauri::command]
+async fn local_node_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    local_node::info(&app)
+}
+#[tauri::command]
+async fn set_local_sharing(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<serde_json::Value, String> {
+    local_node::sharing(&app, enabled)
+}
+#[tauri::command]
+async fn request_local_permissions(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    local_node::permissions(&app)
+}
+#[tauri::command]
+async fn share_to_device(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
+    local_node::offer(&app, &endpoint, &native_host(&app)?)
+}
 #[derive(Serialize)]
 struct LaunchResult {
     session_id: Option<String>,
@@ -260,11 +280,18 @@ async fn launch_app(
 }
 fn main() {
     tauri::Builder::default()
+        .manage(local_node::LocalNode::default())
         .setup(|app| {
             if let Ok(path) = native_host(app.handle()) {
                 transport::set_password_helper(path);
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             list_apps,
@@ -273,8 +300,21 @@ fn main() {
             launch_app,
             resume_session,
             open_ssh_login,
-            save_ssh_password
+            save_ssh_password,
+            local_node_info,
+            set_local_sharing,
+            request_local_permissions,
+            share_to_device
         ])
-        .run(tauri::generate_context!())
-        .expect("launcher startup failed");
+        .build(tauri::generate_context!())
+        .expect("launcher startup failed")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

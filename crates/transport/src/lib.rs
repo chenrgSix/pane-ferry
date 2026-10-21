@@ -117,6 +117,10 @@ pub enum Error {
 }
 pub fn remote_error_message(code: &str) -> String {
     match code {
+        "sharing_disabled" => "对方已停止本机共享，应用仍在原设备运行。".into(),
+        "screen_recording_required" => "请在 Mac 允许 LAN RemoteApp 的录屏权限。".into(),
+        "accessibility_required" => "请在 Mac 允许 LAN RemoteApp 的辅助功能权限。".into(),
+        "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
         "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
         "existing_window_unavailable" => {
@@ -239,7 +243,7 @@ impl Endpoint {
     pub fn ssh_args(&self) -> Result<Vec<String>, Error> {
         self.ssh_args_with_password(false)
     }
-    fn ssh_args_with_password(&self, password: bool) -> Result<Vec<String>, Error> {
+    pub fn ssh_args_with_password(&self, password: bool) -> Result<Vec<String>, Error> {
         self.validate()?;
         let mut args = SSH_OPTIONS
             .iter()
@@ -270,6 +274,76 @@ impl Endpoint {
         ]);
         Ok(args)
     }
+}
+pub async fn node_info(endpoint: &Endpoint) -> Result<Value, Error> {
+    request(
+        endpoint,
+        json!({"type":"node.info","version":1}),
+        "node.info",
+    )
+    .await
+}
+pub async fn prepare_peer(endpoint: &Endpoint, device_id: &str) -> Result<Value, Error> {
+    if uuid::Uuid::parse_str(device_id).is_err() {
+        return Err(Error::Invalid("设备身份无效。"));
+    }
+    request(
+        endpoint,
+        json!({"type":"peer.prepare","version":1,"device_id":device_id}),
+        "peer.prepared",
+    )
+    .await
+}
+/// A dedicated SSH process owns exactly one return route. It never modifies or
+/// terminates a shared login master, or exposes a network listening port.
+pub fn reverse_args(
+    endpoint: &Endpoint,
+    password: bool,
+    remote: &str,
+    local: &str,
+) -> Result<Vec<String>, Error> {
+    if !remote.starts_with('/')
+        || remote.len() > 100
+        || remote.contains("..")
+        || !remote
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"/-_.".contains(&c))
+        || !remote.ends_with(".sock")
+        || !local.starts_with('/')
+        || local.contains(['\0', '\n', '\r', ':'])
+    {
+        return Err(Error::Invalid("返回通道地址无效。"));
+    }
+    let mut args = endpoint.ssh_args_with_password(password)?;
+    let destination = args.len() - 7;
+    let trailing = args.split_off(destination);
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "-S" {
+            args[index + 1] = "none".into();
+            index += 2;
+            continue;
+        }
+        if args[index].starts_with("-oControlMaster=")
+            || args[index].starts_with("-oControlPersist=")
+            || args[index] == "-oClearAllForwardings=yes"
+        {
+            args.remove(index);
+            continue;
+        };
+        index += 1;
+    }
+    args.extend([
+        "-oControlMaster=no".into(),
+        "-oControlPersist=no".into(),
+        "-oExitOnForwardFailure=yes".into(),
+        "-oStreamLocalBindMask=0177".into(),
+        "-R".into(),
+        format!("{remote}:{local}"),
+    ]);
+    args.extend(trailing);
+    *args.last_mut().ok_or(Error::Protocol)? = ".local/bin/remoteapp-agent peer-hold".into();
+    Ok(args)
 }
 pub fn validate_id(id: &str) -> Result<(), Error> {
     if id.is_empty()
@@ -568,6 +642,38 @@ fn parse_started(value: Value) -> Result<Started, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reverse_routes_have_dedicated_ownership_without_changing_shared_logins() {
+        let endpoint = Endpoint {
+            host: "ubuntu".into(),
+            user: "alice".into(),
+            port: 22,
+        };
+        let args = reverse_args(
+            &endpoint,
+            true,
+            "/home/alice/peers/p123.sock",
+            "/Users/alice/Application Support/node.sock",
+        )
+        .unwrap();
+        assert_eq!(
+            &args[args.iter().position(|v| v == "-S").unwrap() + 1],
+            "none"
+        );
+        assert!(args.contains(&"-oControlMaster=no".into()));
+        assert!(!args
+            .iter()
+            .any(|v| v == "-oControlMaster=auto" || v == "-oClearAllForwardings=yes"));
+        assert_eq!(args.last().unwrap(), ".local/bin/remoteapp-agent peer-hold");
+        for remote in [
+            "relative.sock",
+            "/tmp/../a.sock",
+            "/tmp/a;id.sock",
+            "/tmp/line\n.sock",
+        ] {
+            assert!(reverse_args(&endpoint, true, remote, "/Users/alice/node.sock").is_err());
+        }
+    }
     #[test]
     fn accepts_bounded_png_icons_and_rejects_active_or_oversized_data() {
         let mut header = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();

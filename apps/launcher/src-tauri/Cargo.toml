@@ -12,6 +12,7 @@ serde_json = "1"
 plist = "1"
 sha2 = "0.10"
 remoteapp-transport = { path = "../../../crates/transport" }
+tokio = { version = "1", features = ["process", "io-util", "time"] }
 
 # macOS 27 rejects misaligned dylibs produced by affected Rust strip paths.
 # Keep host build tools/proc macros intact; the application remains optimized.
