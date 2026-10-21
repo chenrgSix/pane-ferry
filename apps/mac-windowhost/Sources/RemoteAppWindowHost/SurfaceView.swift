@@ -83,6 +83,11 @@ final class SurfaceView: NSView, NSTextInputClient {
     override func keyDown(with event: NSEvent) {
         let shortcut = event.modifierFlags.intersection([.command, .control])
         if !shortcut.isEmpty {
+            // AppKit can swallow keyUp while Command is held. Complete each
+            // Command shortcut here; local repeat events supply further strokes.
+            let command = event.modifierFlags.contains(.command)
+            if command { releaseKeyboard() }
+            defer { if command { releaseKeyboard() } }
             if event.keyCode == 9 { paste(nil); return }
             if event.modifierFlags.contains(.command) && event.keyCode == 8 { copy(nil); return }
             if event.modifierFlags.contains(.command) && event.keyCode == 7 { NSSound.beep(); return }

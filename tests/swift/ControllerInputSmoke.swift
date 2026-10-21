@@ -4,6 +4,7 @@ import AppKit
 struct ControllerInputSmoke {
     static func main() {
         _ = NSApplication.shared
+        verifyShortcutRelease()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
         var messages: [[String: Any]] = []
@@ -106,5 +107,54 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close disconnects once without a remote close request; remote destruction stays local")
+    }
+
+    private static func verifyShortcutRelease() {
+        let surface = SurfaceView(frame: .zero)
+        surface.remoteID = 42
+        var held = Set<UInt32>()
+        var presses: [UInt32] = []
+        var messages: [[String: Any]] = []
+        surface.transmit = { message in
+            messages.append(message)
+            guard message["type"] as? String == "input.key", let symbol = message["keysym"] as? UInt32 else { return }
+            if message["pressed"] as? Bool == true {
+                if symbol == 0x61 { precondition(held.contains(0xffe3), "select-all never becomes an unmodified A") }
+                held.insert(symbol); presses.append(symbol)
+            } else {
+                if symbol == 0xffe3 { precondition(!held.contains(0x61), "A is released before Ctrl to prevent unmodified autorepeat") }
+                held.remove(symbol)
+            }
+        }
+        func event(_ type: NSEvent.EventType, _ code: UInt16, _ flags: NSEvent.ModifierFlags, repeat repeating: Bool = false) -> NSEvent {
+            NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: repeating, keyCode: code)!
+        }
+        // AppKit can omit the letter's keyUp for a Command shortcut. The remote
+        // X server must never retain a key that can autorepeat after Ctrl drops.
+        surface.keyDown(with: event(.keyDown, 0, [.command]))
+        precondition(presses.contains(0x61) && held.isEmpty, "Command+A completes without depending on A keyUp")
+        surface.keyDown(with: event(.keyDown, 0, [.command], repeat: true))
+        precondition(presses.filter { $0 == 0x61 }.count == 2 && held.isEmpty, "controller repeat produces one complete shortcut per event")
+        surface.keyDown(with: event(.keyDown, 7, [.command]))
+        surface.flagsChanged(with: event(.flagsChanged, 55, []))
+        precondition(held.isEmpty && !messages.contains { $0["type"] as? String == "input.text.commit" },
+                     "select-all followed by unsupported cut cannot leave A repeating")
+        let beforeOrphanRelease = messages.count
+        surface.keyUp(with: event(.keyUp, 0, []))
+        precondition(messages.count == beforeOrphanRelease, "a delayed Command keyUp does not emit unmatched releases")
+        surface.keyDown(with: event(.keyDown, 123, [.command, .shift]))
+        precondition(presses.contains(0xff51) && held.isEmpty, "multi-modifier Command shortcuts release the navigation key and all modifiers")
+        surface.keyDown(with: event(.keyDown, 123, [.control]))
+        precondition(held == [0xffe3, 0xff51], "Control navigation retains its physical down/up lifecycle")
+        surface.keyUp(with: event(.keyUp, 123, [.control]))
+        precondition(held.isEmpty, "physical keyUp releases Control navigation")
+        surface.keyDown(with: event(.keyDown, 123, [.control]))
+        surface.releaseInput()
+        precondition(held.isEmpty, "focus loss still releases physical keys")
+        surface.keyDown(with: event(.keyDown, 0, [.control]))
+        surface.keyDown(with: event(.keyDown, 7, [.command]))
+        precondition(held.isEmpty, "an intercepted Command shortcut releases any earlier physical chord")
+        print("PASS: Command shortcuts, repeat and select-all/cut cannot strand remote keys when AppKit omits keyUp")
     }
 }
