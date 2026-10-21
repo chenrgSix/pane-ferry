@@ -1,0 +1,1573 @@
+{
+  "date": "2026-10-21",
+  "baseline_revision": "30309a3",
+  "optimized_revision": "31db3a5",
+  "host": "10.0.1.66",
+  "route": "utun4",
+  "endpoint": "SurfaceView input handler -> AppKit draw completion",
+  "sample_count": 720,
+  "excluded_warmups": 48,
+  "pooled": {
+    "2940-animated": {
+      "baseline": {
+        "samples": 90,
+        "total_ms": {
+          "mean": 164.98,
+          "median": 163.04,
+          "p95": 218.65,
+          "min": 103.7,
+          "max": 301.61
+        }
+      },
+      "optimized": {
+        "samples": 90,
+        "total_ms": {
+          "mean": 127.71,
+          "median": 115.37,
+          "p95": 180.25,
+          "min": 64.82,
+          "max": 667.71
+        }
+      }
+    },
+    "2560-animated": {
+      "baseline": {
+        "samples": 180,
+        "total_ms": {
+          "mean": 151.68,
+          "median": 141.46,
+          "p95": 226.44,
+          "min": 88.44,
+          "max": 616.16
+        }
+      },
+      "optimized": {
+        "samples": 180,
+        "total_ms": {
+          "mean": 125.94,
+          "median": 100.21,
+          "p95": 244.75,
+          "min": 61.32,
+          "max": 324.6
+        }
+      }
+    },
+    "2560-idle": {
+      "baseline": {
+        "samples": 90,
+        "total_ms": {
+          "mean": 147.16,
+          "median": 125.56,
+          "p95": 254.17,
+          "min": 78.24,
+          "max": 1117.95
+        }
+      },
+      "optimized": {
+        "samples": 90,
+        "total_ms": {
+          "mean": 85.27,
+          "median": 79.72,
+          "p95": 111.1,
+          "min": 57.79,
+          "max": 372.6
+        }
+      }
+    }
+  },
+  "runs": {
+    "baseline-2940-animated": {
+      "host": "10.0.1.66",
+      "width": 2940,
+      "height": 1612,
+      "animated": true,
+      "measured_at": "2026-10-21T12:22:27+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "controller_input": {
+          "mean": 0.22,
+          "median": 0.2,
+          "p95": 0.37,
+          "min": 0.09,
+          "max": 0.69
+        },
+        "encode": {
+          "mean": 46.21,
+          "median": 44.17,
+          "p95": 62.95,
+          "min": 36.08,
+          "max": 78.67
+        },
+        "main_queue": {
+          "mean": 7.89,
+          "median": 7.25,
+          "p95": 15.9,
+          "min": 0.06,
+          "max": 17.27
+        },
+        "encoder_queue": {
+          "mean": 16.89,
+          "median": 14.26,
+          "p95": 36.06,
+          "min": 0.01,
+          "max": 54.03
+        },
+        "response_to_capture": {
+          "mean": 45.88,
+          "median": 38.96,
+          "p95": 80.7,
+          "min": 17.37,
+          "max": 126.01
+        },
+        "ssh_network": {
+          "mean": 27.49,
+          "median": 23.0,
+          "p95": 60.44,
+          "min": 6.36,
+          "max": 149.27
+        },
+        "app_render": {
+          "mean": 4.9,
+          "median": 4.17,
+          "p95": 12.35,
+          "min": 1.77,
+          "max": 14.94
+        },
+        "capture_wait": {
+          "mean": 30.56,
+          "median": 25.9,
+          "p95": 66.29,
+          "min": 7.49,
+          "max": 110.53
+        },
+        "decode": {
+          "mean": 13.36,
+          "median": 13.1,
+          "p95": 17.36,
+          "min": 8.38,
+          "max": 19.14
+        },
+        "server_prepare": {
+          "mean": 0.1,
+          "median": 0.0,
+          "p95": 0.91,
+          "min": 0.0,
+          "max": 1.94
+        },
+        "draw": {
+          "mean": 1.46,
+          "median": 1.39,
+          "p95": 2.25,
+          "min": 0.62,
+          "max": 2.6
+        },
+        "x11_delivery": {
+          "mean": 2.79,
+          "median": 0.79,
+          "p95": 10.87,
+          "min": 0.22,
+          "max": 23.39
+        },
+        "total": {
+          "mean": 164.98,
+          "median": 163.04,
+          "p95": 218.65,
+          "min": 103.7,
+          "max": 301.61
+        },
+        "capture": {
+          "mean": 10.41,
+          "median": 9.96,
+          "p95": 16.24,
+          "min": 5.32,
+          "max": 26.91
+        },
+        "agent_input_queue": {
+          "mean": 2.71,
+          "median": 0.04,
+          "p95": 12.69,
+          "min": 0.02,
+          "max": 18.69
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 161.04,
+          "median": 159.28,
+          "p95": 209.12,
+          "min": 103.7,
+          "max": 274.96
+        },
+        "text": {
+          "mean": 171.01,
+          "median": 166.76,
+          "p95": 228.97,
+          "min": 109.95,
+          "max": 301.61
+        },
+        "pointer": {
+          "mean": 162.88,
+          "median": 163.26,
+          "p95": 199.42,
+          "min": 117.44,
+          "max": 218.65
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 5.72,
+          "median": 3.86,
+          "p95": 16.47,
+          "min": 0.49,
+          "max": 23.51
+        },
+        "remote_capture": {
+          "mean": 45.88,
+          "median": 38.96,
+          "p95": 80.7,
+          "min": 17.37,
+          "max": 126.01
+        },
+        "remote_encode": {
+          "mean": 63.19,
+          "median": 62.23,
+          "p95": 85.0,
+          "min": 37.41,
+          "max": 112.45
+        },
+        "transport": {
+          "mean": 27.49,
+          "median": 23.0,
+          "p95": 60.44,
+          "min": 6.36,
+          "max": 149.27
+        },
+        "mac": {
+          "mean": 22.7,
+          "median": 22.58,
+          "p95": 33.64,
+          "min": 10.97,
+          "max": 35.26
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 4518.26,
+        "median": 1251.0,
+        "p95": 1397,
+        "min": 625,
+        "max": 301276
+      }
+    },
+    "optimized-2940-animated": {
+      "host": "10.0.1.66",
+      "width": 2940,
+      "height": 1612,
+      "animated": true,
+      "measured_at": "2026-10-21T12:23:03+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "encode": {
+          "mean": 30.57,
+          "median": 29.11,
+          "p95": 39.28,
+          "min": 26.0,
+          "max": 43.55
+        },
+        "total": {
+          "mean": 127.71,
+          "median": 115.37,
+          "p95": 180.25,
+          "min": 64.82,
+          "max": 667.71
+        },
+        "server_prepare": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.01,
+          "min": 0.0,
+          "max": 0.01
+        },
+        "x11_delivery": {
+          "mean": 2.56,
+          "median": 1.12,
+          "p95": 9.21,
+          "min": 0.21,
+          "max": 13.84
+        },
+        "agent_input_queue": {
+          "mean": 0.66,
+          "median": 0.05,
+          "p95": 4.18,
+          "min": 0.02,
+          "max": 7.09
+        },
+        "controller_input": {
+          "mean": 0.25,
+          "median": 0.18,
+          "p95": 0.73,
+          "min": 0.07,
+          "max": 1.66
+        },
+        "decode": {
+          "mean": 12.4,
+          "median": 11.98,
+          "p95": 16.68,
+          "min": 8.08,
+          "max": 21.13
+        },
+        "response_to_capture": {
+          "mean": 30.48,
+          "median": 28.49,
+          "p95": 55.37,
+          "min": 9.96,
+          "max": 64.76
+        },
+        "draw": {
+          "mean": 1.63,
+          "median": 1.3,
+          "p95": 2.14,
+          "min": 0.62,
+          "max": 14.14
+        },
+        "ssh_network": {
+          "mean": 40.71,
+          "median": 24.55,
+          "p95": 90.62,
+          "min": 7.84,
+          "max": 581.91
+        },
+        "encoder_queue": {
+          "mean": 2.71,
+          "median": 0.02,
+          "p95": 15.77,
+          "min": 0.01,
+          "max": 32.32
+        },
+        "capture_wait": {
+          "mean": 19.52,
+          "median": 15.51,
+          "p95": 39.34,
+          "min": 4.85,
+          "max": 59.32
+        },
+        "main_queue": {
+          "mean": 5.74,
+          "median": 4.24,
+          "p95": 14.91,
+          "min": 0.05,
+          "max": 16.48
+        },
+        "app_render": {
+          "mean": 5.99,
+          "median": 4.34,
+          "p95": 15.94,
+          "min": 1.77,
+          "max": 17.82
+        },
+        "capture": {
+          "mean": 4.97,
+          "median": 4.64,
+          "p95": 7.8,
+          "min": 2.76,
+          "max": 10.05
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 121.76,
+          "median": 114.45,
+          "p95": 180.25,
+          "min": 64.82,
+          "max": 245.64
+        },
+        "text": {
+          "mean": 134.97,
+          "median": 115.48,
+          "p95": 171.43,
+          "min": 79.66,
+          "max": 667.71
+        },
+        "pointer": {
+          "mean": 126.39,
+          "median": 115.76,
+          "p95": 209.93,
+          "min": 78.22,
+          "max": 237.77
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 3.47,
+          "median": 2.1,
+          "p95": 11.33,
+          "min": 0.48,
+          "max": 16.3
+        },
+        "remote_capture": {
+          "mean": 30.48,
+          "median": 28.49,
+          "p95": 55.37,
+          "min": 9.96,
+          "max": 64.76
+        },
+        "remote_encode": {
+          "mean": 33.29,
+          "median": 29.98,
+          "p95": 49.03,
+          "min": 26.04,
+          "max": 63.15
+        },
+        "transport": {
+          "mean": 40.71,
+          "median": 24.55,
+          "p95": 90.62,
+          "min": 7.84,
+          "max": 581.91
+        },
+        "mac": {
+          "mean": 19.76,
+          "median": 19.62,
+          "p95": 27.58,
+          "min": 10.3,
+          "max": 28.65
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 7867.64,
+        "median": 1183.0,
+        "p95": 1413,
+        "min": 549,
+        "max": 301212
+      }
+    },
+    "baseline-2560-animated": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": true,
+      "measured_at": "2026-10-21T12:23:40+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "agent_input_queue": {
+          "mean": 1.72,
+          "median": 0.04,
+          "p95": 9.82,
+          "min": 0.02,
+          "max": 16.62
+        },
+        "main_queue": {
+          "mean": 6.49,
+          "median": 5.12,
+          "p95": 15.52,
+          "min": 0.1,
+          "max": 16.4
+        },
+        "server_prepare": {
+          "mean": 0.02,
+          "median": 0.0,
+          "p95": 0.01,
+          "min": 0.0,
+          "max": 1.58
+        },
+        "x11_delivery": {
+          "mean": 4.03,
+          "median": 0.96,
+          "p95": 12.95,
+          "min": 0.21,
+          "max": 65.42
+        },
+        "encode": {
+          "mean": 42.55,
+          "median": 38.42,
+          "p95": 70.79,
+          "min": 28.73,
+          "max": 88.18
+        },
+        "total": {
+          "mean": 167.61,
+          "median": 156.59,
+          "p95": 255.91,
+          "min": 88.85,
+          "max": 616.16
+        },
+        "encoder_queue": {
+          "mean": 13.31,
+          "median": 11.75,
+          "p95": 34.15,
+          "min": 0.01,
+          "max": 41.92
+        },
+        "response_to_capture": {
+          "mean": 43.06,
+          "median": 37.53,
+          "p95": 87.33,
+          "min": 14.57,
+          "max": 105.48
+        },
+        "ssh_network": {
+          "mean": 42.2,
+          "median": 28.91,
+          "p95": 99.32,
+          "min": 6.65,
+          "max": 370.42
+        },
+        "decode": {
+          "mean": 12.29,
+          "median": 11.85,
+          "p95": 16.41,
+          "min": 6.74,
+          "max": 18.71
+        },
+        "draw": {
+          "mean": 1.68,
+          "median": 1.42,
+          "p95": 2.4,
+          "min": 0.71,
+          "max": 17.78
+        },
+        "controller_input": {
+          "mean": 0.26,
+          "median": 0.21,
+          "p95": 0.6,
+          "min": 0.08,
+          "max": 1.39
+        },
+        "app_render": {
+          "mean": 4.89,
+          "median": 3.61,
+          "p95": 13.02,
+          "min": 1.59,
+          "max": 18.58
+        },
+        "capture_wait": {
+          "mean": 28.91,
+          "median": 27.47,
+          "p95": 69.83,
+          "min": 5.95,
+          "max": 88.33
+        },
+        "capture": {
+          "mean": 9.26,
+          "median": 8.15,
+          "p95": 18.89,
+          "min": 4.04,
+          "max": 42.66
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 175.32,
+          "median": 162.42,
+          "p95": 255.91,
+          "min": 97.89,
+          "max": 441.28
+        },
+        "text": {
+          "mean": 157.89,
+          "median": 149.0,
+          "p95": 271.4,
+          "min": 93.21,
+          "max": 271.61
+        },
+        "pointer": {
+          "mean": 169.62,
+          "median": 155.13,
+          "p95": 233.25,
+          "min": 88.85,
+          "max": 616.16
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 6.0,
+          "median": 3.64,
+          "p95": 17.57,
+          "min": 0.48,
+          "max": 65.71
+        },
+        "remote_capture": {
+          "mean": 43.06,
+          "median": 37.53,
+          "p95": 87.33,
+          "min": 14.57,
+          "max": 105.48
+        },
+        "remote_encode": {
+          "mean": 55.88,
+          "median": 51.51,
+          "p95": 89.22,
+          "min": 29.96,
+          "max": 110.72
+        },
+        "transport": {
+          "mean": 42.2,
+          "median": 28.91,
+          "p95": 99.32,
+          "min": 6.65,
+          "max": 370.42
+        },
+        "mac": {
+          "mean": 20.46,
+          "median": 19.68,
+          "p95": 29.51,
+          "min": 8.2,
+          "max": 35.8
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 1148.78,
+        "median": 1093.0,
+        "p95": 2013,
+        "min": 593,
+        "max": 7209
+      }
+    },
+    "optimized-2560-animated": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": true,
+      "measured_at": "2026-10-21T12:24:19+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "capture": {
+          "mean": 7.41,
+          "median": 4.65,
+          "p95": 19.19,
+          "min": 2.62,
+          "max": 23.84
+        },
+        "app_render": {
+          "mean": 7.32,
+          "median": 5.01,
+          "p95": 18.15,
+          "min": 1.68,
+          "max": 62.82
+        },
+        "decode": {
+          "mean": 12.06,
+          "median": 12.07,
+          "p95": 15.83,
+          "min": 7.55,
+          "max": 20.14
+        },
+        "x11_delivery": {
+          "mean": 4.6,
+          "median": 1.16,
+          "p95": 19.75,
+          "min": 0.19,
+          "max": 59.13
+        },
+        "encoder_queue": {
+          "mean": 8.11,
+          "median": 0.03,
+          "p95": 32.41,
+          "min": 0.01,
+          "max": 70.34
+        },
+        "main_queue": {
+          "mean": 7.44,
+          "median": 7.15,
+          "p95": 15.06,
+          "min": 0.31,
+          "max": 15.5
+        },
+        "draw": {
+          "mean": 2.21,
+          "median": 1.47,
+          "p95": 6.91,
+          "min": 0.73,
+          "max": 8.02
+        },
+        "ssh_network": {
+          "mean": 39.31,
+          "median": 27.33,
+          "p95": 108.65,
+          "min": 9.21,
+          "max": 165.12
+        },
+        "agent_input_queue": {
+          "mean": 0.99,
+          "median": 0.05,
+          "p95": 5.37,
+          "min": 0.02,
+          "max": 27.62
+        },
+        "response_to_capture": {
+          "mean": 47.77,
+          "median": 42.18,
+          "p95": 108.37,
+          "min": 10.77,
+          "max": 168.77
+        },
+        "controller_input": {
+          "mean": 0.28,
+          "median": 0.25,
+          "p95": 0.53,
+          "min": 0.09,
+          "max": 1.06
+        },
+        "capture_wait": {
+          "mean": 33.04,
+          "median": 26.16,
+          "p95": 86.6,
+          "min": 5.07,
+          "max": 138.02
+        },
+        "encode": {
+          "mean": 39.08,
+          "median": 27.15,
+          "p95": 63.52,
+          "min": 21.98,
+          "max": 101.86
+        },
+        "total": {
+          "mean": 161.95,
+          "median": 156.43,
+          "p95": 276.35,
+          "min": 65.8,
+          "max": 324.6
+        },
+        "server_prepare": {
+          "mean": 0.1,
+          "median": 0.01,
+          "p95": 1.23,
+          "min": 0.0,
+          "max": 1.7
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 165.55,
+          "median": 156.49,
+          "p95": 272.55,
+          "min": 65.8,
+          "max": 279.46
+        },
+        "text": {
+          "mean": 151.9,
+          "median": 139.78,
+          "p95": 321.96,
+          "min": 71.54,
+          "max": 324.6
+        },
+        "pointer": {
+          "mean": 168.41,
+          "median": 162.7,
+          "p95": 276.35,
+          "min": 88.36,
+          "max": 279.08
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 5.87,
+          "median": 1.68,
+          "p95": 24.17,
+          "min": 0.41,
+          "max": 59.28
+        },
+        "remote_capture": {
+          "mean": 47.77,
+          "median": 42.18,
+          "p95": 108.37,
+          "min": 10.77,
+          "max": 168.77
+        },
+        "remote_encode": {
+          "mean": 47.3,
+          "median": 27.96,
+          "p95": 92.56,
+          "min": 22.01,
+          "max": 141.11
+        },
+        "transport": {
+          "mean": 39.31,
+          "median": 27.33,
+          "p95": 108.65,
+          "min": 9.21,
+          "max": 165.12
+        },
+        "mac": {
+          "mean": 21.71,
+          "median": 21.02,
+          "p95": 31.81,
+          "min": 10.62,
+          "max": 36.05
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 1049.58,
+        "median": 1079.0,
+        "p95": 1693,
+        "min": 565,
+        "max": 2489
+      }
+    },
+    "baseline-2560-idle": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": false,
+      "measured_at": "2026-10-21T12:24:54+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "draw": {
+          "mean": 2.07,
+          "median": 2.04,
+          "p95": 2.95,
+          "min": 0.68,
+          "max": 8.55
+        },
+        "response_to_capture": {
+          "mean": 31.8,
+          "median": 31.73,
+          "p95": 50.13,
+          "min": 14.56,
+          "max": 55.33
+        },
+        "encoder_queue": {
+          "mean": 0.02,
+          "median": 0.01,
+          "p95": 0.03,
+          "min": 0.01,
+          "max": 0.05
+        },
+        "encode": {
+          "mean": 38.88,
+          "median": 36.5,
+          "p95": 60.21,
+          "min": 27.92,
+          "max": 70.77
+        },
+        "x11_delivery": {
+          "mean": 1.4,
+          "median": 0.44,
+          "p95": 10.32,
+          "min": 0.21,
+          "max": 13.34
+        },
+        "agent_input_queue": {
+          "mean": 0.99,
+          "median": 0.03,
+          "p95": 5.86,
+          "min": 0.02,
+          "max": 11.12
+        },
+        "main_queue": {
+          "mean": 8.9,
+          "median": 9.8,
+          "p95": 15.62,
+          "min": 0.06,
+          "max": 16.74
+        },
+        "ssh_network": {
+          "mean": 48.72,
+          "median": 24.33,
+          "p95": 144.07,
+          "min": 7.08,
+          "max": 1037.02
+        },
+        "controller_input": {
+          "mean": 0.29,
+          "median": 0.3,
+          "p95": 0.42,
+          "min": 0.13,
+          "max": 0.47
+        },
+        "capture": {
+          "mean": 8.56,
+          "median": 9.25,
+          "p95": 14.17,
+          "min": 3.93,
+          "max": 16.51
+        },
+        "app_render": {
+          "mean": 2.46,
+          "median": 1.9,
+          "p95": 4.17,
+          "min": 1.53,
+          "max": 8.0
+        },
+        "server_prepare": {
+          "mean": 0.51,
+          "median": 0.0,
+          "p95": 2.57,
+          "min": 0.0,
+          "max": 3.19
+        },
+        "decode": {
+          "mean": 13.6,
+          "median": 14.36,
+          "p95": 16.62,
+          "min": 7.09,
+          "max": 17.95
+        },
+        "total": {
+          "mean": 147.16,
+          "median": 125.56,
+          "p95": 254.17,
+          "min": 78.24,
+          "max": 1117.95
+        },
+        "capture_wait": {
+          "mean": 20.78,
+          "median": 18.92,
+          "p95": 36.82,
+          "min": 6.48,
+          "max": 41.03
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 153.24,
+          "median": 136.94,
+          "p95": 344.45,
+          "min": 78.24,
+          "max": 435.76
+        },
+        "text": {
+          "mean": 131.09,
+          "median": 120.41,
+          "p95": 212.42,
+          "min": 95.04,
+          "max": 254.17
+        },
+        "pointer": {
+          "mean": 157.16,
+          "median": 122.17,
+          "p95": 171.33,
+          "min": 83.27,
+          "max": 1117.95
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 2.68,
+          "median": 0.92,
+          "p95": 10.66,
+          "min": 0.45,
+          "max": 13.66
+        },
+        "remote_capture": {
+          "mean": 31.8,
+          "median": 31.73,
+          "p95": 50.13,
+          "min": 14.56,
+          "max": 55.33
+        },
+        "remote_encode": {
+          "mean": 39.4,
+          "median": 36.51,
+          "p95": 60.24,
+          "min": 27.94,
+          "max": 70.8
+        },
+        "transport": {
+          "mean": 48.72,
+          "median": 24.33,
+          "p95": 144.07,
+          "min": 7.08,
+          "max": 1037.02
+        },
+        "mac": {
+          "mean": 24.56,
+          "median": 24.7,
+          "p95": 33.38,
+          "min": 9.87,
+          "max": 41.75
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 3944.57,
+        "median": 1000.0,
+        "p95": 1576,
+        "min": 564,
+        "max": 249171
+      }
+    },
+    "optimized-2560-idle": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": false,
+      "measured_at": "2026-10-21T12:25:23+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "x11_delivery": {
+          "mean": 0.65,
+          "median": 0.44,
+          "p95": 1.41,
+          "min": 0.21,
+          "max": 3.49
+        },
+        "app_render": {
+          "mean": 2.9,
+          "median": 3.13,
+          "p95": 4.12,
+          "min": 1.58,
+          "max": 5.46
+        },
+        "encode": {
+          "mean": 25.93,
+          "median": 23.37,
+          "p95": 45.31,
+          "min": 21.63,
+          "max": 49.24
+        },
+        "draw": {
+          "mean": 1.92,
+          "median": 2.09,
+          "p95": 2.47,
+          "min": 0.73,
+          "max": 2.67
+        },
+        "encoder_queue": {
+          "mean": 0.03,
+          "median": 0.02,
+          "p95": 0.04,
+          "min": 0.01,
+          "max": 0.57
+        },
+        "agent_input_queue": {
+          "mean": 0.04,
+          "median": 0.03,
+          "p95": 0.06,
+          "min": 0.02,
+          "max": 0.11
+        },
+        "capture_wait": {
+          "mean": 6.78,
+          "median": 6.47,
+          "p95": 10.38,
+          "min": 4.15,
+          "max": 13.04
+        },
+        "main_queue": {
+          "mean": 9.06,
+          "median": 8.86,
+          "p95": 16.69,
+          "min": 0.49,
+          "max": 18.41
+        },
+        "total": {
+          "mean": 85.27,
+          "median": 79.72,
+          "p95": 111.1,
+          "min": 57.79,
+          "max": 372.6
+        },
+        "controller_input": {
+          "mean": 0.3,
+          "median": 0.3,
+          "p95": 0.39,
+          "min": 0.11,
+          "max": 0.43
+        },
+        "capture": {
+          "mean": 3.81,
+          "median": 3.71,
+          "p95": 5.38,
+          "min": 2.68,
+          "max": 7.08
+        },
+        "response_to_capture": {
+          "mean": 13.49,
+          "median": 12.84,
+          "p95": 19.3,
+          "min": 9.3,
+          "max": 24.2
+        },
+        "ssh_network": {
+          "mean": 19.37,
+          "median": 11.28,
+          "p95": 52.9,
+          "min": 6.2,
+          "max": 304.26
+        },
+        "decode": {
+          "mean": 14.49,
+          "median": 14.85,
+          "p95": 17.09,
+          "min": 8.92,
+          "max": 18.07
+        },
+        "server_prepare": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.01,
+          "min": 0.0,
+          "max": 0.02
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 89.9,
+          "median": 79.91,
+          "p95": 106.77,
+          "min": 61.8,
+          "max": 372.6
+        },
+        "text": {
+          "mean": 83.91,
+          "median": 81.1,
+          "p95": 106.46,
+          "min": 62.17,
+          "max": 155.81
+        },
+        "pointer": {
+          "mean": 82.01,
+          "median": 77.87,
+          "p95": 145.01,
+          "min": 57.79,
+          "max": 147.07
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 0.98,
+          "median": 0.82,
+          "p95": 1.65,
+          "min": 0.43,
+          "max": 3.85
+        },
+        "remote_capture": {
+          "mean": 13.49,
+          "median": 12.84,
+          "p95": 19.3,
+          "min": 9.3,
+          "max": 24.2
+        },
+        "remote_encode": {
+          "mean": 25.97,
+          "median": 23.4,
+          "p95": 45.37,
+          "min": 21.65,
+          "max": 49.26
+        },
+        "transport": {
+          "mean": 19.37,
+          "median": 11.28,
+          "p95": 52.9,
+          "min": 6.2,
+          "max": 304.26
+        },
+        "mac": {
+          "mean": 25.47,
+          "median": 25.12,
+          "p95": 34.74,
+          "min": 13.35,
+          "max": 37.39
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 4451.6,
+        "median": 1048.0,
+        "p95": 1304,
+        "min": 636,
+        "max": 310275
+      }
+    },
+    "optimized-2560-animated-repeat": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": true,
+      "measured_at": "2026-10-21T12:26:04+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "encoder_queue": {
+          "mean": 0.44,
+          "median": 0.02,
+          "p95": 1.67,
+          "min": 0.01,
+          "max": 17.7
+        },
+        "encode": {
+          "mean": 26.11,
+          "median": 24.58,
+          "p95": 34.92,
+          "min": 22.77,
+          "max": 43.46
+        },
+        "capture": {
+          "mean": 3.76,
+          "median": 3.5,
+          "p95": 5.65,
+          "min": 2.57,
+          "max": 9.02
+        },
+        "controller_input": {
+          "mean": 0.24,
+          "median": 0.18,
+          "p95": 0.49,
+          "min": 0.05,
+          "max": 1.76
+        },
+        "x11_delivery": {
+          "mean": 2.23,
+          "median": 0.94,
+          "p95": 8.14,
+          "min": 0.21,
+          "max": 16.71
+        },
+        "response_to_capture": {
+          "mean": 26.5,
+          "median": 26.02,
+          "p95": 43.91,
+          "min": 9.55,
+          "max": 54.68
+        },
+        "capture_wait": {
+          "mean": 16.67,
+          "median": 14.26,
+          "p95": 31.56,
+          "min": 4.57,
+          "max": 48.2
+        },
+        "agent_input_queue": {
+          "mean": 0.25,
+          "median": 0.04,
+          "p95": 2.0,
+          "min": 0.02,
+          "max": 3.45
+        },
+        "main_queue": {
+          "mean": 7.97,
+          "median": 6.49,
+          "p95": 15.81,
+          "min": 0.49,
+          "max": 16.32
+        },
+        "app_render": {
+          "mean": 6.08,
+          "median": 3.73,
+          "p95": 18.59,
+          "min": 1.6,
+          "max": 19.64
+        },
+        "server_prepare": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.01,
+          "min": 0.0,
+          "max": 0.01
+        },
+        "ssh_network": {
+          "mean": 12.86,
+          "median": 9.99,
+          "p95": 30.81,
+          "min": 5.56,
+          "max": 48.53
+        },
+        "total": {
+          "mean": 89.94,
+          "median": 89.49,
+          "p95": 116.94,
+          "min": 61.32,
+          "max": 142.16
+        },
+        "draw": {
+          "mean": 1.8,
+          "median": 1.48,
+          "p95": 2.49,
+          "min": 0.51,
+          "max": 13.64
+        },
+        "decode": {
+          "mean": 11.54,
+          "median": 11.03,
+          "p95": 17.13,
+          "min": 6.44,
+          "max": 19.91
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 88.59,
+          "median": 95.7,
+          "p95": 106.33,
+          "min": 65.28,
+          "max": 109.16
+        },
+        "text": {
+          "mean": 90.12,
+          "median": 83.37,
+          "p95": 135.08,
+          "min": 64.6,
+          "max": 142.16
+        },
+        "pointer": {
+          "mean": 91.11,
+          "median": 93.45,
+          "p95": 121.77,
+          "min": 61.32,
+          "max": 124.29
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 2.72,
+          "median": 1.36,
+          "p95": 8.3,
+          "min": 0.45,
+          "max": 17.01
+        },
+        "remote_capture": {
+          "mean": 26.5,
+          "median": 26.02,
+          "p95": 43.91,
+          "min": 9.55,
+          "max": 54.68
+        },
+        "remote_encode": {
+          "mean": 26.55,
+          "median": 24.65,
+          "p95": 40.03,
+          "min": 22.83,
+          "max": 46.08
+        },
+        "transport": {
+          "mean": 12.86,
+          "median": 9.99,
+          "p95": 30.81,
+          "min": 5.56,
+          "max": 48.53
+        },
+        "mac": {
+          "mean": 21.3,
+          "median": 21.15,
+          "p95": 29.29,
+          "min": 11.16,
+          "max": 35.38
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 7253.07,
+        "median": 1121.0,
+        "p95": 2025,
+        "min": 625,
+        "max": 271692
+      }
+    },
+    "baseline-2560-animated-repeat": {
+      "host": "10.0.1.66",
+      "width": 2560,
+      "height": 1664,
+      "animated": true,
+      "measured_at": "2026-10-21T12:26:38+0800",
+      "endpoint": "AppKit draw completion",
+      "injection": "SurfaceView input handlers",
+      "samples": 90,
+      "stages_ms": {
+        "total": {
+          "mean": 135.76,
+          "median": 133.13,
+          "p95": 209.88,
+          "min": 88.44,
+          "max": 249.95
+        },
+        "x11_delivery": {
+          "mean": 2.62,
+          "median": 0.63,
+          "p95": 12.52,
+          "min": 0.21,
+          "max": 21.34
+        },
+        "agent_input_queue": {
+          "mean": 1.59,
+          "median": 0.04,
+          "p95": 9.09,
+          "min": 0.01,
+          "max": 22.57
+        },
+        "main_queue": {
+          "mean": 8.34,
+          "median": 8.82,
+          "p95": 16.82,
+          "min": 0.08,
+          "max": 18.12
+        },
+        "capture_wait": {
+          "mean": 25.4,
+          "median": 25.28,
+          "p95": 55.04,
+          "min": 5.01,
+          "max": 70.57
+        },
+        "draw": {
+          "mean": 1.78,
+          "median": 1.54,
+          "p95": 2.48,
+          "min": 0.83,
+          "max": 8.17
+        },
+        "encoder_queue": {
+          "mean": 15.14,
+          "median": 13.88,
+          "p95": 33.61,
+          "min": 0.01,
+          "max": 43.15
+        },
+        "server_prepare": {
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.01,
+          "min": 0.0,
+          "max": 0.01
+        },
+        "controller_input": {
+          "mean": 0.23,
+          "median": 0.2,
+          "p95": 0.37,
+          "min": 0.08,
+          "max": 1.24
+        },
+        "response_to_capture": {
+          "mean": 38.69,
+          "median": 35.33,
+          "p95": 73.45,
+          "min": 15.18,
+          "max": 87.6
+        },
+        "ssh_network": {
+          "mean": 12.83,
+          "median": 9.71,
+          "p95": 34.58,
+          "min": 6.3,
+          "max": 46.89
+        },
+        "app_render": {
+          "mean": 5.73,
+          "median": 3.88,
+          "p95": 15.03,
+          "min": 1.56,
+          "max": 20.03
+        },
+        "encode": {
+          "mean": 42.63,
+          "median": 41.55,
+          "p95": 58.04,
+          "min": 30.95,
+          "max": 91.33
+        },
+        "capture": {
+          "mean": 7.55,
+          "median": 6.44,
+          "p95": 13.09,
+          "min": 4.37,
+          "max": 28.16
+        },
+        "decode": {
+          "mean": 11.9,
+          "median": 11.77,
+          "p95": 14.94,
+          "min": 7.35,
+          "max": 21.86
+        }
+      },
+      "modes_ms": {
+        "key": {
+          "mean": 134.47,
+          "median": 133.41,
+          "p95": 165.87,
+          "min": 94.67,
+          "max": 249.95
+        },
+        "text": {
+          "mean": 130.52,
+          "median": 127.22,
+          "p95": 209.88,
+          "min": 88.44,
+          "max": 225.14
+        },
+        "pointer": {
+          "mean": 142.3,
+          "median": 138.31,
+          "p95": 216.65,
+          "min": 107.29,
+          "max": 227.71
+        }
+      },
+      "groups_ms": {
+        "input": {
+          "mean": 4.44,
+          "median": 1.42,
+          "p95": 18.5,
+          "min": 0.51,
+          "max": 23.37
+        },
+        "remote_capture": {
+          "mean": 38.69,
+          "median": 35.33,
+          "p95": 73.45,
+          "min": 15.18,
+          "max": 87.6
+        },
+        "remote_encode": {
+          "mean": 57.78,
+          "median": 58.49,
+          "p95": 78.38,
+          "min": 31.82,
+          "max": 119.41
+        },
+        "transport": {
+          "mean": 12.83,
+          "median": 9.71,
+          "p95": 34.58,
+          "min": 6.3,
+          "max": 46.89
+        },
+        "mac": {
+          "mean": 22.02,
+          "median": 21.62,
+          "p95": 32.19,
+          "min": 11.34,
+          "max": 34.63
+        }
+      },
+      "response_packet_bytes": {
+        "mean": 1170.2,
+        "median": 1113.0,
+        "p95": 1981,
+        "min": 605,
+        "max": 8293
+      }
+    }
+  },
+  "quality": {
+    "decoded_rgb_identical": true,
+    "frames": 9,
+    "sizes": [
+      [
+        640,
+        480
+      ],
+      [
+        641,
+        483
+      ],
+      [
+        2940,
+        1612
+      ]
+    ],
+    "encoder_parameters_unchanged": true,
+    "shared_memory_pixels_equal_to_socket": true
+  },
+  "installed_agent_sha256": "64fa3c2bd34c2a471981440bafa1e2288b63fd12db0d8b1a177993fc40c776ce"
+}

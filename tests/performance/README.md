@@ -35,7 +35,7 @@ SSH 必须已通过 `scripts/connect-ssh.sh` 建立；脚本不处理密码或�
 
 所有差值都使用同一台机器的单调时钟。`ssh_network` 通过完整往返时间扣除两端内部耗时得到，
 合计包含 SSH、桥接、网络、socket 写出、流读取端缓冲及少量 JSON 序列化；没有把未经同步的两台时钟相减，
-也不将其误称为单方向网络耗时。`response_to_capture` 包含应用重绘、等待下一次轮询以及
+也不将其误称为单方向网络耗时。`response_to_capture` 包含应用重绘、等待重绘事件/采样时机以及
 X11 读像素；`app_render`、`capture_wait`、`capture` 是进一步诊断项，可能有重叠，不重复相加。
 其余标记阶段可精确加总回总耗时。`decode` 包括 JSON/base64/VideoToolbox/CGImage 准备，
 `main_queue` 包括既有 60Hz pump 的等待；`draw` 包括提交给 NSView 后到绘制结束的时间。
@@ -43,3 +43,7 @@ X11 读像素；`app_render`、`capture_wait`、`capture` 是进一步诊断项�
 结果含中位数、最近秩 P95、最小/最大值、逐样本数据与原始时间戳。标记、采样和日志会引入少量
 开销；在相同环境/设置下比较。它是指定设备和测试窗口的实机测量，不代表所有应用、弱网、CI、
 首次启动或生产环境的性能。每阶段中位数不一定相加等于总耗时的中位数。
+
+2026-10-21 的远端优化对照保存于
+[`docs/performance/2026-10-21-optimized-latency.md`](../../docs/performance/2026-10-21-optimized-latency.md)，
+含八组统计及 720 个逐样本数据，也保留整体延迟未改善的首轮动态场景。

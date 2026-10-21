@@ -6,7 +6,7 @@
 
 | 检查 | 结果 | 范围 |
 | --- | --- | --- |
-| `cargo test --workspace --locked` | 31 项通过、0 失败 | 协议 13、transport 6、Agent 7、capture 3、core 2；不是 31 个端到端场景 |
+| `cargo test --workspace --locked` | Mac / Ubuntu 各 32 项通过、0 失败，4 项 Linux 专用测试默认忽略 | 协议 13、transport 6、Agent 8、capture 3、core 2；4 项另在 Ubuntu 显式执行通过，不是 36 个端到端场景 |
 | `cargo fmt --all -- --check` | 通过 | 根 workspace Rust 格式 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | 通过 | 根 workspace 静态检查 |
 | `npm test` | 4 项通过 | 待确认启动请求的幂等 ID、持久保存与容量限制；明确失败与未知结果的重试区分 |
@@ -15,8 +15,9 @@
 | `swift build` 与短消息 pipe smoke | 通过 | AppKit 编译；短 SSH 消息无需等待完整缓冲区、EOF 与分段读取 |
 | `tests/e2e/controller_input_smoke.py` | 通过 | 真实 NSTextInputClient 预编辑不出控制端、Unicode 提交、按需复制/粘贴、大小边界与回包关联；像素/点数换算、自动铺满与固定等比模式的点击；AppKit event-tracking 模式中的尺寸同步、迟到几何回包隔离及手动/自动切换；测试不触碰系统剪贴板 |
 | `tests/e2e/hidpi_smoke.py`（Ubuntu） | 通过 | GTK 1×/2× 实际缩放、逻辑尺寸保持、PNG 像素翻倍、EWMH resize 与输入；WM/未显示辅助窗口不发布 |
-| `tests/e2e/video_stream_smoke.py`（Ubuntu） | 通过 | 真正 H.264 协商、IDR/P 帧、视频期间输入、641×483 奇数尺寸与编码流重建、重连关键帧 |
-| `tests/e2e/video_decoder_smoke.py`（Mac） | 通过 | 解码 Linux 导出的 15 个真实视频包，全部使用系统硬件解码；连续 P 帧、输入后像素变化、奇数尺寸裁边、重连及非法 NAL 拒绝 |
+| `tests/e2e/video_stream_smoke.py`（Ubuntu） | 通过 | 真正 H.264 协商、IDR/P 帧、视频期间输入、641×483 奇数尺寸与编码流重建、重连关键帧、静止窗口重连首次快照 |
+| `tests/e2e/video_decoder_smoke.py`（Mac） | 通过 | 解码 Linux 导出的 17 个真实视频包，全部使用系统硬件解码；连续 P 帧、输入后像素变化、奇数尺寸裁边、动静态重连及非法 NAL 拒绝 |
+| Linux 专用采集/编码测试 | 4 项显式执行通过 | 新旧编码器 9 帧解码 RGB 完全相同，输入像素不变及释放租约；MIT-SHM 与 socket 快照一致、缩放和失败回退；DAMAGE 重置、授权窗口过滤、静态快照及缺扩展回退 |
 | `tests/e2e/text_latency_smoke.py`（Ubuntu） | 通过 | 真实 GTK 编辑器对比物理按键/文字提交、30 次连续提交、退格顺序屏障、中文与 emoji；隔离 HOME 与 Xvfb |
 | `tests/performance/end_to_end.py`（Mac ↔ Ubuntu） | 5 组、450 个有效样本通过对应画面与阶段校验 | 产品输入处理函数 → 实际 SSH/X11/H.264/硬件解码 → AppKit 绘制完成；3 种输入、分辨率/持续更新/静止与物理路径对照；不含物理面板呈现 |
 | `apps/launcher/scripts/build-macos.sh` | 通过 | Tauri release 应用及内嵌 WindowHost.app 打包；本机开发包未签名/公证 |
@@ -60,6 +61,8 @@ H.264 追加验证：Ubuntu 的动态 GTK 测试中，前 10 帧（含首个关�
 
 2026-10-21 全链路追加测量：2940×1612 持续更新窗口中位数 149.05ms、P95 220.57ms；2560×1664 为 123.58/176.50ms，1280×832 为 83.69/126.85ms。当前高清组的远端采集与等待/执行编码合计平均约 107ms，占总平均耗时约 68%。静止组发生一次 644.72ms 样本，其中 553.45ms 在 SSH/网络/读端缓冲剩余段，对应 980 字节普通视频包。另确认当前 10.0.1.66 路由经过 utun4；物理 LAN 对照减少传输段尾延迟，但总耗时因其他阶段波动未改善。详细方法、5 组结果和限制见 [全链路延迟记录](performance/2026-10-21-latency.md)，并保存 450 个逐样本数据。测试使用独立 Agent/自有 GTK 窗口，不部署产品修改或重启现有服务；不能将结果视为现有 Firefox/ChatGPT 应用特定性能或高速摄像机 input-to-photon 测量。
 
+2026-10-21 远端采集/编码优化：使用 MIT-SHM 私有 fd、只读像素租约直接交给系统 GStreamer、XDamage 重绘唤醒，保持原像素宽高及全部画质配置。新旧两版本八组共 720 个有效样本；2940×1612 持续更新中位数 163.04→115.37ms，2560×1664 持续更新两轮合并 141.46→100.21ms，静止后输入 125.56→79.72ms。2560 动态首轮中位数无明显改善、两轮合并 P95 226.44→244.75ms，全部数据均保留，不能宣称尾延迟已解决。完整阶段、画质和回退检查见 [优化后延迟记录](performance/2026-10-21-optimized-latency.md)。正式非计时 Agent 已部署，安装后真实 SSH 键鼠/缩放/隐藏及三次重连通过；独立 Firefox 恢复到 2940×1612、界面 200%、自动适应及 H.264，中文/emoji 粘贴和点击计数实机通过。ChatGPT 原窗口未操作。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
@@ -67,4 +70,4 @@ H.264 追加验证：Ubuntu 的动态 GTK 测试中，前 10 帧（含首个关�
 - 未做签名、公证、外部安全审计、CI 或生产验收。Ubuntu 联调使用临时用户服务，尚未验证重启系统后的自动启动。
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
-当前技术为 SSH + JSON Lines + H.264（PNG 回退）、X11 GetImage 轮询、GStreamer/OpenH264 编码与 Swift VideoToolbox/AppKit/CoreGraphics。Protobuf schema 为后续草案；WebRTC/UDP、QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
+当前技术为 SSH + JSON Lines + H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。Protobuf schema 为后续草案；WebRTC/UDP、QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
