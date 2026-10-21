@@ -37,6 +37,8 @@ with (root/'requests').open('a', buffering=1) as log:
             emit(type='session.snapshot', session_id='retained', seq=100 if n==1 else 1,
                  windows=[dict(window_id=42, title='Automatic reconnect fixture', width=640, height=480,
                                geometry_revision=n, scale_factor=1, visible=True, role='toplevel')])
+            emit(type='input.authorization', session_id='retained', seq=101 if n==1 else 2, state='pending')
+            emit(type='input.authorization', session_id='retained', seq=102 if n==1 else 3, state='ready')
         if item['type']=='session.detach': break
 sys.exit(255 if n==1 else 0)
 ''')
