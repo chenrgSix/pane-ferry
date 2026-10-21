@@ -71,6 +71,7 @@ struct AutomaticReconnectSmoke {
             precondition(condition(), "automatic reconnect did not reach expected state")
         }
         app.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification))
+        precondition(NSApp.mainMenu?.items.first?.title == app.applicationName)
         precondition(isFixtureIcon(NSApp.applicationIconImage),
                      "Ubuntu icon content is applied to this application's Dock tile")
         until { app.windows[42] != nil }
@@ -92,6 +93,8 @@ struct AutomaticReconnectSmoke {
         precondition(original.surface.transmit != nil && app.reconnectTimer == nil && app.reconnectAttempt == 0)
         precondition(isFixtureIcon(NSApp.applicationIconImage),
                      "transport recovery retains this application's icon content")
+        precondition(NSApp.mainMenu?.items.first?.title == app.applicationName,
+                     "transport recovery retains the Ubuntu application identity")
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
         until { ((try? String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)) ?? "").contains("after reconnect") }
         let requests = try String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)

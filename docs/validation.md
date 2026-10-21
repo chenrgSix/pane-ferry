@@ -196,6 +196,18 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 新包已备份安装到原工作区路径，启动器 SHA-256 为 `ceb17357ae8f78fda6ca4cd94df340fb18509b136bafe58ad03b5205272ef5e2`，内嵌 WindowHost 为 `d3501c1a6ba12780c869c4d8857fb3d1993abc9d69b09acfd3ff7f867fe739ea`。正在运行的旧宿主需断开后重新连接以加载图标功能，远端应用可继续保留。
 
+## 2026-10-22 Dock 与应用切换器名称
+
+启动器在新建、接管和恢复会话时交付所选 Ubuntu 应用名称。后端在私有 `Application Support/io.lanremoteapp.launcher/WindowHosts` 下缓存对应的本机 `.app` 入口，使用应用名称作为包名、`CFBundleName` 和 `CFBundleDisplayName`；各主机、账号、端口、应用 ID、名称及宿主二进制版本分别形成稳定身份。完整生成后才原子发布，不修改已安装的主包或运行中的旧宿主。该方案使用公开的[应用 Bundle 结构](https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFBundles/BundleTypes/BundleTypes.html)，未调用私有进程改名接口。窗口中的网页、文档标题继续独立更新。
+
+前端 **20 项通过**，实际 App.vue 验证缓存应用启动、窗口接管和会话恢复均传递应用名称与图标，不增加远端扫描。Tauri 后端 **8 项通过**，覆盖 Unicode/XML 转义、路径安全、缺失名称回退、缓存复用、同名应用/端点隔离、宿主更新不覆盖旧版本及链接重定向拒绝；格式、Clippy、Vue 类型检查/生产构建和完整 macOS 打包通过。实际 AppKit 自动重连夹具验证应用菜单名称、Ubuntu 图标、相同 NSWindow/session、分辨率保留和断线输入丢弃。
+
+安装后重开启动器，缓存的 48 个应用及用户已刷新的 2026/10/22 00:06:48 时间保持不变。通过统一入口恢复原“设置”会话，macOS UI 将宿主识别为 `App: 设置`，应用菜单显示“设置”，实际呈现 2940×1620 / 200% / H.264。退出本机测试宿主后再次连接同一会话，macOS 名称保持“设置”，复用同一入口且 Info.plist 修改时间未变。另用 `lsappinfo info` 只读核验该 bundle：LaunchServices 实际登记名称为“设置”、类型为 Foreground，宿主可执行文件仍是 RemoteAppWindowHost。未把窗口标题相同视作应用身份验证；本轮未直接读取 Dock 悬停标签或应用切换器截图。
+
+测试最后只关闭本机“设置”宿主，远端原 session ID 保留且无控制端。Agent 仍 active、PID 1095794，用户原受控会话和其他原 session 保留；原桌面 ChatGPT 的 PID 437845、启动时间 13451824、可执行文件身份不变。未重启 Agent、终止公共 SSH 主连接、输入用户应用或读取其画面。
+
+新版已备份安装：launcher SHA-256 `ae4b287866be8508c5a8d7dd0bfde2f2d7d5b0e7b2f93938e6f7365e97144214`，WindowHost `92e8c47c7898aaa2e8784daa53ef606e58ef9e273d2fd6ffe49531318c7359b8`；生成入口中的二进制与该宿主哈希相同。已运行的旧宿主需断开并重新连接后使用新名称，远端应用继续保留。验证使用当前未签名开发包，不能据此宣称签名公证、系统网络切换或生产环境验收通过。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。

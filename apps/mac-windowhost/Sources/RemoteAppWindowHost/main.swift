@@ -250,6 +250,8 @@ final class SSHTransport {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
+    let applicationName = Bundle.main.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String
+        ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "LAN RemoteApp"
     let applicationIcon: NSImage?
     var transport = SSHTransport()
     var makeTransport: () -> SSHTransport = { SSHTransport() }
@@ -288,9 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.setActivationPolicy(.regular)
         if let icon = applicationIcon { NSApp.applicationIconImage = icon }
         let mainMenu = NSMenu()
-        let appItem = NSMenuItem(); mainMenu.addItem(appItem)
+        let appItem = NSMenuItem(title:applicationName, action:nil, keyEquivalent:""); mainMenu.addItem(appItem)
         let menu = NSMenu(); appItem.submenu = menu
-        menu.addItem(withTitle: "关于 LAN RemoteApp", action: #selector(showAbout), keyEquivalent: "")
+        menu.addItem(withTitle: "关于 \(applicationName)", action: #selector(showAbout), keyEquivalent: "")
         menu.addItem(withTitle: "复制会话 ID", action: #selector(copySession), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "断开并退出（保留远端应用）", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -356,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controllerClipboard.clearContents(); controllerClipboard.setString(session, forType: .string)
     }
     private func alert(_ message: String) {
-        let alert = NSAlert(); alert.messageText = "LAN RemoteApp"; alert.informativeText = message
+        let alert = NSAlert(); alert.messageText = applicationName; alert.informativeText = message
         if let icon = applicationIcon { alert.icon = icon }
         alert.addButton(withTitle: "好"); alert.runModal()
     }

@@ -1660,9 +1660,11 @@ dependencies = [
 name = "lan-remoteapp-launcher"
 version = "0.1.0"
 dependencies = [
+ "plist",
  "remoteapp-transport",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
 ]

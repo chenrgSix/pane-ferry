@@ -9,6 +9,7 @@ use std::{
 use tauri::Manager;
 mod credential_store;
 mod ssh_login;
+mod window_host;
 #[derive(Serialize)]
 struct LaunchResult {
     session_id: Option<String>,
@@ -110,6 +111,19 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+fn named_native_host(
+    app: &tauri::AppHandle,
+    endpoint: &Endpoint,
+    app_id: &str,
+    app_name: Option<&str>,
+) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "无法定位本机应用目录。")?
+        .join("WindowHosts");
+    window_host::prepare(&directory, &native_host(app)?, endpoint, app_id, app_name)
+}
 fn spawn_host(
     path: PathBuf,
     endpoint: &Endpoint,
@@ -159,6 +173,7 @@ async fn resume_session(
     endpoint: Endpoint,
     session_id: String,
     icon_png: Option<String>,
+    app_name: Option<String>,
 ) -> Result<LaunchResult, RequestFailure> {
     endpoint.validate()?;
     transport::validate_id(&session_id)?;
@@ -174,7 +189,8 @@ async fn resume_session(
         ));
     }
     let pid = spawn_host(
-        native_host(&app).map_err(RequestFailure::local)?,
+        named_native_host(&app, &endpoint, &session.app_id, app_name.as_deref())
+            .map_err(RequestFailure::local)?,
         &endpoint,
         &session_id,
         icon_png,
@@ -195,15 +211,19 @@ async fn launch_app(
     request_id: String,
     render_scale: Option<u8>,
     icon_png: Option<String>,
+    app_name: Option<String>,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
     transport::validate_id(&app_id)?;
     transport::validate_id(&request_id)?;
-    let path = native_host(&app).map_err(|message| LaunchFailure {
-        kind: "client",
-        message,
-        retry_same_request: false,
-    })?;
+    let path =
+        named_native_host(&app, &endpoint, &app_id, app_name.as_deref()).map_err(|message| {
+            LaunchFailure {
+                kind: "client",
+                message,
+                retry_same_request: false,
+            }
+        })?;
     let scale = render_scale.unwrap_or_else(|| {
         if app
             .get_webview_window("main")

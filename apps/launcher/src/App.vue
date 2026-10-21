@@ -252,6 +252,7 @@ async function launch(app: LaunchTarget) {
     const result = await invoke<Result>("launch_app", {
       endpoint: sent,
       appId: app.id,
+      appName: app.name,
       requestId,
       renderScale: renderScale.value === "auto" ? null : Number(renderScale.value),
       iconPng: app.icon_png ?? null,
@@ -282,6 +283,7 @@ async function resume(sessionId: string, name: string, iconPng?: string | null) 
     const result = await invoke<Result>("resume_session", {
       endpoint: sent,
       sessionId,
+      appName: name,
       iconPng: iconPng ?? null,
     });
     if (signature() === endpointKey(sent)) record(name, result);

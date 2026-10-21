@@ -106,13 +106,16 @@ test("one connection action resumes sessions, takes over untouched windows, and 
     await state.connect(state.runningConnections.find(r => r.sessionId === "owned"));
     assert.equal(actions(mounted).at(-1).command, "resume_session");
     assert.equal(actions(mounted).at(-1).args.sessionId, "owned");
+    assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "bGl2ZS13aW5kb3ctaWNvbg==");
     await state.connect(state.runningConnections.find(r => r.sessionId === "remote"));
     assert.equal(actions(mounted).at(-1).args.sessionId, "remote");
+    assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
     await state.connect(state.runningConnections.find(r => r.appId === "window-new"));
     assert.equal(actions(mounted).at(-1).command, "launch_app");
     assert.equal(actions(mounted).at(-1).args.appId, "window-new");
+    assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "bGl2ZS13aW5kb3ctaWNvbg==");
     const before = actions(mounted).length;
     await state.connect(state.runningConnections.find(r => r.sessionId === "busy"));
@@ -134,6 +137,7 @@ test("launching a cached application forwards its Ubuntu icon without scanning a
   try {
     await settled(mounted.state);
     await mounted.state.launch(mounted.state.apps[0]);
+    assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
   } finally { mounted.unmount(); }
