@@ -27,6 +27,10 @@ async fn request_local_permissions(app: tauri::AppHandle) -> Result<serde_json::
     local_node::permissions(&app)
 }
 #[tauri::command]
+async fn reveal_local_component(app: tauri::AppHandle) -> Result<(), String> {
+    local_node::reveal_component(&app)
+}
+#[tauri::command]
 async fn share_to_device(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
     local_node::offer(&app, &endpoint, &native_host(&app)?)
 }
@@ -304,6 +308,7 @@ fn main() {
             local_node_info,
             set_local_sharing,
             request_local_permissions,
+            reveal_local_component,
             share_to_device
         ])
         .build(tauri::generate_context!())

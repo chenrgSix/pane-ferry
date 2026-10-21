@@ -29,6 +29,28 @@ fn directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "无法定位本机服务。")?
         .join("Node"))
 }
+fn component(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .resolve("RemoteAppNode.app", tauri::path::BaseDirectory::Resource)
+        .map_err(|_| "缺少本机共享组件。".into())
+}
+pub fn reveal_component(app: &tauri::AppHandle) -> Result<(), String> {
+    // Reveal the exact bundled copy used by ensure, never a development copy
+    // found by display name or LaunchServices' duplicate bundle registration.
+    let status = Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(component(app)?)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| "未能显示本机共享组件。")?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("未能显示本机共享组件。".into())
+    }
+}
 fn exchange(path: &Path, body: Value) -> Result<Value, String> {
     let mut socket = UnixStream::connect(path).map_err(|_| "本机服务尚未就绪。")?;
     socket
@@ -68,13 +90,7 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if UnixStream::connect(&socket).is_ok() {
         return Ok(socket);
     }
-    let path = app
-        .path()
-        .resolve(
-            "RemoteAppNode.app/Contents/MacOS/RemoteAppNode",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .map_err(|_| "缺少本机共享组件。")?;
+    let path = component(app)?.join("Contents/MacOS/RemoteAppNode");
     let mut child = Command::new(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

@@ -69,6 +69,10 @@ async function requestPermissions() {
   catch {localWarning.value="请在 macOS 系统设置中允许 LAN RemoteApp 的录屏与辅助功能。";}
   finally {localBusy.value=false;}
 }
+async function showLocalComponent() {
+  try {await invoke("reveal_local_component");}
+  catch {localWarning.value="未能在访达显示本机共享组件。";}
+}
 let localTimer:ReturnType<typeof setInterval>|undefined;
 const catalogCache = new CatalogCache(storage);
 const filtered = computed(() =>
@@ -395,6 +399,8 @@ onUnmounted(() => {
         <p v-if="localNode && (!localNode.permissions.screen_recording || !localNode.permissions.accessibility)" class="hint">
           {{!localNode.permissions.screen_recording ? "需要录屏权限。" : ""}} {{!localNode.permissions.accessibility ? "需要辅助功能权限。" : ""}}
           <button :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button>
+          <button :disabled="localBusy" @click="showLocalComponent">显示共享组件</button>
+          <br />授权仍不生效时，可点“显示共享组件”，将访达选中的程序加入系统辅助功能列表。
         </p>
         <p v-for="route in localNode?.routes || []" :key="route.endpoint" class="hint">{{JSON.parse(route.endpoint).host}} · {{route.state}}</p>
         <p v-if="localWarning" class="alert error">{{localWarning}}</p>
