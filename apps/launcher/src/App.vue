@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { PendingLaunches } from "./session-store";
 import { launchFailure } from "./launch-failure";
 import { CatalogCache, readCatalog } from "./catalog-cache";
 import { endpointKey } from "./launcher-types";
+import { connections } from "./connections";
+import type { Connection } from "./connections";
 import type { AppCatalog, AppInfo, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
 type Result = {
@@ -18,6 +20,7 @@ const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
   desktopWindows = ref<DesktopWindow[]>([]),
   discoveryWarning = ref(""),
   windowWarning = ref(""),
+  sessionWarning = ref(""),
   search = ref("");
 const busy = ref(false),
   renderScale = ref("auto"),
@@ -26,6 +29,7 @@ const busy = ref(false),
   catalogSavedAt = ref<number | null>(null),
   catalogPersisted = ref(false),
   connected = ref(""),
+  runtimeEndpoint = ref(""),
   sessions = ref<SessionInfo[]>([]),
   launches = ref<{ name: string; result: Result }[]>([]);
 let storage: Storage | undefined;
@@ -41,10 +45,13 @@ const filtered = computed(() =>
 );
 const installed = computed(() => filtered.value.filter(app => app.source === "desktop"));
 const custom = computed(() => filtered.value.filter(app => app.source === "custom"));
-const filteredWindows = computed(() => desktopWindows.value.filter(window =>
-  `${window.name} ${window.title}`.toLowerCase().includes(search.value.toLowerCase())));
+const runningConnections = computed(() => connections(apps.value, desktopWindows.value, sessions.value));
+const filteredConnections = computed(() => runningConnections.value.filter(row =>
+  `${row.name} ${row.title}`.toLowerCase().includes(search.value.toLowerCase())));
 const signature = () => endpointKey(endpoint.value),
-  catalogCurrent = computed(() => connected.value === signature());
+  catalogCurrent = computed(() => connected.value === signature()),
+  runtimeCurrent = computed(() => runtimeEndpoint.value === signature());
+let lastRuntimeRead = 0;
 const valid = computed(() =>
   Boolean(
     endpoint.value.host.trim() &&
@@ -78,8 +85,6 @@ try {
     };
   }
 } catch {}
-const appName = (id: string) => apps.value.find((a) => a.id === id)?.name
-  || desktopWindows.value.find(window => window.id === id)?.name || id;
 function restoreCatalog() {
   const cached = catalogCache.get(signature());
   apps.value = cached?.apps ?? [];
@@ -88,14 +93,24 @@ function restoreCatalog() {
   catalogPersisted.value = catalogCache.isPersisted(signature());
   desktopWindows.value = [];
   sessions.value = [];
+  runtimeEndpoint.value = "";
+  lastRuntimeRead = 0;
   discoveryWarning.value = "";
   windowWarning.value = "";
+  sessionWarning.value = "";
   error.value = "";
   notice.value = "";
 }
 async function readSessions(sent = { ...endpoint.value }) {
-  const data = await invoke<SessionInfo[]>("list_sessions", { endpoint: sent });
-  if (signature() === endpointKey(sent)) sessions.value = data;
+  try {
+    const data = await invoke<SessionInfo[]>("list_sessions", { endpoint: sent });
+    if (signature() !== endpointKey(sent)) return;
+    sessions.value = data;
+    sessionWarning.value = "";
+    runtimeEndpoint.value = endpointKey(sent);
+  } catch (error) {
+    if (signature() === endpointKey(sent)) sessionWarning.value = `会话读取失败：${String(error)}`;
+  }
 }
 async function load(refreshApps = false) {
   if (!valid.value || busy.value) return;
@@ -104,10 +119,9 @@ async function load(refreshApps = false) {
   notice.value = "";
   const sent = { ...endpoint.value };
   try {
-    const [catalog, running] = await Promise.allSettled([
+    const [catalog] = await Promise.allSettled([
       readCatalog(catalogCache, endpointKey(sent), () => invoke<AppCatalog>("list_apps", { endpoint: sent }), refreshApps),
-      readSessions(sent),
-      readWindows(sent),
+      readRuntime(sent),
     ]);
     if (signature() !== endpointKey(sent)) return;
     const failures: string[] = [];
@@ -119,7 +133,6 @@ async function load(refreshApps = false) {
       connected.value = endpointKey(sent);
       notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
     } else failures.push(`应用读取失败：${String(catalog.reason)}`);
-    if (running.status === "rejected") failures.push(`会话读取失败：${String(running.reason)}`);
     error.value = failures.join(" ");
     save();
   } finally {
@@ -132,24 +145,21 @@ async function readWindows(sent = { ...endpoint.value }) {
     if (signature() !== endpointKey(sent)) return;
     desktopWindows.value = result.windows;
     windowWarning.value = result.unavailable_reason || "";
+    runtimeEndpoint.value = endpointKey(sent);
   } catch (error) {
     if (signature() !== endpointKey(sent)) return;
     windowWarning.value = `运行窗口读取失败：${String(error)}`;
   }
 }
-async function refreshWindows() {
-  if (busy.value || !catalogCurrent.value) return;
-  busy.value = true;
-  try { await readWindows(); } finally { busy.value = false; }
+async function readRuntime(sent = { ...endpoint.value }) {
+  await Promise.all([readSessions(sent), readWindows(sent)]);
+  if (signature() === endpointKey(sent)) lastRuntimeRead = Date.now();
 }
 async function refresh() {
-  if (busy.value || !catalogCurrent.value) return;
+  if (busy.value || !valid.value) return;
   busy.value = true;
-  error.value = "";
   try {
-    await readSessions();
-  } catch (e) {
-    error.value = String(e);
+    await readRuntime();
   } finally {
     busy.value = false;
   }
@@ -161,54 +171,66 @@ function record(name: string, result: Result) {
   save();
 }
 async function launch(app: LaunchTarget) {
-  if (busy.value || !catalogCurrent.value || app.unavailable_reason) return;
+  if (busy.value || !valid.value || app.unavailable_reason) return;
   busy.value = true;
   error.value = "";
   notice.value = "";
+  const sent = { ...endpoint.value };
   const key = `${signature()}:${app.id}:native:${renderScale.value}`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
-      endpoint: { ...endpoint.value },
+      endpoint: sent,
       appId: app.id,
       requestId,
       renderScale: renderScale.value === "auto" ? null : Number(renderScale.value),
     });
-    record(app.name, result);
     attempts.resolve(key);
+    if (signature() === endpointKey(sent)) record(app.name, result);
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
-    error.value = failure.message + (failure.retrySameRequest
-      ? " 可先刷新会话；再次点击会安全重试同一次启动。" : "");
+    if (signature() === endpointKey(sent)) error.value = failure.message + (failure.retrySameRequest
+      ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
   } finally {
-    await Promise.all([readSessions().catch(() => {}), readWindows()]);
+    await readRuntime(sent);
     busy.value = false;
   }
 }
-async function resume(session: SessionInfo) {
-  if (busy.value || !catalogCurrent.value) return;
+async function resume(sessionId: string, name: string) {
+  if (busy.value || !valid.value) return;
   busy.value = true;
   error.value = "";
   notice.value = "";
+  const sent = { ...endpoint.value };
   try {
     const result = await invoke<Result>("resume_session", {
-      endpoint: { ...endpoint.value },
-      sessionId: session.session_id,
+      endpoint: sent,
+      sessionId,
     });
-    record(appName(session.app_id), result);
+    if (signature() === endpointKey(sent)) record(name, result);
   } catch (e) {
-    error.value = String(e);
+    if (signature() === endpointKey(sent)) error.value = String(e);
   } finally {
-    await readSessions().catch(() => {});
+    await readRuntime(sent);
     busy.value = false;
   }
 }
+async function connect(row: Connection) {
+  if (row.controlled) return;
+  if (row.sessionId) await resume(row.sessionId, row.name);
+  else await launch({ id: row.appId, name: row.name });
+}
+function onFocus() {
+  if ((catalogCurrent.value || runtimeCurrent.value) && Date.now() - lastRuntimeRead > 5000) void refresh();
+}
 watch(signature, restoreCatalog);
 onMounted(() => {
+  window.addEventListener("focus", onFocus);
   restoreCatalog();
   if (valid.value) void load();
 });
+onUnmounted(() => window.removeEventListener("focus", onFocus));
 </script>
 <template>
   <div class="shell">
@@ -329,20 +351,21 @@ onMounted(() => {
           主机信息已改变，请连接当前主机。
         </p>
       </section>
-      <section v-if="catalogCurrent" class="catalog desktop-windows">
+      <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
         <div class="section-title">
-          <h2>04 <span>运行中的桌面窗口</span><span class="count">{{ desktopWindows.length }}</span></h2>
-          <button class="session-action" :disabled="busy" @click="refreshWindows">刷新窗口</button>
+          <h2>04 <span>运行中的窗口</span><span class="count">{{ runningConnections.length }}</span></h2>
+          <button class="session-action" :disabled="busy" @click="refresh">刷新运行状态</button>
         </div>
-        <p class="hint">接管现有窗口会保留登录状态和内容，首次控制可能需要在 Ubuntu 确认授权。支持 X11 / XWayland；原生 Wayland 窗口暂不能接管。</p>
+        <p class="hint">点击“连接”自动恢复已有会话或接管桌面窗口，保留应用内容。首次接管可能需要在 Ubuntu 确认授权；关闭本机窗口只会断开连接。</p>
         <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
-        <p v-else-if="!desktopWindows.length" class="hint">当前桌面没有可接管的窗口。</p>
-        <p v-else-if="!filteredWindows.length" class="hint">没有匹配的窗口。</p>
-        <div v-for="window in filteredWindows" :key="window.id" class="desktop-window-row">
-          <AppIcon :icon="window.icon_png" :name="window.name" />
-          <div class="window-label"><strong>{{ window.name }}</strong><p :title="window.title">{{ window.title || "无标题窗口" }}</p></div>
-          <span v-if="window.minimized" class="window-state">已最小化</span>
-          <button class="session-action" :disabled="busy || window.controlled || Boolean(window.session_id)" @click="launch(window)">{{ window.controlled ? "已连接" : window.session_id ? "已有远程会话" : "接管窗口" }}</button>
+        <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
+        <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口，打开应用后会显示在这里。" }}</p>
+        <p v-else-if="runningConnections.length && !filteredConnections.length" class="hint">没有匹配的窗口。</p>
+        <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row">
+          <AppIcon :icon="row.icon_png" :name="row.name" />
+          <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
+          <span class="window-state">{{ row.kind === "desktop" ? "Ubuntu 桌面" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
+          <button class="session-action" :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
         </div>
       </section>
       <section v-if="custom.length" class="catalog">
@@ -354,38 +377,6 @@ onMounted(() => {
             <p>{{ app.unavailable_reason || app.description || app.id }}</p><span class="launch-label">{{ app.unavailable_reason ? "入口不可用" : "打开 ↗" }}</span>
           </button>
         </div>
-      </section>
-      <section v-if="catalogCurrent" class="history sessions">
-        <div class="section-title">
-          <h2>
-            运行中的会话 <span class="count">{{ sessions.length }}</span>
-          </h2>
-          <button class="session-action" :disabled="busy" @click="refresh">
-            刷新会话
-          </button>
-        </div>
-        <p v-if="!sessions.length" class="hint">
-          当前没有运行中的会话。打开应用后可在这里重新连接。
-        </p>
-        <div
-          v-for="session in sessions"
-          :key="session.session_id"
-          class="session-row"
-        >
-          <b>{{ appName(session.app_id) }}</b
-          ><span>原生窗口 · {{ session.controlled ? "已连接" : "可连接" }}</span
-          ><code>{{ session.session_id }}</code
-          ><button
-            class="session-action"
-            :disabled="busy || session.controlled"
-            @click="resume(session)"
-          >
-            重新连接
-          </button>
-        </div>
-        <p class="hint">
-          断开宿主会保留远端应用。重启启动器后，读取同一主机即可找回会话。
-        </p>
       </section>
       <section v-if="launches.length" class="history">
         <h2>本次连接记录</h2>
@@ -400,7 +391,7 @@ onMounted(() => {
       </section>
       <footer>
         Linux 负责运行 · macOS 负责呈现
-        <span>文件、音频和后台剪贴板同步关闭</span>
+        <span>剪贴板按需传输 · 不做后台同步</span>
       </footer>
     </main>
   </div>
