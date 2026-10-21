@@ -435,6 +435,9 @@ impl Backend {
             }
             if transfer.bridge_pid.is_some()
                 && transfer.requestor.is_some()
+                // A large image can still be in INCR when the bridge's
+                // advertisement delay expires. Keep later input behind it.
+                && transfer.incremental.is_empty()
                 && transfer
                     .pasted_at
                     .is_some_and(|at| at.elapsed() >= Duration::from_millis(100))
