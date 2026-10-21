@@ -11,6 +11,13 @@ import AppKit
         var data=Data([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,10,0,0,0,10])
         try checkPNG(data);data[16]=127
         do {try checkPNG(data);fatalError("oversized image accepted")} catch NodeError.clipboard_invalid {}
+        let event=windowMouseEvent(.leftMouseDown,windowID:42,location:CGPoint(x:104,y:346),flags:.maskShift,button:.left,number:17,pressure:1)!
+        let native=NSEvent(cgEvent:event)!
+        precondition(native.windowNumber==42 && native.locationInWindow==CGPoint(x:104,y:346))
+        precondition(native.modifierFlags.contains(.shift) && native.eventNumber==17)
+        event.type = .scrollWheel;event.setIntegerValueField(.scrollWheelEventDeltaAxis1,value:3)
+        let scroll=NSEvent(cgEvent:event)!
+        precondition(scroll.windowNumber==42 && scroll.locationInWindow==CGPoint(x:104,y:346) && scroll.scrollingDeltaY==3)
         print("PASS: Mac publisher exclusion, identifiers, frame and image budgets")
     }
 }

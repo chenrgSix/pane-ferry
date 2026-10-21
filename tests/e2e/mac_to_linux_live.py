@@ -20,13 +20,21 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--peer',required=True)
 parser.add_argument('--capture-only',action='store_true',help='verify real video/reconnect without sending input')
 args=parser.parse_args();uuid.UUID(args.peer)
-info=request(args.peer,'node.info')
+deadline=time.monotonic()+30
+while True:
+    try:
+        info=request(args.peer,'node.info');break
+    except (OSError,EOFError):
+        if time.monotonic()>=deadline:raise
+        time.sleep(.25)
 assert info['sharing_enabled'] and info['permissions']['screen_recording'], 'user sharing/recording permission required'
 assert args.capture_only or info['permissions']['accessibility'], 'user accessibility permission required'
 apps=request(args.peer,'app.list')['apps']
 assert not any('WindowHosts' in a.get('id','') or a.get('name')=='LAN RemoteApp WindowHost' for a in apps)
 windows=request(args.peer,'window.list')['windows']
-target=next(w for w in windows if w['title']=='LAN RemoteApp Mac 发布测试' and w['name']=='RemoteApp Mac Test')
+targets=[w for w in windows if w['title']=='LAN RemoteApp Mac 发布测试' and w['name']=='RemoteApp Mac Test' and not w.get('minimized')]
+assert len(targets)==1, 'expected exactly one visible dedicated Mac fixture'
+target=targets[0]
 response=request(args.peer,'app.launch','session.started',app_id=target['id'],request_id=uuid.uuid4().hex,backend='native',attach=False)
 sid=response['session_id']
 class FixedViewer(Viewer):
@@ -40,7 +48,7 @@ viewer=FixedViewer(app,args.peer,'Mac 发布实测',session_id=sid)
 def until(predicate,timeout=12):
     deadline=time.monotonic()+timeout
     while not predicate():
-        assert time.monotonic()<deadline,'live check timed out'
+        assert time.monotonic()<deadline,('live check timed out',viewer.notice.get_text(),viewer.ready,viewer.epoch)
         while Gtk.events_pending():Gtk.main_iteration_do(False)
         time.sleep(.01)
 def send(**fields):
@@ -72,13 +80,18 @@ try:
     # SCK publishes at 2x. These hit only the fixture's fixed button/text area.
     click(208,140)
     click(160,310)
+    board=Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
+    request_id=uuid.uuid4().hex;viewer.copy_request=(request_id,clipboard.begin_copy())
+    send(type='clipboard.inline.copy',request_id=request_id,cut=False)
+    until(lambda:viewer.copy_request is None)
+    assert board.wait_for_text()=='点击计数 1','native button click did not increment exactly once'
     viewer.im.emit('commit','反向链路中文🙂 Mac → Ubuntu')
     send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
     request_id=uuid.uuid4().hex
     viewer.copy_request=(request_id,clipboard.begin_copy())
     send(type='clipboard.inline.copy',request_id=request_id,cut=False)
     until(lambda:viewer.copy_request is None)
-    board=Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
     assert board.wait_for_text()=='反向链路中文🙂 Mac → Ubuntu','Mac text input/copy round trip failed'
     board.set_text('剪贴板从 Ubuntu 到 Mac',-1);viewer.paste()
     send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
@@ -86,9 +99,21 @@ try:
     send(type='clipboard.inline.copy',request_id=request_id,cut=False)
     until(lambda:viewer.copy_request is None)
     assert board.wait_for_text()=='剪贴板从 Ubuntu 到 Mac','paste round trip failed'
+    request_id=uuid.uuid4().hex;viewer.copy_request=(request_id,clipboard.begin_copy())
+    send(type='clipboard.inline.copy',request_id=request_id,cut=True)
+    until(lambda:viewer.copy_request is None)
+    assert board.wait_for_text()=='剪贴板从 Ubuntu 到 Mac','native cut round trip failed'
+    # Clear any remaining selection. A failed cut would then retain old text,
+    # so the following assertion also verifies actual deletion and key release.
+    key('Left');viewer.im.emit('commit','剪切后输入正常🙂')
+    send(type='input.key.logical',key='Control_L',pressed=True);key('a');send(type='input.key.logical',key='Control_L',pressed=False)
+    request_id=uuid.uuid4().hex;viewer.copy_request=(request_id,clipboard.begin_copy())
+    send(type='clipboard.inline.copy',request_id=request_id,cut=False)
+    until(lambda:viewer.copy_request is None)
+    assert board.wait_for_text()=='剪切后输入正常🙂','text after native cut was corrupted'
     send(type='window.configure',width=1200,height=840)
     until(lambda:viewer.width==1200 and viewer.height==840 and viewer.pixels.get_width()==1200 and viewer.pixels.get_height()==840)
     reconnect_and_detach()
-    print('PASS: actual Mac SCK/H264 -> Ubuntu GTK; click, controller Unicode, native shortcuts, bidirectional text clipboard, resize, same-session reconnect, detach preserves Mac app; initial resolution',first)
+    print('PASS: actual Mac SCK/H264 -> Ubuntu GTK; click, controller Unicode, native shortcuts, bidirectional text clipboard, cut/deletion/key release, resize, same-session reconnect, detach preserves Mac app; initial resolution',first)
 finally:
     viewer.close()
