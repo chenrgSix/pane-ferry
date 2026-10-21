@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     os::unix::{
         fs::{MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -470,6 +470,9 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
         bail!("session already controlled")
     };
     s.controller = true;
+    if let Some(backend) = &s.backend {
+        backend.refresh_capture();
+    }
     drop(s);
     Ok(Lease(session))
 }
@@ -492,6 +495,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     out.set_write_timeout(Some(Duration::from_secs(3)))?;
     let input = out.try_clone()?;
     let (tx, rx) = mpsc::sync_channel(16);
+    let (mut wake, mut notify) = UnixStream::pair()?;
+    wake.set_nonblocking(true)?;
+    notify.set_nonblocking(true)?;
     thread::spawn(move || {
         let mut input = BufReader::new(input);
         loop {
@@ -502,6 +508,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             if tx.send(req).is_err() {
                                 break;
                             }
+                            // A full wake socket is already readable. Never
+                            // block the request reader on notification bytes.
+                            let _ = notify.write(&[1]);
                         }
                         Err(_) => break,
                     }
@@ -536,13 +545,15 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "",
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
+    let mut last_scan = last_capture;
     let mut lease: Option<Lease> = None;
     let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut pending_request = None;
     while !STOP.load(Ordering::SeqCst) {
         let mut text_pending = false;
-        let mut text_wait_fd = None;
+        let mut x11_fd = None;
+        let mut capture_pending = false;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
@@ -570,9 +581,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         Ok(None) => {}
                     }
                     text_pending = b.text_pending();
-                    if text_pending {
-                        text_wait_fd = Some(b.event_fd());
-                    }
+                    b.pump_capture_events()?;
+                    x11_fd = Some(b.event_fd());
+                    capture_pending = b.capture_pending();
                 }
             }
         }
@@ -580,7 +591,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let req = if text_pending {
             // Wake as soon as selection data arrives; retain a bounded timeout
             // for deadlines and shutdown instead of sleeping between each round trip.
-            if let Some(fd) = text_wait_fd {
+            if let Some(fd) = x11_fd {
                 let mut event = libc::pollfd {
                     fd,
                     events: libc::POLLIN,
@@ -594,7 +605,13 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         } else if pending_request.is_some() {
             pending_request.take()
         } else {
-            match rx.recv_timeout(Duration::from_millis(10)) {
+            let scan_delay = Duration::from_millis(33).saturating_sub(last_scan.elapsed());
+            let frame_delay = if capture_pending {
+                Duration::from_millis(33).saturating_sub(last_capture.elapsed())
+            } else {
+                Duration::MAX
+            };
+            match input_queue::receive(&rx, &mut wake, x11_fd, scan_delay.min(frame_delay)) {
                 Ok(r) => Some(r),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
                 Err(_) => break,
@@ -769,10 +786,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )?;
             }
         }
-        if last_capture.elapsed() < Duration::from_millis(33) {
+        if last_scan.elapsed() < Duration::from_millis(33)
+            && !(capture_pending && last_capture.elapsed() >= Duration::from_millis(33))
+        {
             continue;
         }
-        last_capture = Instant::now();
+        last_scan = Instant::now();
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
@@ -812,9 +831,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
-                    if !w.visible {
+                    if !w.visible || !b.capture_needed(w.window_id) {
                         continue;
                     }
+                    // Metadata-only scans must not postpone the first repaint
+                    // after idle. Failed attempts still retain the 30fps bound.
+                    last_capture = last_scan;
                     if let Ok(image) = b.capture(w) {
                         out.frame(w, image, &sid)?;
                     }

@@ -22,8 +22,10 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
     config = home / '.config/lan-remoteapp'
     config.mkdir(parents=True)
     state = home / 'key.json'
-    (config / 'apps.json').write_text(json.dumps([dict(id='video', name='Video', executable=sys.executable,
-        argv=[str(Path(__file__).with_name('latency_fixture.py').resolve()), str(state)])]))
+    fixture = str(Path(__file__).with_name('latency_fixture.py').resolve())
+    (config / 'apps.json').write_text(json.dumps([
+        dict(id='video', name='Video', executable=sys.executable, argv=[fixture, str(state)]),
+        dict(id='static', name='Static', executable=sys.executable, argv=[fixture, str(state), '--static'])]))
     env = dict(os.environ, HOME=str(home), XMODIFIERS='@im=none', GTK_IM_MODULE='simple')
     for name in ('WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'SESSION_MANAGER'):
         env.pop(name, None)
@@ -103,10 +105,29 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
             frame(resumed, connection=1)
         finally:
             resumed.close()
+        time.sleep(.15)
+        static = Peer()
+        try:
+            static.send(type='app.launch', app_id='static', request_id='static', backend='native')
+            static_sid = static.until('session.started')['session_id']
+            static.until('window.created', lambda event: event['title'] == 'RemoteAppLatencyFixture')
+            static_first = frame(static, connection=2)
+            assert static_first['key_frame']
+            time.sleep(.3)
+        finally:
+            static.close()
+        time.sleep(.15)
+        static_resumed = Peer()
+        try:
+            static_resumed.send(type='session.resume', session_id=static_sid)
+            static_resumed.until('session.snapshot')
+            assert frame(static_resumed, connection=3)['key_frame'], 'idle reconnect needs an initial frame'
+        finally:
+            static_resumed.close()
         if args.export:
             args.export.write_text(json.dumps(records))
         print(json.dumps(dict(result='PASS', codec='h264', samples=len(records),
             median_wire_bytes=round(statistics.median(len(json.dumps(sample)) for sample in samples)),
-            checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe'])))
+            checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle reconnect snapshot'])))
     finally:
         agent.terminate(); agent.wait(timeout=10)

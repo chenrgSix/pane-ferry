@@ -171,7 +171,7 @@ impl Backend {
             self.conn.get_input_focus()?.reply()?;
             let mut timestamp = None;
             for _ in 0..256 {
-                match self.conn.poll_for_event()? {
+                match self.next_event()? {
                     Some(Event::PropertyNotify(e)) if e.window == owner => {
                         timestamp = Some(e.time);
                         break;
@@ -239,7 +239,7 @@ impl Backend {
         let mut selection_lost = false;
         let result = (|| {
             for _ in 0..256 {
-                let Some(event) = self.conn.poll_for_event()? else {
+                let Some(event) = self.next_event()? else {
                     break;
                 };
                 match event {

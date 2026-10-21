@@ -126,7 +126,7 @@ impl Backend {
                 }
             }
             for _ in 0..256 {
-                let Some(event) = self.conn.poll_for_event()? else {
+                let Some(event) = self.next_event()? else {
                     break;
                 };
                 match event {

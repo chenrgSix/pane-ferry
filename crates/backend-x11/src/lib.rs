@@ -15,6 +15,7 @@ use x11rb::{
 };
 mod controller_copy;
 mod controller_text;
+mod damage;
 mod shared_capture;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
@@ -29,8 +30,14 @@ pub struct Backend {
     copy_transfer: Option<CopyTransfer>,
     scale_factor: u8,
     shared_capture: RefCell<shared_capture::SharedCapture>,
+    damage: RefCell<damage::Damage>,
 }
 impl Backend {
+    /// A fresh controller needs a snapshot even if the application stayed idle
+    /// while disconnected and its last damage was already acknowledged.
+    pub fn refresh_capture(&self) {
+        self.damage.borrow_mut().refresh();
+    }
     /// Readiness only; ownership remains with this backend for the controller lease.
     pub fn event_fd(&self) -> std::os::fd::RawFd {
         use std::os::fd::AsRawFd;
@@ -114,6 +121,7 @@ impl Backend {
             );
         }
         let shared_capture = RefCell::new(shared_capture::SharedCapture::new(&conn));
+        let damage = RefCell::new(damage::Damage::new(&conn));
         Ok(Self {
             conn,
             root,
@@ -125,6 +133,7 @@ impl Backend {
             copy_transfer: None,
             scale_factor: 1,
             shared_capture,
+            damage,
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
@@ -288,10 +297,50 @@ impl Backend {
             self.release_all();
         }
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
+        self.damage.borrow_mut().sync(&self.conn, &self.windows)?;
         Ok(out)
     }
+    fn next_event(&self) -> Result<Option<x11rb::protocol::Event>> {
+        for _ in 0..256 {
+            match self.conn.poll_for_event()? {
+                Some(x11rb::protocol::Event::DamageNotify(event)) => {
+                    self.damage.borrow_mut().notify(&event)
+                }
+                event => return Ok(event),
+            }
+        }
+        Ok(None)
+    }
+    pub fn pump_capture_events(&self) -> Result<()> {
+        // A transfer's event handler must see its own selection/property events.
+        if self.text_transfer.is_some() || self.copy_transfer.is_some() {
+            return Ok(());
+        }
+        for _ in 0..256 {
+            if self.next_event()?.is_none() {
+                break;
+            }
+        }
+        Ok(())
+    }
+    pub fn capture_pending(&self) -> bool {
+        self.damage.borrow().pending()
+    }
+    pub fn capture_needed(&self, window: u32) -> bool {
+        self.damage.borrow().needed(window)
+    }
     pub fn capture(&self, w: &Window) -> Result<CapturedImage> {
+        let result = self.capture_image(w);
+        if result.is_err() {
+            self.damage.borrow_mut().retry(w.window_id);
+        }
+        result
+    }
+    fn capture_image(&self, w: &Window) -> Result<CapturedImage> {
         self.known(w.window_id)?;
+        self.damage
+            .borrow_mut()
+            .acknowledge(&self.conn, w.window_id)?;
         // A compositor redirects existing desktop windows. Naming that pixmap
         // lets us capture this window even when another window covers it.
         let pixmap = if self.process_id.is_some() {

@@ -56,5 +56,6 @@ area.connect('key-press-event', key)
 window.connect('destroy', Gtk.main_quit)
 window.show_all()
 area.grab_focus()
-GLib.timeout_add(33, animate)
+if '--static' not in sys.argv[2:]:
+    GLib.timeout_add(33, animate)
 Gtk.main()
