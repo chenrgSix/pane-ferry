@@ -15,6 +15,7 @@ use x11rb::{
 };
 mod controller_copy;
 mod controller_text;
+mod shared_capture;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
 pub struct Backend {
@@ -27,6 +28,7 @@ pub struct Backend {
     text_transfer: Option<TextTransfer>,
     copy_transfer: Option<CopyTransfer>,
     scale_factor: u8,
+    shared_capture: RefCell<shared_capture::SharedCapture>,
 }
 impl Backend {
     /// Readiness only; ownership remains with this backend for the controller lease.
@@ -111,6 +113,7 @@ impl Backend {
                 conn.intern_atom(false, name.as_bytes())?.reply()?.atom,
             );
         }
+        let shared_capture = RefCell::new(shared_capture::SharedCapture::new(&conn));
         Ok(Self {
             conn,
             root,
@@ -121,6 +124,7 @@ impl Backend {
             text_transfer: None,
             copy_transfer: None,
             scale_factor: 1,
+            shared_capture,
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
@@ -300,35 +304,46 @@ impl Backend {
         } else {
             None
         };
-        let image = self
-            .conn
-            .get_image(
-                ImageFormat::Z_PIXMAP,
-                pixmap.unwrap_or(w.window_id),
-                0,
-                0,
-                w.width as u16,
-                w.height as u16,
-                u32::MAX,
-            )?
-            .reply();
+        let image = (|| -> Result<_> {
+            let drawable = pixmap.unwrap_or(w.window_id);
+            if let Some(image) = self
+                .shared_capture
+                .borrow_mut()
+                .capture(&self.conn, drawable, w.width, w.height)
+            {
+                return Ok(image);
+            }
+            let image = self
+                .conn
+                .get_image(
+                    ImageFormat::Z_PIXMAP,
+                    drawable,
+                    0,
+                    0,
+                    w.width as u16,
+                    w.height as u16,
+                    u32::MAX,
+                )?
+                .reply()?;
+            Ok((image.depth, image.visual, image.data))
+        })();
         if let Some(pixmap) = pixmap {
             self.conn.free_pixmap(pixmap)?;
         }
-        let img = image?;
-        let visual_id = if img.visual == 0 {
+        let (depth, visual_id, data) = image?;
+        let visual_id = if visual_id == 0 {
             self.conn
                 .get_window_attributes(w.window_id)?
                 .reply()?
                 .visual
         } else {
-            img.visual
+            visual_id
         };
         let setup = self.conn.setup();
         let f = setup
             .pixmap_formats
             .iter()
-            .find(|f| f.depth == img.depth)
+            .find(|f| f.depth == depth)
             .ok_or_else(|| anyhow::anyhow!("missing pixel format"))?;
         let visual = setup
             .roots
@@ -340,7 +355,7 @@ impl Backend {
         Ok(CapturedImage {
             width: w.width,
             height: w.height,
-            data: img.data,
+            data,
             bpp: f.bits_per_pixel,
             pad: f.scanline_pad,
             little: setup.image_byte_order == ImageOrder::LSB_FIRST,
