@@ -2,6 +2,13 @@
 pub fn code(message: &str) -> &'static str {
     match message {
         "sharing disabled" => "sharing_disabled",
+        "desktop_locked" => "desktop_locked",
+        "resolution_limited" => "resolution_limited",
+        "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
+        "wayland_bridge_failed" => "wayland_bridge_failed",
+        "wayland_capture_unavailable" => "wayland_capture_unavailable",
+        "wayland_binary_clipboard_unavailable" => "wayland_binary_clipboard_unavailable",
+        "wayland_cut_unavailable" => "wayland_cut_unavailable",
         "desktop_authorization_pending" => "desktop_authorization_pending",
         "desktop_authorization_denied" => "desktop_authorization_denied",
         "desktop_input_paused" => "desktop_input_paused",

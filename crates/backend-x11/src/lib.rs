@@ -21,6 +21,7 @@ mod damage;
 mod inventory;
 mod related_windows;
 mod shared_capture;
+pub use controller_copy::CopiedText;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
 pub use inventory::{desktop_windows, DesktopWindow};
@@ -32,6 +33,18 @@ pub trait DesktopInput: Send + Sync {
     fn pointer(&self, x: i32, y: i32, button: u8, pressed: bool) -> Result<()>;
     fn key(&self, code: u8, pressed: bool) -> Result<()>;
     fn release_all(&self);
+}
+/// Optional compositor geometry for an already approved Xwayland window.
+pub trait DesktopGeometry: Send {
+    fn resize(&self, window: u32, width: u32, height: u32) -> Result<bool>;
+    fn pointer(
+        &self,
+        window: u32,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> Result<Option<(i32, i32)>>;
 }
 pub struct Backend {
     conn: RustConnection,
@@ -49,6 +62,7 @@ pub struct Backend {
     shared_capture: RefCell<shared_capture::SharedCapture>,
     damage: RefCell<damage::Damage>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
+    desktop_geometry: Option<Box<dyn DesktopGeometry>>,
 }
 impl Backend {
     pub fn is_xwayland(&self) -> Result<bool> {
@@ -56,6 +70,9 @@ impl Backend {
     }
     pub fn set_desktop_input(&mut self, input: Arc<dyn DesktopInput>) {
         self.desktop_input = Some(input);
+    }
+    pub fn set_desktop_geometry(&mut self, geometry: Box<dyn DesktopGeometry>) {
+        self.desktop_geometry = Some(geometry);
     }
     pub fn prepare_input(&self) {
         if let Some(input) = &self.desktop_input {
@@ -182,6 +199,7 @@ impl Backend {
             shared_capture,
             damage,
             desktop_input: None,
+            desktop_geometry: None,
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
@@ -553,6 +571,11 @@ impl Backend {
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
         self.known(id)?;
         paneferry_protocol::dimensions(w, h)?;
+        if let Some(geometry) = &self.desktop_geometry {
+            if geometry.resize(id, w, h)? {
+                return Ok(());
+            }
+        }
         self.resize_window(id, w, h, self.windows[&id].role == "popup")
     }
     fn resize_window(&self, id: u32, w: u32, h: u32, popup: bool) -> Result<()> {
@@ -659,6 +682,10 @@ impl Backend {
         self.known(id)?;
         let w = &self.windows[&id];
         if x < 0 || y < 0 || x >= w.width as i32 || y >= w.height as i32 || button > 7 {
+            if (1..=7).contains(&button) && !pressed {
+                self.release_all();
+                return Ok(());
+            }
             bail!("invalid pointer")
         };
         if pressed || button == 0 {
@@ -675,6 +702,17 @@ impl Backend {
             .translate_coordinates(id, self.root, x as i16, y as i16)?
             .reply()?;
         if let Some(input) = &self.desktop_input {
+            if let Some(geometry) = &self.desktop_geometry {
+                let window = &self.windows[&id];
+                let point = geometry.pointer(id, x, y, window.width, window.height);
+                if point.is_err() && button > 0 && !pressed {
+                    input.release_all();
+                    return Ok(());
+                }
+                if let Some((px, py)) = point? {
+                    return input.pointer(px, py, button, pressed);
+                }
+            }
             return input.pointer(point.dst_x.into(), point.dst_y.into(), button, pressed);
         }
         // XWarpPointer only moves Xwayland's internal pointer. Button events
@@ -716,17 +754,7 @@ impl Backend {
         self.conn.flush()?;
         Ok(())
     }
-    pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
-        self.known(id)?;
-        if pressed {
-            self.require_input()?;
-        }
-        if pressed {
-            self.focus_for_input(id)?;
-            if let Some(scope) = &self.window_scope {
-                scope.record_input(id);
-            }
-        }
+    pub fn keycode(&self, keysym: u32) -> Result<u8> {
         let setup = self.conn.setup();
         let min = setup.min_keycode;
         let max = setup.max_keycode;
@@ -740,6 +768,20 @@ impl Backend {
             .position(|syms| syms.contains(&keysym))
             .map(|i| min + i as u8)
             .ok_or_else(|| anyhow::anyhow!("keysym unavailable in server layout"))?;
+        Ok(code)
+    }
+    pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
+        self.known(id)?;
+        if pressed {
+            self.require_input()?;
+        }
+        if pressed {
+            self.focus_for_input(id)?;
+            if let Some(scope) = &self.window_scope {
+                scope.record_input(id);
+            }
+        }
+        let code = self.keycode(keysym)?;
         if let Some(input) = &self.desktop_input {
             return input.key(code, pressed);
         }

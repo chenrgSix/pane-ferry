@@ -477,6 +477,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if code == "resolution_limited" {
+                if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
+                   let host = windows[UInt32(number)] {
+                    host.resolutionNotice = "超出远端采集范围，请缩小窗口或降低分辨率"
+                } else {
+                    stopRecovery(); alert("原窗口超过 Wayland 采集范围。请在 Ubuntu 缩小原窗口后重新连接。")
+                }
+                return
+            }
+            if ["wayland_binary_clipboard_unavailable", "wayland_cut_unavailable"].contains(code) {
+                clipboardFailed()
+                alert(code == "wayland_cut_unavailable" ? "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。" : "当前 Wayland 窗口仅支持文字剪贴板。")
+                return
+            }
+            if ["wayland_bridge_unavailable", "wayland_bridge_failed", "wayland_capture_unavailable", "desktop_locked"].contains(code) {
+                stopRecovery(); alert(code == "desktop_locked" ? "远端桌面已锁定，请解锁后重新连接。" : "Wayland 窗口连接未就绪。请确认 Ubuntu 已启用窗渡 GNOME 扩展，且 PipeWire 组件正常。")
+                return
+            }
             if code == "desktop_secrets_unavailable" {
                 stopRecovery()
                 alert("应用需要 Ubuntu 桌面密钥服务。请确认 Ubuntu 桌面已登录且已安装 xdg-dbus-proxy，再重新打开应用。")

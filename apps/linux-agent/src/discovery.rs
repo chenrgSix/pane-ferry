@@ -32,6 +32,9 @@ pub struct DesktopApp {
     pub unavailable_reason: Option<String>,
 }
 impl DesktopApp {
+    pub fn matches_desktop_id(&self, id: &str) -> bool {
+        self.desktop_id == id
+    }
     pub fn scale_argument(&self, scale: u8) -> Option<String> {
         // Installed Feishu forwards argv to its Chromium-based libframe.
         // GTK/Qt environment variables do not configure that renderer. Only
@@ -109,6 +112,10 @@ fn helper(arguments: &[&str]) -> Result<Vec<u8>> {
     let mut child = Command::new("/usr/bin/python3")
         .args(["-I", "-c", include_str!("desktop_apps.py")])
         .args(arguments)
+        // Catalog/icon parsing needs no display or portal. A stale login
+        // authority (or an initializing Wayland portal) must not hide apps.
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -276,18 +283,7 @@ pub fn running(
             let Ok(identity) = process_identity(window.process_id) else {
                 continue;
             };
-            let receiver = crate::runtime()?
-                .join("receivers")
-                .join(format!("{}.json", identity.pid));
-            if !receiver.is_symlink()
-                && fs::metadata(&receiver).is_ok_and(|metadata| metadata.len() <= 1024)
-                && fs::read(&receiver)
-                    .ok()
-                    .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-                    .is_some_and(|value| {
-                        value["pid"] == identity.pid && value["started"] == identity.started
-                    })
-            {
+            if is_receiver(&identity) {
                 continue;
             }
             let matching = apps
@@ -343,6 +339,24 @@ pub fn running(
         }
     }
     Ok((values, connected))
+}
+
+/// Never publish a received remote window back to another paired device.
+pub fn is_receiver(identity: &ProcessIdentity) -> bool {
+    let Ok(root) = crate::runtime() else {
+        return true;
+    };
+    let receiver = root
+        .join("receivers")
+        .join(format!("{}.json", identity.pid));
+    !receiver.is_symlink()
+        && fs::metadata(&receiver).is_ok_and(|m| m.len() <= 1024)
+        && fs::read(&receiver)
+            .ok()
+            .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
+            .is_some_and(|value| {
+                value["pid"] == identity.pid && value["started"] == identity.started
+            })
 }
 
 #[cfg(test)]

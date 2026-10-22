@@ -113,6 +113,12 @@ struct AutomaticReconnectSmoke {
         app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":6, "state":"paused"], image:nil))
         precondition(original.window.subtitle.contains("锁屏"))
         app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":7, "state":"ready"], image:nil))
+        let other = HostedWindow(id:43, width:640, height:480, revision:1, scale:1, popup:false, disconnect:{}, transmit:{ _ in })
+        app.windows[43] = other
+        app.receive(Incoming(object:["type":"error", "code":"resolution_limited", "window_id":42], image:nil))
+        precondition(app.connected && original.resolutionNotice != nil && other.resolutionNotice == nil,
+                     "a resize rejection must keep the session and other windows unaffected")
+        app.windows.removeValue(forKey:43); other.closeLocally()
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
         until { ((try? String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)) ?? "").contains("after reconnect") }
         let requests = try String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)

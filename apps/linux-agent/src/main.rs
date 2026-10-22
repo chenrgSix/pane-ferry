@@ -25,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+mod backend;
 mod desktop_input;
 mod discovery;
 mod input_queue;
@@ -33,12 +34,13 @@ mod output;
 mod request_error;
 mod session_bus;
 mod video;
+mod wayland;
 struct Session {
     id: String,
     app_id: String,
     display: u16,
     scale_factor: u8,
-    backend: Option<Backend>,
+    backend: Option<Box<dyn backend::WindowBackend>>,
     children: Vec<Child>,
     controller: bool,
     exited: bool,
@@ -46,6 +48,7 @@ struct Session {
     root_window: Option<u32>,
     private_authority: Option<PathBuf>,
     secrets_bus: Option<session_bus::SecretsBus>,
+    wayland: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -146,6 +149,7 @@ struct State {
     desktop_apps: Vec<discovery::DesktopApp>,
     desktop: Option<discovery::Desktop>,
     running: HashMap<String, discovery::RunningWindow>,
+    wayland_running: HashMap<String, wayland::Target>,
     runtime: PathBuf,
     desktop_input: desktop_input::Manager,
 }
@@ -287,6 +291,7 @@ fn serve() -> Result<()> {
         desktop_apps: vec![],
         desktop,
         running: HashMap::new(),
+        wayland_running: HashMap::new(),
         desktop_input: desktop_input::Manager::new(dir.clone()),
         runtime: dir,
     }));
@@ -408,15 +413,88 @@ fn launch(
             })
             .collect::<Vec<_>>();
         st.running = discovery::running(&sources, &st.desktop_apps, &excluded)?.0;
-        launch_policy::unique(
+        let native_inventory = wayland::inventory(&st.desktop_apps);
+        let native_error = native_inventory.as_ref().err().map(ToString::to_string);
+        st.wayland_running = native_inventory
+            .unwrap_or_default()
+            .into_iter()
+            .map(|target| (target.id(), target))
+            .collect();
+        let candidate = launch_policy::unique(
             st.running
                 .values()
                 .filter(|target| target.app_id.as_deref() == Some(app_id))
-                .map(|target| target.id.clone()),
-        )?
+                .map(|target| target.id.clone())
+                .chain(
+                    st.wayland_running
+                        .values()
+                        .filter(|t| t.catalog_id.as_deref() == Some(app_id))
+                        .map(|t| t.id()),
+                ),
+        )?;
+        if candidate.is_none()
+            && discovered
+                .as_ref()
+                .is_some_and(wayland::native_process_running)
+        {
+            bail!(
+                "{}",
+                native_error
+                    .as_deref()
+                    .unwrap_or("no X11 windows belong to the approved process")
+            )
+        }
+        candidate
     } else {
         Some(app_id.to_owned())
     };
+    if let Some(target) = target_id
+        .as_ref()
+        .and_then(|id| st.wayland_running.get(id))
+        .cloned()
+    {
+        for session in st.sessions.values().cloned().collect::<Vec<_>>() {
+            let s = session.lock().unwrap();
+            if s.wayland
+                && s.existing.as_ref() == Some(&target.identity)
+                && s.root_window == Some(target.info.window_id)
+            {
+                if s.controller {
+                    bail!("session already controlled")
+                }
+                st.remember_launch(req, app_id, scale_factor, &s.id);
+                return Ok(session.clone());
+            }
+        }
+        if st.sessions.len() >= 16 {
+            bail!("active session limit reached")
+        }
+        let desktop = discovery::desktops(&st.desktop, &[])
+            .into_iter()
+            .next()
+            .context("desktop_input_unavailable")?;
+        let backend =
+            wayland::Backend::connect(target.clone(), st.desktop_input.lease(), &desktop)?;
+        let id = random_id()?;
+        let session = Arc::new(Mutex::new(Session {
+            id: id.clone(),
+            app_id: app_id.into(),
+            display: 0,
+            scale_factor: 1,
+            backend: Some(Box::new(backend)),
+            children: vec![],
+            controller: false,
+            exited: false,
+            existing: Some(target.identity),
+            root_window: Some(target.info.window_id),
+            private_authority: None,
+            secrets_bus: None,
+            wayland: true,
+        }));
+        st.remember_launch(req, app_id, scale_factor, &id);
+        st.sessions.insert(id, session.clone());
+        return Ok(session);
+    }
     let target = target_id.as_ref().and_then(|id| st.running.get(id));
     let root_window = target.map(|target| target.window_id);
     let app = if let Some(target) = target {
@@ -441,6 +519,9 @@ fn launch(
         }
         for session in st.sessions.values().cloned().collect::<Vec<_>>() {
             let s = session.lock().unwrap();
+            if s.wayland {
+                continue;
+            }
             if s.display == existing.display
                 && s.root_window != root_window
                 && root_window.is_some_and(|window| {
@@ -486,6 +567,12 @@ fn launch(
                 bail!("desktop_input_unavailable")
             }
             backend.set_desktop_input(st.desktop_input.lease());
+            if let Some(window) = root_window {
+                if let Some(geometry) = wayland::X11Geometry::connect(existing.process_id, window)?
+                {
+                    backend.set_desktop_geometry(geometry);
+                }
+            }
         }
         backend.set_scale_factor(existing.scale_factor)?;
         if let Some(window) = root_window {
@@ -500,7 +587,7 @@ fn launch(
             app_id: app_id.into(),
             display: existing.display,
             scale_factor: existing.scale_factor,
-            backend: Some(backend),
+            backend: Some(Box::new(backend)),
             children: vec![],
             controller: false,
             exited: false,
@@ -508,6 +595,7 @@ fn launch(
             root_window,
             private_authority: None,
             secrets_bus: None,
+            wayland: false,
         }));
         st.remember_launch(req, app_id, scale_factor, &id);
         st.sessions.insert(id, session.clone());
@@ -539,6 +627,7 @@ fn launch(
         root_window: None,
         private_authority: None,
         secrets_bus: None,
+        wayland: false,
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
@@ -580,7 +669,7 @@ fn launch(
     loop {
         if let Ok(mut b) = Backend::connect(&disp) {
             b.set_scale_factor(scale_factor)?;
-            s.backend = Some(b);
+            s.backend = Some(Box::new(b));
             break;
         }
         if Instant::now() > until {
@@ -920,6 +1009,10 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         };
         if let Some(req) = req {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
+            let configure_window = match &req {
+                Request::Configure { window_id, .. } => Some(*window_id),
+                _ => None,
+            };
             let result: Result<()> = (|| {
                 match req {
                     Request::NodeInfo {} => {
@@ -1013,12 +1106,20 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .collect();
                         let (running, connected) =
                             discovery::running(&sources, &st.desktop_apps, &excluded)?;
+                        let native = wayland::inventory(&st.desktop_apps);
+                        let native_connected = native.is_ok();
+                        st.wayland_running = native
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|t| (t.id(), t))
+                            .collect();
                         let mut windows: Vec<_> = running
                             .values()
                             .map(|target| {
                                 let existing_session = st.sessions.values().find_map(|session| {
                                     let session = session.lock().unwrap();
-                                    (session.display == target.desktop.display
+                                    (!session.wayland
+                                        && session.display == target.desktop.display
                                         && (session.backend.as_ref().is_some_and(|backend| {
                                             backend.includes_window(target.window_id)
                                         }) || session.existing.as_ref()
@@ -1035,17 +1136,33 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 )
                             })
                             .collect();
+                        windows.extend(st.wayland_running.values().map(|target| {
+                            let session = st.sessions.values().find_map(|session| {
+                                let s = session.lock().unwrap();
+                                (s.wayland
+                                    && s.existing.as_ref() == Some(&target.identity)
+                                    && s.backend
+                                        .as_ref()
+                                        .is_some_and(|b| b.includes_window(target.info.window_id)))
+                                .then_some((s.id.clone(), s.controller))
+                            });
+                            target.public(
+                                session.as_ref().is_some_and(|(_, controlled)| *controlled),
+                                session.map(|(id, _)| id),
+                            )
+                        }));
                         windows.sort_by(|a, b| {
                             a["name"]
                                 .as_str()
                                 .cmp(&b["name"].as_str())
                                 .then(a["title"].as_str().cmp(&b["title"].as_str()))
                         });
+                        windows.truncate(128);
                         st.running = running;
                         send(
                             &mut out,
                             json!({"type":"window.list","windows":windows,
-                            "unavailable_reason":if connected {None} else {Some("desktop_unavailable")}}),
+                            "unavailable_reason":if connected || native_connected {None} else {Some("desktop_unavailable")}}),
                             "",
                         )?;
                     }
@@ -1191,7 +1308,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 let code = request_error::code(&message);
                 send(
                     &mut out,
-                    json!({"type":"error","code":code,"message":message}),
+                    json!({"type":"error","code":code,"message":message,"window_id":configure_window}),
                     &sid,
                 )?;
             }
@@ -1229,8 +1346,17 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                 }
-                let windows = b.scan()?;
-                for id in known.keys().filter(|id| !b.windows.contains_key(id)) {
+                let windows = match b.scan() {
+                    Ok(windows) => windows,
+                    Err(error) => {
+                        let code = request_error::code(&error.to_string());
+                        send(&mut out, json!({"type":"error","code":code}), &sid)?;
+                        // End only this controller connection. The original
+                        // application and retained session remain available.
+                        break;
+                    }
+                };
+                for id in known.keys().filter(|id| !b.windows().contains_key(id)) {
                     send(
                         &mut out,
                         json!({"type":"window.destroyed","window_id":id}),
@@ -1293,6 +1419,7 @@ mod tests {
             root_window: None,
             private_authority: None,
             secrets_bus: None,
+            wayland: false,
         }));
         let mut st = State {
             device_id: "test-device".into(),
@@ -1303,6 +1430,7 @@ mod tests {
             desktop_apps: vec![],
             desktop: None,
             running: HashMap::new(),
+            wayland_running: HashMap::new(),
             runtime: PathBuf::from("/unused"),
             desktop_input: desktop_input::Manager::new(PathBuf::from("/unused")),
         };

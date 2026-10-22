@@ -14,6 +14,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var rendering: RenderGeometry
     var mediaMode: String?
     var scaleMode = "unknown"
+    var resolutionNotice: String? { didSet { updateSubtitle() } }
     var inputNotice: String? { didSet { updateSubtitle() } }
     var fixedPixels: (width: Int, height: Int)?
     private(set) var requestedPixels: (width: Int, height: Int)?
@@ -75,6 +76,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
+        if let resolutionNotice = resolutionNotice { parts.append(resolutionNotice) }
         if let inputNotice = inputNotice { parts.append(inputNotice) }
         window.subtitle = parts.joined(separator: " · ")
     }
@@ -118,6 +120,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         guard !applyingRemote, remoteVisible, !popup else { return }
         guard let pixels = fixedPixels ?? rendering.pixels(for: surface.bounds.size, backingScale: window.backingScaleFactor) else { return }
         requestedPixels = pixels
+        resolutionNotice = nil
         resolutionTimer?.invalidate(); resolutionDelayed = false
         updateSubtitle()
         if pixels.width == surface.remoteWidth && pixels.height == surface.remoteHeight { return }

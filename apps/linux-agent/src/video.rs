@@ -19,7 +19,7 @@ const STATE_PLAYING: c_int = 4;
 // layout assumptions. Libraries intentionally stay loaded for process-global
 // plugin state and destroy callbacks running on GStreamer streaming threads.
 macro_rules! runtime_api {
-    ($core:ident, $app:ident, $glib:ident; $($field:ident: $signature:ty => ($library:ident, $symbol:expr)),+ $(,)?) => {
+    ($core:ident, $app:ident, $glib:ident, $video:ident; $($field:ident: $signature:ty => ($library:ident, $symbol:expr)),+ $(,)?) => {
         struct Api { $($field: $signature),+ }
         impl Api {
             fn load() -> Result<Self> {
@@ -32,6 +32,7 @@ macro_rules! runtime_api {
                     let $core = library(c"libgstreamer-1.0.so.0")?;
                     let $app = library(c"libgstapp-1.0.so.0")?;
                     let $glib = library(c"libglib-2.0.so.0")?;
+                    let $video = library(c"libgstvideo-1.0.so.0")?;
                     Ok(Self { $($field: {
                         let address = libc::dlsym($library, $symbol.as_ptr());
                         if address.is_null() { bail!("GStreamer API unavailable") }
@@ -43,7 +44,7 @@ macro_rules! runtime_api {
     };
 }
 runtime_api! {
-    core, app, glib;
+    core, app, glib, video;
     init: unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char, *mut Object) -> c_int => (core, c"gst_init_check"),
     factory: unsafe extern "C" fn(*const c_char) -> Object => (core, c"gst_element_factory_find"),
     parse: unsafe extern "C" fn(*const c_char, *mut Object) -> Object => (core, c"gst_parse_launch"),
@@ -55,9 +56,14 @@ runtime_api! {
     push: unsafe extern "C" fn(Object, Object) -> c_int => (app, c"gst_app_src_push_buffer"),
     pull: unsafe extern "C" fn(Object, u64) -> Object => (app, c"gst_app_sink_try_pull_sample"),
     sample_buffer: unsafe extern "C" fn(Object) -> Object => (core, c"gst_sample_get_buffer"),
+    sample_caps: unsafe extern "C" fn(Object) -> Object => (core, c"gst_sample_get_caps"),
+    caps_structure: unsafe extern "C" fn(Object, c_uint) -> Object => (core, c"gst_caps_get_structure"),
+    structure_int: unsafe extern "C" fn(Object, *const c_char, *mut c_int) -> c_int => (core, c"gst_structure_get_int"),
     sample_unref: unsafe extern "C" fn(Object) -> () => (core, c"gst_sample_unref"),
     size: unsafe extern "C" fn(Object) -> usize => (core, c"gst_buffer_get_size"),
     extract: unsafe extern "C" fn(Object, usize, Object, usize) -> usize => (core, c"gst_buffer_extract"),
+    crop_type: unsafe extern "C" fn() -> usize => (video, c"gst_video_crop_meta_api_get_type"),
+    meta: unsafe extern "C" fn(Object, usize) -> *const VideoCropMeta => (core, c"gst_buffer_get_meta"),
     flags: unsafe extern "C" fn(Object) -> c_uint => (core, c"gst_buffer_get_flags"),
 }
 impl Api {
@@ -72,6 +78,9 @@ impl Api {
         if success == 0 {
             bail!("GStreamer initialization failed")
         }
+        Ok(())
+    }
+    fn encoder_available(&self) -> bool {
         for name in [
             c"appsrc",
             c"identity",
@@ -83,11 +92,11 @@ impl Api {
         ] {
             let factory = unsafe { (self.factory)(name.as_ptr()) };
             if factory.is_null() {
-                bail!("H.264 components unavailable")
+                return false;
             }
             unsafe { (self.unref)(factory) };
         }
-        Ok(())
+        true
     }
 }
 fn api() -> Option<&'static Api> {
@@ -100,7 +109,157 @@ fn api() -> Option<&'static Api> {
     .as_ref()
 }
 pub fn available() -> bool {
-    api().is_some()
+    static ENCODER: OnceLock<bool> = OnceLock::new();
+    *ENCODER.get_or_init(|| api().is_some_and(Api::encoder_available))
+}
+
+// Public GstMeta / GstVideoCropMeta C ABI from gstmeta.h / gstvideometa.h.
+// GstBuffer and GstSample remain opaque; no private object layouts are read.
+#[repr(C)]
+struct VideoCropMeta {
+    flags: c_uint,
+    info: *const c_void,
+    x: c_uint,
+    y: c_uint,
+    width: c_uint,
+    height: c_uint,
+}
+
+/// A single compositor-selected window, retaining original pixels and crop metadata.
+pub struct PipeWireCapture {
+    api: &'static Api,
+    pipeline: Object,
+    sink: Object,
+}
+// GStreamer objects are thread-safe. The session mutex serializes pull/drop;
+// the streaming thread is stopped before the final references are released.
+unsafe impl Send for PipeWireCapture {}
+impl PipeWireCapture {
+    pub fn new(node: u32) -> Result<Self> {
+        let api = api().context("wayland_capture_unavailable")?;
+        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false"))?;
+        let mut error = ptr::null_mut();
+        let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
+        if !error.is_null() {
+            unsafe {
+                (api.free_error)(error);
+                if !pipeline.is_null() {
+                    (api.unref)(pipeline);
+                }
+            }
+            bail!("wayland_capture_unavailable")
+        }
+        if pipeline.is_null() {
+            bail!("wayland_capture_unavailable")
+        }
+        let sink = unsafe { (api.get)(pipeline, c"frames".as_ptr()) };
+        let capture = Self {
+            api,
+            pipeline,
+            sink,
+        };
+        if sink.is_null() || unsafe { (api.state)(pipeline, STATE_PLAYING) } == 0 {
+            bail!("wayland_capture_unavailable")
+        }
+        Ok(capture)
+    }
+    pub fn pull(
+        &self,
+        frame: [u32; 4],
+        expected_buffer: (u32, u32),
+    ) -> Result<Option<CapturedImage>> {
+        let sample = unsafe { (self.api.pull)(self.sink, 0) };
+        if sample.is_null() {
+            return Ok(None);
+        }
+        let result = (|| {
+            let caps = unsafe { (self.api.sample_caps)(sample) };
+            if caps.is_null() {
+                bail!("invalid PipeWire caps")
+            }
+            let structure = unsafe { (self.api.caps_structure)(caps, 0) };
+            if structure.is_null() {
+                bail!("invalid PipeWire caps")
+            }
+            let (mut width, mut height) = (0, 0);
+            if unsafe { (self.api.structure_int)(structure, c"width".as_ptr(), &mut width) } == 0
+                || unsafe { (self.api.structure_int)(structure, c"height".as_ptr(), &mut height) }
+                    == 0
+                || width <= 0
+                || height <= 0
+            {
+                bail!("invalid PipeWire dimensions")
+            }
+            if width > 8192
+                || height > 8192
+                || u64::from(width as u32) * u64::from(height as u32) > 33_554_432
+            {
+                bail!("invalid PipeWire dimensions")
+            }
+            let buffer = unsafe { (self.api.sample_buffer)(sample) };
+            if buffer.is_null() {
+                bail!("missing PipeWire buffer")
+            }
+            let length = width as usize * height as usize * 4;
+            if unsafe { (self.api.size)(buffer) } != length {
+                bail!("invalid PipeWire stride")
+            }
+            let crop = unsafe { (self.api.meta)(buffer, (self.api.crop_type)()) };
+            if crop.is_null() {
+                bail!("wayland_capture_unavailable")
+            }
+            let crop = unsafe { &*crop };
+            // A window resize and PipeWire frame can arrive in either order.
+            // Never label an earlier frame with newer geometry, or include padding.
+            if (crop.width, crop.height) != expected_buffer {
+                return Ok(None);
+            }
+            let [left, top, frame_width, frame_height] = frame;
+            paneferry_protocol::dimensions(frame_width, frame_height)?;
+            if crop.x > width as u32
+                || crop.y > height as u32
+                || left.saturating_add(frame_width) > crop.width
+                || top.saturating_add(frame_height) > crop.height
+                || crop.x.saturating_add(crop.width) > width as u32
+                || crop.y.saturating_add(crop.height) > height as u32
+            {
+                bail!("invalid PipeWire crop")
+            }
+            let stride = frame_width as usize * 4;
+            let mut data = vec![0; stride * frame_height as usize];
+            for (row, target) in data.chunks_exact_mut(stride).enumerate() {
+                let offset = ((crop.y + top) as usize + row) * width as usize * 4
+                    + (crop.x + left) as usize * 4;
+                if unsafe { (self.api.extract)(buffer, offset, target.as_mut_ptr().cast(), stride) }
+                    != stride
+                {
+                    bail!("short PipeWire frame")
+                }
+            }
+            Ok(Some(CapturedImage {
+                width: frame_width,
+                height: frame_height,
+                data,
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            }))
+        })();
+        unsafe { (self.api.sample_unref)(sample) };
+        result
+    }
+}
+impl Drop for PipeWireCapture {
+    fn drop(&mut self) {
+        unsafe {
+            (self.api.state)(self.pipeline, STATE_NULL);
+            if !self.sink.is_null() {
+                (self.api.unref)(self.sink);
+            }
+            (self.api.unref)(self.pipeline);
+        }
+    }
 }
 
 // An input can outlive push/pull: keep its Vec alive until the last GstMemory

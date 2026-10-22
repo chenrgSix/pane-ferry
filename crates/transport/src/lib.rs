@@ -83,13 +83,19 @@ pub fn remote_error_message(code: &str) -> String {
         "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
         "accessibility_required" => "请在 Mac 允许 窗渡 PaneFerry 的辅助功能权限。".into(),
         "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
+        "wayland_bridge_unavailable" => "应用正在 Wayland 桌面运行。请在 Ubuntu 启用窗渡 GNOME 扩展，再刷新运行窗口；不会另建浏览器配置。".into(),
+        "wayland_bridge_failed" => "Wayland 窗口接口暂不可用，请检查 Ubuntu 的窗渡 GNOME 扩展。".into(),
+        "wayland_capture_unavailable" => "Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer 组件。".into(),
+        "resolution_limited" => "请求尺寸超出当前 Wayland 窗口采集范围。请缩小窗口或选择较低分辨率；原应用和桌面缩放保持不变。".into(),
+        "wayland_binary_clipboard_unavailable" => "当前 Wayland 窗口仅支持文字剪贴板。".into(),
+        "wayland_cut_unavailable" => "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。".into(),
         "application_multiple_windows" => "该应用已有多个窗口，请从“运行中的窗口”选择要连接的窗口。".into(),
         "application_start_failed" => "应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新运行窗口；没有可连接窗口时检查应用兼容性。".into(),
         "application_window_pending" => "应用尚未产生窗口，会话已保留。可稍后刷新运行状态或重试，不会重复启动。".into(),
         "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
         "existing_window_unavailable" => {
-            "该应用目前没有可接入的 X11 窗口。请先在 Ubuntu 打开窗口。".into()
+            "该应用目前没有可接入的窗口。请先在 Ubuntu 打开窗口并刷新运行状态。".into()
         }
         "session_expired" | "session_exited" => "上次会话已结束。再次打开将创建新会话。".into(),
         "session_controlled" => "该会话已有控制端，请先断开原控制端。".into(),
@@ -142,6 +148,8 @@ impl Error {
                     | "existing_window_unavailable"
                     | "application_multiple_windows"
                     | "application_start_failed"
+                    | "wayland_bridge_unavailable"
+                    | "wayland_capture_unavailable"
                     | "session_expired"
                     | "session_exited"
                     | "request_id_conflict"

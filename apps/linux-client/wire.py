@@ -117,6 +117,12 @@ def request(peer_id, kind, expected=None, local=False, **fields):
 
 
 MESSAGES = {
+    'wayland_bridge_unavailable': '请在 Ubuntu 启用窗渡 GNOME 扩展，再刷新运行窗口；不会另建浏览器配置。',
+    'wayland_bridge_failed': 'Wayland 窗口接口暂不可用，请检查窗渡 GNOME 扩展。',
+    'wayland_capture_unavailable': 'Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer。',
+    'resolution_limited': '请求尺寸超出 Wayland 采集范围，请缩小窗口或选择较低分辨率。',
+    'wayland_binary_clipboard_unavailable': '当前 Wayland 窗口仅支持文字剪贴板。',
+    'wayland_cut_unavailable': '当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。',
     'network_operation_failed': '配对操作未完成，请检查设备地址、邀请有效期和设备身份。',
     'network_unavailable': '直接连接组件未就绪，请检查 UDP 42424 端口。',
     'sharing_disabled': '对方已停止共享，应用仍在原设备运行。',
@@ -128,7 +134,7 @@ MESSAGES = {
     'session_exited': '原应用窗口已关闭。', 'session_expired': '原会话已结束，请刷新窗口列表。',
     'session_controlled': '此窗口已有控制端，请先断开原连接。',
     'desktop_secrets_unavailable': '应用需要 Ubuntu 桌面密钥服务，请确认桌面已登录且已安装 xdg-dbus-proxy。',
-    'desktop_locked': 'Mac 桌面已锁定，解锁后重连。',
+    'desktop_locked': '远端桌面已锁定，解锁后重连。',
     'clipboard_invalid': '剪贴板格式不可用或超过 8 MiB / 256 项限制。',
     'clipboard_copy_failed': '应用没有提供选中的内容。',
     'capture_failed': 'Mac 窗口采集失败，请检查录屏权限。',
