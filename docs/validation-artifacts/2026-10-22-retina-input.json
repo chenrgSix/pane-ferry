@@ -1,0 +1,210 @@
+{
+  "date": "2026-10-22",
+  "repository": "/Users/chenzhirong/Code/ideProject/lan-remoteapp",
+  "commits": {
+    "retina": "afcaa7e",
+    "text_input": "7bd8439"
+  },
+  "activation": {
+    "status": "prepared_not_activated",
+    "installed_over_active_version": false,
+    "awaiting_user_decision": true,
+    "reason": "GNOME 50 caches extension imports until a new Shell session; restarting the current Agent terminates its owned Feishu session."
+  },
+  "scope": {
+    "app_specific_profiles_or_flags_added": false,
+    "firefox_profile_created_or_copied": false,
+    "global_desktop_scale_changed": false,
+    "real_apps_restarted": false,
+    "ssh": "development build and inspection only; product uses QUIC"
+  },
+  "unchanged_real_processes": [
+    {
+      "name": "Firefox",
+      "pid": 2973421,
+      "start_ticks": 29932989
+    },
+    {
+      "name": "Feishu",
+      "pid": 3056368,
+      "start_ticks": 30061642
+    },
+    {
+      "name": "Agent",
+      "pid": 3032522,
+      "start_ticks": 30026538
+    },
+    {
+      "name": "GNOME Shell",
+      "pid": 2904453,
+      "start_ticks": 29789695
+    }
+  ],
+  "private_gnome": {
+    "version": "50.1",
+    "libei_version": "1.5.0",
+    "bus_home_apps_compositor": "test-owned",
+    "runs": [
+      {
+        "seconds": 21.333,
+        "peak_memory_gib_rounded": 2.7
+      },
+      {
+        "seconds": 17.014,
+        "peak_memory_gib_rounded": 2.8
+      },
+      {
+        "seconds": 18.358,
+        "peak_memory_gib_rounded": 2.7
+      }
+    ],
+    "actual_png_sizes": [
+      [
+        1200,
+        700
+      ],
+      [
+        2940,
+        1604
+      ],
+      [
+        2940,
+        1846
+      ],
+      [
+        800,
+        500
+      ]
+    ],
+    "h264_size": [
+      960,
+      540
+    ],
+    "app_reported_scale": 2,
+    "unrelated_app_reported_scale": 1,
+    "xwayland_png_sizes": [
+      [
+        2940,
+        1660
+      ],
+      [
+        2800,
+        1500
+      ]
+    ],
+    "pointer_mapping": "actual client rectangle to compositor coordinates; reachable point 1591,891",
+    "lease_tests": [
+      "two concurrent distinct outputs",
+      "wrong owner/PID/window rejected",
+      "physical output layout preserved",
+      "release restores geometry and density",
+      "idle detach removes output",
+      "reconnect retains process/content"
+    ],
+    "input_tests": {
+      "legacy_delayed_paste": "about:newtab-0123456789 became ut:newtab-0123456789999 in each final run",
+      "fixed": "three mixed Chinese, emoji, ASCII, punctuation bursts per run; immediate Return and select-all ordering; clipboard marker unchanged",
+      "unsupported_context": "rejects before mutation; explicit paste works",
+      "portal_gate": "unauthorized key, text commit and paste rejected",
+      "driver": "production Eis class via test-only Mutter session plus production compositor bridge; not real user Portal approval"
+    }
+  },
+  "gates": {
+    "mac_scripts_check": "passed (49 Rust passed, 5 ignored; 24 frontend passed; Swift/AppKit, reconnect, two actual isolated QUIC nodes)",
+    "mac_clippy": "passed --workspace --all-targets -- -D warnings",
+    "ubuntu_workspace": "passed (52 passed, 5 ignored)",
+    "ubuntu_agent_after_final_authorization_guard": "14 passed, 2 ignored",
+    "ubuntu_clippy": "unavailable: cargo-clippy is not installed",
+    "desktop_authorization_python": "4 passed, including pong/disconnect/timeout cleanup",
+    "x11_existing_window_controller_text": "passed Unicode, copy/paste/cut, ownership, reconnect and original process survival",
+    "linux_install_safety": "passed deferred install preserves active executable inode without service restart",
+    "transport_after_error_messages": "6 passed",
+    "release_builds": "Mac WindowHost + launcher and Ubuntu package passed",
+    "mac_staged_signature": "ad-hoc codesign --verify --deep --strict passed; not notarized"
+  },
+  "artifacts": {
+    "mac_app": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/retina-input-20261022/窗渡 PaneFerry.app",
+    "mac_launcher_sha256": "3674725e1b4ed2d5c862e30796fb954d5a17ee44db2215c2c18bc8c656c0337f",
+    "mac_windowhost_sha256": "fc5ff7402c45b1b33513604fe2361344fcdd97d2cefca75d7dd7bb3d8d413aeb",
+    "ubuntu_package": "/home/chenrg/.local/state/lan-remoteapp/upgrades/retina-input-20261022/paneferry-linux",
+    "ubuntu_agent_sha256": "65342168f91dd92384748212b4ba4611c89bd14a9df8e9eab0feed136ae9df6a",
+    "ubuntu_archive_sha256": "8ca4451b20c888789155b681a6fa1d681e85755804026062d4c242de9d9bdcbb"
+  },
+  "not_verified": [
+    "real Firefox large Retina rendering after activation",
+    "real Firefox continuous input and IME after activation",
+    "exact account/tab state (profile contents not inspected; original process preserved)",
+    "real desktop Portal authorization after activation",
+    "current Feishu GUI (untouched)",
+    "actual bidirectional multi-device E2E this turn",
+    "mixed/fractional DPI and monitor switching",
+    "native Wayland binary clipboard and cut",
+    "CI"
+  ],
+  "logs": {
+    "paneferry-retina-input-agent-last.log": {
+      "sha256": "527d4d52d8a1c44d5b63b1bff0ca137efe517a0d7ade1ec487fb0e4f0e43aba0",
+      "bytes": 2315
+    },
+    "paneferry-retina-input-linux-agent-last.log": {
+      "sha256": "7108cd4246d4aae9ab9ecd4a182c49882e952705f86e83ce59abae982ee410ef",
+      "bytes": 1883
+    },
+    "paneferry-retina-input-linux-build.log": {
+      "sha256": "c33ead800ad48e2709f2b3949f6534af1ebb1e70d28e2e362d6a2770e2ef50b0",
+      "bytes": 164
+    },
+    "paneferry-retina-input-linux-clippy.log": {
+      "sha256": "98ddfbfc7bbee67771bf15e89414a6db0810dd9fd1d2c204b62983f4d4550274",
+      "bytes": 162
+    },
+    "paneferry-retina-input-linux-final.log": {
+      "sha256": "c5b30d0eba5ef3239aa8a91ea30b233490bf3d666da44020849503b43b112d71",
+      "bytes": 7292
+    },
+    "paneferry-retina-input-linux-release.log": {
+      "sha256": "4d403c92913a00f3de3e2e02ba2b6fe48395c1f04667a683d638a66b9fa2eae5",
+      "bytes": 228
+    },
+    "paneferry-retina-input-linux-tests.log": {
+      "sha256": "7c3b962f6cba8f4c65d2eec97162dd9668dcc0044c7bf21e9275b251ecf599d0",
+      "bytes": 7656
+    },
+    "paneferry-retina-input-mac-check.log": {
+      "sha256": "048777c3508932dc2d90e62c947e4e1d92ca4c49cf15ed5c2a331d38f03179a4",
+      "bytes": 16752
+    },
+    "paneferry-retina-input-mac-clippy.log": {
+      "sha256": "ee1d3fffa2022e962e63e0dbe4d35c9c198450a20c29fc09030f635dbb38bfcd",
+      "bytes": 72
+    },
+    "paneferry-retina-input-mac-final.log": {
+      "sha256": "b31a43818bb050ded0faf2fd6a5091a24bb37b21f9234123484c0aef77cb3e84",
+      "bytes": 16897
+    },
+    "paneferry-retina-input-mac-release.log": {
+      "sha256": "1801ed809f9f073a8801b8ccb226c3c61e65f483981c13619a315be7b672236e",
+      "bytes": 1842
+    },
+    "paneferry-retina-input-stress-1.log": {
+      "sha256": "1c4b00fc3f00db8434c41b8b0d3a7342ed309b3be13d027b32bba5bebac56996",
+      "bytes": 4241
+    },
+    "paneferry-retina-input-stress-2.log": {
+      "sha256": "239049ed903af3914acca605e32b5959da921b83ad6df7262815d167fe7787e8",
+      "bytes": 4241
+    },
+    "paneferry-retina-input-stress-3.log": {
+      "sha256": "8feb805a668889175dde6547ea43ca1312fa1e85aab87cb69cfed51e6dbe764b",
+      "bytes": 4190
+    },
+    "paneferry-retina-input-transport.log": {
+      "sha256": "c11738aebf858e816c06885322d842869911ee9583abb5272394d4938270cb0c",
+      "bytes": 914
+    },
+    "paneferry-retina-input-wayland.log": {
+      "sha256": "c3098842cc9d0db50d984e5891df5ac51c3228769a14be8a227980312050fb5d",
+      "bytes": 9069
+    }
+  }
+}

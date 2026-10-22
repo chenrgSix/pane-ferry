@@ -405,3 +405,23 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 上述新版本现已部署。经用户保存工作、授权重新登录并恢复已选 GNOME 扩展，PaneFerry 扩展处于启用状态；系统仍为 GNOME 50.1 / Wayland。新独立飞书真实客户区为 2940×1604，带 2× 渲染参数，用户确认“清晰很多了，可以接受”。由于电脑工具未获准读取飞书画面，该项视觉结果以用户反馈为依据。
 
 真实原生 Firefox 的同一 PID/窗口接管、1200×700 接收、PNG 无损刷新、指针、整段粘贴和回车导航已验证。自动化逐字输入仍有冒号缺失的未定位现象，不能将上述检查写成完整输入验收。当前原生 Wayland 窗口流仍受完整采集范围限制，未达到大 Mac 窗口的 Retina 像素目标；没有改用独立 Firefox 配置、切换桌面或全局缩放。完整边界、进程身份与二进制校验和见[激活后实机记录](window-resolution.md#激活后的实机结果2026-10-22)和[结构化记录](validation-artifacts/2026-10-22-window-activation.json)。此前“尚待激活”的段落是历史检查点，不是当前部署状态。
+
+## 2026-10-22 后续：大窗口 Retina 与连续输入
+
+提交 `afcaa7e` 使用每个租约独立的临时高 DPI 输出，让原生 Wayland 应用重新渲染，再创建窗口采集流；提交 `7bd8439` 把文字提交与主动粘贴分离，并同步 EIS、Clutter stage 和 text-input。两者按平台能力处理，不新增应用名称判断或 Firefox 配置。
+
+| 检查 | 结果与范围 |
+| --- | --- |
+| 原生 Wayland 实际像素 | 私有 GNOME 50.1 中 PNG 为 1200×700、2940×1604、2940×1846、800×500；应用报告 2× 密度，另一个应用仍为 1×；重连后 H.264 960×540 正常 |
+| 连续文字和顺序 | 三次完整独立回归，每次三轮快速全选、连续英文/标点/中文/emoji、随后立即回车；文本逐字一致，输入不修改剪贴板。无 text-input 焦点时明确拒绝且不修改内容，主动整段粘贴仍正常 |
+| 旧问题对照 | 模拟应用延后 150ms 读取剪贴板，旧路径三次均把 `about:newtab-0123456789` 变成 `ut:newtab-0123456789999`。中间版本只等 GLib idle 仍出现“全选晚于文字”，补齐 EIS 与 stage 完成确认后通过三次复测 |
+| 多设备与窗口隔离 | 两个并发租约占用不同输出，错误 owner/PID/窗口拒绝；释放恢复原几何/密度，空闲撤回输出，重连保留原进程及内容；物理显示器原布局不变 |
+| X11 回归 | 原窗口中文、复制/粘贴/剪切、顺序、重连及进程保留通过；Xwayland 的 2940×1660、2800×1500 原始 PNG 与坐标换算通过 |
+| 门禁 | Mac `scripts/check.sh` 通过：Rust 49 通过/5 忽略、前端 24 通过、Swift/AppKit、重连和两个隔离 QUIC 节点回归；Mac Clippy `-D warnings` 通过。Ubuntu workspace 52 通过/5 忽略；最终授权检查补丁后 Agent 14 通过/2 忽略、Python 授权 4 通过。Ubuntu 未安装 cargo-clippy，该项未执行 |
+| 构建 | Ubuntu 发布/接收统一安装包、Mac WindowHost 和启动器 release 成功；新 Mac 完整包另存并通过 ad-hoc `codesign --verify --deep --strict`，未公证。Linux 包内新增 JS 和二进制与构建源/产物一致 |
+
+三次完整隔离 GNOME 回归耗时 21.333、17.014、18.358 秒；整个测试进程组峰值内存约 2.7–2.8 GiB，含独立 Shell、应用与多个高 DPI 输出。这不是单个 Firefox 的资源或输入延迟基准。测试输入通过自有 Mutter 会话和生产 EIS 类驱动，未冒充真实用户 Portal 授权；Agent 未获授权的键、文本和粘贴均被拒绝。
+
+**此次新改进尚未激活到真实桌面。** GNOME 50 会缓存已导入的扩展模块，禁用/启用不能加载新代码；当前 Agent 又拥有正在使用的独立飞书进程。为遵守保留会话的要求，未注销 GNOME、未重启 Agent、未关闭 Firefox/飞书，也未覆盖正在运行的 Mac 应用包。Firefox PID 2973421/启动时间 29932989、飞书 PID 3056368/30061642、Agent PID 3032522/30026538、Shell PID 2904453/29789695 均保持。没有读取或更换 Firefox 账号资料、标签页配置。
+
+待切换的 Mac 包为 `dist/retina-input-20261022/窗渡 PaneFerry.app`；Ubuntu 包在 `/home/chenrg/.local/state/lan-remoteapp/upgrades/retina-input-20261022/paneferry-linux`。需要用户安排保存工作后的激活，再核验真实 Firefox 的大窗口、连续输入、原账号及标签页；不能把 GTK 夹具通过写成 Firefox 已验收。Mac 本机反向发布、多物理设备并发、混合/分数缩放、长期压力和 CI 本轮未验收。结构化证据、日志摘要与包校验和见[记录](validation-artifacts/2026-10-22-retina-input.json)；完整本地日志保存在上述 Mac 包同级的 `validation/`。
