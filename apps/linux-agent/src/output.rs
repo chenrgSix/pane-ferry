@@ -10,15 +10,23 @@ use std::{
     os::unix::net::UnixStream,
     sync::{Arc, Condvar, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
+const REFINE_AFTER: Duration = Duration::from_millis(250);
 enum Pending {
-    EnableVideo,
+    EnableVideo(bool),
     Message(Value, String),
     Frame(Window, Arc<CapturedImage>, String),
+    Refine(u32),
+}
+struct CachedFrame {
+    window: Window,
+    image: Arc<CapturedImage>,
+    session: String,
+    refine_at: Option<Instant>,
 }
 impl Pending {
     fn pixels(&self) -> usize {
@@ -114,8 +122,8 @@ impl Output {
             session.into(),
         ))
     }
-    pub fn enable_video(&self) -> Result<()> {
-        self.push(Pending::EnableVideo)
+    pub fn enable_video(&self, refine_static: bool) -> Result<()> {
+        self.push(Pending::EnableVideo(refine_static))
     }
 }
 impl Drop for Output {
@@ -130,24 +138,41 @@ impl Drop for Output {
 }
 fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
     let mut sequence = 0u64;
-    let mut frames: HashMap<u32, (u64, Arc<CapturedImage>)> = HashMap::new();
+    let mut frames: HashMap<u32, CachedFrame> = HashMap::new();
     let mut video = false;
+    let mut refine_static = false;
     let mut encoders: HashMap<u32, crate::video::Encoder> = HashMap::new();
     let mut next_stream = 1;
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
-            while !queue.closed && queue.events.is_empty() {
-                queue = shared.1.wait(queue).unwrap();
+            loop {
+                if queue.closed {
+                    return Ok(());
+                }
+                // Drain new geometry and pixels before refining a cached frame.
+                if !queue.events.is_empty() {
+                    break queue.remove(0);
+                }
+                if let Some((id, at)) = frames
+                    .iter()
+                    .filter_map(|(id, frame)| frame.refine_at.map(|at| (*id, at)))
+                    .min_by_key(|(_, at)| *at)
+                {
+                    let remaining = at.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        break Pending::Refine(id);
+                    }
+                    queue = shared.1.wait_timeout(queue, remaining).unwrap().0;
+                } else {
+                    queue = shared.1.wait(queue).unwrap();
+                }
             }
-            if queue.closed {
-                return Ok(());
-            }
-            queue.remove(0)
         };
         let (mut value, session) = match event {
-            Pending::EnableVideo => {
+            Pending::EnableVideo(refine) => {
                 video = true;
+                refine_static = refine;
                 frames.clear();
                 encoders.clear();
                 continue;
@@ -163,22 +188,42 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                         frames.remove(&id);
                         encoders.remove(&id);
                     }
-                    Some("window.metadata") if value["visible"] == false => {
+                    Some("window.metadata") => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
+                        // Invalidate even visible geometry changes: the old
+                        // pixels must never become a late refinement of a resize.
                         frames.remove(&id);
-                        encoders.remove(&id);
+                        if value["visible"] == false {
+                            encoders.remove(&id);
+                        }
                     }
                     _ => {}
                 }
                 (value, session)
             }
+            Pending::Refine(id) => {
+                let Some(frame) = frames.get_mut(&id) else {
+                    continue;
+                };
+                frame.refine_at = None;
+                let png = frame.image.png()?;
+                // A noisy high-resolution image may exceed RWP's line budget.
+                // Keep the video connection and never repeat an oversized PNG.
+                if png.len() > (paneferry_protocol::MAX_LINE - 4096) / 4 * 3 {
+                    continue;
+                }
+                (
+                    json!({"type":"frame", "window_id":id,
+                    "geometry_revision":frame.window.geometry_revision,
+                    "width":frame.image.width, "height":frame.image.height,
+                    "png":STANDARD.encode(png), "refinement":true}),
+                    frame.session.clone(),
+                )
+            }
             Pending::Frame(window, image, session) => {
-                if frames
-                    .get(&window.window_id)
-                    .is_some_and(|(revision, old)| {
-                        *revision == window.geometry_revision && **old == *image
-                    })
-                {
+                if frames.get(&window.window_id).is_some_and(|old| {
+                    old.window.geometry_revision == window.geometry_revision && *old.image == *image
+                }) {
                     continue;
                 }
                 let mut value = json!({"type":"frame", "window_id":window.window_id, "geometry_revision":window.geometry_revision,
@@ -223,14 +268,22 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 frames.remove(&window.window_id);
                 if frames
                     .values()
-                    .map(|(_, image)| image.pixels())
+                    .map(|frame| frame.image.pixels())
                     .sum::<usize>()
                     + image.pixels()
                     > PIXEL_BUDGET
                 {
                     frames.clear();
                 }
-                frames.insert(window.window_id, (window.geometry_revision, image));
+                frames.insert(
+                    window.window_id,
+                    CachedFrame {
+                        window,
+                        image,
+                        session: session.clone(),
+                        refine_at: (video && refine_static).then(|| Instant::now() + REFINE_AFTER),
+                    },
+                );
                 (value, session)
             }
         };
@@ -317,5 +370,106 @@ mod tests {
         assert!(queue
             .push(Pending::Message(json!({}), String::new()))
             .is_err());
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer/OpenH264; run explicitly on Ubuntu"]
+    fn idle_video_refines_original_pixels_and_preserves_the_video_stream() {
+        use std::io::{BufRead, BufReader};
+        let (writer, reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .unwrap();
+        let output = Output::new(writer).unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut read = || {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        };
+        let Pending::Frame(mut window, _, session) = frame(1) else {
+            unreachable!()
+        };
+        window.width = 128;
+        window.height = 64;
+        let image = CapturedImage {
+            width: 128,
+            height: 64,
+            bpp: 32,
+            pad: 32,
+            little: true,
+            masks: (0xff0000, 0xff00, 0xff),
+            data: (0..128 * 64)
+                .flat_map(|i| {
+                    if i % 3 == 0 {
+                        [0, 0, 255, 0]
+                    } else {
+                        [255, 255, 255, 0]
+                    }
+                })
+                .collect(),
+        };
+        let mut changed = CapturedImage {
+            data: image.data.clone(),
+            ..image
+        };
+        let original_png = image.png().unwrap();
+        output.enable_video(true).unwrap();
+        output.frame(&window, image, &session).unwrap();
+        let video = read();
+        assert_eq!(video["codec"], "h264");
+        let refined = read();
+        assert_eq!(refined["refinement"], true);
+        assert_eq!(refined["geometry_revision"], 1);
+        assert_eq!(
+            STANDARD.decode(refined["png"].as_str().unwrap()).unwrap(),
+            original_png
+        );
+        // A PNG replaces only displayed pixels, not H.264 reference frames.
+        changed.data[0] = 125;
+        output.frame(&window, changed, &session).unwrap();
+        let moving = read();
+        assert_eq!(moving["codec"], "h264");
+        assert_eq!(moving["stream_id"], video["stream_id"]);
+        assert_eq!(moving["key_frame"], false);
+        // Geometry changes invalidate an already scheduled refinement.
+        output.message(json!({"type":"window.metadata", "window_id":7, "geometry_revision":2, "visible":true}), &session).unwrap();
+        assert_eq!(read()["type"], "window.metadata");
+        std::thread::sleep(REFINE_AFTER * 2);
+        output
+            .message(json!({"type":"test.barrier"}), &session)
+            .unwrap();
+        assert_eq!(
+            read()["type"],
+            "test.barrier",
+            "stale refinement must be cancelled"
+        );
+        output.enable_video(false).unwrap();
+        window.geometry_revision = 2;
+        output
+            .frame(
+                &window,
+                CapturedImage {
+                    width: 128,
+                    height: 64,
+                    bpp: 32,
+                    pad: 32,
+                    little: true,
+                    masks: (0xff0000, 0xff00, 0xff),
+                    data: vec![255; 128 * 64 * 4],
+                },
+                &session,
+            )
+            .unwrap();
+        assert_eq!(read()["codec"], "h264");
+        std::thread::sleep(REFINE_AFTER * 2);
+        output
+            .message(json!({"type":"test.barrier"}), &session)
+            .unwrap();
+        assert_eq!(
+            read()["type"],
+            "test.barrier",
+            "H.264-only receivers must not receive PNG refinements"
+        );
     }
 }

@@ -102,6 +102,12 @@ struct ControllerInputSmoke {
                                 bytesPerRow: 1920 * 4, space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
         let oldFrame = context.makeImage()!
+        host.present(oldFrame, mediaMode: "PNG 无损刷新")
+        host.showActualPixels()
+        precondition(abs(host.surface.bounds.width * host.window.backingScaleFactor - 1920) < 1)
+        precondition(abs(host.surface.bounds.height * host.window.backingScaleFactor - 720) < 1)
+        precondition(host.fixedPixels?.width == 1920 && host.fixedPixels?.height == 720,
+                     "actual-pixel display must neither resample the source nor change application scale")
         surface.image = oldFrame
         surface.remoteWidth = 1200; surface.remoteHeight = 800
         precondition(surface.imageRect.height == 240, "late old frame keeps its own aspect ratio during resize")

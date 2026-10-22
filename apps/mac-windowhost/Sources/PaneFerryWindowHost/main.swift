@@ -278,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "适应可用屏幕", action: #selector(fitScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
+        displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         startConnection()
@@ -300,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
     @objc func fitScreen() { activeHost()?.fitToScreen() }
+    @objc func actualPixels() { activeHost()?.showActualPixels() }
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(automaticResolution) {
@@ -311,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func setResolution() {
         guard let host = activeHost() else { return }
         let dialog = NSAlert(); dialog.messageText = "设置远端窗口分辨率"
-        dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复随窗口调整、铺满画面的默认模式。上限 4096×2160、800 万像素。"
+        dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复随窗口请求分辨率；远端未达到目标时等比显示。上限 4096×2160、800 万像素。"
         let width = NSTextField(string: String(host.surface.remoteWidth)), height = NSTextField(string: String(host.surface.remoteHeight))
         let fields = NSStackView(views: [NSTextField(labelWithString: "宽"), width, NSTextField(labelWithString: "高"), height])
         fields.orientation = .horizontal; fields.spacing = 8; fields.frame = NSRect(x: 0, y: 0, width: 360, height: 28)
@@ -464,7 +466,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "hello" {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
-            if capabilities.contains("native.h264") { send(["type":"video.enable", "codec":"h264"]) }
+            if capabilities.contains("native.h264") {
+                var request: [String: Any] = ["type":"video.enable", "codec":"h264"]
+                if capabilities.contains("native.h264-refinement") { request["refine_static"] = true }
+                send(request)
+            }
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
@@ -607,7 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             let video = object["codec"] as? String == "h264"
-            let mode = video ? "H.264 视频" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
+            let mode = video ? "H.264 视频" : (object["refinement"] as? Bool == true ? "PNG 无损刷新" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退"))
             host.present(image, mediaMode: mode)
             statusItem?.button?.title = "PaneFerry · " + mode
         default: break

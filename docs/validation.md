@@ -393,3 +393,11 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 部署时保留原工作：Ubuntu 文件已通过 `--defer-restart` 安装，备份为 `/home/chenrg/.local/state/lan-remoteapp/upgrades/wayland-20261022-203949`。Agent PID 2102443、飞书 PID 44108、Firefox PID 2264753 及各自启动时间均未变；新 Agent 的 SHA-256 为 `21df5f150e94e5715234e3c0f01c02808adb60f80a2a618995907823d492db74`。扩展已安装并加入 enabled-extensions，当前 GNOME `GetExtensionInfo` 仍为空，需要下次图形登录才识别。没有自动注销、重启旧服务、退出飞书或修改全局缩放。
 
 剩余实机验收：激活新扩展与 Agent 后的真实 Firefox 原窗口/账号/标签页、原飞书大像素重绘与鼠标坐标、新飞书 2× UI、多显示器和分数缩放；原生 Wayland 图片/文件剪贴板与安全剪切尚未实现。Mac 本机共享保持原来的关闭状态，没有将构建通过写成双向实机验收。所有条件、产物校验和及日志见 [JSON](validation-artifacts/2026-10-22-window-resolution.json)和[压缩日志](validation-artifacts/2026-10-22-window-resolution-logs.json.gz)。
+
+
+## 2026-10-22 清晰度与 Snap 启动回归
+
+- Mac `bash scripts/check.sh` 全部通过，包含 24 项前端测试、AppKit 原始像素尺寸/Retina 输入映射、重连与双节点 QUIC；`cargo clippy --workspace --all-targets -- -D warnings` 通过。受限进程不能使用系统剪贴板/VideoToolbox 时的首次执行失败，已在正常系统服务访问条件下重新通过；不算作应用自身通过。
+- Ubuntu 真实 GStreamer/OpenH264 输出测试验证：静止刷新 PNG 与编码前原像素生成的 PNG 字节完全一致；下一帧继续原 H.264 流；几何变化取消待发旧刷新；未协商的 H.264-only 接收端不接收 PNG。
+- 两个隔离 QUIC 节点的 `video_stream_smoke.py` 通过，导出 19 帧。Mac `video_decoder_smoke.py` 成功解码 18 张 H.264 硬件帧与 1 张 PNG，验证无损刷新后的 P 帧连续性、奇数尺寸和重连。该测试不等于真实 Firefox/飞书的视觉验收。
+- `snap_service_launch_smoke.py` 在 Ubuntu 真实 Snap 下通过：旧 `NoNewPrivileges=yes` 策略稳定触发 snap-confine capability 拒绝；相同 `--version` 命令在修正后的用户服务策略下成功。全程不创建浏览器配置。安装生命周期隔离回归仍通过。

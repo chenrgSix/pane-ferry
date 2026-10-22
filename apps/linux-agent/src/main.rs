@@ -915,6 +915,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     ];
     if video::available() {
         capabilities.push("native.h264");
+        capabilities.push("native.h264-refinement");
     }
     send(
         &mut out,
@@ -1038,14 +1039,17 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
-                    Request::EnableVideo { codec: _ } => {
+                    Request::EnableVideo {
+                        codec: _,
+                        refine_static,
+                    } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")
                         }
                         if !video::available() {
                             bail!("video encoder unavailable")
                         }
-                        out.enable_video()?;
+                        out.enable_video(refine_static)?;
                         send(&mut out, json!({"type":"video.ready", "codec":"h264"}), "")?;
                     }
                     Request::Sessions {} => {

@@ -76,6 +76,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
+        if let frame = frame {
+            let rect = surface.imageRect
+            let enlargement = max(rect.width * window.backingScaleFactor / CGFloat(frame.width),
+                                  rect.height * window.backingScaleFactor / CGFloat(frame.height))
+            if enlargement > 1.05 { parts.append("画面放大 \(Int((enlargement * 100).rounded()))%") }
+        }
         if let resolutionNotice = resolutionNotice { parts.append(resolutionNotice) }
         if let inputNotice = inputNotice { parts.append(inputNotice) }
         window.subtitle = parts.joined(separator: " · ")
@@ -132,6 +138,13 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func useAutomaticResolution() {
         fixedPixels = nil
+        windowDidResize(Notification(name: NSWindow.didResizeNotification))
+    }
+    func showActualPixels() {
+        guard let image = surface.image else { return }
+        fixedPixels = (image.width, image.height)
+        window.setContentSize(NSSize(width: CGFloat(image.width) / window.backingScaleFactor,
+                                     height: CGFloat(image.height) / window.backingScaleFactor))
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
     func fitToScreen() {

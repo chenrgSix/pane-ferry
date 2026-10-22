@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import ImageIO
 
 @main struct H264DecoderSmoke {
     static func main() throws {
@@ -9,10 +10,18 @@ import CoreGraphics
         var redFrames = 0
         var oddFrames = 0
         var hardwareFrames = 0
+        var refinements = 0
         for record in records {
             let next = record["connection"] as! Int
             if next != connection { decoder = H264Decoder(); connection = next }
             let width = record["width"] as! Int, height = record["height"] as! Int
+            if record["refinement"] as? Bool == true {
+                let source = CGImageSourceCreateWithData(Data(base64Encoded: record["png"] as! String)! as CFData, nil)!
+                let image = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+                precondition(image.width == width && image.height == height)
+                refinements += 1
+                continue // Retain the decoder's references for the next P-frame.
+            }
             let image = try decoder.decode(Data(base64Encoded: record["data"] as! String)!,
                 streamID: (record["stream_id"] as! NSNumber).uint64Value, width: width, height: height,
                 encodedWidth: record["encoded_width"] as! Int, encodedHeight: record["encoded_height"] as! Int)
@@ -37,6 +46,6 @@ import CoreGraphics
             do { _ = try H264Decoder.nalUnits(data); fatalError("malformed NAL accepted") }
             catch {}
         }
-        print("PASS: \(records.count) real H.264 AU decoded (hardware: \(hardwareFrames)), P-frame continuity, key response pixels, odd resize, reconnect and malformed NAL rejection")
+        print("PASS: \(records.count) real frames decoded (hardware: \(hardwareFrames), lossless refinements: \(refinements)), P-frame continuity, key response pixels, odd resize, reconnect and malformed NAL rejection")
     }
 }

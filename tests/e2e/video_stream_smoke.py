@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             self.wire = self.socket.makefile('rb', buffering=65536)
             self.send(type='hello')
             assert 'native.h264' in self.until('hello')['capabilities']
-            self.send(type='video.enable', codec='h264')
+            self.send(type='video.enable', codec='h264', refine_static=True)
             assert self.until('video.ready')['codec'] == 'h264'
         def send(self, **data):
             self.socket.sendall((json.dumps(dict(data, version=1)) + '\n').encode())
@@ -61,14 +61,14 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
                 event = json.loads(line)
                 assert event['type'] != 'error', event
                 if event['type'] == 'frame':
-                    assert event.get('codec') == 'h264' and 'png' not in event, 'video fell back to PNG'
+                    assert event.get('codec') == 'h264' or (event.get('refinement') is True and 'png' in event), 'unexpected video fallback'
                 if event['type'] == kind and predicate(event): return event
             raise AssertionError('missing ' + kind)
         def close(self):
             self.socket.shutdown(socket.SHUT_RDWR)
             self.wire.close(); self.socket.close()
     def frame(peer, connection=0, predicate=lambda event: True):
-        event = peer.until('frame', predicate)
+        event = peer.until('frame', lambda event: event.get('codec') == 'h264' and predicate(event))
         raw = base64.b64decode(event['data'], validate=True)
         assert raw.startswith((b'\0\0\0\1', b'\0\0\1'))
         assert event['encoded_width'] == event['width'] + event['width'] % 2
@@ -140,7 +140,14 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             static.until('window.created', lambda event: event['title'] == 'PaneFerryLatencyFixture')
             static_first = frame(static, connection=2)
             assert static_first['key_frame']
-            time.sleep(.3)
+            refined = static.until('frame', lambda event: event.get('refinement') is True)
+            assert base64.b64decode(refined['png']).startswith(b'\x89PNG\r\n\x1a\n')
+            assert (refined['width'], refined['height'], refined['geometry_revision']) == (static_first['width'], static_first['height'], static_first['geometry_revision'])
+            records.append(dict(refined, connection=2))
+            static.send(type='input.key', window_id=static_first['window_id'], keysym=ord('z'), pressed=True)
+            static.send(type='input.key', window_id=static_first['window_id'], keysym=ord('z'), pressed=False)
+            moving = frame(static, connection=2)
+            assert moving['stream_id'] == static_first['stream_id'] and not moving['key_frame']
         finally:
             static.close()
         time.sleep(.15)
@@ -155,7 +162,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             args.export.write_text(json.dumps(records))
         print(json.dumps(dict(result='PASS', transport='quic' if args.network else 'socket', codec='h264', samples=len(records),
             median_wire_bytes=round(statistics.median(len(json.dumps(sample)) for sample in samples)),
-            checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle reconnect snapshot'])))
+            checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle lossless refinement then P-frame', 'idle reconnect snapshot'])))
     finally:
         for process in networks:
             process.terminate(); process.wait(timeout=5)
