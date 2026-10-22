@@ -113,7 +113,7 @@ GNOME 50 的 `RecordWindow` 在创建流时固定其主显示器的缓冲区大�
 
 没有 text-input 焦点的输入框会在修改内容前明确拒绝，并提示主动粘贴整段文字；不会伪造 Unicode 按键，也不会静默退回旧的逐字粘贴。libei 同步需要 1.4 及以上版本，断开、暂停或同步超时均拒绝继续发送且不自动重试。X11 独立会话沿用原有输入队列，当前飞书的运行实例未切换实现。
 
-连续输入版本的窗口桥接口为 2，统一 DPI 版本升为 3。新 Agent 遇到仍在内存中的旧扩展会提示保存工作后重新登录，不把新服务配旧扩展当成输入成功。GNOME 50 的模块导入在 Shell 生命周期内缓存，禁用/启用不能加载修改后的模块；因此先构建和隔离验证，不能为了激活而结束当前 Firefox、飞书或旧 Agent。
+连续输入版本的窗口桥接口为 2，统一 DPI 版本为 3，2026-10-23 的输入确认版本为 4。新 Agent 遇到仍在内存中的旧扩展会明确拒绝，不把新服务配旧扩展当成输入成功。GNOME 50 的模块导入在 Shell 生命周期内缓存，禁用/启用不能加载同一路径修改后的模块；因此先构建和隔离验证，不能为了激活而结束当前 Firefox、飞书或旧 Agent。
 
 依据：[libei 同步语义](https://libinput.pages.freedesktop.org/libei/api/group__libei.html)、[Mutter EIS 输入线程同步](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/backends/meta-eis.c)、[text-input 提交与 done](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/wayland/meta-wayland-text-input.c)、[GNOME 扩展模块生命周期](https://raw.githubusercontent.com/GNOME/gnome-shell/50.1/js/ui/extensionSystem.js)。最终门禁和未激活范围见验证记录；隔离输入框通过不等同于真实 Firefox 已验收。
 
@@ -144,3 +144,35 @@ Wayland 输出释放现与创建共用串行队列，并等待旧连接器退出
 Mac 和 Ubuntu 新包均单独保存。未覆盖活动 Mac bundle、未安装到活动 Ubuntu 路径、未重启 Agent/应用、未注销或重启电脑。EasyTier、GNOME、Firefox、ChatGPT、飞书与 Agent 的 PID 和内核启动时间均与此前一致；全局缩放值未变。激活仍需要另行安排，不能为了加载 GNOME 模块或重启拥有飞书的 Agent 而中断当前工作。原账号资料未读取、创建或复制；保留进程不等于已逐个检查标签页。
 
 标准依据：[XSETTINGS](https://specifications.freedesktop.org/xsettings/0.5/)、[GNOME XSETTINGS 实现](https://raw.githubusercontent.com/GNOME/gnome-settings-daemon/50.1/plugins/xsettings/gsd-xsettings-manager.c)、[Qt 高 DPI](https://doc.qt.io/qt-6/highdpi.html)。完整测试、失败、产物校验和与未验收范围见[统一 DPI 验证记录](validation-artifacts/2026-10-23-unified-dpi.json)。
+
+## 2026-10-23：输入乱序的两级完成确认
+
+本轮把此前偶发失败复现为两个独立的竞争，而非 QUIC 丢包：
+
+1. **合成器输入法异步过滤**：EIS 同步与 Clutter 更新完成时，GNOME 的 IBus `process_key_event_async` 回调仍可未完成。实际协议里先收到 Ctrl 按下，随后就收到文本提交，A 的按下/释放才到达；因此“全选”晚于首段文字。观察到的失败时，提交文字时还有三个过滤回调未完成。仅等待 stage 或 idle 不构成完成确认。
+2. **应用事件队列**：补齐 IBus 确认后，延迟条件下第 60 次替换仍失败。该次 Wayland 日志中所有键已经排在文字前面，但 GTK 把键盘事件排入 GDK 队列，却在同一批 socket 事件中立即处理 text-input commit；应用尚未执行全选就插入了文字。仅保证服务端发送顺序仍不够。
+
+新窗口桥用 GNOME 的 `InjectionManager` 观察过滤与转发的完成，保留原方法返回值、异常和按键语义；停用时恢复方法。文字发送前等待此前按键的原始回调与应用的新输入状态，提交后也等待应用状态更新再处理后续请求。只计状态通知的序号，不读取、记录或比较输入框内容。每次确认有一秒上限，没有应用名称判断、剪贴板逐字注入或自动重发。
+
+无法确认前序输入时，在编辑前返回 `wayland_text_unavailable`。已经发出文字却未收到应用确认时，返回独立的 `wayland_text_outcome_unknown`，提示“文本可能已输入，请先核对内容，勿重复提交”；在迟到的应用确认到达前拒绝后续文字。Mac 提示只作用于对应窗口，保留连接和其他窗口。等待方在扩展停用时取消，回调、定时器与观察方法均释放。
+
+**能力边界仍然存在**：某些控件不会为没有改变编辑状态的按键回传状态。当前单行 GTK 夹具在 Return 后即属于此类，后续文字会被明确拒绝，原内容不变；重新聚焦、产生新的编辑状态（夹具中 Ctrl+A）或主动粘贴可以继续。该策略防止猜测完成时机造成误删或乱序，不能被描述为所有应用、所有控件已经具有无条件连续输入能力。真实 Firefox 的原账号与标签页未切换新版验收。
+
+独立对照验证：旧 stage-only 版本在额外 80ms 的 IBus 回调延迟下首轮丢字；只补过滤回调而不等待应用状态的中间版在 400ms 应用卡顿时首轮丢字；完整确认版本在这些条件下通过。新回归包含快速英文/标点/中文/emoji、紧接回车、16 次全选替换、End 边界/Left/Backspace、编辑前超时无修改、编辑后确认超时不重发、迟到确认恢复，以及私有扩展停用/启用后原进程继续输入。隔离原生 Wayland 大像素、密度切换、Xwayland 原窗口保护和坐标回归仍通过。
+
+依据：[GNOME 50.1 输入法异步过滤](https://raw.githubusercontent.com/GNOME/gnome-shell/50.1/js/misc/inputMethod.js)、[GTK 键盘事件队列](https://raw.githubusercontent.com/GNOME/gtk/gtk-3-24/gdk/wayland/gdkeventsource.c)、[GTK text-input 提交](https://raw.githubusercontent.com/GNOME/gtk/gtk-3-24/modules/input/imwayland.c)。提交、门禁、包校验和及完整失败记录见[输入顺序验证记录](validation-artifacts/2026-10-23-input-order.json)。
+
+## 保留当前会话的升级评估
+
+整机重启不是必要条件，但当前实现没有完整的无损升级交接：
+
+| 方法 | 证据和影响 | 本轮处理 |
+| --- | --- | --- |
+| 重启现有 Agent | 实际服务为 `KillMode=control-group`，飞书与 Agent 同组；`Session::drop` 也会结束自有应用/Xvfb/窗口管理器 | 不执行；只改 KillMode 也不足以解决 |
+| 直接启动第二个 Agent | 默认 socket 已有服务时会拒绝；绕过 socket 后，新 State 的会话表从空开始，没有原 session ID 与控制权交接 | 不替换 socket 或强行并行接管 |
+| 禁用/启用原 UUID 扩展 | GNOME 按原文件 URI 缓存 ES module；生命周期可重建实例，不能保证加载修改后的源码 | 仅在私有测试中验证同版本恢复，不操作实际扩展 |
+| 新 UUID/新路径并行扩展 | 可规避同 URI 缓存，但仍需独立 D-Bus 入口、跨版本窗口控制隔离与旧会话路由 | 仅作后续升级方案，未把它当作已完成的无损切换 |
+
+实现无损切换需要保留旧服务托管旧进程，并由稳定入口把原 session ID 继续路由到旧实例，新会话进入新版；还需统一控制权及断线重连。当前没有这套交接机制，因此新版只打包，未安装或切换实际入口。没有注销、重启服务/应用或电脑，没有重建、复制或读取 Firefox 资料。
+
+实机检查保留三个原 session ID，以及 EasyTier、GNOME、Firefox、ChatGPT、Agent、飞书的 PID 和内核启动时间。这里证明的是原进程与服务会话保留，不是逐个读取账号和标签页。Mac 原应用包的二进制哈希也保持不变。

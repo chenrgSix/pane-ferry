@@ -462,3 +462,27 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 **当前部署仍未切换。** 新 Mac 包在 `dist/unified-dpi-20261023/窗渡 PaneFerry.app`；Ubuntu 包在 `/home/chenrg/.local/state/lan-remoteapp/upgrades/unified-dpi-20261023/paneferry-linux`。原 Mac bundle 二进制哈希全部不变；Ubuntu EasyTier、GNOME、Firefox、ChatGPT、Agent、飞书的 PID/内核启动时间保持。没有安装到活动路径、退出应用、重启服务、注销或重启电脑，也没有创建/复制账号资料。加载新 GNOME 模块与切换拥有飞书的 Agent 需要另行安排，不得自动执行。
 
 详细行为见[窗口像素与缩放](window-resolution.md#2026-10-23统一逻辑视口与显示密度已打包未激活)，条件、哈希、保留的失败及检查日志索引见[JSON](validation-artifacts/2026-10-23-unified-dpi.json)。本地完整日志位于新 Mac 包同级 `validation/`；现有账号/标签页不变的依据是进程和资料保留，不是读取账号和逐个检查标签页。
+
+## 2026-10-23：定位输入乱序并评估无损切换
+
+提交 `575ef46` 修复两个已复现的竞争：GNOME 的异步 IBus 过滤还未转发全部快捷键时，文字提交已经发送；以及 GTK 已收到按键但仍在 GDK 队列中，而同一批 text-input commit 被立即应用。前者通过过滤完成确认处理，后者通过应用输入状态确认处理。协议日志证明第二种失败时按键已排在文字前，不能将其归为 QUIC 乱序。详细因果和代码边界见[输入两级确认](window-resolution.md#2026-10-23输入乱序的两级完成确认)。
+
+| 对照/检查 | 实际结果 |
+| --- | --- |
+| 原 stage-only 版本 + IBus 回调延后 80ms | 首轮混合输入丢字，保留失败日志 |
+| 只有过滤完成确认 + 客户端停顿 400ms | 首轮丢字；另一次压力在第 60 次替换失败。协议键已先到，应用仍先应用文本 |
+| 完整确认，普通条件 | 完整私有 GNOME/Xwayland 回归通过，36.841 秒，测试进程组峰值 4.1 GiB |
+| 完整确认，release Agent + 80ms IBus 延迟 + 400ms 客户端停顿 | 同样回归通过，38.615 秒，进程组峰值 4.3 GiB；不是实际用户延迟或单应用内存基准 |
+| 文本与时序 | 英文/标点/中文/emoji 快速分段、紧接 Return、16 次全选替换和恢复、End 边界/Left/Backspace 通过；剪贴板标记未被文字输入改变 |
+| 超时 | 客户端暂停 1.25 秒：编辑前超时不插入；编辑后确认超时返回独立“不确定”错误，后续文字被拒绝且不重发；迟到确认后显式恢复成功 |
+| 扩展生命周期 | 仅私有合成器禁用/启用同版本扩展，方法观察恢复后重新安装；原应用进程继续输入。没有把同版本重建实例当作更新源码已经热加载 |
+| Mac 门禁 | `scripts/check.sh` 通过：Rust 49 通过/5 忽略，前端 24，通过新增 JS 确认/超时单元、Swift 窗口级不确定结果提示、重连、两个隔离真实 QUIC 节点与视频/二进制传输；workspace/all-targets Clippy `-D warnings` 通过 |
+| Ubuntu 与构建 | workspace 52 通过/5 忽略；Mac WindowHost、启动器与网络组件 release，以及 Ubuntu 安装包成功；Mac 独立包 ad-hoc 深度签名检查通过，未公证；包内新增 JS 和 Agent 与构建源/产物一致 |
+
+边界：本机单行 GTK 夹具在 Return 后不回传新的输入状态；后续文字明确拒绝并保留内容，Ctrl+A/重新聚焦或主动粘贴可继续。回归对该拒绝进行了验证，没有把它写成无条件支持。没有实测新版真实 Firefox、中文输入法候选、多设备同时输入或完整双向实机 E2E，也没有执行 CI。上述 GNOME 驱动仍使用测试拥有的 Mutter/EIS 会话，不代替真实桌面的 Portal 授权。
+
+中间失败也保留：过滤完成确认单独通过过一次 100 次替换，加入延迟后仍失败，不能据此宣布修复；尝试 stage 事件过滤观察时未覆盖发送给应用的键，改用 GNOME InputMethod 的过滤/转发观察；一轮 Xwayland 夹具在尚未等待 GUI 状态采样达到先前 resize 目标时比对失败，补齐客户区到达确认后通过，未因此修改产品 DPI 控制；新增 Return 无条件成功断言失败后，确认它是没有应用确认的能力边界，改为验证拒绝前不编辑并明确记录限制。
+
+无损切换结论：**不要求整机重启，但当前程序不能保证所有旧会话无损交给新版。** Agent 与飞书处于同一服务组（实际 `KillMode=control-group`）；Agent 的 Session 析构也会结束自有进程。另起实例不会继承内存会话表与控制权；仅改 KillMode 或替换 socket 不足以保留原 session ID。GNOME 同 URI 模块也有缓存。版本化扩展与保留旧服务可作为后续方案，但必须增加统一路由和会话交接后验证。本轮未强行并行接管、未替换实际入口、未重启/注销，也未更改账号资料。
+
+最终保留三个原 session ID，EasyTier、GNOME、Firefox、ChatGPT、Agent、飞书的 PID 与内核启动时间不变，原 Mac 包哈希不变。新包为 `dist/input-order-20261023/窗渡 PaneFerry.app` 与 Ubuntu `/home/chenrg/.local/state/lan-remoteapp/upgrades/input-order-20261023/paneferry-linux`，均仅暂存。最新输入桥版本为 4；新 Agent 会拒绝旧桥，避免声称旧代码已包含确认修复。证据、包哈希和未验收项见[JSON](validation-artifacts/2026-10-23-input-order.json)，完整夹具日志已归档于同名压缩记录，并保存在新 Mac 包同级 `validation/`。

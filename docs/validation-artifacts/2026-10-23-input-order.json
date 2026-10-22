@@ -1,0 +1,417 @@
+{
+  "date": "2026-10-23",
+  "repository": "/Users/chenzhirong/Code/ideProject/lan-remoteapp",
+  "commit": "575ef465275c84f60e99795b58ddf4295ebdc7b9",
+  "scope": {
+    "app_specific_adaptations": false,
+    "product_transport": "QUIC; SSH is development access only",
+    "source_profiles_modified": false,
+    "real_desktop_extension_reloaded": false,
+    "real_apps_or_agent_restarted": false,
+    "computer_rebooted": false
+  },
+  "causes": [
+    {
+      "layer": "GNOME IBus asynchronous key filter",
+      "evidence": "At the text commit, three filtering callbacks were still pending; Ctrl reached wl_keyboard before the commit but A reached it afterwards. EIS ping/stage-after-update were not completion barriers for IBus.",
+      "logs": [
+        "paneferry-input-ibus-trace.log",
+        "paneferry-input-fixture-current.log"
+      ]
+    },
+    {
+      "layer": "GTK application event queue",
+      "evidence": "With the filter-completion fix alone, cycle 60 failed although all wl_keyboard events preceded commit_string on the wire. GDK queued key events while the text-input callback applied text immediately in the same read batch.",
+      "logs": [
+        "paneferry-input-fixed-stress-trace.log",
+        "paneferry-input-fixture-fixed.log"
+      ]
+    }
+  ],
+  "implementation": {
+    "bridge_version": 4,
+    "agent_refuses_older_bridge": true,
+    "filters": "Observe original IBus callbacks, results and errors through InjectionManager; wait for all preceding callbacks, without changing key meanings. Observe raw filtering and notify_key_event forwarding to mark application state fences.",
+    "application": "Wait for a newer surrounding-text-set notification before committing after a key and again after committing. Count notification epochs without reading or retaining text contents.",
+    "timeouts": {
+      "seconds": 1,
+      "before_delivery": "wayland_text_unavailable; no commit is sent",
+      "after_delivery": "wayland_text_outcome_unknown; commit might have applied; no retry and later text is blocked until an application acknowledgement arrives"
+    },
+    "lifecycle": "Reject pending waits, cancel timers and restore observed methods on disable.",
+    "mac_ui": "A scoped nonmodal warning preserves the session/window and unrelated windows; no automatic replay."
+  },
+  "controlled_comparisons": [
+    {
+      "version": "stage-only baseline (textInput.js from 9d6c418)",
+      "ibus_callback_delay_ms": 80,
+      "result": "expected failure in first continuous-input round",
+      "log": "paneferry-input-baseline-delayed.log"
+    },
+    {
+      "version": "key completion alone, no application-state barrier",
+      "ibus_callback_delay_ms": 80,
+      "client_stall_ms": 400,
+      "result": "expected failure in first round; latest release control removes only before()/confirm() waits in a test-owned source copy",
+      "log": "paneferry-input-noack-release-control.log"
+    },
+    {
+      "version": "final complete implementation, debug Agent",
+      "ibus_callback_delay_ms": 0,
+      "client_stall_ms": 400,
+      "result": "passed including timeout and disable/enable regressions",
+      "seconds": 36.841,
+      "whole_test_process_group_peak_gib": 4.1,
+      "log": "paneferry-input-normal-final2.log"
+    },
+    {
+      "version": "final complete implementation, release Agent",
+      "ibus_callback_delay_ms": 80,
+      "client_stall_ms": 400,
+      "result": "passed including timeout and disable/enable regressions",
+      "seconds": 38.615,
+      "whole_test_process_group_peak_gib": 4.3,
+      "log": "paneferry-input-delayed-release-final.log"
+    }
+  ],
+  "regressions": [
+    "three bursts of ASCII, punctuation, Chinese and emoji; immediate following Return observes the text",
+    "16 select-all/replace cycles and explicit restoration, retaining original fixture process and contents",
+    "End at current boundary, Left and Backspace immediately followed by text",
+    "1.25-second client stall before delivery: bounded refusal, no insertion",
+    "1.25-second client stall after editing but before acknowledgement: uncertain outcome, later text rejected, no replay; late acknowledgement and explicit restore recover",
+    "actual GNOME private extension disable/enable restores and reinstalls observers; original application remains alive",
+    "native PNG 2940x1604 and 2940x1846, 1x/2x viewports, H264 960x540",
+    "shared Xwayland high-DPI migration refuses before mutation; raw capture 2940x1660/2800x1500 and scoped pointer mapping remain correct"
+  ],
+  "known_limitations": [
+    "The single-line GTK fixture sends no input-state acknowledgement after Return. Following text is refused before editing until a new state is confirmed (e.g. Ctrl+A/refocus); explicit whole-text paste remains a separate operation. This is a validated capability boundary, not unconditional support for every control.",
+    "Real Firefox after activation, real IME candidate composition, real desktop Portal authorization and physical multi-device simultaneous input are not accepted by these fixture tests.",
+    "No full bidirectional physical-device E2E or CI this turn."
+  ],
+  "gates": {
+    "mac_check_sh": "passed: 49 Rust passed / 5 ignored; 24 frontend tests; JS completion/acknowledgement unit cases; Swift/AppKit scoped errors and reconnect; two actual isolated QUIC nodes with video and binary transfer",
+    "mac_clippy": "passed --workspace --all-targets -- -D warnings",
+    "ubuntu_workspace": "52 passed / 5 ignored",
+    "release_builds": "Mac WindowHost/launcher/network and Ubuntu package passed",
+    "signature": "Mac ad-hoc codesign --verify --deep --strict passed, not notarized",
+    "ubuntu_clippy": "not installed, not run"
+  },
+  "intermediate_failures": [
+    "A 100-cycle filter-only pass did not establish correctness: artificial callback delay and a stalled client exposed the second race.",
+    "A generic Clutter event filter did not observe events already consumed for application dispatch; replaced with InputMethod filtering/forwarding observation.",
+    "An intermediate Xwayland state comparison failed without first confirming the GUI sample reached the preceding resize; the fixture now awaits client geometry before comparing.",
+    "An unconditional success assertion after single-line Return failed; the final regression checks a bounded pre-edit refusal and records this limitation instead of pretending the client confirmed."
+  ],
+  "upgrade_assessment": {
+    "status": "staged_only_preserve_original_sessions",
+    "computer_restart_required": false,
+    "lossless_full_switch_available_now": false,
+    "current_unit": [
+      "MainPID=3032522",
+      "ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/remoteapp-agent.service",
+      "KillMode=control-group",
+      "KillSignal=15"
+    ],
+    "agent_and_feishu_share_service_cgroup": true,
+    "blocking_facts": [
+      "systemd KillMode=control-group includes current Feishu",
+      "Session::drop also terminates owned application/display processes",
+      "a fresh Agent starts with an empty in-memory session map; default live socket refuses a second server",
+      "GNOME 50 caches modules at the same URI; disable/enable is instance recreation, not guaranteed source replacement"
+    ],
+    "parallel_plan_not_implemented": "Keep old service owning original processes and route original session IDs/reconnect to it; use a versioned extension/new D-Bus endpoint and new service for new sessions, with shared control-ownership checks. Merely changing KillMode, renaming the socket or starting another UUID does not implement this handoff.",
+    "actions": "No real extension toggle, socket replacement, service stop/restart, logout, application restart or profile modification."
+  },
+  "preservation": {
+    "mac_active_bundle_unchanged": true,
+    "ubuntu_processes": [
+      {
+        "name": "EasyTier",
+        "pid": 2900526,
+        "start_ticks": 29782254,
+        "cgroup": "0::/system.slice/easytier-recovery.service"
+      },
+      {
+        "name": "GNOME",
+        "pid": 2904453,
+        "start_ticks": 29789695,
+        "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/session.slice/org.gnome.Shell@ubuntu.service"
+      },
+      {
+        "name": "Firefox",
+        "pid": 2973421,
+        "start_ticks": 29932989,
+        "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/snap.firefox.firefox-6ca95c1d-eb37-475d-a526-f3fd23b0a50c.scope"
+      },
+      {
+        "name": "ChatGPT",
+        "pid": 3007634,
+        "start_ticks": 29991836,
+        "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-3007634.scope"
+      },
+      {
+        "name": "Agent",
+        "pid": 3032522,
+        "start_ticks": 30026538,
+        "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/remoteapp-agent.service"
+      },
+      {
+        "name": "Feishu",
+        "pid": 3056368,
+        "start_ticks": 30061642,
+        "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/remoteapp-agent.service"
+      }
+    ],
+    "retained_sessions": [
+      {
+        "app_id": "window-0-3007634-29991836-50331652",
+        "backend": "native",
+        "controlled": false,
+        "display": 0,
+        "session_id": "5236ddaff496d73766eb527c1c3944da"
+      },
+      {
+        "app_id": "wayland-2973421-29932989-32",
+        "backend": "native",
+        "controlled": false,
+        "display": 0,
+        "session_id": "c4e93169742a7ca7b64a017e81ef08a4"
+      },
+      {
+        "app_id": "desktop-1b238899d3e13a85f1c01dc0dd5b74d1",
+        "backend": "native",
+        "controlled": false,
+        "display": 288,
+        "session_id": "fac64e089464a1d6960e5d6a5c2386b9"
+      }
+    ],
+    "active_agent_sha256": "82e8a08bd8b906f944471eca87faa062e8a2bff1540c53e9373cfe7fc2d1d3be",
+    "service": "active",
+    "account_and_tabs": "Original processes and three server session IDs preserved; account/profile/tab contents were not inspected."
+  },
+  "artifacts": {
+    "mac": {
+      "commit": "575ef465275c84f60e99795b58ddf4295ebdc7b9",
+      "app": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/input-order-20261023/窗渡 PaneFerry.app",
+      "sha256": {
+        "Contents/MacOS/paneferry-launcher": "8141ffd2c14220f24b26e97690cf277b3e897c5c6ae04fc7ac3c7f7c38aa59e6",
+        "Contents/Resources/paneferry-network": "1a69ff9c837a167b729f1ea0760f4a5f9606b3be4e25c328345c905fa8f4bc6f",
+        "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+        "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "38ff7b0e197aab711803b10725618f3adbdd08eb020046a41e5acd3bb0d7547a"
+      },
+      "active_bundle_unchanged": true,
+      "signature": "ad-hoc, not notarized",
+      "activation": "staged only"
+    },
+    "ubuntu": {
+      "package": "/home/chenrg/.local/state/lan-remoteapp/upgrades/input-order-20261023/paneferry-linux",
+      "sha256": {
+        "bin/paneferry-agent": "da9c08de334a5f7ee6e0a8448f052ea989889e777f4220c051720c49fcd78e21",
+        "bin/paneferry-network": "6e887b7e36ff045ae4f8ccc723b5fea2d41670e960636073330b925158bd42ef",
+        "share/gnome-shell/extensions/paneferry@local/textInput.js": "898162a93eed17ef5bf3aa83e165076ff9a0226a7bda93ac2f1d5ba70440d7ed",
+        "share/gnome-shell/extensions/paneferry@local/keyCompletion.js": "87dcdc74514d9a8dbc5473f9130b7775b8325f2172a62513fe9cac53b118a3b0",
+        "share/gnome-shell/extensions/paneferry@local/extension.js": "65469a8ed5336d248ccd459aead52688af24436459d7770ef80c13a27ba84a95",
+        "share/gnome-shell/extensions/paneferry@local/virtualOutput.js": "85c52ede8ffc985413d80a7ea5fb5f62c55cd000ac26b3adc11d1ecd993b62e0",
+        "share/gnome-shell/extensions/paneferry@local/metadata.json": "2f6df1bbcda49ab59ba45e5193e2d05217ca6dbd49f00aff09adc966950f587e"
+      },
+      "archive_sha256": "63d4e450405c399e77b50771da031ca516dfdb1b7af91e081140738757ba1705",
+      "active_agent_sha256": "82e8a08bd8b906f944471eca87faa062e8a2bff1540c53e9373cfe7fc2d1d3be",
+      "active_processes": [
+        {
+          "name": "EasyTier",
+          "pid": 2900526,
+          "start_ticks": 29782254,
+          "cgroup": "0::/system.slice/easytier-recovery.service"
+        },
+        {
+          "name": "GNOME",
+          "pid": 2904453,
+          "start_ticks": 29789695,
+          "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/session.slice/org.gnome.Shell@ubuntu.service"
+        },
+        {
+          "name": "Firefox",
+          "pid": 2973421,
+          "start_ticks": 29932989,
+          "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/snap.firefox.firefox-6ca95c1d-eb37-475d-a526-f3fd23b0a50c.scope"
+        },
+        {
+          "name": "ChatGPT",
+          "pid": 3007634,
+          "start_ticks": 29991836,
+          "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-3007634.scope"
+        },
+        {
+          "name": "Agent",
+          "pid": 3032522,
+          "start_ticks": 30026538,
+          "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/remoteapp-agent.service"
+        },
+        {
+          "name": "Feishu",
+          "pid": 3056368,
+          "start_ticks": 30061642,
+          "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/remoteapp-agent.service"
+        }
+      ],
+      "retained_sessions": [
+        {
+          "app_id": "window-0-3007634-29991836-50331652",
+          "backend": "native",
+          "controlled": false,
+          "display": 0,
+          "session_id": "5236ddaff496d73766eb527c1c3944da"
+        },
+        {
+          "app_id": "wayland-2973421-29932989-32",
+          "backend": "native",
+          "controlled": false,
+          "display": 0,
+          "session_id": "c4e93169742a7ca7b64a017e81ef08a4"
+        },
+        {
+          "app_id": "desktop-1b238899d3e13a85f1c01dc0dd5b74d1",
+          "backend": "native",
+          "controlled": false,
+          "display": 288,
+          "session_id": "fac64e089464a1d6960e5d6a5c2386b9"
+        }
+      ],
+      "service": "active",
+      "activation": "staged only, no service or application restart"
+    }
+  },
+  "reproduction": {
+    "positive": "systemd-run --user --collect --wait --pipe --working-directory=/tmp/paneferry-input-diagnose-20261023 /usr/bin/python3 tests/e2e/wayland_smoke.py --agent /tmp/paneferry-wayland-work-20261022/target/release/paneferry-agent --with-xwayland --key-filter-delay-ms 80",
+    "unit": "node --experimental-default-type=module tests/e2e/key_completion_unit.mjs",
+    "negative": "In a test-owned source copy only, omit acknowledgements.before()/confirm() waits and rerun the same delayed/stalled fixture; expect a nonzero input assertion."
+  },
+  "logs": {
+    "paneferry-input-ack-lifecycle-final.log": {
+      "bytes": 3801,
+      "sha256": "2d133effbf36b9bda424300f98de5a7a26aac7846102e1364c52abe7c718aaa7"
+    },
+    "paneferry-input-agent-build.log": {
+      "bytes": 164,
+      "sha256": "36c7c0e66ddc05cb1fa14154a485cfbdaaf318eb8ec420cbfdc35bfdeb862c30"
+    },
+    "paneferry-input-barrier-fixed.log": {
+      "bytes": 6806,
+      "sha256": "4bef84b8e3f1775bb1a5f8f2f819b7ddc92f615f18780f4df2e0b8ef29f132c6"
+    },
+    "paneferry-input-baseline-delayed.log": {
+      "bytes": 7126,
+      "sha256": "c9d76c0b5a6b692d4f3b728c11da824f727802dcc5184bc9c2783bdfa20c171e"
+    },
+    "paneferry-input-client-ack-final.log": {
+      "bytes": 3245,
+      "sha256": "88922ec7869873c22b2dc61cae2ff128d941155c24dd88bb3c0fece74eec1f66"
+    },
+    "paneferry-input-client-ack-test.log": {
+      "bytes": 3161,
+      "sha256": "e4b094c3b924fa9ca78b140137168e670be8f315b503df0a7ac7d8838bb5ac12"
+    },
+    "paneferry-input-cycles-trace.log": {
+      "bytes": 13328,
+      "sha256": "0ad527248a47c014b48797b96b15c49ff2397229bbbe92334c8330ef847b6f0b"
+    },
+    "paneferry-input-delayed-fixed-final.log": {
+      "bytes": 7559,
+      "sha256": "e93539b43845e3abcbfd9a20f5e7eaeb4ab046a2dda67cc7823c7bc64d2cf635"
+    },
+    "paneferry-input-delayed-fixed.log": {
+      "bytes": 8665,
+      "sha256": "8d8648f382169f7349e0728e0a5e73031d37e6e62f8e49e06fe656a940afb126"
+    },
+    "paneferry-input-delayed-release-final.log": {
+      "bytes": 4165,
+      "sha256": "02d99dd446edbb832de428c613468abd1ec88ee203e87fb21edb0dbf3c328038"
+    },
+    "paneferry-input-diagnose-trace.log": {
+      "bytes": 3101,
+      "sha256": "14576d749a2caaa4122af0ac119bb1ebcf5e711f32bf668a8f4318d3f3677ecc"
+    },
+    "paneferry-input-final-clippy.log": {
+      "bytes": 284,
+      "sha256": "e356cad2c9b5909b1330a798f0cc20db3dac4edf4e8be2b9afb7a9b8657e359b"
+    },
+    "paneferry-input-fixed-stress-trace.log": {
+      "bytes": 16537,
+      "sha256": "c7cc1387afba71726aa81b8c7a47bcef872b08715909d6cfdcf1d9a03ba8cefe"
+    },
+    "paneferry-input-fixed-trace.log": {
+      "bytes": 3155,
+      "sha256": "ac700da61d755d584568f3bbc27c1b5b016786d26a2b11e31bf1bef454c9d6a1"
+    },
+    "paneferry-input-fixture-current.log": {
+      "bytes": 1017614,
+      "sha256": "96ebe66e40a87dd9cab5cdda39c2412c30f88ab692a001692e409fc04d64640c"
+    },
+    "paneferry-input-fixture-fixed.log": {
+      "bytes": 2271927,
+      "sha256": "534f34cb432e81ca04a02307788c99c7e0cde2fe6460b19b1aeaf7f5476d66ae"
+    },
+    "paneferry-input-gated-client-final.log": {
+      "bytes": 3247,
+      "sha256": "e8a0c9abd4e1c51ecbd83f0a27a5db705fff84dea6426d63ceeaef38cd3a1dbb"
+    },
+    "paneferry-input-ibus-trace.log": {
+      "bytes": 13675,
+      "sha256": "7a215bfa0cd1a8d543d9c0ca25e2ecdfb1d8d5deb583f4186be10dda16529f55"
+    },
+    "paneferry-input-launcher-release.log": {
+      "bytes": 1004,
+      "sha256": "d57789d875cbd6b286cd000b494b55aa07124d774eae72f210772659cfe3c1c0"
+    },
+    "paneferry-input-linux-release.log": {
+      "bytes": 293,
+      "sha256": "6f0671571a2d79e6300e2594a0640dd1c56f861e2550b45563c33304413776b6"
+    },
+    "paneferry-input-linux-tests.log": {
+      "bytes": 7267,
+      "sha256": "0fda2de0831e91f82d09c63b69de0e3437acb861e9b0cf69db334d1b0dc71944"
+    },
+    "paneferry-input-network-release.log": {
+      "bytes": 62,
+      "sha256": "765f1396d07f30f3a451cd3f9d9cad4e83c92c8e0aecf955ffc09061a6cf1e02"
+    },
+    "paneferry-input-noack-control.log": {
+      "bytes": 7404,
+      "sha256": "c0b31d8fbbfc977b7e6950c86dfa6a19c13525c32fd565a7b7f2ed23388bbda0"
+    },
+    "paneferry-input-noack-release-control.log": {
+      "bytes": 7672,
+      "sha256": "b49163184e6a255b9fa112d0ae1180cbbe28d5b7a3e94ea0a26101f2a970b585"
+    },
+    "paneferry-input-normal-final.log": {
+      "bytes": 7070,
+      "sha256": "032a391df61e616e2cbfbefe5e42672da8d779d57919e58c8066b4c56a898e75"
+    },
+    "paneferry-input-normal-final2.log": {
+      "bytes": 4108,
+      "sha256": "122d03837f08c912bd3f6236254ad2f53d6731ae02c86c4642694453f3829266"
+    },
+    "paneferry-input-order-check.log": {
+      "bytes": 16818,
+      "sha256": "e26f611093c1542900b04ad57723c9a4a7dd67ed1183a07d32c8ae274f77c197"
+    },
+    "paneferry-input-order-final-check.log": {
+      "bytes": 17180,
+      "sha256": "706f092a4c8d704dd95efa95fe94d62529ae0f6ba361b94a2eee2424e11bd5fc"
+    },
+    "paneferry-input-paused-client-final.log": {
+      "bytes": 7501,
+      "sha256": "3d13e39200a7f457441dbd29ef562071cf0952f8258cbbe68eec03783c39e52c"
+    },
+    "paneferry-input-windowhost-release.log": {
+      "bytes": 632,
+      "sha256": "9b1b41b8eb9ab77d16e1b8cf47bf81511cdf25257737e2f1d2e7fbd53207a210"
+    },
+    "paneferry-input-wire-trace.log": {
+      "bytes": 14637,
+      "sha256": "67c87dc9281aff748c271810fe642ad743fbb280884b71a38d4b0e4ecc98f72b"
+    }
+  },
+  "full_local_log_directory": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/input-order-20261023/validation"
+}
