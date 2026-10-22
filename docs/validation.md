@@ -289,6 +289,8 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 Mac release 开发包及 Ubuntu 包构建通过。为保留正在运行的应用包和权限归属，Mac 使用独立 Cargo 输出目录，并核验新包确实包含发布器、接收器和网络组件。开发产物在 `dist/lan-remoteapp-quic-macos/LAN RemoteApp.app` 与 `dist/lan-remoteapp-linux-quic.tar.gz`；本轮未运行升级安装脚本。Mac 发布器二进制 SHA-256 仍为 `f1d3f72d1c29916deeb7469970d754ce486eb1c0ca15e607d44ebe5fac51b7fd`。新 launcher 为 `d1fe404d2a7f891f277d91e3426d402fcc74f7eaa43f399e9079aa573ce20314`、WindowHost 为 `5b7cb9eb6c23fda538b3f4dab890d479591ced0d0424ef5d8964b387971e4673`、网络组件为 `5166ac545d6acb42749e0b9193e55c76f847b0eb4671b33fa83ff0c496a89ff5`；Linux 压缩包 SHA-256 为 `35de78f1b0dea7fd5308f07819fcfb4651a4657ed50c6e95e9b7c9701af92520`。这些是本机开发构建，不能称为签名公证、CI 或生产验收。
 
+性能对照追加：六轮共 540 个有效样本，动态窗口 SSH / QUIC 中位数为 93.01 / 113.83ms、P95 为 147.19 / 213.38ms；静止后输入中位数为 83.46 / 67.86ms。当前路径为 utun4，不能泛化为全部局域网。两种通道各 20 次逻辑会话恢复通过，物理断网/休眠与长期稳定性未测。完整方法、全部轮次和原始数据见 [SSH 与 QUIC 实机对照](performance/2026-10-22-ssh-quic.md)。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
