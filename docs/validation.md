@@ -427,3 +427,11 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 待切换的 Mac 包为 `dist/retina-input-20261022/窗渡 PaneFerry.app`；Ubuntu 包在 `/home/chenrg/.local/state/lan-remoteapp/upgrades/retina-input-20261022/paneferry-linux`。需要用户安排保存工作后的激活，再核验真实 Firefox 的大窗口、连续输入、原账号及标签页；不能把 GTK 夹具通过写成 Firefox 已验收。Mac 本机反向发布、多物理设备并发、混合/分数缩放、长期压力和 CI 本轮未验收。结构化证据、日志摘要与包校验和见[记录](validation-artifacts/2026-10-22-retina-input.json)；完整本地日志保存在上述 Mac 包同级的 `validation/`。
 
 用户随后明确选择“保留当前会话，稍后再切换”。激活状态记为用户暂缓，新版安装包保留；没有安排自动切换，待用户再次要求后继续激活与实机验收。
+
+### 2026-10-22：保留会话时补齐 VPN 开机启动
+
+用户反馈重启后 VPN 难以恢复。检查发现 EasyTier 当前连接由 `easytier-recovery.service` 临时单元提供，单元位于 `/run/systemd/transient/`，网络配置位于 `/run/easytier-recovery/network.toml`，均不会跨重启保留。RustDesk 系统服务已启用开机启动；有线连接 `netplan-enp1s0` 已自动连接且不限制登录用户。
+
+已在 Ubuntu 写入同名持久单元 `/etc/systemd/system/easytier-recovery.service` 和开机依赖链接；配置原样复制到 `/etc/easytier/recovery/network.toml`，仅 root 可读写（0600），目录 0700，网络密钥未输出或写入仓库。持久单元等待 `network-online.target`，使用原二进制和网络配置，退出后每 5 秒重试。没有启动第二份相同网络、没有重启现有服务或注销桌面。`systemd-analyze verify` 通过，排除临时目录的开机单元检查返回 `enabled`，当前 EasyTier PID 2900526 保持且为 active。运行中的临时单元仍承载当前连接，持久单元供下次开机使用。
+
+此次仅验证持久配置、开机依赖和当前连接保留；尚未重启验收，也未验证 RustDesk 在登录界面的实际控制能力。此项不改变 PaneFerry 新版暂缓激活的决定。
