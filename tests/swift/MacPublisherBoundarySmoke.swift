@@ -2,6 +2,16 @@ import AppKit
 import Darwin
 @main struct MacPublisherBoundarySmoke {
     static func main() throws {
+        let first=WindowInteraction(session:"a",window:1,at:100),second=WindowInteraction(session:"b",window:2,at:101)
+        precondition(uniqueRecentInteraction([first],now:102)?.window==1)
+        precondition(uniqueRecentInteraction([first,second],now:102)==nil, "ambiguous multi-device input must not guess popup ownership")
+        precondition(uniqueRecentInteraction([first,second],now:105)?.window==2)
+        precondition(uniqueRecentInteraction([second],now:99)==nil)
+        let identity=ProcessIdentity.read(getpid())!.identity
+        precondition(identity.current && identity.descends(from:identity))
+        let reused=ProcessIdentity(pid:identity.pid,started:identity.started+1,executable:identity.executable)
+        precondition(!reused.current && !reused.descends(from:identity) && !identity.descends(from:reused), "PID reuse cannot inherit membership")
+        precondition(!identity.belongs(to:URL(fileURLWithPath:"/unrelated.app"),root:reused))
         precondition(receivedApplication(URL(fileURLWithPath:"/Applications/Firefox.app"),"io.lanremoteapp.host.fixture"))
         precondition(receivedApplication(URL(fileURLWithPath:"/Users/test/Library/Application Support/io.lanremoteapp.launcher/WindowHosts/generation/Firefox.app"),"org.mozilla.firefox"))
         precondition(receivedApplication(URL(fileURLWithPath:"/System/Library/CoreServices/SecurityAgent.app"),"com.apple.SecurityAgent"))

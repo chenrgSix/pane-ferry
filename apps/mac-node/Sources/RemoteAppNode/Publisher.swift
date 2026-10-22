@@ -52,8 +52,8 @@ func installedApps() -> [String:PublishedApp] {
 }
 struct Target {
     let window:SCWindow, application:NSRunningApplication, app:PublishedApp
-    let launched:Date
-    var id:String { "window-\(window.windowID)-\(application.processIdentifier)-\(Int64(launched.timeIntervalSince1970*1000))" }
+    let identity:ProcessIdentity, rootEligible:Bool
+    var id:String { "window-\(window.windowID)-\(identity.pid)-\(identity.started)" }
 }
 // PID delivery needs both screen and window-local coordinates. AppKit's factory
 // supplies the receiving-window header; CGEventSetLocation alone overwrites the
@@ -89,25 +89,26 @@ func windowScrollEvent(windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEve
     event.setIntegerValueField(windowField,value:Int64(windowID));event.flags=flags
     return targetPointerEvent(event,windowID:windowID,frame:frame,location:location)
 }
-final class PublishedSession {
-    let id:String, appID:String, target:Target
-    var controller:UUID?, revision:UInt64=1
+final class PublishedWindow {
+    var target:Target
+    let parentID:UInt32?, rootApplication:NSRunningApplication
+    var revision:UInt64=1
     var width:Int, height:Int
     var keys=Set<String>(), buttons=Set<Int>()
     var pointerSerial=0
     var lastFrame:CGRect
-    init(_ target:Target,appID:String) {
-        id=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased();self.target=target;self.appID=appID
+    init(_ target:Target,parentID:UInt32? = nil,rootApplication:NSRunningApplication? = nil) {
+        self.target=target;self.parentID=parentID;self.rootApplication=rootApplication ?? target.application
         lastFrame=target.window.frame
         let scale=min(2.0,sqrt(Double(pixelLimit)/max(1,lastFrame.width*lastFrame.height)))
         width=min(4096,max(1,Int(lastFrame.width*scale)));height=min(4096,max(1,Int(lastFrame.height*scale)))
     }
     var metadata:[String:Any] {
-        ["type":"window.created","window_id":target.window.windowID,"parent_id":NSNull(),"title":String((target.window.title ?? target.app.name).prefix(512)),
-         "role":"toplevel","x":0,"y":0,"width":width,"height":height,"scale_factor":2,"geometry_revision":revision,"visible":true]
+        ["type":"window.created","window_id":target.window.windowID,"parent_id":parentID as Any? ?? NSNull(),"title":String((target.window.title ?? target.app.name).prefix(512)),
+         "role":parentID == nil ? "toplevel":"dialog","x":0,"y":0,"width":width,"height":height,"scale_factor":2,"geometry_revision":revision,"visible":target.window.isOnScreen]
     }
     func valid() -> Bool {
-        guard !target.application.isTerminated, target.application.launchDate == target.launched,
+        guard !target.application.isTerminated, target.identity.current,
               !receivedApplication(target.application.bundleURL ?? target.app.url,target.application.bundleIdentifier ?? "") else { return false }
         guard let list=CGWindowListCopyWindowInfo([.optionIncludingWindow,.excludeDesktopElements],target.window.windowID) as? [[String:Any]],
             let value=list.first, value[kCGWindowOwnerPID as String] as? Int32 == target.application.processIdentifier,
@@ -135,12 +136,16 @@ final class PublishedSession {
         }
         guard matches.count == 1 else { throw NodeError.window_unavailable }; return matches[0]
     }
-    func focus() throws {
+    @discardableResult func focus() throws -> NSRunningApplication {
         let window=try axWindow()
-        target.application.activate(options:[])
+        // Accessory apps may own their own key window and Edit menu. Activating
+        // only the main process makes their text shortcuts miss that responder.
+        let activation=target.application.activate(options:[]) ? target.application:rootApplication
+        if activation !== target.application { activation.activate(options:[]) }
         let app=AXUIElementCreateApplication(target.application.processIdentifier)
         AXUIElementSetAttributeValue(app,kAXFocusedWindowAttribute as CFString,window)
         guard AXUIElementPerformAction(window,kAXRaiseAction as CFString) == .success else { throw NodeError.window_unavailable }
+        return activation
     }
     func release() {
         for key in keys { try? keyEvent(key,false) }; keys.removeAll()
@@ -218,9 +223,32 @@ func desktopLocked() -> Bool {
     return session?["CGSSessionScreenIsLocked"] as? Bool == true || session?["kCGSessionOnConsoleKey"] as? Bool == false
 }
 
+final class PublishedSession {
+    let id=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
+    let appID:String, root:PublishedWindow
+    var controller:UUID?, windows:[UInt32:PublishedWindow]
+    var seen:[String:Bool], retired=Set<UInt32>()
+    init(_ target:Target,appID:String,initial:[Target]) {
+        self.appID=appID;root=PublishedWindow(target)
+        windows=[target.window.windowID:root]
+        seen=Dictionary(uniqueKeysWithValues:initial.map{($0.id,$0.window.isOnScreen)})
+    }
+    var target:Target { root.target }
+    var metadata:[[String:Any]] {
+        [root.metadata] + windows.values.filter{$0 !== root}.sorted{$0.target.window.windowID<$1.target.window.windowID}.map{$0.metadata}
+    }
+    func valid() -> Bool { root.valid() }
+    func member(_ id:UInt32) -> PublishedWindow? {
+        guard valid(),let member=windows[id],member.valid(),member.target.identity.belongs(to:target.app.url,root:target.identity) else { return nil }
+        return member
+    }
+    func release() { for window in windows.values { window.release() } }
+}
+
 final class Publisher {
     let directory:URL, deviceID:String
     var sharing=false, apps=[String:PublishedApp](), targets=[String:Target](), sessions=[String:PublishedSession](), requests=[String:String]()
+    private var interactions=[ProcessIdentity:[String:WindowInteraction]]()
     init(directory:URL) throws {
         self.directory=directory;try privateDirectory(directory)
         let path=directory.appendingPathComponent("device-id")
@@ -239,16 +267,73 @@ final class Publisher {
         guard CGPreflightScreenCaptureAccess() else { throw NodeError.screen_recording_required }
         let content=try await SCShareableContent.excludingDesktopWindows(true,onScreenWindowsOnly:false)
         let current=apps.isEmpty ? installedApps() : apps
+        let roots=NSWorkspace.shared.runningApplications.compactMap { application -> (NSRunningApplication,PublishedApp,ProcessIdentity)? in
+            guard application.activationPolicy == .regular,let url=application.bundleURL,
+                  let entry=current.values.first(where:{$0.url.resolvingSymlinksInPath()==url.resolvingSymlinksInPath()}),
+                  !receivedApplication(url,application.bundleIdentifier ?? ""),let identity=ProcessIdentity.read(application.processIdentifier)?.identity else { return nil }
+            return (application,entry,identity)
+        }
+        var owners=[pid_t:(NSRunningApplication,PublishedApp,ProcessIdentity,Bool)]()
+        var rejected=Set<pid_t>()
         var result=[Target]()
         for window in content.windows where window.windowLayer == 0 && window.frame.width>=100 && window.frame.height>=60 {
-            guard let owner=window.owningApplication,let app=NSRunningApplication(processIdentifier:owner.processID),
-                  app.activationPolicy == .regular,let url=app.bundleURL,let id=app.bundleIdentifier,
-                  !receivedApplication(url,id),let launched=app.launchDate,
-                  let entry=current.values.first(where:{$0.url.resolvingSymlinksInPath()==url.resolvingSymlinksInPath()}) else { continue }
-            result.append(Target(window:window,application:app,app:entry,launched:launched))
-            if result.count>=128 { break }
+            guard let owner=window.owningApplication,!rejected.contains(owner.processID) else { continue }
+            if owners[owner.processID] == nil {
+                guard let app=NSRunningApplication(processIdentifier:owner.processID),let url=app.bundleURL,
+                      !receivedApplication(url,app.bundleIdentifier ?? ""),let identity=ProcessIdentity.read(owner.processID)?.identity,
+                      let root=roots.first(where:{identity.belongs(to:$0.1.url,root:$0.2)}) else { rejected.insert(owner.processID);continue }
+                owners[owner.processID]=(app,root.1,identity,identity==root.2)
+            }
+            guard let (app,entry,identity,eligible)=owners[owner.processID] else { continue }
+            result.append(Target(window:window,application:app,app:entry,identity:identity,rootEligible:eligible))
+            if result.count>=512 { break }
         }
         targets=Dictionary(uniqueKeysWithValues:result.map{($0.id,$0)});return result
+    }
+    func recordInput(_ session:PublishedSession,window:UInt32) {
+        let now=ProcessInfo.processInfo.systemUptime
+        interactions=interactions.mapValues{$0.filter{now-$0.value.at<5}}.filter{!$0.value.isEmpty}
+        interactions[session.target.identity,default:[:]][session.id]=WindowInteraction(session:session.id,window:window,at:now)
+    }
+    /// Membership survives reconnects. A helper needs verified OS ancestry and
+    /// a new/reshown window after input to this session; titles are never proof.
+    func refresh(_ session:PublishedSession,from list:[Target]) -> (added:[UInt32],removed:[UInt32],changed:[UInt32]) {
+        var added=[UInt32](),removed=[UInt32](),changed=[UInt32]()
+        let latest=Dictionary(uniqueKeysWithValues:list.map{($0.id,$0)})
+        for (id,member) in session.windows where member !== session.root {
+            if !member.valid() {
+                member.release();session.windows.removeValue(forKey:id);session.retired.insert(id);removed.append(id)
+            }
+        }
+        // Retire descendants with a disappeared parent; a later snapshot must
+        // never reference an absent parent or revive the old capture identity.
+        for _ in 0..<16 {
+            let orphaned=session.windows.filter{$0.value.parentID.map{session.windows[$0]==nil} ?? false}
+            if orphaned.isEmpty { break }
+            for (id,member) in orphaned {
+                member.release();session.windows.removeValue(forKey:id);session.retired.insert(id);removed.append(id)
+            }
+        }
+        for (id,member) in session.windows {
+            if let target=latest[member.target.id] {
+                if member.target.window.isOnScreen != target.window.isOnScreen || member.target.window.title != target.window.title { changed.append(id) }
+                member.target=target
+            }
+        }
+        let input=uniqueRecentInteraction(Array(interactions[session.target.identity,default:[:]].values),now:ProcessInfo.processInfo.systemUptime)
+        if let input=input,input.session==session.id,session.member(input.window) != nil {
+            for target in list where target.window.isOnScreen && session.seen[target.id] != true {
+                let id=target.window.windowID
+                guard session.windows[id]==nil,session.windows.count<16,!session.retired.contains(id),session.retired.count<128,
+                      target.identity.belongs(to:session.target.app.url,root:session.target.identity),
+                      !sessions.values.contains(where:{$0 !== session && $0.windows[id] != nil && $0.valid()}) else { continue }
+                let member=PublishedWindow(target,parentID:input.window,rootApplication:session.target.application)
+                guard session.windows.values.reduce(0,{$0+$1.width*$1.height})+member.width*member.height<=16_000_000 else { continue }
+                session.windows[id]=member;added.append(id)
+            }
+        }
+        session.seen=Dictionary(uniqueKeysWithValues:list.map{($0.id,$0.window.isOnScreen)})
+        return (added,removed,changed)
     }
     func launch(_ appID:String, _ request:String) async throws -> PublishedSession {
         guard sharing else { throw NodeError.sharing_disabled }
@@ -272,7 +357,8 @@ final class Publisher {
             }
         }
         guard let target=target else { throw NodeError.window_unavailable }
-        if let session=sessions.values.first(where:{$0.target.id==target.id && $0.valid()}) { requests[request]=session.id;return session }
-        let session=PublishedSession(target,appID:appID);sessions[session.id]=session;requests[request]=session.id;return session
+        if let session=sessions.values.first(where:{$0.windows[target.window.windowID]?.target.id==target.id && $0.valid()}) { requests[request]=session.id;return session }
+        guard target.rootEligible else { throw NodeError.window_unavailable }
+        let session=PublishedSession(target,appID:appID,initial:Array(targets.values));sessions[session.id]=session;requests[request]=session.id;return session
     }
 }
