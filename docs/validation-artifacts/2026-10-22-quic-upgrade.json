@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-22T15:16:24+08:00",
+  "code_commit": "c68601492bb634b562015e8e7135198e3eb4b69c",
+  "installed_build": "QUIC-only developer build, UI version 0.1.0",
+  "user_authorized_service_restart_and_session_termination": true,
+  "mac": {
+    "processes": [
+      {
+        "binary": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/LAN RemoteApp.app/Contents/MacOS/lan-remoteapp-launcher",
+        "pid": 56696,
+        "sha256": "efea87393b2907932e25386b20b84112a460a8689c66341dfd0a690a84af097c"
+      },
+      {
+        "binary": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/LAN RemoteApp.app/Contents/Resources/RemoteAppNode.app/Contents/MacOS/RemoteAppNode",
+        "pid": 56718,
+        "sha256": "f1d3f72d1c29916deeb7469970d754ce486eb1c0ca15e607d44ebe5fac51b7fd"
+      },
+      {
+        "binary": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/LAN RemoteApp.app/Contents/Resources/remoteapp-network",
+        "pid": 57134,
+        "sha256": "4d0d0faf474d02abc72d36efd1ca977ed974f8cf915efbe539afd7fcc7f77847"
+      }
+    ],
+    "network": {
+      "device_id": "5011a8ce-4d8a-49bb-8075-b6163a2b91d9",
+      "fingerprint": "72c0dfd519f1359fa2e1b42f69871d048906057d79b2e6ce8ba16b57c7cdd0b4",
+      "listen": "0.0.0.0:42424",
+      "name": "Huawei vs World",
+      "peers": [
+        {
+          "address": "10.0.1.66:42424",
+          "connected": true,
+          "device_id": "5036c985-9a8e-4706-afa5-91f2409b05f7",
+          "fingerprint": "90fc9d1c692b43db86e3e6b51b758bcf9c86058958a532121c2b6580923b722b",
+          "generation": "5036c985-9a8e-4706-afa5-91f2409b05f7",
+          "name": "Ubuntu",
+          "socket": "/Users/chenzhirong/.local/state/lan-remoteapp/network/r-5036c985-9a8e-4706-afa5-91f2409b05f7.sock",
+          "transport": "quic"
+        }
+      ],
+      "version": 2
+    },
+    "publisher": {
+      "type": "node.info",
+      "version": 1,
+      "session_id": "",
+      "publishing_supported": true,
+      "device_id": "5011a8ce-4d8a-49bb-8075-b6163a2b91d9",
+      "receiving_supported": true,
+      "name": "Huawei vs World",
+      "platform": "macos",
+      "permissions": {
+        "screen_recording": true,
+        "accessibility": true,
+        "desktop_unlocked": true
+      },
+      "sharing_enabled": true,
+      "seq": 2,
+      "session_count": 1
+    },
+    "task_ssh_master_closed": true,
+    "quic_request_after_ssh_closed": true,
+    "test_fixture_removed": true,
+    "legacy_password_profile_removed": true
+  },
+  "ubuntu": {
+    "verified_files": {
+      "/home/chenrg/.local/bin/lan-remoteapp": "08fe57fb9d06fe745e1a7dddf97ad380c06dd6b18565d20433ead7ad87aa2e67",
+      "/home/chenrg/.local/bin/remoteapp-agent": "3d2b90c1645fbc8276dec618867dec7cc25d637bb826752ae42947426894bd37",
+      "/home/chenrg/.local/bin/remoteapp-network": "d01ebd23a51713bc5abcdea11bce6102f964cdd6b782ee9365cebea6ec3931f8",
+      "/home/chenrg/.local/share/lan-remoteapp/clipboard.py": "d8f22cd29f7630a2f4157af10cb8060dd656a1a801a7cda015c24c11562b6696",
+      "/home/chenrg/.local/share/lan-remoteapp/main.py": "d80ca0a0b1f1f5bd8cdaab0ea53491c5bfd4a3cf8ed2cfa8333d83052718a3df",
+      "/home/chenrg/.local/share/lan-remoteapp/network.py": "bd464e26fdfb5e3e407052e3dfca59f19cde733b17f69fdd711fd1d4dc168d15",
+      "/home/chenrg/.local/share/lan-remoteapp/windowhost.py": "fbc266c43f354e53e96db6086c80e290c27ac85e83fcbf1458e93c8e10d728cc",
+      "/home/chenrg/.local/share/lan-remoteapp/wire.py": "2a752c408a0fb265f96c64a063229ee0136330c025797d33912df44437db9a9e"
+    },
+    "verified_processes_before_network_restart": [
+      {
+        "pid": 1703898,
+        "binary": "/home/chenrg/.local/bin/remoteapp-agent",
+        "sha256": "3d2b90c1645fbc8276dec618867dec7cc25d637bb826752ae42947426894bd37"
+      },
+      {
+        "pid": 1704093,
+        "binary": "/home/chenrg/.local/bin/remoteapp-network",
+        "sha256": "d01ebd23a51713bc5abcdea11bce6102f964cdd6b782ee9365cebea6ec3931f8"
+      }
+    ],
+    "final_services": {
+      "remoteapp-agent.service": "active",
+      "lan-remoteapp-ui.service": "active"
+    },
+    "final_network": {
+      "device_id": "5036c985-9a8e-4706-afa5-91f2409b05f7",
+      "fingerprint": "90fc9d1c692b43db86e3e6b51b758bcf9c86058958a532121c2b6580923b722b",
+      "listen": "0.0.0.0:42424",
+      "name": "Ubuntu",
+      "peers": [
+        {
+          "address": "10.0.1.253:42424",
+          "connected": true,
+          "device_id": "5011a8ce-4d8a-49bb-8075-b6163a2b91d9",
+          "fingerprint": "72c0dfd519f1359fa2e1b42f69871d048906057d79b2e6ce8ba16b57c7cdd0b4",
+          "generation": "5011a8ce-4d8a-49bb-8075-b6163a2b91d9",
+          "name": "Huawei vs World",
+          "socket": "/home/chenrg/.local/state/lan-remoteapp/network/r-5011a8ce-4d8a-49bb-8075-b6163a2b91d9.sock",
+          "transport": "quic"
+        }
+      ],
+      "version": 2
+    },
+    "temporary_files_removed": true,
+    "sessions_at_test_cleanup": 0
+  },
+  "backups": {
+    "mac": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/upgrade-backups/macos-20261022/LAN RemoteApp.app",
+    "ubuntu": "/home/chenrg/.local/state/lan-remoteapp/upgrade-backups/20261022-quic-only"
+  },
+  "checks": {
+    "production_quic_pairing": "PASS",
+    "ubuntu_to_mac_live_appkit": "PASS: H264, Unicode, text clipboard, cut, resize, 3 same-window/session reconnects, remote close",
+    "mac_to_ubuntu_installed_gtk": "PASS: real SCK/H264, click, Unicode, text clipboard, cut, resize, reconnect, detach",
+    "packaged_mac_launcher_and_windowhost": "PASS: actual launcher opened fixture with packaged host; 2940x1610 H264 at 200%; Unicode input reached GTK",
+    "both_network_services_restarted": "PASS: UUIDs, fingerprints and pairing preserved",
+    "packaged_receiver_after_network_restart": "PASS: original host process continued; new input reached GTK and new pixels displayed",
+    "reverse_after_network_restart": "PASS: new decoded H264 frame and same-session reconnect",
+    "ssh_master_closed_quic_request": "PASS",
+    "legacy_mac_password_profile_removed": true,
+    "final_manager_after_ssh_closed": "PASS: connected, 48 installed applications, fixture entry removed",
+    "new_user_sessions_preserved": true
+  },
+  "limitations": [
+    "Developer build; no release signing, notarization, CI or production acceptance",
+    "Three-plus physical peers, sleep/wake and physical network loss not tested in this deployment",
+    "SSH used only for deployment, starting the Ubuntu fixture and reading its result; product connections use QUIC",
+    "This deployment did not repeat throughput or latency benchmarks"
+  ],
+  "restart": {
+    "mac_previous_network_pid": 56720,
+    "mac_pairing_preserved": true,
+    "ubuntu": {
+      "stopped_pid": 1704093,
+      "device_id": "5036c985-9a8e-4706-afa5-91f2409b05f7",
+      "pairing_preserved": true
+    },
+    "packaged_host_pid": 57029
+  },
+  "local_deployment_temporary_files_removed": true
+}

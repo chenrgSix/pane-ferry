@@ -299,6 +299,25 @@ Mac release 开发包及 Ubuntu 包构建通过。为保留正在运行的应用
 
 Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 22 项及 Swift/AppKit 回归通过；Tauri 后端 5 项、工作区及 Tauri Clippy 通过。Ubuntu 44 项 Rust 测试、Python、三节点路由、GTK/QUIC 和 release 构建通过；因没有 rustfmt/Node，未将 Ubuntu 的完整脚本记为通过。两端新开发包已构建，未覆盖仍有用户会话的旧安装。测试条件、失败后复测、复现命令、产物哈希与未覆盖项见[独立验收记录](quic-only-validation.md)。本轮不构成性能提升、CI 或生产验收。
 
+## 2026-10-22：两端正式安装升级至 QUIC-only
+
+用户明确允许升级两端、重启服务和结束当前会话。本轮将上一轮已验收的 QUIC-only 开发包实际安装到 Mac 原应用路径和 Ubuntu 用户安装目录，先备份旧二进制/安装文件，再停止旧产品进程并启动新版。Mac launcher、WindowHost、发布器和网络组件，以及 Ubuntu Agent、网络组件、GTK 脚本均与构建产物哈希一致。Mac 发布器代码未变化，原共享开关、录屏和辅助功能授权继续有效；新版启动器已清理本应用的旧 SSH 密码文件，原 SSH 返回进程退出。
+
+两端正式网络状态目录首次完成持久 QUIC 配对，使用已有设备 UUID；Mac 连接 Ubuntu `10.0.1.66:42424`，Ubuntu 保存观察到的 Mac 地址 `10.0.1.253:42424`。设备邀请仅经已验证的部署管道传递，未写入验收记录。一个产品继续同时发布和接收，无需另装另一个角色。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| Ubuntu → Mac | 正式 Ubuntu Agent、两端正式 QUIC 组件和真实 AppKit：H.264、中文/emoji、文本复制/粘贴/剪切、960×640 缩放、3 次同窗口/同会话自动恢复和关闭测试应用通过 |
+| Mac → Ubuntu | 正式 Mac 发布器、两端正式 QUIC 和已安装 GTK/GStreamer：真实 SCK/H.264、点击、中文、文本剪贴板、剪切后删除、按键释放、1200×840 缩放、同会话恢复及断开保留应用通过 |
+| 实际 Mac 安装包 | 新管理器显示“QUIC 设备连接”和 Ubuntu 已连接；读取 49 个已安装应用（含本次测试入口）。从管理器打开专用编辑器，实际打包宿主显示 2940×1610、200%、H.264，中文和 emoji 在画面及远端测试缓冲中均确认 |
+| 网络组件重启 | 两端 QUIC 网络进程分别重启，设备 UUID、证书指纹和配对记录不变；Mac 管理器自动重新启动本机网络组件，原打包宿主继续显示原内容，新增输入到达远端并更新画面 |
+| 重启后的反向链路 | 已安装 Ubuntu GTK 接收器重新收到真实 1200×840 H.264，之后同会话重连收到新解码帧 |
+| 收尾 | 本次测试应用、临时桌面入口和部署文件清理，清理检查时 Ubuntu 远程会话为 0；正式 Agent 和 GTK 管理服务保持 active，Mac 新版管理器/发布器/网络组件保持运行，永久配对保留。用户随后新开的窗口未被清理 |
+
+部署 SSH 只用于安装、启动 Ubuntu 测试及收取结果，业务协议和画面走 QUIC。任务专用 SSH master 最后已关闭，关闭后 Mac 仍能通过 QUIC 读取 Ubuntu 节点并刷新应用列表，最终实际界面显示已连接及 48 个已安装应用，测试入口已移除。没有重新引入产品 SSH 登录或返回通道，没有修改 EasyTier 设置。
+
+旧安装备份分别位于工作区 `dist/upgrade-backups/macos-20261022/LAN RemoteApp.app` 和 Ubuntu `~/.local/state/lan-remoteapp/upgrade-backups/20261022-quic-only/`；备份不包含旧密码配置。当前 UI 版本号仍为开发预览 0.1.0，具体代码与文件身份以[部署记录和 SHA-256](validation-artifacts/2026-10-22-quic-upgrade.json)为准，[真实双向回归日志](validation-artifacts/2026-10-22-quic-upgrade-logs.json.gz)另存。本轮未重新测性能、三台以上实机、物理断网、休眠、签名公证、CI 或生产验收。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。

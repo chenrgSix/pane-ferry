@@ -69,6 +69,8 @@ xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 \
 
 ## 交付与限制
 
+**后续安装已完成：** 用户随后明确授权重启并结束旧会话，两端现已安装此 QUIC-only 包，正式服务上的双向回归和网络组件重启恢复均通过，见[两端升级记录](validation.md)。下段记录的是本次构建阶段结束时的状态。
+
 开发包已构建到 `dist/lan-remoteapp-quic-only-macos/LAN RemoteApp.app` 和 `dist/lan-remoteapp-linux-quic-only.tar.gz`。没有覆盖正在运行的旧安装：Ubuntu 原 Agent 仍有一个用户会话，升级安装会重启 Agent，故本次使用独立测试实例；Mac 新 launcher 也未替换原运行实例。新版首次运行会清理本应用的 SSH 密码文件和旧界面配置，保留配对 QUIC 身份、目录缓存及未确认启动请求，不修改系统 SSH。
 
 三节点测试不是三台物理设备。尚未完成三台以上实机并发、物理断网/网络切换、休眠唤醒、长期负载、两个方向同时输入、Ubuntu 物理输入法候选选择、图片/文件的本轮双机原生应用验收，也未执行 CI、发布签名、公证或生产验收。本轮保留原有共享权限、EasyTier 配置和已安装服务。
