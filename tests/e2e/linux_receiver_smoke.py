@@ -52,6 +52,8 @@ class PublisherFixture:
                 elif kind=='session.resume':
                     send('session.snapshot',windows=list(self.members.values()))
                     for wid in self.members:frame(wid)
+                elif kind=='clipboard.inline.copy' and event['request_id']=='copy-error-child':send('error',code='clipboard_copy_failed',window_id=event['window_id'])
+                elif kind=='clipboard.inline.copy' and event['request_id']=='copy-error-legacy':send('error',code='clipboard_copy_failed')
                 elif kind=='clipboard.inline.copy':send('clipboard.inline.data',window_id=event['window_id'],request_id=event['request_id'],bundle=dict(kind='text',text='中文剪贴板 fixture'))
                 elif kind=='input.key.logical' and event['key']=='F2' and event['pressed'] and 43 not in self.members:
                     self.members[43]=dict(window_id=43,parent_id=42,title='preview',width=640,height=480,geometry_revision=1,scale_factor=1)
@@ -159,6 +161,14 @@ try:
     child.im.emit('commit','preview child input')
     until(lambda:any(e['type']=='input.text.commit' and e['window_id']==43 for e in events))
     assert not any(e['type']=='input.text.commit' for e in other.events)
+    viewer.copy_request=('root-pending',clipboard.begin_copy())
+    child.copy_request=('copy-error-child',clipboard.begin_copy())
+    child.send(type='clipboard.inline.copy',request_id='copy-error-child',cut=False)
+    until(lambda:child.copy_request is None)
+    assert viewer.copy_request is not None, 'a child error canceled another window request'
+    child.copy_request=('copy-error-legacy',clipboard.begin_copy())
+    child.send(type='clipboard.inline.copy',request_id='copy-error-legacy',cut=False)
+    until(lambda:child.copy_request is None and viewer.copy_request is None)
     root_native,child_native=viewer.window,child.window
     old=connections[-1];old.shutdown(socket.SHUT_RDWR)
     until(lambda:len(connections)>=2 and viewer.ready and child.ready and child.pixels is not None,timeout=12)

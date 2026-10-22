@@ -132,7 +132,7 @@ class Viewer:
         self.owner = owner or self
         self.application = application
         self.members = {} if owner is None else owner.members
-        self.frame_token = None
+        self.frame_token = None; self.destroyed = False
         self.peer_id, self.name = peer_id, name
         self.session_id, self.app_id = session_id, app_id
         self.request_id = uuid.uuid4().hex
@@ -208,7 +208,7 @@ class Viewer:
         return False
 
     def status(self, text):
-        if not self.closed.is_set():
+        if not self.destroyed:
             self.notice.set_text(text)
         return False
 
@@ -288,7 +288,7 @@ class Viewer:
         for wid, metadata in catalog.items():
             viewer = self.members.get(wid)
             if viewer is None:
-                viewer = self if wid == self.window_id else Viewer(self.application, self.peer_id, self.name, session_id=self.session_id, owner=self)
+                viewer = self if wid == self.window_id else type(self)(self.application, self.peer_id, self.name, session_id=self.session_id, owner=self)
                 self.members[wid] = viewer
             viewer.metadata(metadata, epoch)
         for wid, metadata in catalog.items():
@@ -401,7 +401,7 @@ class Viewer:
         while not self.closed.is_set():
             self.epoch += 1; epoch = self.epoch
             wire = None; sender_stop = threading.Event(); sender = None
-            catalog = {}
+            catalog = {}; failure = message('connection_lost')
             try:
                 wire = Wire(self.peer_id); self.wire = wire
                 if 'input.key.logical' not in wire.capabilities or 'native.h264' not in wire.capabilities:
@@ -480,10 +480,12 @@ class Viewer:
                         self.on_ui(viewer.status, message(code))
                         if code in ('session_exited', 'session_expired', 'sharing_disabled', 'desktop_locked'):
                             raise ValueError(code)
-                        if code.startswith('clipboard_'): self.on_ui(viewer.cancel_copy)
+                        if code.startswith('clipboard_'):
+                            if wid in catalog: self.on_ui(viewer.cancel_copy)
+                            else:
+                                for member in list(self.members.values()): self.on_ui(member.cancel_copy)
             except (OSError, ValueError, EOFError, KeyError, TypeError, GLib.Error) as error:
-                self.epoch += 1
-                GLib.idle_add(self.invalidate, message(error))
+                self.epoch += 1; failure = message(error)
                 if str(error) in ('session_exited', 'session_expired', 'session_controlled', 'sharing_disabled', 'protocol_error', 'wrong_session'):
                     self.closed.set()
             finally:
@@ -496,7 +498,7 @@ class Viewer:
                 while not self.outbound.empty():
                     try: self.outbound.get_nowait()
                     except queue.Empty: break
-                GLib.idle_add(self.invalidate, message('connection_lost'))
+                GLib.idle_add(self.invalidate, failure)
             if not self.closed.is_set():
                 self.closed.wait([1, 2, 4, 8, 15][min(attempt, 4)]); attempt += 1
 
@@ -505,7 +507,7 @@ class Viewer:
         return False
 
     def destroy_local(self):
-        self.ready = False; self.closed.set(); self.frame_token = None
+        self.ready = False; self.closed.set(); self.frame_token = None; self.destroyed = True
         if self.resize_timer:
             GLib.source_remove(self.resize_timer); self.resize_timer = None
         self.cancel_copy(); self.window.destroy()
