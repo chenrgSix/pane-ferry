@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/protocol", "crates/transport", "crates/core", "crates/backend-x11", "crates/capture", "apps/linux-agent"]
+members = ["crates/protocol", "crates/transport", "crates/network", "crates/core", "crates/backend-x11", "crates/capture", "apps/linux-agent"]
 exclude = ["apps/launcher/src-tauri"]
 [workspace.package]
 version = "0.1.0"
