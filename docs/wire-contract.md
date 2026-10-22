@@ -1,5 +1,7 @@
 # 实现期 RWP/1 契约
 
+下文定义保持兼容的 RWP/1 本机与 SSH 接口。原生 QUIC 通过 RWN/2 多可靠流承载相同业务语义、二进制视频及控制水位，见[统一传输指南](native-transport.md)。
+
 P1 使用 SSH stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级，当前不称 protobuf 实现）。客户端请求行最大 64 KiB，服务端事件行最大 16 MiB，PNG base64 全帧，宽高 1..4096，总像素 <= 8M；采样最短间隔 33ms，静止帧去重。所有请求与响应都必须包含 version:1，其他版本拒绝。每个消息 type 为以下字符串，version:1，服务端事件带 session_id、seq；窗口事件带 window_id（u32）与 geometry_revision（u64）。SSH 固定远端命令为 `.local/bin/remoteapp-agent bridge`，固定 argv 本地使用 /usr/bin/ssh -T -oBatchMode=yes -oStrictHostKeyChecking=yes -p PORT -l USER -- HOST REMOTE_COMMAND。用户先手工建立可信 known_hosts 和正常 SSH 登录，不自动接受新密钥。
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。

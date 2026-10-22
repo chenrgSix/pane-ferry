@@ -268,6 +268,27 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 
 双向原生宿主同时交互、Ubuntu 物理输入法候选选择、物理断网、多台远端并发、复杂弹窗与长期稳定性仍未完成真实验收。
 
+## 2026-10-22：统一传输、配对与 QUIC
+
+两端加入公共 `remoteapp-network`，管理入口和原生接收器显式选择 QUIC 或 SSH；没有按客户端/服务端拆成两份产品。控制、每窗口可靠视频和文件传输分别使用 QUIC 流，设备证书、配对、撤销、地址和路由按 UUID 隔离。实现与使用边界见[统一传输指南](native-transport.md)。
+
+构建和隔离检查：
+
+- Mac 与 Ubuntu 根工作区各 **49 项通过、4 项 Linux 环境测试按原规则忽略**。Tauri 后端 8 项、前端 21 项通过，类型检查和生产构建通过；Rust 格式检查及网络组件 Clippy `-D warnings` 通过。Mac 的 `scripts/check.sh`、Swift 发布/接收编译、输入、剪贴板、SSH 认证和自动恢复回归通过；新增 Linux QUIC 接收测试另在 Ubuntu 执行通过。
+- 三个真实本机 QUIC 节点验证双向调用、一次性邀请复用拒绝、证书不匹配拒绝、撤销一台设备不影响另一台，以及远端不得改变共享开关、权限或创建 SSH 返回路由。媒体测试验证元数据先于帧、H.264 顺序、失效几何/销毁窗口帧过滤。这里只模拟三台设备，不能称为三台物理设备验收。
+- Python 生产 `Wire` 的 SSH/QUIC 路由隔离通过：同 UUID 可有两个显式入口，撤销 QUIC 不会自动退回 SSH。关闭连接时，即使父进程保持 stdin 打开，桥接子进程也会退出并向接收宿主交付 EOF。
+- AppKit 的实际接收器经两个本机 QUIC 节点解码合成的真实 H.264 关键帧与 7 个依赖 P 帧；重连后核验红色像素、同窗口/同会话、丢弃离线输入且不重发启动。Swift 原生剪贴板适配器经独立二进制流往返大于 1 MiB 的 PNG、Unicode 文件名、目录与空文件。使用独立测试粘贴板和发布夹具。
+- Ubuntu GTK/GStreamer 接收器分别经兼容 socket 和真实 QUIC 节点通过实际像素显示、H.264/SPS 边界、中文 commit、键鼠、文本/PNG/文件剪贴板与断线恢复。独立真实 Agent 的 H.264 测试经 QUIC 通过关键帧/P 帧、视频期间输入、641×483 奇数缩放、动态/静止重连关键帧；导出的 17 个 AU 在 Mac 全部硬件解码，核验响应像素、尺寸和非法 NAL 拒绝。
+
+真实两台机器的传输验收：
+
+- 使用任务私有目录、临时配对和两个新网络进程连接 `10.0.1.66`；现有 Agent 与已授权的 Mac 发布组件继续运行。临时邀请仅经已验证的 SSH 管理管道交给测试程序，业务 RWP/画面/输入走 QUIC，没有 SSH 回退。
+- Ubuntu → Mac：SSH 与 QUIC 各运行一遍真实 X11/xterm 测试，均通过启动幂等、单控制端、实际键鼠、按住输入断开释放、PNG 尺寸、缩放、隐藏/重显、会话发现、3 次重连及关闭测试程序。SSH 在 QUIC 测试中仅用于检查测试标记和 X11 状态，不承载被测业务通道。
+- Mac → Ubuntu：用户恢复本机共享后，QUIC 和 SSH 返回通道分别通过专用 Mac 测试窗口的真实 SCK → VideoToolbox H.264 → Ubuntu GTK 解码、点击恰好一次、中文/emoji 提交、双向文本复制/粘贴、剪切后删除和按键释放、1200×840 缩放、原会话重连及断开保留 Mac 应用。Ubuntu 接收端运行于独立 Xvfb；中文为 GTK 输入上下文的程序化 commit，不是物理输入法候选选择。
+- 双向并行：Ubuntu 通过 QUIC 连续接收 Mac H.264 窗口 30 秒，同时 Mac 经同一对 QUIC 节点完成正向真实 xterm 键鼠、缩放、隐藏及 3 次重连。反向接收保持相同连接代次和 ready，随后自身重连也收到新解码帧。没有把它扩大为两边同时操作系统剪贴板或两边物理键盘同时交互。
+
+Mac release 开发包及 Ubuntu 包构建通过。为保留正在运行的应用包和权限归属，Mac 使用独立 Cargo 输出目录，并核验新包确实包含发布器、接收器和网络组件。开发产物在 `dist/lan-remoteapp-quic-macos/LAN RemoteApp.app` 与 `dist/lan-remoteapp-linux-quic.tar.gz`；本轮未运行升级安装脚本。Mac 发布器二进制 SHA-256 仍为 `f1d3f72d1c29916deeb7469970d754ce486eb1c0ca15e607d44ebe5fac51b7fd`。新 launcher 为 `d1fe404d2a7f891f277d91e3426d402fcc74f7eaa43f399e9079aa573ce20314`、WindowHost 为 `5b7cb9eb6c23fda538b3f4dab890d479591ced0d0424ef5d8964b387971e4673`、网络组件为 `5166ac545d6acb42749e0b9193e55c76f847b0eb4671b33fa83ff0c496a89ff5`；Linux 压缩包 SHA-256 为 `35de78f1b0dea7fd5308f07819fcfb4651a4657ed50c6e95e9b7c9701af92520`。这些是本机开发构建，不能称为签名公证、CI 或生产验收。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
@@ -275,4 +296,4 @@ Tauri 原生 **5 项测试通过**，包含端点隔离、更新、私有权限�
 - 未做发布签名、公证、外部安全审计、CI 或生产验收。Ubuntu 已安装持久用户服务，尚未验证重启系统后的自动启动。Mac 发布辅助组件使用本机临时签名，不能据此宣称已完成发布签名。
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
-当前技术为 SSH + JSON Lines + H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。Protobuf schema 为后续草案；WebRTC/UDP、QUIC、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
+当前技术为配对 QUIC 可靠流或 SSH、兼容 JSON Lines、H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。QUIC 网络视频使用二进制负载，控制水位协调跨流顺序。Protobuf schema 为后续草案；WebRTC、QUIC DATAGRAM、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
