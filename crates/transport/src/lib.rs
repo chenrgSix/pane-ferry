@@ -1,4 +1,4 @@
-//! SSH control transport. No password handling and no client-generated remote shell commands.
+//! RWP control transport. SSH and native-network routes share protocol validation.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -398,7 +398,86 @@ async fn read_message<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Res
     }
     Ok(value)
 }
-async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Value, Error> {
+/// Explicit connection choice; a failed native route never falls back to SSH.
+#[derive(Debug, Clone)]
+pub enum Target {
+    Ssh(Endpoint),
+    /// Private socket supplied by the local network service, never by the peer.
+    Native(PathBuf),
+}
+pub trait ControlTarget {
+    fn target(&self) -> Target;
+}
+impl ControlTarget for Endpoint {
+    fn target(&self) -> Target {
+        Target::Ssh(self.clone())
+    }
+}
+impl ControlTarget for Target {
+    fn target(&self) -> Target {
+        self.clone()
+    }
+}
+async fn exchange<R, W>(
+    output: &mut R,
+    input: &mut W,
+    body: Value,
+    expected: &str,
+    received_hello: &mut bool,
+) -> Result<Value, Error>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    input
+        .write_all(b"{\"type\":\"hello\",\"version\":1}\n")
+        .await
+        .map_err(|_| Error::Connection)?;
+    input.flush().await.map_err(|_| Error::Connection)?;
+    if read_message(output).await?["type"] != "hello" {
+        return Err(Error::Protocol);
+    }
+    *received_hello = true;
+    let mut data = serde_json::to_vec(&body).map_err(|_| Error::Protocol)?;
+    if data.len() >= MAX_CONTROL_LINE {
+        return Err(Error::Protocol);
+    }
+    data.push(b'\n');
+    input
+        .write_all(&data)
+        .await
+        .map_err(|_| Error::Connection)?;
+    input.flush().await.map_err(|_| Error::Connection)?;
+    for _ in 0..64 {
+        let value = read_message(output).await?;
+        if value["type"] == expected {
+            return Ok(value);
+        }
+    }
+    Err(Error::Protocol)
+}
+async fn request(
+    endpoint: &impl ControlTarget,
+    body: Value,
+    expected: &str,
+) -> Result<Value, Error> {
+    match endpoint.target() {
+        Target::Ssh(endpoint) => ssh_request(&endpoint, body, expected).await,
+        Target::Native(socket) => tokio::time::timeout(Duration::from_secs(25), async {
+            let socket = tokio::net::UnixStream::connect(socket)
+                .await
+                .map_err(|_| Error::Connection)?;
+            let (read, mut write) = socket.into_split();
+            let mut read = BufReader::new(read);
+            let result = exchange(&mut read, &mut write, body, expected, &mut false).await;
+            let _ = write.shutdown().await;
+            result
+        })
+        .await
+        .map_err(|_| Error::Timeout)?,
+    }
+}
+async fn ssh_request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Value, Error> {
     endpoint.validate()?;
     let helper = PASSWORD_HELPER.get().filter(|helper| {
         std::process::Command::new(helper)
@@ -436,32 +515,10 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
     let mut output = BufReader::new(child.stdout.take().ok_or(Error::Connection)?);
     let mut stderr = child.stderr.take().ok_or(Error::Connection)?.take(8192);
     let mut received_hello = false;
-    let result = tokio::time::timeout(Duration::from_secs(25), async {
-        input
-            .write_all(b"{\"type\":\"hello\",\"version\":1}\n")
-            .await
-            .map_err(|_| Error::Connection)?;
-        input.flush().await.map_err(|_| Error::Connection)?;
-        let hello = read_message(&mut output).await?;
-        if hello["type"] != "hello" {
-            return Err(Error::Protocol);
-        }
-        received_hello = true;
-        let mut data = serde_json::to_vec(&body).map_err(|_| Error::Protocol)?;
-        data.push(b'\n');
-        input
-            .write_all(&data)
-            .await
-            .map_err(|_| Error::Connection)?;
-        input.flush().await.map_err(|_| Error::Connection)?;
-        for _ in 0..64 {
-            let value = read_message(&mut output).await?;
-            if value["type"] == expected {
-                return Ok(value);
-            }
-        }
-        Err(Error::Protocol)
-    })
+    let result = tokio::time::timeout(
+        Duration::from_secs(25),
+        exchange(&mut output, &mut input, body, expected, &mut received_hello),
+    )
     .await
     .map_err(|_| Error::Timeout)
     .and_then(|v| v);
@@ -490,7 +547,7 @@ async fn request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Val
         _ => result,
     }
 }
-pub async fn catalog(endpoint: &Endpoint) -> Result<AppCatalog, Error> {
+pub async fn catalog(endpoint: &impl ControlTarget) -> Result<AppCatalog, Error> {
     let value = request(endpoint, json!({"type":"app.list","version":1}), "app.list").await?;
     let mut apps: Vec<AppInfo> =
         serde_json::from_value(value["apps"].clone()).map_err(|_| Error::Protocol)?;
@@ -542,7 +599,7 @@ fn validate_icon(icon: Option<&str>) -> Result<(), Error> {
     }
     Ok(())
 }
-pub async fn desktop_windows(endpoint: &Endpoint) -> Result<DesktopWindows, Error> {
+pub async fn desktop_windows(endpoint: &impl ControlTarget) -> Result<DesktopWindows, Error> {
     let value = request(
         endpoint,
         json!({"type":"window.list","version":1}),
@@ -571,7 +628,7 @@ pub async fn desktop_windows(endpoint: &Endpoint) -> Result<DesktopWindows, Erro
             .map(remote_error_message),
     })
 }
-pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
+pub async fn sessions(endpoint: &impl ControlTarget) -> Result<Vec<SessionInfo>, Error> {
     let value = request(
         endpoint,
         json!({"type":"session.list","version":1}),
@@ -593,7 +650,7 @@ pub async fn sessions(endpoint: &Endpoint) -> Result<Vec<SessionInfo>, Error> {
     Ok(sessions)
 }
 pub async fn launch_native(
-    endpoint: &Endpoint,
+    endpoint: &impl ControlTarget,
     app_id: &str,
     request_id: &str,
     scale_factor: u8,
@@ -832,5 +889,37 @@ mod tests {
             json!({"session_id":"abc123","backend":"native","display":"101;id"})
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod unified_transport_tests {
+    use super::*;
+    #[tokio::test]
+    async fn native_target_uses_same_handshake_errors_and_validation() {
+        let directory = std::env::temp_dir().join(format!("rwp-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("route.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, mut write) = socket.into_split();
+            let mut read = BufReader::new(read);
+            assert_eq!(read_message(&mut read).await.unwrap()["type"], "hello");
+            write
+                .write_all(b"{\"version\":1,\"type\":\"hello\"}\n")
+                .await
+                .unwrap();
+            assert_eq!(read_message(&mut read).await.unwrap()["type"], "app.list");
+            write
+                .write_all(b"{\"version\":1,\"type\":\"error\",\"code\":\"sharing_disabled\"}\n")
+                .await
+                .unwrap();
+        });
+        assert!(
+            matches!(catalog(&Target::Native(path)).await, Err(Error::Remote(code)) if code == "sharing_disabled")
+        );
+        server.await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
