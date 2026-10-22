@@ -16,7 +16,11 @@ final class Fixture:NSObject,NSApplicationDelegate,NSTextViewDelegate {
         edit.submenu=editActions;menu.addItem(edit)
         NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.leftMouseUp,.keyDown,.keyUp]) { [weak self] event in
             guard let self=self else {return event}
-            self.inputEvents.append(["type":event.type.rawValue,"window":event.windowNumber,"x":event.locationInWindow.x,"y":event.locationInWindow.y,"key":event.keyCode,"flags":event.modifierFlags.rawValue,"active":NSApplication.shared.isActive])
+            var entry:[String:Any]=["type":event.type.rawValue,"window":event.windowNumber,"x":event.locationInWindow.x,"y":event.locationInWindow.y,"flags":event.modifierFlags.rawValue,"active":NSApplication.shared.isActive]
+            // AppKit raises an Objective-C exception if keyCode is read from a
+            // mouse event. A monitor must return the event without disrupting it.
+            if event.type == .keyDown || event.type == .keyUp { entry["key"]=event.keyCode }
+            self.inputEvents.append(entry)
             self.inputEvents=Array(self.inputEvents.suffix(16));self.write();return event
         }
         window=NSWindow(contentRect:NSRect(x:180,y:180,width:800,height:560),styleMask:[.titled,.closable,.resizable,.miniaturizable],backing:.buffered,defer:false)
