@@ -9,6 +9,8 @@ use std::{
 use tauri::Manager;
 mod credential_store;
 mod local_node;
+mod network;
+use network::Device;
 mod ssh_login;
 mod window_host;
 #[tauri::command]
@@ -33,6 +35,16 @@ async fn reveal_local_component(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn share_to_device(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
     local_node::offer(&app, &endpoint, &native_host(&app)?)
+}
+#[tauri::command]
+async fn network_action(
+    app: tauri::AppHandle,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match body["op"].as_str() {
+        Some("status" | "invite" | "pair" | "revoke" | "address") => network::manage(&app, body),
+        _ => Err("操作无效。".into()),
+    }
 }
 #[derive(Serialize)]
 struct LaunchResult {
@@ -79,22 +91,26 @@ impl RequestFailure {
     }
 }
 #[tauri::command]
-async fn list_apps(endpoint: Endpoint) -> Result<AppCatalog, RequestFailure> {
-    transport::catalog(&endpoint)
+async fn list_apps(app: tauri::AppHandle, endpoint: Device) -> Result<AppCatalog, RequestFailure> {
+    transport::catalog(&network::target(&app, &endpoint)?)
         .await
         .map_err(RequestFailure::from)
 }
 #[tauri::command]
 async fn list_desktop_windows(
-    endpoint: Endpoint,
+    app: tauri::AppHandle,
+    endpoint: Device,
 ) -> Result<transport::DesktopWindows, RequestFailure> {
-    transport::desktop_windows(&endpoint)
+    transport::desktop_windows(&network::target(&app, &endpoint)?)
         .await
         .map_err(RequestFailure::from)
 }
 #[tauri::command]
-async fn list_sessions(endpoint: Endpoint) -> Result<Vec<transport::SessionInfo>, RequestFailure> {
-    transport::sessions(&endpoint)
+async fn list_sessions(
+    app: tauri::AppHandle,
+    endpoint: Device,
+) -> Result<Vec<transport::SessionInfo>, RequestFailure> {
+    transport::sessions(&network::target(&app, &endpoint)?)
         .await
         .map_err(RequestFailure::from)
 }
@@ -137,7 +153,7 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 fn named_native_host(
     app: &tauri::AppHandle,
-    endpoint: &Endpoint,
+    endpoint: &Device,
     app_id: &str,
     app_name: Option<&str>,
 ) -> Result<PathBuf, String> {
@@ -146,11 +162,18 @@ fn named_native_host(
         .app_data_dir()
         .map_err(|_| "无法定位本机应用目录。")?
         .join("WindowHosts");
-    window_host::prepare(&directory, &native_host(app)?, endpoint, app_id, app_name)
+    window_host::prepare(
+        &directory,
+        &native_host(app)?,
+        &endpoint.identity(),
+        app_id,
+        app_name,
+    )
 }
 fn spawn_host(
+    app: &tauri::AppHandle,
     path: PathBuf,
-    endpoint: &Endpoint,
+    endpoint: &Device,
     session_id: &str,
     icon_png: Option<String>,
 ) -> Result<u32, String> {
@@ -158,16 +181,28 @@ fn spawn_host(
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
     let mut command = Command::new(path);
-    command.args([
-        "--host",
-        &endpoint.host,
-        "--user",
-        &endpoint.user,
-        "--port",
-        &endpoint.port.to_string(),
-        "--session",
-        session_id,
-    ]);
+    if let Some(id) = &endpoint.peer_id {
+        command
+            .arg("--native-peer")
+            .arg(id)
+            .arg("--native-state")
+            .arg(network::directory(app)?)
+            .arg("--native-helper")
+            .arg(network::binary(app)?)
+            .arg("--session")
+            .arg(session_id);
+    } else {
+        command.args([
+            "--host",
+            &endpoint.host,
+            "--user",
+            &endpoint.user,
+            "--port",
+            &endpoint.port.to_string(),
+            "--session",
+            session_id,
+        ]);
+    }
     if icon.is_some() {
         command.arg("--icon-stdin");
     }
@@ -194,14 +229,14 @@ fn spawn_host(
 #[tauri::command]
 async fn resume_session(
     app: tauri::AppHandle,
-    endpoint: Endpoint,
+    endpoint: Device,
     session_id: String,
     icon_png: Option<String>,
     app_name: Option<String>,
 ) -> Result<LaunchResult, RequestFailure> {
     endpoint.validate()?;
     transport::validate_id(&session_id)?;
-    let session = transport::sessions(&endpoint)
+    let session = transport::sessions(&network::target(&app, &endpoint)?)
         .await
         .map_err(RequestFailure::from)?
         .into_iter()
@@ -213,6 +248,7 @@ async fn resume_session(
         ));
     }
     let pid = spawn_host(
+        &app,
         named_native_host(&app, &endpoint, &session.app_id, app_name.as_deref())
             .map_err(RequestFailure::local)?,
         &endpoint,
@@ -230,7 +266,7 @@ async fn resume_session(
 #[tauri::command]
 async fn launch_app(
     app: tauri::AppHandle,
-    endpoint: Endpoint,
+    endpoint: Device,
     app_id: String,
     request_id: String,
     render_scale: Option<u8>,
@@ -260,14 +296,21 @@ async fn launch_app(
             1
         }
     });
-    let session = transport::launch_native(&endpoint, &app_id, &request_id, scale).await?;
-    let pid = spawn_host(path, &endpoint, &session.session_id, icon_png).map_err(|message| {
-        LaunchFailure {
-            kind: "client",
-            message,
-            retry_same_request: true,
-        }
-    })?;
+    let session = transport::launch_native(
+        &network::target(&app, &endpoint)?,
+        &app_id,
+        &request_id,
+        scale,
+    )
+    .await?;
+    let pid =
+        spawn_host(&app, path, &endpoint, &session.session_id, icon_png).map_err(|message| {
+            LaunchFailure {
+                kind: "client",
+                message,
+                retry_same_request: true,
+            }
+        })?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),
@@ -309,7 +352,8 @@ fn main() {
             set_local_sharing,
             request_local_permissions,
             reveal_local_component,
-            share_to_device
+            share_to_device,
+            network_action
         ])
         .build(tauri::generate_context!())
         .expect("launcher startup failed")

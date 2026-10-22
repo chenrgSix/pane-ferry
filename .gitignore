@@ -11,3 +11,5 @@ apps/launcher/src-tauri/resources/RemoteAppNode.app/
 .DS_Store
 .env
 .env.*
+
+apps/launcher/src-tauri/resources/remoteapp-network

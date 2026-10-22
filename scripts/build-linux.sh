@@ -2,10 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ $(uname -s) == Linux ]] || { echo '请在 Ubuntu 上构建 Linux 安装包。' >&2; exit 1; }
-cargo build --release -p remoteapp-agent
+cargo build --release -p remoteapp-agent -p remoteapp-network
 output="${1:-dist/lan-remoteapp-linux}"
 mkdir -p "$output/bin" "$output/share/lan-remoteapp" "$output/share/applications" "$output/share/icons/hicolor/128x128/apps" "$output/systemd"
 install -m 755 target/release/remoteapp-agent "$output/bin/remoteapp-agent"
+install -m 755 target/release/remoteapp-network "$output/bin/remoteapp-network"
 install -m 644 apps/linux-client/*.py "$output/share/lan-remoteapp/"
 install -m 644 apps/launcher/src-tauri/icons/icon.png "$output/share/icons/hicolor/128x128/apps/io.lanremoteapp.launcher.png"
 install -m 644 deploy/linux-user-service/remoteapp-agent.service "$output/systemd/"

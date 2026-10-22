@@ -30,7 +30,8 @@
     ],
     "resources": {
       "resources/RemoteAppWindowHost.app": "RemoteAppWindowHost.app",
-      "resources/RemoteAppNode.app": "RemoteAppNode.app"
+      "resources/RemoteAppNode.app": "RemoteAppNode.app",
+      "resources/remoteapp-network": "remoteapp-network"
     },
     "macOS": {
       "minimumSystemVersion": "13.0"

@@ -17,6 +17,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gio, GdkPixbuf
 from wire import STATE, Wire, peers, private, request, save, message
 from windowhost import Viewer
+import network
 
 
 def ensure_service():
@@ -72,10 +73,10 @@ class Manager(Gtk.Application):
         if '--peer' in args and '--session' in args:
             try:
                 peer = args[args.index('--peer')+1]; session = args[args.index('--session')+1]
-                uuid.UUID(peer)
+                uuid.UUID(peer[5:] if peer.startswith("quic:") else peer)
                 if not session or len(session)>100 or not all(c.isalnum() or c in '-_' for c in session):
                     return 1
-                name = next((p['name'] for p in peers() if p['device_id']==peer), 'Mac')
+                name = next((p['name'] for p in peers() if p['connection_id']==peer), 'Mac')
                 self.open_viewer(peer, name, session_id=session)
             except (ValueError, IndexError):
                 return 1
@@ -95,13 +96,23 @@ class Manager(Gtk.Application):
         local.pack_start(self.sharing, False, False, 0)
         self.local_status = Gtk.Label(label='读取本机服务状态…', xalign=0)
         local.pack_start(self.local_status, True, True, 0); root.pack_start(local, False, False, 0)
+        pairing = Gtk.Box(spacing=8)
+        invite = Gtk.Button(label='生成配对邀请'); invite.connect('clicked', self.invite_device)
+        pairing.pack_start(invite, False, False, 0)
+        self.pair_address = Gtk.Entry(); self.pair_address.set_placeholder_text('对方 IP:42424')
+        self.pair_code = Gtk.Entry(); self.pair_code.set_placeholder_text('对方的配对邀请'); self.pair_code.set_visibility(False)
+        pairing.pack_start(self.pair_address, True, True, 0); pairing.pack_start(self.pair_code, True, True, 0)
+        pair = Gtk.Button(label='配对'); pair.connect('clicked', self.pair_device); pairing.pack_start(pair, False, False, 0)
+        root.pack_start(pairing, False, False, 0)
         controls = Gtk.Box(spacing=10)
         self.selector = Gtk.ComboBoxText(); self.selector.connect('changed', self.selected_device)
         controls.pack_start(Gtk.Label(label='远端设备'), False, False, 0); controls.pack_start(self.selector, True, True, 0)
         refresh = Gtk.Button(label='刷新应用'); refresh.connect('clicked', lambda *_: self.load(True)); controls.pack_start(refresh, False, False, 0)
         refresh_windows = Gtk.Button(label='刷新运行窗口'); refresh_windows.connect('clicked', lambda *_: self.load(False)); controls.pack_start(refresh_windows, False, False, 0)
+        revoke = Gtk.Button(label='撤销所选配对'); revoke.connect('clicked', self.revoke_device); controls.pack_start(revoke, False, False, 0)
+        update = Gtk.Button(label='更新设备地址'); update.connect('clicked', self.update_address); controls.pack_start(update, False, False, 0)
         root.pack_start(controls, False, False, 0)
-        self.notice = Gtk.Label(label='在已连接 Ubuntu 的 Mac 上开启“本机共享”，设备会自动出现在这里。', xalign=0)
+        self.notice = Gtk.Label(label='使用设备邀请建立双向直连；已有 SSH 返回连接仍可使用。', xalign=0)
         self.notice.set_line_wrap(True);root.pack_start(self.notice, False, False, 0)
         scroll = Gtk.ScrolledWindow(); self.rows = Gtk.ListBox(); self.rows.set_selection_mode(Gtk.SelectionMode.NONE)
         scroll.add(self.rows);root.pack_start(scroll, True, True, 0)
@@ -115,9 +126,50 @@ class Manager(Gtk.Application):
         try:
             ensure_service(); receiver_identity()
             info = request(None, 'node.info', local=True)
+            try:
+                network.ensure()
+            except (OSError, ValueError, EOFError) as error:
+                GLib.idle_add(self.set_notice, message(error))
             GLib.idle_add(self.initialized, info)
         except (OSError, ValueError, EOFError) as error:
             GLib.idle_add(self.set_notice, message(error))
+
+    def network_job(self, op, callback=None, **fields):
+        def run():
+            try:
+                network.ensure(); result = network.action(op, **fields)
+                if callback:
+                    GLib.idle_add(callback, result)
+                GLib.idle_add(self.refresh_peers)
+            except (OSError, ValueError, EOFError) as error:
+                GLib.idle_add(self.set_notice, message(error))
+        threading.Thread(target=run, daemon=True).start()
+
+    def invite_device(self, *_):
+        def show(result):
+            if not self.window:
+                return False
+            dialog = Gtk.Dialog(title='配对邀请 · 五分钟有效、仅限一次', transient_for=self.window, modal=True)
+            dialog.add_button('关闭', Gtk.ResponseType.CLOSE); dialog.set_default_size(660, 150)
+            box = dialog.get_content_area()
+            box.pack_start(Gtk.Label(label='通过可信方式把邀请交给对方，并填写本机的局域网 IP:42424。'), False, False, 10)
+            entry = Gtk.Entry(); entry.set_text(result['invitation']); entry.set_editable(False); box.pack_start(entry, False, False, 10)
+            dialog.show_all(); GLib.timeout_add_seconds(300, lambda: (dialog.destroy(), False)[1]); dialog.run(); dialog.destroy()
+            return False
+        self.network_job('invite', show)
+
+    def pair_device(self, *_):
+        address = self.pair_address.get_text().strip(); invitation = self.pair_code.get_text().strip()
+        self.pair_code.set_text('')
+        self.network_job('pair', lambda _: self.set_notice('已建立双向配对。选择 QUIC 设备即可读取应用。'), address=address, invitation=invitation)
+
+    def revoke_device(self, *_):
+        if self.selected and self.selected.startswith('quic:'):
+            self.network_job('revoke', device_id=self.selected[5:])
+
+    def update_address(self, *_):
+        if self.selected and self.selected.startswith('quic:'):
+            self.network_job('address', device_id=self.selected[5:], address=self.pair_address.get_text().strip())
 
     def initialized(self, info):
         if self.window:
@@ -144,13 +196,13 @@ class Manager(Gtk.Application):
     def refresh_peers(self):
         if not self.window:
             return False
-        available = peers(); keys = [(p['device_id'], p['name'], p['generation']) for p in available]
+        available = peers(); keys = [(p['connection_id'], p['name'], p['generation']) for p in available]
         if keys != self.peer_keys:
             selected = self.selected; self.peer_keys = keys
             self.selector.remove_all()
             for peer in available:
-                self.selector.append(peer['device_id'], peer['name'])
-            if selected and any(p['device_id']==selected for p in available):
+                self.selector.append(peer['connection_id'], peer['name'])
+            if selected and any(p['connection_id']==selected for p in available):
                 self.selector.set_active_id(selected)
             elif available:
                 self.selector.set_active(0)

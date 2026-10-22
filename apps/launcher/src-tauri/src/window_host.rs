@@ -1,3 +1,4 @@
+#[cfg(test)]
 use remoteapp_transport::Endpoint;
 use sha2::{Digest, Sha256};
 use std::{
@@ -80,7 +81,7 @@ fn write_new(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
 pub fn prepare(
     directory: &Path,
     source: &Path,
-    endpoint: &Endpoint,
+    endpoint: &impl serde::Serialize,
     app_id: &str,
     name: Option<&str>,
 ) -> Result<PathBuf, String> {
@@ -91,7 +92,7 @@ pub fn prepare(
 fn prepare_inner(
     directory: &Path,
     source: &Path,
-    endpoint: &Endpoint,
+    endpoint: &impl serde::Serialize,
     app_id: &str,
     name: Option<&str>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {

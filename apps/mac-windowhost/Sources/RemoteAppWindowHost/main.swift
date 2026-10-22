@@ -20,11 +20,12 @@ struct Options {
     let app: String?
     let session: String?
     var iconFromStdin = false
+    var native: NativeRoute? = nil
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
-        let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session"]
+        let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session", "--native-peer", "--native-state", "--native-helper"]
         while i < args.count {
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
@@ -35,13 +36,27 @@ struct Options {
             }
             values[args[i]] = args[i + 1]; i += 2
         }
-        guard let host = values["--host"], host.count <= 253,
-              host.range(of: "^[A-Za-z0-9][A-Za-z0-9.-]*$", options: .regularExpression) != nil,
-              host.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.count <= 63 && !$0.hasPrefix("-") && !$0.hasSuffix("-") }),
-              let user = values["--user"], user.count <= 64,
-              user.range(of: "^[A-Za-z0-9_][A-Za-z0-9_-]*$", options: .regularExpression) != nil,
-              let port = UInt16(values["--port"] ?? "22"), port > 0 else {
-            throw HostError.message("主机、SSH 用户名或端口无效。使用真实主机名/IP，不接受 SSH 别名配置或额外选项。")
+        let host: String, user: String, port: UInt16
+        var native: NativeRoute?
+        if let peer = values["--native-peer"] {
+            guard UUID(uuidString: peer)?.uuidString.lowercased() == peer,
+                  let state = values["--native-state"], state.hasPrefix("/"),
+                  let helper = values["--native-helper"], helper.hasPrefix("/"),
+                  values["--host"] == nil, values["--user"] == nil, values["--port"] == nil
+            else { throw HostError.message("设备连接参数无效") }
+            native = NativeRoute(peer: peer, state: state, helper: helper)
+            host = "paired"; user = "local"; port = 1
+        } else {
+            guard values["--native-state"] == nil, values["--native-helper"] == nil else { throw HostError.message("设备参数不完整") }
+            guard let parsedHost = values["--host"], parsedHost.count <= 253,
+                  parsedHost.range(of: "^[A-Za-z0-9][A-Za-z0-9.-]*$", options: .regularExpression) != nil,
+                  parsedHost.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.count <= 63 && !$0.hasPrefix("-") && !$0.hasSuffix("-") }),
+                  let parsedUser = values["--user"], parsedUser.count <= 64,
+                  parsedUser.range(of: "^[A-Za-z0-9_][A-Za-z0-9_-]*$", options: .regularExpression) != nil,
+                  let parsedPort = UInt16(values["--port"] ?? "22"), parsedPort > 0 else {
+                throw HostError.message("主机、SSH 用户名或端口无效。使用真实主机名/IP，不接受 SSH 别名配置或额外选项。")
+            }
+            host = parsedHost; user = parsedUser; port = parsedPort
         }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
@@ -50,7 +65,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(host: host, user: user, port: port, app: app, session: session, iconFromStdin: iconFromStdin)
+        return Options(host: host, user: user, port: port, app: app, session: session, iconFromStdin: iconFromStdin, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -64,8 +79,9 @@ struct SSHFailure {
     let retryable: Bool
 }
 
-/// Local SSH is the only transport. Authentication remains in system SSH.
-final class SSHTransport {
+/// Both adapters carry the same bounded RWP stream and decoder lifecycle.
+typealias SSHTransport = RWPTransport
+final class RWPTransport {
     let executable: URL
     private let process = Process()
     private let input = Pipe()
@@ -85,6 +101,10 @@ final class SSHTransport {
     init(executable: URL = URL(fileURLWithPath: "/usr/bin/ssh")) { self.executable = executable }
 
     func start(_ options: Options) throws {
+        if let native = options.native {
+            process.executableURL = URL(fileURLWithPath: native.helper)
+            process.arguments = ["bridge", "--socket", native.socket]
+        } else {
         process.executableURL = executable
         // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
         process.arguments = ["-F", "/dev/null", "-T"] + SSHAuthentication.configure(process, host: options.host, user: options.user, port: options.port) + ["-oStrictHostKeyChecking=yes",
@@ -92,10 +112,11 @@ final class SSHTransport {
             "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2",
             "-p", String(options.port), "-l", options.user, "--", options.host,
             ".local/bin/remoteapp-agent bridge"]
+        }
         process.standardInput = input; process.standardOutput = output; process.standardError = errors
         // Do not expose remote stderr (which may contain private app data) in normal logs.
         process.terminationHandler = { [weak self] process in
-            self?.fail("SSH 连接已结束（退出码 \(process.terminationStatus)）。远端会话不会因此主动终止；可用会话 ID 重新连接。")
+            self?.fail("设备连接已结束（退出码 \(process.terminationStatus)）。远端会话不会因此主动终止；可用会话 ID 重新连接。")
         }
         try process.run(); alive = true
         DispatchQueue(label: "remoteapp.ssh.stderr").async { [weak self] in
@@ -253,8 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let applicationName = Bundle.main.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String
         ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "LAN RemoteApp"
     let applicationIcon: NSImage?
-    var transport = SSHTransport()
-    var makeTransport: () -> SSHTransport = { SSHTransport() }
+    var transport = RWPTransport()
+    var makeTransport: () -> RWPTransport = { RWPTransport() }
     var windows: [UInt32: HostedWindow] = [:]
     var parents: [UInt32: UInt32] = [:]
     var removed = Set<UInt32>()
@@ -283,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var clipboardJob: UUID?
     var clipboardTimer: Timer?
     var clipboardChangeCount = 0
-    var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(host: options.host, user: options.user, port: options.port) }
+    var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(host: options.host, user: options.user, port: options.port, native: options.native) }
     init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
         self.options = options; self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
@@ -486,7 +507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if rich { wire["type"] = "clipboard.copy.bundle"; wire["cut"] = type == "clipboard.cut" }
             }
         }
-        // One attached session; bulk bytes travel in our separate SSH stream.
+        // One attached session; bulk bytes travel in an independent transport stream.
         writeWire(wire)
     }
     func receive(_ incoming: Incoming) {

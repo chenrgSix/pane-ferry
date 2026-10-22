@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { PendingLaunches } from "./session-store";
 import { launchFailure } from "./launch-failure";
@@ -45,6 +45,44 @@ try {
 const attempts = new PendingLaunches(storage);
 type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}; routes?:{endpoint:string; state:string}[]};
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
+type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
+const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
+const addressEdits=ref<Record<string,string>>({});
+let inviteTimer:ReturnType<typeof setTimeout>|undefined;
+async function networkAction(body:Record<string,unknown>) { return invoke<any>("network_action",{body}); }
+async function readNetwork() {
+  try { const status=await networkAction({op:"status"}); nativePeers.value=status.peers;
+    for(const peer of nativePeers.value) addressEdits.value[peer.device_id] ??= peer.address;
+    nativeWarning.value=""; }
+  catch { nativeWarning.value="直接连接组件尚未就绪。"; }
+}
+async function inviteDevice() {
+  pairing.value=true;
+  try { ownInvite.value=(await networkAction({op:"invite"})).invitation;
+    if(inviteTimer) clearTimeout(inviteTimer); inviteTimer=setTimeout(()=>ownInvite.value="",300000);
+  } catch { nativeWarning.value="邀请生成失败，请重试。"; } finally {pairing.value=false;}
+}
+async function pairDevice() {
+  pairing.value=true;
+  try { await networkAction({op:"pair",address:pairAddress.value.trim(),invitation:pairCode.value.trim()}); pairCode.value=""; await readNetwork(); notice.value="设备已双向配对，可选择设备使用应用。"; }
+  catch {nativeWarning.value="配对未完成，请检查设备 IP、端口和五分钟内生成的邀请。身份变更需先撤销旧配对。";}
+  finally {pairing.value=false;}
+}
+async function selectPeer(peer:NativePeer) {
+  endpoint.value={host:peer.name,user:"",port:42424,peerId:peer.device_id};
+  await nextTick(); await load();
+}
+async function updatePeerAddress(peer:NativePeer) {
+  pairing.value=true;
+  try {await networkAction({op:"address",device_id:peer.device_id,address:addressEdits.value[peer.device_id] || peer.address}); await readNetwork();}
+  catch {nativeWarning.value="地址更新失败，请填写 IP:端口。";} finally {pairing.value=false;}
+}
+async function revokePeer(peer:NativePeer) {
+  pairing.value=true;
+  try { await networkAction({op:"revoke",device_id:peer.device_id}); await readNetwork();
+    if(endpoint.value.peerId===peer.device_id) endpoint.value={host:"",user:"",port:22};
+  } catch {nativeWarning.value="撤销未完成，请重试。";} finally {pairing.value=false;}
+}
 const devices=ref<Endpoint[]>([]);
 try { const values=JSON.parse(storage?.getItem("lan-remoteapp.devices") || "[]");
   if(Array.isArray(values)) devices.value=values.filter(v=>typeof v.host==="string" && typeof v.user==="string" && Number.isInteger(v.port)).slice(0,128);
@@ -53,7 +91,7 @@ async function readLocal() {
   try {localNode.value=await invoke<LocalNode>("local_node_info"); localWarning.value="";} catch {localWarning.value="本机共享组件尚未就绪。";}
 }
 async function offerDevice(sent={...endpoint.value}) {
-  if (!localNode.value?.sharing_enabled || !sent.host || !sent.user) return;
+  if (sent.peerId || !localNode.value?.sharing_enabled || !sent.host || !sent.user) return;
   try {await invoke("share_to_device",{endpoint:sent});await readLocal();}
   catch {localWarning.value="返回通道尚未就绪，请确认 Ubuntu 已升级后重新连接。";}
 }
@@ -104,13 +142,12 @@ function retryRuntime() {
   recoveryTimer = setTimeout(() => { recoveryTimer = undefined; onFocus(); }, delay);
 }
 const valid = computed(() =>
-  Boolean(
+  Boolean(endpoint.value.peerId || (
     endpoint.value.host.trim() &&
       endpoint.value.user.trim() &&
       Number.isInteger(endpoint.value.port) &&
       endpoint.value.port > 0 &&
-      endpoint.value.port < 65536,
-  ),
+      endpoint.value.port < 65536)),
 );
 function save() {
   try {
@@ -121,6 +158,7 @@ function save() {
   } catch {}
 }
 function rememberDevice(sent:Endpoint) {
+  if(sent.peerId) return;
   if(!devices.value.some(d=>endpointKey(d)===endpointKey(sent))) devices.value.push({...sent});
   devices.value=devices.value.slice(-128);
   try{storage?.setItem("lan-remoteapp.devices",JSON.stringify(devices.value));}catch{}
@@ -139,6 +177,7 @@ try {
       host: s.endpoint.host,
       user: s.endpoint.user,
       port: s.endpoint.port,
+      ...(typeof s.endpoint.peerId === "string" ? {peerId:s.endpoint.peerId} : {}),
     };
   }
 } catch {}
@@ -167,7 +206,7 @@ function restoreCatalog() {
 }
 async function connectHost() {
   if (busy.value || !valid.value) return;
-  if (password.value) {
+  if (password.value && !endpoint.value.peerId) {
     busy.value = true;
     const sent = { ...endpoint.value };
     try {
@@ -361,11 +400,13 @@ onMounted(() => {
   restoreCatalog();
   if (valid.value) void load();
   void readLocal().then(()=> { for(const device of devices.value) void offerDevice({...device}); });
-  localTimer=setInterval(()=> {void readLocal();},5000);
+  void readNetwork();
+  localTimer=setInterval(()=> {void readLocal(); void readNetwork();},5000);
 });
 onUnmounted(() => {
   disposed = true; runtimeRevision++; stopRetry();
   if(localTimer) clearInterval(localTimer);
+  if(inviteTimer) clearTimeout(inviteTimer);
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onOnline);
 });
@@ -390,7 +431,7 @@ onUnmounted(() => {
           <h1>让工作跨越桌面</h1>
           <p>共享本机应用，同时使用其他设备的应用。</p>
         </div>
-        <span class="badge">SSH 安全传输</span>
+        <span class="badge">{{endpoint.peerId ? "QUIC 设备直连" : "SSH 兼容连接"}}</span>
       </header>
       <section class="connection">
         <div class="section-title"><h2><span>本机应用共享</span></h2>
@@ -406,12 +447,29 @@ onUnmounted(() => {
         <p v-if="localWarning" class="alert error">{{localWarning}}</p>
       </section>
       <section class="connection">
+        <div class="section-title"><h2><span>已配对设备 · QUIC</span></h2><button :disabled="pairing" @click="inviteDevice">生成本机配对邀请</button></div>
+        <p class="hint">两端打开 LAN RemoteApp，用对方的局域网 IP 和邀请配对。邀请五分钟有效、仅可使用一次；请通过可信方式传递。</p>
+        <textarea v-if="ownInvite" :value="ownInvite" readonly rows="3" aria-label="本机配对邀请" style="width:100%;overflow-wrap:anywhere" />
+        <div class="fields"><label>对方地址<input v-model="pairAddress" placeholder="192.168.1.20:42424" :disabled="pairing" /></label>
+          <label>对方邀请<input v-model="pairCode" type="password" autocomplete="off" :disabled="pairing" /></label>
+          <button :disabled="pairing || !pairAddress || !pairCode" @click="pairDevice">配对设备</button></div>
+        <div v-for="peer in nativePeers" :key="peer.device_id" class="desktop-window-row">
+          <div class="window-label"><strong>{{peer.name}} · {{peer.address}}</strong><p :title="peer.fingerprint">指纹 {{peer.fingerprint}}</p></div>
+          <span>{{peer.connected ? "已连接" : "已配对"}}</span>
+          <input v-model="addressEdits[peer.device_id]" :disabled="pairing" aria-label="设备地址" style="width:150px" /><button :disabled="pairing" @click="updatePeerAddress(peer)">更新地址</button>
+          <button :disabled="busy || pairing" @click="selectPeer(peer)">{{endpoint.peerId===peer.device_id ? "刷新应用" : "使用应用"}}</button>
+          <button :disabled="pairing" @click="revokePeer(peer)">撤销配对</button>
+        </div>
+        <p v-if="nativeWarning" class="alert error">{{nativeWarning}}</p>
+      </section>
+      <section class="connection">
         <div class="section-title">
-          <h2>01 <span>连接主机</span></h2>
+          <h2>01 <span>SSH 兼容连接</span></h2>
           <span>连接配置由本机服务保存</span>
         </div>
         <label v-if="devices.length">已保存设备 <select :value="signature()" :disabled="busy" @change="endpoint={...devices.find(d=>endpointKey(d)===($event.target as HTMLSelectElement).value)!}"><option v-for="device in devices" :key="endpointKey(device)" :value="endpointKey(device)">{{device.user}}@{{device.host}}:{{device.port}}</option></select></label>
-        <div class="fields">
+        <button v-if="endpoint.peerId" :disabled="busy" @click="endpoint={host:'',user:'',port:22}">配置 SSH 连接</button>
+        <div v-else class="fields">
           <label
             >主机 IP / DNS<input
               v-model.trim="endpoint.host"

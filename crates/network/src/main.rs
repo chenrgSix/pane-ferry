@@ -11,10 +11,14 @@ use tokio::{
 };
 #[tokio::main]
 async fn main() {
-    if run().await.is_err() {
+    let failed = run().await.is_err();
+    if failed {
         eprintln!("remoteapp-network: operation failed (check pairing, address and local service)");
-        std::process::exit(1);
     }
+    // Tokio's stdin read is not cancellable. A bridge may lose the network
+    // while its parent keeps stdin open; don't let runtime shutdown wait for
+    // that read and hold stdout open forever, hiding EOF from the receiver.
+    std::process::exit(if failed { 1 } else { 0 });
 }
 async fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);

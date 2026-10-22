@@ -38,15 +38,35 @@ def peers():
                 continue
             value = json.loads(path.read_text())
             if value['version'] == 1 and str(uuid.UUID(value['device_id'])) == value['device_id']:
+                value["connection_id"] = value["device_id"]
                 result.append(value)
         except (OSError, ValueError, KeyError):
             pass
+    path = STATE / 'network/peers.json'
+    try:
+        if not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
+            values = json.loads(path.read_text())
+            for identity, peer in list(values.items())[:32]:
+                if str(uuid.UUID(identity)) == identity and peer['device_id'] == identity:
+                    result.append(dict(device_id=identity, connection_id='quic:'+identity,
+                        name=peer['name']+' · QUIC', address=peer['address'], transport='quic', generation=identity))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
     return result
 
 
 def route(peer_id):
     # Resolve again on every attempt. A viewer never retains a stale route path
     # after the owning SSH connection is replaced.
+    if peer_id.startswith('quic:'):
+        identity = peer_id[5:]
+        if str(uuid.UUID(identity)) != identity or not any(p.get('connection_id') == peer_id for p in peers()):
+            raise ValueError('invalid_device')
+        expected = STATE / 'network' / ('r-' + identity + '.sock')
+        metadata = expected.lstat()
+        if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise ValueError('invalid_route')
+        return expected
     if str(uuid.UUID(peer_id)) != peer_id:
         raise ValueError('invalid_device')
     value = next((p for p in peers() if p['device_id'] == peer_id), None)
@@ -122,6 +142,8 @@ def request(peer_id, kind, expected=None, local=False, **fields):
 
 
 MESSAGES = {
+    'network_operation_failed': '配对操作未完成，请检查设备地址、邀请有效期和设备身份。',
+    'network_unavailable': '直接连接组件未就绪，请检查 UDP 42424 端口。',
     'sharing_disabled': '对方已停止共享，应用仍在原设备运行。',
     'screen_recording_required': '请在 Mac 的 LAN RemoteApp 中允许录屏。',
     'accessibility_required': '请在 Mac 的 LAN RemoteApp 中允许辅助功能。',
