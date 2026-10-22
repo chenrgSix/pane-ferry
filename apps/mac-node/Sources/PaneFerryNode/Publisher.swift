@@ -105,7 +105,7 @@ final class PublishedWindow {
     }
     var metadata:[String:Any] {
         ["type":"window.created","window_id":target.window.windowID,"parent_id":parentID as Any? ?? NSNull(),"title":String((target.window.title ?? target.app.name).prefix(512)),
-         "role":parentID == nil ? "toplevel":"dialog","x":0,"y":0,"width":width,"height":height,"scale_factor":2,"geometry_revision":revision,"visible":target.window.isOnScreen]
+         "role":parentID == nil ? "toplevel":"dialog","x":0,"y":0,"width":width,"height":height,"scale_factor":2,"scale_mode":"source","geometry_revision":revision,"visible":target.window.isOnScreen]
     }
     func valid() -> Bool {
         guard !target.application.isTerminated, target.identity.current,

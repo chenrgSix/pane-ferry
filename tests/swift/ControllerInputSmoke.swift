@@ -57,11 +57,11 @@ struct ControllerInputSmoke {
         let fit = RenderGeometry.imageRect(in: CGRect(x: 0, y: 0, width: 1200, height: 800), width: 1920, height: 720)
         precondition(fit == CGRect(x: 0, y: 175, width: 1200, height: 450), "different aspect ratios must be fitted without stretching")
         surface.remoteWidth = 1920; surface.remoteHeight = 720
+        let beforeAutomaticClick = messages.count
         let automaticClick = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 10, y: 470), modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
         surface.mouseDown(with: automaticClick)
-        precondition(messages.last?["x"] as? Int == 30 && messages.last?["y"] as? Int == 15, "automatic mode fills the viewport and maps input through the full image")
+        precondition(messages.count == beforeAutomaticClick, "automatic mode also rejects clicks in letterbox bars")
         surface.releaseInput()
-        surface.preservesAspectRatio = true
         let beforePointer = messages.count
         let outside = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 0, y: 0), modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
         surface.mouseDown(with: outside)
@@ -74,7 +74,7 @@ struct ControllerInputSmoke {
         var disconnects = 0
         let host = HostedWindow(id: 7, width: 1280, height: 800, revision: 1, scale: 1, popup: false, disconnect: { disconnects += 1 }) { resizeMessages.append($0) }
         host.remoteVisible = true
-        precondition(host.fixedPixels == nil && !host.surface.preservesAspectRatio, "new windows default to automatic resolution without letterboxing")
+        precondition(host.fixedPixels == nil, "new windows request automatic resolution")
         host.window.setContentSize(NSSize(width: 900, height: 600))
         host.windowDidResize(Notification(name: NSWindow.didResizeNotification))
         let viewport = host.surface.bounds.size
@@ -93,11 +93,27 @@ struct ControllerInputSmoke {
         precondition(resizeMessages.last?["width"] as? Int == smaller.width && resizeMessages.last?["height"] as? Int == smaller.height)
         host.fixedPixels = (2560, 1664)
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
-        precondition(host.surface.preservesAspectRatio && resizeMessages.last?["width"] as? Int == 2560)
+        precondition(resizeMessages.last?["width"] as? Int == 2560)
         host.useAutomaticResolution()
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
-        precondition(!host.surface.preservesAspectRatio && resizeMessages.last?["width"] as? Int == smaller.width,
+        precondition(resizeMessages.last?["width"] as? Int == smaller.width,
                      "switching back to automatic resolution immediately follows the current viewport")
+        let context = CGContext(data: nil, width: 1920, height: 720, bitsPerComponent: 8,
+                                bytesPerRow: 1920 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let oldFrame = context.makeImage()!
+        surface.image = oldFrame
+        surface.remoteWidth = 1200; surface.remoteHeight = 800
+        precondition(surface.imageRect.height == 240, "late old frame keeps its own aspect ratio during resize")
+        surface.releaseInput()
+        let beforeStale = messages.count
+        surface.mouseDown(with: center)
+        precondition(messages.count == beforeStale, "stale frame cannot click a different remote layout")
+        host.scaleMode = "source"
+        host.present(oldFrame, mediaMode: "PNG 图片")
+        precondition(host.window.subtitle.contains("接收 1920 × 720") && host.window.subtitle.contains("沿用应用缩放"))
+        precondition(!host.window.subtitle.contains("100%"), "existing process scale is not measured by the protocol default")
+        precondition(host.window.subtitle.contains("目标"), "a resize request must not be reported as received pixels")
         host.window.performClose(nil)
         precondition(disconnects == 1 && !resizeMessages.contains { $0["type"] as? String == "window.close.request" },
                      "the controller close button disconnects without closing the remote application")

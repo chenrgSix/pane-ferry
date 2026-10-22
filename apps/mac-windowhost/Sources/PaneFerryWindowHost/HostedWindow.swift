@@ -13,10 +13,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var resizeTimer: Timer?
     var rendering: RenderGeometry
     var mediaMode: String?
+    var scaleMode = "unknown"
     var inputNotice: String? { didSet { updateSubtitle() } }
-    var fixedPixels: (width: Int, height: Int)? {
-        didSet { surface.preservesAspectRatio = fixedPixels != nil }
-    }
+    var fixedPixels: (width: Int, height: Int)?
+    private(set) var requestedPixels: (width: Int, height: Int)?
+    private var resolutionTimer: Timer?
+    private var resolutionDelayed = false
     var transmit: ([String: Any]) -> Void
     private let disconnect: () -> Void
     private var disconnectRequested = false
@@ -50,7 +52,35 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         updateSubtitle()
     }
     func updateSubtitle() {
-        window.subtitle = inputNotice ?? ("\(surface.remoteWidth) × \(surface.remoteHeight) 像素 · 界面 \(rendering.scale * 100)%" + (mediaMode.map { " · " + $0 } ?? ""))
+        let frame = surface.image
+        var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
+        if let target = requestedPixels {
+            let matched = frame?.width == target.width && frame?.height == target.height
+            if !matched {
+                parts.append("目标 \(target.width) × \(target.height)")
+                parts.append(resolutionDelayed ? "远端尚未匹配 · 等比显示" : "等待重绘 · 等比显示")
+            } else {
+                resolutionTimer?.invalidate(); resolutionTimer = nil; resolutionDelayed = false
+            }
+            let physical = surface.bounds.size
+            if fixedPixels == nil && (target.width < Int((physical.width * window.backingScaleFactor).rounded()) ||
+                                      target.height < Int((physical.height * window.backingScaleFactor).rounded())) {
+                parts.append("已达像素预算")
+            }
+        }
+        switch scaleMode {
+        case "source": parts.append("沿用应用缩放")
+        case "requested": parts.append("启动缩放请求 \(rendering.scale * 100)% · 未确认")
+        case "verified": parts.append("应用缩放 \(rendering.scale * 100)%")
+        default: parts.append("应用缩放未报告")
+        }
+        if let mediaMode = mediaMode { parts.append(mediaMode) }
+        if let inputNotice = inputNotice { parts.append(inputNotice) }
+        window.subtitle = parts.joined(separator: " · ")
+    }
+    func present(_ image: CGImage, mediaMode: String) {
+        surface.image = image; self.mediaMode = mediaMode
+        updateSubtitle()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose { return true }
@@ -87,8 +117,15 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         resizeTimer?.invalidate(); resizeTimer = nil
         guard !applyingRemote, remoteVisible, !popup else { return }
         guard let pixels = fixedPixels ?? rendering.pixels(for: surface.bounds.size, backingScale: window.backingScaleFactor) else { return }
+        requestedPixels = pixels
+        resolutionTimer?.invalidate(); resolutionDelayed = false
+        updateSubtitle()
         if pixels.width == surface.remoteWidth && pixels.height == surface.remoteHeight { return }
         transmit(["type": "window.configure", "window_id": id, "width": pixels.width, "height": pixels.height])
+        let timer = Timer(timeInterval: 1.5, repeats: false) { [weak self] _ in
+            self?.resolutionDelayed = true; self?.updateSubtitle()
+        }
+        resolutionTimer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     func useAutomaticResolution() {
         fixedPixels = nil
@@ -100,5 +137,5 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.setFrame(screen.visibleFrame, display: true, animate: false)
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
-    func closeLocally() { resizeTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.close() }
+    func closeLocally() { resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.close() }
 }

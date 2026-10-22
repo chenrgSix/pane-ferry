@@ -588,10 +588,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !removed.contains(id), let host = windows[id], let image = incoming.image,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
-            host.surface.image = image
             let video = object["codec"] as? String == "h264"
             let mode = video ? "H.264 视频" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
-            if host.mediaMode != mode { host.mediaMode = mode; host.updateSubtitle() }
+            host.present(image, mediaMode: mode)
             statusItem?.button?.title = "PaneFerry · " + mode
         default: break
         }
@@ -624,6 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
         host.surface.controllerCutEnabled = capabilities.contains("clipboard.cut")
         host.revision = rev
+        host.scaleMode = object["scale_mode"] as? String ?? "unknown"
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
         let visible = object["visible"] as? Bool ?? true

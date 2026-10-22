@@ -752,9 +752,11 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
 fn send(out: &mut output::Output, value: Value, session: &str) -> Result<()> {
     out.message(value, session)
 }
-fn win_value(w: &Window, kind: &str) -> Value {
+fn win_value(w: &Window, kind: &str, existing: bool) -> Value {
     let mut v = serde_json::to_value(w).unwrap();
     v["type"] = json!(kind);
+    // Scale is a launch preference, not a measurement of GTK/Qt/Chromium UI.
+    v["scale_mode"] = json!(if existing { "source" } else { "requested" });
     v
 }
 fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
@@ -1103,7 +1105,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             known = windows.iter().cloned().map(|w| (w.window_id, w)).collect();
                             let values: Vec<_> = windows
                                 .iter()
-                                .map(|w| win_value(w, "window.created"))
+                                .map(|w| win_value(w, "window.created", s.existing.is_some()))
                                 .collect();
                             send(
                                 &mut out,
@@ -1208,6 +1210,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 }
                 continue;
             }
+            let existing = s.existing.is_some();
             if let Some(b) = s.backend.as_mut() {
                 let status = b.input_status();
                 if status != input_status {
@@ -1240,6 +1243,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 } else {
                                     "window.created"
                                 },
+                                existing,
                             ),
                             &sid,
                         )?;

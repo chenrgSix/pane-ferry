@@ -42,3 +42,5 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 视频/PNG 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔 33ms，实际帧率受编码、网络及控制端限制；已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
 
 Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/lan-remoteapp/apps.json 自定义入口。Exec 字段由发布器解析、启动前重新确认对应桌面入口；自定义配置只接受固定绝对 executable + argv 数组。客户端不能传 executable 或命令字符串。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。网络组件通过本机私有 socket 访问发布器，不执行远端 shell 命令。完整行为见 [应用与窗口发现](application-discovery.md)。
+
+窗口元数据可附加 `scale_mode`：`source` 表示沿用已有应用缩放，`requested` 表示只设置了启动缩放偏好，缺省表示未报告。`scale_factor` 仍用于兼容的窗口初始尺寸换算，不能单独证明应用实际 DPI；接收端依据成功解码的帧尺寸显示实际像素。

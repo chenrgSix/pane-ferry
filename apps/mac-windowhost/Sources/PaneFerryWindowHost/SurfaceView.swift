@@ -7,7 +7,6 @@ final class SurfaceView: NSView, NSTextInputClient {
     var remoteWidth = 1
     var remoteHeight = 1
     var image: CGImage? { didSet { needsDisplay = true } }
-    var preservesAspectRatio = false { didSet { needsDisplay = true } }
     var transmit: (([String: Any]) -> Void)?
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
@@ -24,8 +23,10 @@ final class SurfaceView: NSView, NSTextInputClient {
     private var heldButtons: Set<Int> = []
     private var lastPointer = (x: 0, y: 0)
     private var tracking: NSTrackingArea?
-    private var imageRect: CGRect {
-        preservesAspectRatio ? RenderGeometry.imageRect(in: bounds, width: remoteWidth, height: remoteHeight) : bounds
+    var imageRect: CGRect {
+        // Metadata can precede its repaint. Fit the pixels actually on screen,
+        // not the new geometry, or a resize would distort the previous frame.
+        RenderGeometry.imageRect(in: bounds, width: image?.width ?? remoteWidth, height: image?.height ?? remoteHeight)
     }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -47,6 +48,16 @@ final class SurfaceView: NSView, NSTextInputClient {
         addTrackingArea(tracking!); super.updateTrackingAreas()
     }
     private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {
+        if let image = image, image.width != remoteWidth || image.height != remoteHeight {
+            // Do not click an old layout while the application is repainting.
+            // Releases must still arrive so an in-progress drag cannot stick.
+            if button > 0, !pressed, heldButtons.remove(button) != nil {
+                transmit?(["type": "input.pointer", "window_id": remoteID,
+                           "x": min(lastPointer.x, remoteWidth - 1), "y": min(lastPointer.y, remoteHeight - 1),
+                           "button": button, "pressed": false])
+            }
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         let rect = imageRect
         if !rect.contains(point) && (button == 0 ? heldButtons.isEmpty : !heldButtons.contains(button)) { return }
