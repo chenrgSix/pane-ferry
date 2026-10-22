@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-22",
+  "implementation_commit": "de1afb0",
+  "live_receiver_fixture_commit": "0cf7df3",
+  "environment": {
+    "mac": "macOS 27.0.1 arm64 Apple M4",
+    "ubuntu": "Ubuntu 26.04.1 x86_64 Intel i5-13400",
+    "route": "EasyTier virtual IP 10.0.1.66, isolated QUIC pair, unchanged EasyTier settings"
+  },
+  "checks": {
+    "mac_full_gate": "PASS",
+    "mac_rust_pass": 44,
+    "mac_rust_ignored": 4,
+    "linux_rust_pass": 44,
+    "linux_rust_ignored": 4,
+    "frontend_pass": 22,
+    "tauri_backend_pass": 5,
+    "workspace_clippy": "PASS",
+    "tauri_clippy": "PASS",
+    "linux_gtk_quic": "PASS",
+    "three_local_quic_nodes": "PASS",
+    "swift_bulk_over_quic": "PASS",
+    "forward_live_appkit": {
+      "result": "PASS",
+      "runs": 2,
+      "reconnects_per_run": 3,
+      "ssh_master_closed": true,
+      "checks": [
+        "H264 decode",
+        "Unicode commit",
+        "text copy/paste/cut",
+        "960x640 resize",
+        "same window and session after reconnect",
+        "remote close"
+      ]
+    },
+    "reverse_live_gtk": {
+      "result": "PASS",
+      "ssh_master_closed": true,
+      "checks": [
+        "SCK H264",
+        "click exactly once",
+        "Unicode commit",
+        "text copy/paste/cut",
+        "1200x840 resize",
+        "same-session reconnect",
+        "detach preserves application"
+      ]
+    },
+    "simultaneous_bidirectional": {
+      "result": "PASS",
+      "reverse_hold_seconds": 60,
+      "forward": "full AppKit interaction and three reconnects",
+      "reverse": "H264 capture only, then same-session reconnect",
+      "ssh_master_closed": true
+    },
+    "linux_final_cli_and_gtk_quic": "PASS"
+  },
+  "limitations": [
+    "Linux lacks rustfmt and Node; applicable Rust/Python/GTK checks run, formatting/frontend verified on Mac",
+    "Three local nodes are not three physical machines",
+    "No physical link outage, sleep/wake, long-duration load, CI or production acceptance",
+    "Initial pre-removal reverse Unicode assertion failed while a separate AppKit test ran; sequential rerun and post-removal runs passed; no causal protocol claim",
+    "Packages built separately; existing installed Ubuntu service retains one session and was not restarted"
+  ],
+  "artifacts": {
+    "dist/lan-remoteapp-linux-quic-only.tar.gz": {
+      "bytes": 3316648,
+      "sha256": "58bc4cf529800c087cfe7c9a9aeea01275f0e874d2499dd16a58a80349b3be73"
+    },
+    "dist/lan-remoteapp-quic-only-macos/LAN RemoteApp.app/Contents/MacOS/lan-remoteapp-launcher": {
+      "bytes": 10791280,
+      "sha256": "efea87393b2907932e25386b20b84112a460a8689c66341dfd0a690a84af097c"
+    },
+    "dist/lan-remoteapp-quic-only-macos/LAN RemoteApp.app/Contents/Resources/RemoteAppWindowHost.app/Contents/MacOS/RemoteAppWindowHost": {
+      "bytes": 623152,
+      "sha256": "7fcdf14325a72b4c04d22f780cff912cdba1786e0689955e8081df84a0dc4242"
+    },
+    "dist/lan-remoteapp-quic-only-macos/LAN RemoteApp.app/Contents/Resources/RemoteAppNode.app/Contents/MacOS/RemoteAppNode": {
+      "bytes": 482832,
+      "sha256": "f1d3f72d1c29916deeb7469970d754ce486eb1c0ca15e607d44ebe5fac51b7fd"
+    },
+    "dist/lan-remoteapp-quic-only-macos/LAN RemoteApp.app/Contents/Resources/remoteapp-network": {
+      "bytes": 4994800,
+      "sha256": "4d0d0faf474d02abc72d36efd1ca977ed974f8cf915efbe539afd7fcc7f77847"
+    }
+  },
+  "linux_connection_validation_commit": "00d0248",
+  "cleanup": {
+    "temporary_pairing_and_processes_removed": true,
+    "task_ssh_master_closed": true,
+    "installed_ubuntu_agent": "active, not restarted",
+    "installed_apps_replaced": false
+  }
+}

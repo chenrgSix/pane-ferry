@@ -1,26 +1,22 @@
 # macOS WindowHost（P1 开发预览）
 
-真实 Swift/AppKit `NSWindow` 宿主，默认接收 H.264 窗口视频，通过 VideoToolbox 解码，并通过严格校验主机密钥的系统 SSH 发送输入。保留 PNG 回退，窗口副标题显示当前模式。仍是开发预览，复杂应用与显示场景未完成验收。
+真实 Swift/AppKit `NSWindow` 宿主，使用已配对设备的 QUIC 路由接收 H.264 窗口视频和发送输入。VideoToolbox 解码，保留 PNG 回退，窗口副标题显示当前模式。
 
 ## 构建与运行
 
-macOS 12+，Xcode Command Line Tools / Swift 5.9+。先在 Ubuntu 安装并配置 Agent，在 Mac 手动核实 SSH 主机指纹，在 Mac 启动器填写连接账号密码。WindowHost 使用本机服务保存的私有连接配置，不使用系统钥匙串，不生成密钥，也不会接受未知主机。
+macOS 12+，Xcode Command Line Tools / Swift 5.9+。先启动两端 LAN RemoteApp 并通过设备邀请配对。一般由启动器传入设备身份、网络状态目录和打包网络组件路径；不接受 SSH 登录参数。
 
 ```sh
 cd apps/mac-windowhost
 swift build -c release
-.build/release/RemoteAppWindowHost --host 192.168.1.20 --user alice --port 22 --app mousepad
-# 重新附着既有会话：
-.build/release/RemoteAppWindowHost --host 192.168.1.20 --user alice --session SESSION_ID
-# 生成供启动器使用的未签名开发 .app：
-./scripts/build-app.sh
+.build/release/RemoteAppWindowHost \
+  --native-peer DEVICE_UUID \
+  --native-state "$HOME/.local/state/lan-remoteapp/network" \
+  --native-helper /absolute/path/to/remoteapp-network \
+  --session SESSION_ID
 ```
 
-默认读取 OpenSSH 的 known_hosts 与已有密钥/ssh-agent。`-F /dev/null` 禁用用户 SSH 配置，因此这里必须用真实主机名/IP，不能仅填自定义 SSH 别名；不支持 ProxyCommand 跳板。参数无 shell 插值；远端入口固定为 `.local/bin/remoteapp-agent bridge`。
-
-配置密码后使用 `~/.ssh/lra-pw-%C` 自动重新认证与复用，askpass 读取同一份 Mac 服务配置。未保存密码时仍兼容 `~/.ssh/lan-remoteapp-%C` 的已有登录连接；维护脚本不再是日常连接必需步骤。
-
-菜单“复制会话 ID”只在用户点击时写入 Mac 剪贴板，用于手动重连。菜单“断开并退出”和 Mac 窗口红色关闭按钮都会断开当前会话并退出连接宿主，保留 Linux 应用和内容，之后可从启动器重连。需要结束远端程序时，使用其画面内的关闭按钮或退出菜单。
+新开应用时用 `--app APP_ID` 代替 `--session`。网络组件在本机桥接设备专属的私有 Unix socket；实际跨机数据使用 QUIC。断线恢复仍绑定原设备与原会话。
 
 ## 当前能力与限制
 
@@ -33,11 +29,11 @@ swift build -c release
 - “显示”菜单可恢复自动适应窗口、适应可用屏幕、全屏或手动输入固定远端像素宽高；标题栏显示实际收到的分辨率。只有手动固定模式保持远端比例并可能留边，鼠标按对应图像区域换算。
 - 界面缩放与分辨率分开：新独立会话可按本机像素密度选择 100%/200%，通过 GTK/Qt 环境让应用重新绘制；原桌面窗口沿用其原本缩放。运行中能改变像素宽高，但切换工具包 DPI 需新会话；跨屏幕自动热切换 DPI 尚未实现。macOS 显示缩放下的 backing 像素可能不同于面板标称像素，手动输入可指定精确远端宽高。
 - 父子关系有循环检查，但复杂菜单位置、模态阻塞、窗口跨屏和异常弹窗仍待实测。
-- 编辑菜单或 Command+C/V 主动双向复制/粘贴文本、截图、PNG、普通文件及文件夹；Command+X 支持可编辑文本和图片的原生剪切。文件为复制，不做跨端移动。大内容使用独立的自有 SSH 数据流；回包关联、快速复制后粘贴的排队、缓存和大小限制见[剪贴板说明](../../docs/clipboard.md)。没有后台同步。
-- 手动用会话 ID 重连；无自动重连、文件拖放或独立应用 Dock 身份。
+- 编辑菜单或 Command+C/V 主动双向复制/粘贴文本、截图、PNG、普通文件及文件夹；Command+X 支持可编辑文本和图片的原生剪切。文件为复制，不做跨端移动。大内容使用独立的 QUIC 可靠流；回包关联、快速复制后粘贴的排队、缓存和大小限制见[剪贴板说明](../../docs/clipboard.md)。没有后台同步。
+- 自动恢复原会话和窗口，也可从启动器手动恢复；宿主按应用生成独立 Dock 身份。文件拖放尚未实现。
 - 输入队列、消息长度、编码包和画面尺寸、视频解码总像素、窗口数量及待显示图像像素有上限。H.264 SPS 尺寸必须匹配受限的元数据；原尺寸为奇数时仅补一行/列，解码后裁掉补边。resize、隐藏恢复和重连重建编码流并以关键帧开始；旧 geometry_revision、销毁窗口的旧图像会丢弃。已销毁 XID 在当前连接内复用会被拒绝，需重连重新获取快照。
-- 不显示远端 stderr，不把按键/画面/剪贴板写入日志。SSH 失败只显示退出码；在终端手动运行 SSH 核查连接，不关闭严格校验。
+- 不显示远端 stderr，不把按键/画面/剪贴板写入日志。桥接失败只显示退出码；在管理界面核查配对、地址和共享状态。
 
 ## 验证范围
 
-已通过 Swift release 构建、Mac 原生 xterm 显示与输入，以及 Agent 的 20 次 SSH 重连和断开 30 秒后的恢复。待验收：Mousepad 与其他应用、复杂多窗口/模态菜单、跨屏、休眠唤醒、Intel Mac、性能与长期稳定性。完整记录见 `docs/validation.md`。
+已通过 Swift release 构建、Mac 原生 xterm 显示与输入，以及实际 QUIC 接收器的同会话自动恢复。待验收：Mousepad 与其他应用、复杂多窗口/模态菜单、跨屏、休眠唤醒、Intel Mac、性能与长期稳定性。完整记录见[验证记录](../../docs/validation.md)。

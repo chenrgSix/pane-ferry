@@ -10,7 +10,7 @@
 4. 选择已配对的 QUIC 设备读取应用、打开或恢复窗口。可以同时打开不同设备的窗口；切换管理列表不改变已有窗口的归属。
 5. 地址变化时更新对应设备地址，证书固定不变；地址相同不能继承别人的身份。撤销配对会关闭该设备的活动 QUIC 连接。恢复配对需重新生成邀请；身份更换需先撤销旧记录。
 
-SSH 连接继续使用原来的账号、主机指纹、密码配置和 Mac 返回通道。Ubuntu 列表可显式选择同一设备的 SSH 或 QUIC 路由；Mac 保留“SSH 兼容连接”。QUIC 失败、证书改变或被撤销时不会自动回退 SSH。撤销 QUIC 配对不会撤销独立的 SSH 账号授权，也不会关闭其他设备的连接。
+产品仅使用配对 QUIC。SSH 登录、密码保存、返回通道和协议选择入口已移除；旧 SSH 主机不会自动继承配对信任。新版启动器清理本应用的旧密码配置和浏览器 SSH 缓存，保留 QUIC 身份、配对及对应缓存。系统 SSH 可用于开发部署和诊断，不参与产品连接。
 
 ## 连接与协议
 
@@ -23,7 +23,7 @@ flowchart LR
   P --> W[本机应用与窗口]
 ```
 
-本机兼容边缘继续使用 RWP/1 JSON Lines。`remoteapp-transport::Target` 显式选择 SSH 或私有原生路由，共享控制握手、响应解析、长度检查和会话恢复语义。原生路由固定绑定设备 UUID，不从远端响应中接受 socket 路径或命令。
+本机兼容边缘继续使用 RWP/1 JSON Lines。`remoteapp-transport::Target` 只包含本机网络组件提供的私有设备路由，统一控制握手、响应解析、长度检查和会话恢复语义。原生路由固定绑定设备 UUID，不从远端响应中接受 socket 路径或命令。
 
 网络使用 ALPN `lan-remoteapp/2` 和 Quinn 可靠双向流。每个逻辑 RWP 会话先建立高优先级控制流；发布端为每个窗口建立独立视频流，上传/下载另用低优先级流。同一设备共享连接，不同设备分别连接、独立建立连接锁；当前最多保存 32 个配对，每个设备最多 4 条活动连接用于连接交接。
 
@@ -39,7 +39,7 @@ RWN/2 帧格式为大端 `u32 JSON长度 + u32 二进制长度 + u64 控制水�
 
 TLS 客户端验证邀请/已保存的服务端证书，并再次比较精确证书。服务端要求客户端证书和真实 TLS 签名，应用层只放行已配对的 UUID/证书；未知证书只能在持有有效邀请时配对。自签名证书通过正常签名验证，不能把“完成 TLS”当作“获得控制权”。禁用 0-RTT，避免重放副作用请求。
 
-网络组件只连接平台发布 socket。Mac `management.sock` 不暴露；网络协议明确拒绝 `sharing.set`、`permissions.request` 和 SSH 路由注册等本机管理操作。共享开关、锁屏、OS 权限、发布会话的单控制端限制和远程应用排除规则继续由发布器执行。已配对设备属于受信任的应用控制端，应用目录不是操作系统沙箱。
+网络组件只连接平台发布 socket。Mac `management.sock` 不暴露；网络协议明确拒绝 `sharing.set`、`permissions.request` 等本机管理操作；历史路由注册请求也被拒绝。共享开关、锁屏、OS 权限、发布会话的单控制端限制和远程应用排除规则继续由发布器执行。已配对设备属于受信任的应用控制端，应用目录不是操作系统沙箱。
 
 状态位于 `~/.local/state/lan-remoteapp/network/`（0700），包含 `identity.json`、`peers.json`（0600）、单实例锁、`control.sock` 与每设备路由 socket（0600）。读取身份/配对文件检查文件类型、所有者、权限及大小；写入采用临时文件、同步和原子替换。私钥保存在该用户的私有文件中，当前没有使用系统钥匙串。邀请秘密仅短暂存在内存和本机配对界面，正常诊断不记录邀请、证书私钥、输入或剪贴板正文。
 
@@ -56,8 +56,8 @@ remoteapp-network serve --state /tmp/lra-test/network \
 
 `status` / `invite` 读取对应 `--state` 的本机管理 socket；`pair` / `revoke` / `address` 从 stdin 读取 JSON，邀请不得放命令行。生产地址和测试状态分开，测试结束只停止自建服务。开发者不得为了运行测试自动开启用户的共享或修改系统权限。
 
-`cargo test -p remoteapp-network` 覆盖三节点双向调用、邀请复用拒绝、证书不匹配、设备撤销隔离、媒体顺序及失效帧过滤。`native_routes_smoke.py` 使用实际 Python Wire 和两个本机 QUIC 节点验证原生/SSH 路由隔离；`native_transport_smoke.py` 使用实际 AppKit 接收器和独立测试发布器验证恢复、合成 H.264 关键帧/P 帧解码和二进制文件往返。完整门禁为 `scripts/check.sh`。
+`cargo test -p remoteapp-network` 覆盖三节点双向调用、邀请复用拒绝、证书不匹配、设备撤销隔离、媒体顺序及失效帧过滤。`native_routes_smoke.py` 使用实际 Python Wire 和三个本机 QUIC 节点验证双向调用、多设备隔离、单设备撤销和旧路由记录不会回退；`native_transport_smoke.py` 使用实际 AppKit 接收器和独立测试发布器验证恢复、合成 H.264 关键帧/P 帧解码和二进制文件往返。完整门禁为 `scripts/check.sh`。
 
-2026-10-22 已完成真实 Mac / Ubuntu 的双向 QUIC 与 SSH 兼容回归，以及两个方向同时保持 QUIC 会话的检查。反向使用真实 Mac 屏幕采集和 Ubuntu 的 GTK/Xvfb 接收窗口；正向使用专用 X11 应用。具体输入、剪贴板、H.264、恢复和打包范围见[验证记录](validation.md)。
+2026-10-22 在删除产品 SSH 前后均完成真实 Mac / Ubuntu 双向 QUIC 回归；删除后的业务阶段关闭任务专用 SSH 连接，双向并行保持 60 秒。反向使用真实 Mac 屏幕采集和 Ubuntu GTK/Xvfb，正向使用真实 GTK 编辑器和 AppKit 接收器。输入、剪贴板、H.264、恢复和打包范围见[QUIC 独立链路验收](quic-only-validation.md)。
 
 本机三个 QUIC 实例不是三台物理设备。三台以上实机、长时间负载、丢包/拥塞和低延迟收益须单独验收；旧 SSH 测量不能归因于 QUIC，也不承诺切换传输就降低端到端延迟。暂不包含 mDNS 发现、NAT 穿透、媒体 DATAGRAM 或同会话多人控制。

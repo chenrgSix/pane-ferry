@@ -4,7 +4,7 @@
 
 **双向组件（2026-10-22）：** 已加入 Mac 发布、Ubuntu 接收和统一管理入口，每个平台交付一个 LAN RemoteApp。设备连接、目录和窗口保留来源设备，预留多设备扩展；实际多设备并发尚未验收。Mac → Ubuntu 已通过真实 H.264 画面、点击、中文与 emoji 提交、双向文本剪贴板、缩放、同会话重连和断开保留应用验证。使用步骤与当前边界见 [Mac 发布指南](docs/mac-publishing.md)。
 
-**原生传输（2026-10-22）：** 两端已接入统一传输、QUIC 可靠流及设备配对，保留 SSH 兼容。配对、撤销、多个设备及本机原生接收回归见[统一传输指南](docs/native-transport.md)；实机验收范围仍以验证记录为准。
+**原生传输（2026-10-22）：** 两端已接入统一传输、QUIC 可靠流及设备配对，产品仅使用 QUIC。使用方法见[统一传输指南](docs/native-transport.md)；删除 SSH 前后的实机双向回归、多设备隔离和新包范围见[QUIC 独立链路验收](docs/quic-only-validation.md)。
 
 **状态：原生链路开发者预览。** 已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 的真实画面、键鼠输入、窗口缩放、隐藏恢复和断开重连。控制端输入法与主动双向文本、截图及文件剪贴板已实现，并在原桌面 Firefox 上实测点击、中文输入、多行粘贴和复制回传。以 `docs/validation.md` 的实际记录为准。
 
@@ -14,13 +14,13 @@
 
 启动器真实读取 Ubuntu 已安装的图形应用名称和图标；“运行中的桌面窗口”和“远程会话”分别显示。应用安装或卸载后重新读取即可更新。原来的 apps.json 作为可选自定义入口保留，详见 [应用与窗口发现](docs/application-discovery.md)。
 
-Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的应用，按窗口采集并默认协商 H.264 实时视频，经已配对 QUIC 或严格验证的 SSH 传给 Swift/AppKit `NSWindow`，Mac 使用 VideoToolbox 解码。键鼠、大小和会话控制仍由自有控制协议处理。窗口副标题显示当前使用视频还是 PNG 回退。
+Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的应用，按窗口采集并默认协商 H.264 实时视频，经已配对 QUIC 传给 Swift/AppKit `NSWindow`，Mac 使用 VideoToolbox 解码。键鼠、大小和会话控制仍由自有控制协议处理。窗口副标题显示当前使用视频还是 PNG 回退。
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。原生连接默认监听 UDP 42424，面向局域网；不自动配置公网映射。
 
 ## 仓库
 
-- `apps/linux-agent`：用户级 Agent、SSH stdio 桥接、持久图形会话。
+- `apps/linux-agent`：用户级发布器、私有本机接口、持久图形会话。
 - `apps/launcher`：Tauri 2 + Vue/TypeScript 设备与应用启动器。
 - `apps/mac-windowhost`：Swift/AppKit 原生窗口宿主。
 - `apps/mac-node`：Mac 本机窗口发布、H.264 编码和输入执行辅助组件。
@@ -29,7 +29,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 - `crates/`：协议、传输和 Linux 后端等 Rust 组件。
 - `deploy/`：人工审核并安装的 Linux 用户服务、白名单示例。
 - `docs/design-v1.md`：产品设计与阶段规划。
-- `docs/wire-contract.md`：当前可实现的 SSH JSON Lines 契约。
+- `docs/wire-contract.md`：当前 RWP/1 本机业务契约。
 - `docs/architecture.md`：实现与设计差异。
 - `docs/threat-model.md`：安全边界。
 - `docs/acceptance.md`：实机验收覆盖范围与剩余步骤。
@@ -39,13 +39,13 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 1. 阅读 Linux Agent、Mac WindowHost 和 Launcher 目录内 README，按对应平台安装依赖并编译。不要在没有图形运行依赖的 Linux 上将编译成功当作可运行。
 2. 默认读取该 Linux 用户已安装的桌面应用；可额外配置 apps.json，保留固定参数或已有进程的自定义入口。客户端只能提交服务端列出的 ID，不能提交任意程序或 shell 命令。
 3. 在 Linux 安装用户级 Agent，并启动用户服务。发布器使用用户私有 Unix socket；打开管理界面后启动 QUIC 设备连接组件。
-4. 推荐按[统一传输指南](docs/native-transport.md)生成设备邀请并配对。也可选择 SSH 兼容连接，在 Mac 上通过可信渠道核对 Ubuntu SSH 主机指纹。启动器支持账号密码连接，由 Mac 本机后端保存连接配置，网络恢复后自动重新认证与恢复原窗口；不新增 Ubuntu 公钥授权，严格校验主机身份。已有 SSH 密钥/agent 与维护用临时登录辅助脚本仍可使用。
-5. 启动 Launcher，选择已配对设备并读取应用；使用 SSH 时填写主机、账号、密码和端口后点“连接”。点击应用即可在原生窗口中启动。SSH 已保存密码时可留空，下次打开自动连接。
+4. 按[统一传输指南](docs/native-transport.md)在任一端生成邀请，另一端填写对方地址并配对。一次配对支持双向使用，无需 SSH 账号、密码或返回通道。
+5. 在管理界面选择已配对设备、读取应用并打开原生窗口。可为多台设备分别配对；切换列表不会改变已打开窗口的归属。
 6. 点击 Mac 窗口红色关闭按钮或退出宿主会断开连接并保留远端应用；需要关闭远端程序时，使用其画面内的关闭按钮或退出菜单。原生模式请保留会话 ID，以便再次连接。
 
 ## 当前边界
 
-本机兼容接口使用版本化 JSON Lines，网络可选择 QUIC 可靠流或 SSH；默认 H.264 关键帧/P 帧视频；Linux 编码组件缺失、编码失败或旧客户端会使用 PNG 回退。视频采用有损 4:2:0 编码，已实现基于 UDP 的 QUIC 可靠流与 XDamage；未实现 WebRTC、QUIC DATAGRAM、Protobuf 或 Metal。文字在控制端组合后提交，文本、图片与文件复制/粘贴仅由主动操作触发，不做后台同步；格式、大小和缓存限制见[剪贴板说明](docs/clipboard.md)。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与长期性能仍待完整验收。
+本机兼容接口使用版本化 JSON Lines，网络使用 QUIC 可靠流；默认 H.264 关键帧/P 帧视频；Linux 编码组件缺失、编码失败或旧客户端会使用 PNG 回退。视频采用有损 4:2:0 编码，已实现基于 UDP 的 QUIC 可靠流与 XDamage；未实现 WebRTC、QUIC DATAGRAM、Protobuf 或 Metal。文字在控制端组合后提交，文本、图片与文件复制/粘贴仅由主动操作触发，不做后台同步；格式、大小和缓存限制见[剪贴板说明](docs/clipboard.md)。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与长期性能仍待完整验收。
 
 不要传输密码、私钥、令牌到聊天或仓库。无需管理员权限运行 Agent；软件拥有运行它的 Linux 用户权限，应用白名单不是 OS 沙箱。建议为远程应用使用专用低权限账户。
 

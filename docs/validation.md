@@ -291,6 +291,14 @@ Mac release 开发包及 Ubuntu 包构建通过。为保留正在运行的应用
 
 性能对照追加：六轮共 540 个有效样本，动态窗口 SSH / QUIC 中位数为 93.01 / 113.83ms、P95 为 147.19 / 213.38ms；静止后输入中位数为 83.46 / 67.86ms。当前路径为 utun4，不能泛化为全部局域网。两种通道各 20 次逻辑会话恢复通过，物理断网/休眠与长期稳定性未测。完整方法、全部轮次和原始数据见 [SSH 与 QUIC 实机对照](performance/2026-10-22-ssh-quic.md)。
 
+## 2026-10-22：QUIC 独立双向链路与产品 SSH 移除
+
+删除前先完成 QUIC 的双向基线验证，随后移除公共传输层、Mac 启动器/WindowHost、Linux 返回路由中的 SSH，以及账号密码、协议选择和对应配置入口。新版仍为每个平台一个产品，同时发布和接收；设备配对、缓存、窗口和重连按 UUID 隔离。实现提交 `de1afb0`，真实 AppKit 夹具 `0cf7df3`，Linux 历史参数拒绝修复 `00d0248`。
+
+删除后的双机业务测试关闭了任务专用 SSH master：Ubuntu GTK 编辑器经 QUIC 在真实 AppKit 中显示 H.264，中文、文本剪贴板、缩放、关闭及每轮 3 次原窗口/原会话恢复通过；Mac 原生窗口经 QUIC 在 Ubuntu GTK 中完成画面、点击、中文、文本剪贴板、缩放和恢复。双向并行保持 60 秒，正向交互及重连期间反向画面连接保持就绪。三个本机节点验证双向请求、多个设备独立路由、撤销隔离及拒绝旧返回路径。
+
+Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 22 项及 Swift/AppKit 回归通过；Tauri 后端 5 项、工作区及 Tauri Clippy 通过。Ubuntu 44 项 Rust 测试、Python、三节点路由、GTK/QUIC 和 release 构建通过；因没有 rustfmt/Node，未将 Ubuntu 的完整脚本记为通过。两端新开发包已构建，未覆盖仍有用户会话的旧安装。测试条件、失败后复测、复现命令、产物哈希与未覆盖项见[独立验收记录](quic-only-validation.md)。本轮不构成性能提升、CI 或生产验收。
+
 ## 尚未覆盖
 
 - 当前覆盖 xterm、独立 GTK 编辑器及原桌面 Firefox 的基础操作；现有 ChatGPT 的新版联调尚未完成。未完整验证复杂 GTK/Qt 应用、菜单树、透明窗口、GPU 程序及 Wayland 原生程序。
@@ -298,4 +306,4 @@ Mac release 开发包及 Ubuntu 包构建通过。为保留正在运行的应用
 - 未做发布签名、公证、外部安全审计、CI 或生产验收。Ubuntu 已安装持久用户服务，尚未验证重启系统后的自动启动。Mac 发布辅助组件使用本机临时签名，不能据此宣称已完成发布签名。
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
-当前技术为配对 QUIC 可靠流或 SSH、兼容 JSON Lines、H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。QUIC 网络视频使用二进制负载，控制水位协调跨流顺序。Protobuf schema 为后续草案；WebRTC、QUIC DATAGRAM、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
+当前技术为配对 QUIC 可靠流、兼容 JSON Lines、H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。QUIC 网络视频使用二进制负载，控制水位协调跨流顺序。Protobuf schema 为后续草案；WebRTC、QUIC DATAGRAM、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
