@@ -116,3 +116,11 @@ GNOME 50 的 `RecordWindow` 在创建流时固定其主显示器的缓冲区大�
 窗口桥报告接口版本 2。新 Agent 遇到仍在内存中的旧扩展会提示保存工作后重新登录，不把新服务配旧扩展当成输入成功。GNOME 50 的模块导入在 Shell 生命周期内缓存，禁用/启用不能加载修改后的模块；因此本轮先构建和隔离验证，不能为了激活而结束当前 Firefox、飞书或旧 Agent。
 
 依据：[libei 同步语义](https://libinput.pages.freedesktop.org/libei/api/group__libei.html)、[Mutter EIS 输入线程同步](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/backends/meta-eis.c)、[text-input 提交与 done](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/wayland/meta-wayland-text-input.c)、[GNOME 扩展模块生命周期](https://raw.githubusercontent.com/GNOME/gnome-shell/50.1/js/ui/extensionSystem.js)。最终门禁和未激活范围见验证记录；隔离输入框通过不等同于真实 Firefox 已验收。
+
+## 同尺寸截图揭示的已有 Xwayland 缩放缺口
+
+用户随后提供两张均为 2940×1660 的截图：远程 ChatGPT 标题显示接收 2940×1604、沿用应用缩放，文字和控件明显小于本机窗口。只读检查确认原应用 PID 3007634、可执行文件 `/usr/lib/chatgpt/ChatGPT`、Xwayland 窗口 50331652，合成器资源缩放为 1，启动参数没有 `force-device-scale-factor`。检查时该窗口已为 1920×968；截图中的历史接收尺寸不能当作此次现场测量。没有读取应用账号或聊天内容、改变缩放、操作窗口或重启应用。资源缩放和参数也不等同于对应用内部字号或页面缩放的精确测量。
+
+代码证据：Mac 自动模式按内容区 points × backing scale 请求像素；已有 X11 窗口沿用原缩放，而 `Backend::set_scale_factor` 只记录协议值，不改变应用 DPI。因而增加到 Retina 像素尺寸并不能保证保留逻辑布局和控件视觉大小。例如 1470×802 points 的 2× 内容区，需要应用以相同逻辑尺寸绘制 2940×1604 像素，而不是把 1× 布局范围也扩大一倍。这与截图中控件接近缩小一半的现象一致。
+
+尚未激活的私有高 DPI 输出只用于原生 Wayland：`ensureOutput` 对 X11 直接返回；它不能被报告为已解决这张截图。当前新独立飞书还使用精确应用入口匹配的启动参数，该成功不等于通用应用缩放已经完成。后续统一工作须同时覆盖逻辑尺寸、目标密度和应用重绘能力；已有 X11 缺少本实现可安全使用的逐窗口 DPI 重绘通道，应明确能力限制，不能修改全局桌面缩放或以截图放大冒充适配。此次仅完成诊断，保留用户暂缓切换和当前会话的决定。
