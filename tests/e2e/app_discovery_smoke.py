@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Linux opt-in: isolated XDG files, HOME, Xvfb and windows; never the real desktop."""
 import argparse
+from contextlib import ExitStack
 import base64
 import json
 import os
@@ -17,6 +18,16 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 args = parser.parse_args()
 children = []
+
+def stop_children():
+    for process in reversed(children):
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
 
 
 def start(argv, env, stderr=subprocess.DEVNULL):
@@ -69,7 +80,9 @@ class Peer:
 
 
 try:
-    with tempfile.TemporaryDirectory(prefix='paneferry-discovery-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='paneferry-discovery-') as temporary, ExitStack() as lifetime:
+        # Stop fixture writers before TemporaryDirectory removes their files.
+        lifetime.callback(stop_children)
         root = Path(temporary)
         home, user_data, system_data = root/'home', root/'user-data', root/'system-data'
         for directory in (home, user_data/'applications', system_data/'applications'):
@@ -261,11 +274,4 @@ try:
         print('PASS: real unparented child-process preview discovery/input/close, reconnect membership and simultaneous session isolation')
         print('PASS: app launch reuses detached session across scale preferences, rejects occupied session, detects early exit and preserves delayed startup')
 finally:
-    for process in reversed(children):
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
+    stop_children()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in Linux test. Creates its own X11 desktop/processes; never uses the user's desktop."""
 import argparse
+from contextlib import ExitStack
 import base64
 import ctypes as C
 import json
@@ -20,6 +21,16 @@ parser.add_argument('--controller-text', action='store_true', help='also exercis
 args = parser.parse_args()
 agent_exe = args.agent.resolve()
 children = []
+
+def stop_children():
+    for child in reversed(children):
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait(timeout=5)
 
 
 def start(argv, env):
@@ -71,7 +82,9 @@ class Peer:
 
 
 try:
-    with tempfile.TemporaryDirectory(prefix='paneferry-existing-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='paneferry-existing-') as tmp, ExitStack() as lifetime:
+        # Stop fixture writers before TemporaryDirectory removes their files.
+        lifetime.callback(stop_children)
         root = Path(tmp)
         home = root / 'home'
         config = home / '.config/lan-remoteapp'
@@ -260,11 +273,4 @@ try:
             print('PASS: ordered controller Unicode commit, explicit clipboard paste/copy, multiline UTF-8 round trip, no-selection copy rejection and recovery')
             print('PASS: UTF-8 native cut, no autorepeat, empty/oversized cut rejection without deletion and recovery; terminal cut rejected')
 finally:
-    for child in reversed(children):
-        if child.poll() is None:
-            os.killpg(child.pid, signal.SIGTERM)
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait(timeout=5)
+    stop_children()
