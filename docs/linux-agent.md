@@ -14,6 +14,8 @@ HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-pr
 
 状态目录 `~/.local/state/lan-remoteapp` 权限 0700；agent.sock 0600。Xvfb 使用共享用户 Xauthority 中每显示独立随机 cookie，关闭 TCP。发布器只提供私有 Unix socket；网络组件监听 UDP 42424，通过 QUIC 设备证书验证对端，不需要 SSH 账号。
 
+Linux 开发包由 `bash scripts/build-linux.sh` 生成，包含双向使用的 Agent、网络组件、管理/接收界面和 GNOME 窗口扩展。已有服务运行时，普通 `./install.sh` 在写文件前拒绝升级，避免停止其拥有的独立应用。使用 `./install.sh --defer-restart` 原子替换二进制并安装扩展、更新 service，保留当前服务和应用；它只执行 daemon-reload，不 stop/start/restart。保存工作后再由用户执行 `systemctl --user restart remoteapp-agent.service`。首次 GNOME 扩展安装可能要等下次登录才生效，不能用安装成功代替功能已激活。
+
 ## 窗口视频流
 
 新版 Mac 宿主优先协商 H.264。Agent 的独立输出线程运行系统 GStreamer 的 appsrc、videoconvert、openh264enc、h264parse、appsink 管线，奇数宽高才插入 videobox 补边。通过稳定 C API 运行时加载 `libgstreamer-1.0.so.0` / `libgstapp-1.0.so.0`，视频编码不再依赖 Python GI 或原始帧 socketpair。只读像素缓冲由 Arc 租约保持至 GStreamer 释放，避免跨进程传帧、Python 缓冲拼接和再次填充 GstBuffer。identity 只按原 sequence/30 规则设置时间戳；颜色转换及编码器、码率、GOP、QP 上限、帧跳过策略保持不变。拉取编码结果有 2 秒超时，失败维持现有 PNG 回退；停止管线后释放缓冲及对象引用。不运行客户端提供的管线或命令。

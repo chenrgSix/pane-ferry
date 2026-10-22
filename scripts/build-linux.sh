@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 cargo build --release -p paneferry-agent -p paneferry-network
 output="${1:-dist/paneferry-linux}"
 mkdir -p "$output/bin" "$output/share/paneferry" "$output/share/applications" "$output/share/icons/hicolor/128x128/apps" "$output/systemd"
+mkdir -p "$output/share/gnome-shell/extensions/paneferry@local"
+install -m 644 apps/linux-agent/gnome-extension/* "$output/share/gnome-shell/extensions/paneferry@local/"
 install -m 755 target/release/paneferry-agent "$output/bin/paneferry-agent"
 install -m 755 target/release/paneferry-network "$output/bin/paneferry-network"
 install -m 644 apps/linux-client/*.py "$output/share/paneferry/"
