@@ -652,7 +652,7 @@ fn launch(
                 "0",
                 "4096x2160x24",
                 "-dpi",
-                "96",
+                &(96 * u32::from(scale_factor)).to_string(),
                 "-nolisten",
                 "tcp",
                 "-auth",
@@ -668,7 +668,7 @@ fn launch(
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         if let Ok(mut b) = Backend::connect(&disp) {
-            b.set_scale_factor(scale_factor)?;
+            b.configure_private_scale(scale_factor)?;
             s.backend = Some(Box::new(b));
             break;
         }
@@ -701,12 +701,6 @@ fn launch(
         application_args.extend(["-xrm", r"*VT100*translations: #override \n Ctrl Shift <Key>C: copy-selection(CLIPBOARD) \n Ctrl Shift <Key>V: insert-selection(CLIPBOARD)"]);
     }
     application_args.extend(app.argv.iter().map(String::as_str));
-    let scale_argument = discovered
-        .as_ref()
-        .and_then(|app| app.scale_argument(scale_factor));
-    if let Some(argument) = &scale_argument {
-        application_args.push(argument);
-    }
     let mut command = Command::new("dbus-run-session");
     command.arg("--");
     if let Some(snap) = discovered.as_ref().and_then(|app| app.snap.as_ref()) {
@@ -767,10 +761,13 @@ fn launch(
             .env("XMODIFIERS", "@im=none")
             .env("DISABLE_WAYLAND", "1")
             .env("MOZ_ENABLE_WAYLAND", "0")
-            .env("GDK_SCALE", scale_factor.to_string())
-            .env("GDK_DPI_SCALE", "1")
-            .env("QT_SCALE_FACTOR", scale_factor.to_string())
-            .env("QT_FONT_DPI", "96")
+            // The private display publishes standard DPI to all toolkits.
+            // Multiplying it again with inherited overrides would double-scale.
+            .env_remove("GDK_SCALE")
+            .env_remove("GDK_DPI_SCALE")
+            .env_remove("QT_SCALE_FACTOR")
+            .env_remove("QT_FONT_DPI")
+            .env("QT_ENABLE_HIGHDPI_SCALING", "1")
             .env_remove("QT_SCREEN_SCALE_FACTORS")
             .process_group(0)
             .stdin(Stdio::null())
