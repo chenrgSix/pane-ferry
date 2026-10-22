@@ -374,3 +374,22 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 验证通过：根 Rust workspace 测试与 Clippy `-D warnings`；Mac WindowHost 编译和自动重连回归；三节点 QUIC 路由隔离回归；Ubuntu `session_bus_smoke.py`（仅伪密钥服务）、`app_discovery_smoke.py`、`stale_launch_smoke.py`。初版总线测试夹具未带入 Openbox 主题目录，导致无窗口；补齐测试资源后通过，产品代码未因此调整。
 
 已备份并更新 Ubuntu 的实际 `remoteapp-agent.service`，安装二进制 SHA-256 为 `9aa7e1e7ed602f669a8036d2261ebe7018d4fe15ed8d4f8a4047ecbb6cdb5e80`。从当前运行的 Mac 启动器点击 HexHub 后，实际 AppKit 窗口显示完整主界面及应用自己的更新提示，副标题为 **2940×1604、界面 200%、H.264**。本轮未操作 HexHub 中的账号、数据库连接或更新按钮；窗口保留供用户使用。Mac 接收端使用当前已有版本，本次新增的错误提示源码已编译但未重新打包安装。没有进行完整双向 E2E 或长期压力测试。
+
+## 原窗口优先、像素与 GNOME Wayland（2026-10-22）
+
+根因和逐层尺寸证据见[窗口像素与缩放](window-resolution.md)。原飞书是原桌面接管：1200×700 请求能到达真实窗口与 PNG，2940×1660 请求在窗口管理阶段就停在 1920×968；旧 Mac 自动模式继续铺满，放大并改变比例。原“100%”来自固定元数据，不是应用 DPI 测量。Firefox 是原生 Wayland，旧 X11 发现路径看不到原窗口，而新启动转交给已有实例后退出又被误报为成功。
+
+本轮提交：`39cdb9a` 已有应用优先与失败提示；`3017564` 等比绘制、实际像素和缩放状态；`29f5946` 重连标题回归；`8badaf0` 仅新飞书实例的渲染器缩放参数；`0cdeff7` 隔离夹具退出顺序；`44c459c` GNOME 原窗口、PipeWire 及合成器尺寸控制；`6196eec` 保留活动服务的延期升级。
+
+验证结果：
+
+- Mac `scripts/check.sh` 完整通过：Rust 49 通过、4 忽略，前端 24 通过，Vue 类型/生产构建，Swift 发布器/宿主、Retina 与实时 resize、旧几何输入隔离、剪贴板顺序、自动重连、两个实际 QUIC 节点的 H.264 解码和独立二进制流回归通过。Clippy 全 workspace / all-targets `-D warnings` 通过。
+- Ubuntu workspace 52 通过、4 忽略；Agent 显式包含 Linux 编码测试 15/15 通过。应用发现、原窗口输入/Unicode/复制/剪切/重连回归通过。Wayland 夹具验证原 PID/内容、PNG 1200×700/800×500、H.264 960×540、尺寸限制、租约/范围拒绝、未授权输入拒绝、原生剪切在删除前拒绝、重连复用。Xwayland 采集实际 2940×1660、2800×1500，并核对离屏客户点映射。上述 GNOME 测试在私有合成器中运行，没有接管真实 Firefox。
+- 真实 Mac GUI 使用原飞书会话测试窗口模式、全屏、放大及断开：远端旧服务仍返回 1920×968，新宿主均等比显示且报告实际/目标。新独立 XTerm 目标 2940×1604，收到 2938×1603，符合字符网格取整；最后正常退出自建 XTerm。原 ChatGPT、ToDesk、HexHub、飞书和计算器五个会话仍保留，无测试控制端。
+- Linux 安装生命周期测试通过：活动服务时普通安装在写入前拒绝；延期安装不 stop/start/restart，运行中旧二进制 inode 保留。Mac 和 Linux 开发包均构建成功，未做签名、公证或 CI。
+
+过程中的失败也保留：一次临时目录清理与子进程写入竞争已修复后复跑通过；首次临时源码包漏复制图标导致打包失败，补齐图标后成功；直接从 SSH tty 启动私有 GNOME 出现窗口/握手超时，从用户 manager 启动复跑 4.657 秒通过，并为脚本补充运行上下文提示。这些不能当成产品 QUIC 性能或真实 Firefox 验收结果。
+
+部署时保留原工作：Ubuntu 文件已通过 `--defer-restart` 安装，备份为 `/home/chenrg/.local/state/lan-remoteapp/upgrades/wayland-20261022-203949`。Agent PID 2102443、飞书 PID 44108、Firefox PID 2264753 及各自启动时间均未变；新 Agent 的 SHA-256 为 `21df5f150e94e5715234e3c0f01c02808adb60f80a2a618995907823d492db74`。扩展已安装并加入 enabled-extensions，当前 GNOME `GetExtensionInfo` 仍为空，需要下次图形登录才识别。没有自动注销、重启旧服务、退出飞书或修改全局缩放。
+
+剩余实机验收：激活新扩展与 Agent 后的真实 Firefox 原窗口/账号/标签页、原飞书大像素重绘与鼠标坐标、新飞书 2× UI、多显示器和分数缩放；原生 Wayland 图片/文件剪贴板与安全剪切尚未实现。Mac 本机共享保持原来的关闭状态，没有将构建通过写成双向实机验收。所有条件、产物校验和及日志见 [JSON](validation-artifacts/2026-10-22-window-resolution.json)和[压缩日志](validation-artifacts/2026-10-22-window-resolution-logs.json.gz)。

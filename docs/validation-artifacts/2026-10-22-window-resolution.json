@@ -1,0 +1,178 @@
+{
+  "date": "2026-10-22",
+  "code_commits": [
+    "39cdb9a",
+    "3017564",
+    "29f5946",
+    "8badaf0",
+    "0cdeff7",
+    "44c459c",
+    "6196eec"
+  ],
+  "sha256": {
+    "mac_launcher": "cdb262347cf3e6af16c9bc629c4dd39504f0f7ef89956c4298d63ecce2c3ee3a",
+    "mac_window_host": "a29d7f0c24c779c5c5ca165d26411fd981b3c7775bf482fde948f8e18c6ba402",
+    "linux_package": "0d5e08a60e2273558a720cba5d078d6320f685eaed72aa386daf3948bde4d05d"
+  },
+  "installed_linux_agent_sha256": "21df5f150e94e5715234e3c0f01c02808adb60f80a2a618995907823d492db74",
+  "linux_service_pid_preserved": 2102443,
+  "linux_original_processes_preserved": [
+    44108,
+    2264753
+  ],
+  "backup": "/home/chenrg/.local/state/lan-remoteapp/upgrades/wayland-20261022-203949",
+  "deployment": {
+    "mac": "rebuilt bundle; native host GUI validated before final message-only changes",
+    "linux": "installed with --defer-restart; old agent still running",
+    "gnome_extension": "installed and listed in enabled-extensions; current GetExtensionInfo returns empty, needs next graphical login"
+  },
+  "real_feishu": {
+    "kind": "existing original desktop window; resume of retained session",
+    "window_id": 48234500,
+    "before": [
+      {
+        "requested": [
+          1200,
+          700
+        ],
+        "metadata": [
+          1200,
+          700
+        ],
+        "png": [
+          1200,
+          700
+        ]
+      },
+      {
+        "requested": [
+          2940,
+          1660
+        ],
+        "metadata": [
+          1920,
+          968
+        ],
+        "png": [
+          1920,
+          968
+        ]
+      }
+    ],
+    "mac_gui_after": [
+      {
+        "mode": "window",
+        "target": [
+          2940,
+          1604
+        ],
+        "received": [
+          1920,
+          968
+        ]
+      },
+      {
+        "mode": "fullscreen",
+        "target": [
+          2940,
+          1846
+        ],
+        "received": [
+          1920,
+          968
+        ]
+      },
+      {
+        "mode": "zoom",
+        "target": [
+          2900,
+          1564
+        ],
+        "received": [
+          1920,
+          968
+        ]
+      }
+    ],
+    "aspect_fit": true,
+    "original_scale_unchanged": true,
+    "new_compositor_resize_not_yet_tested": true
+  },
+  "isolated_gnome": {
+    "version": "50.1",
+    "monitor": [
+      1600,
+      900
+    ],
+    "native_pixels": [
+      [
+        700,
+        487
+      ],
+      [
+        1200,
+        700
+      ],
+      [
+        800,
+        500
+      ]
+    ],
+    "native_h264": [
+      960,
+      540
+    ],
+    "xwayland_png_pixels": [
+      [
+        2940,
+        1660
+      ],
+      [
+        2800,
+        1500
+      ]
+    ],
+    "offscreen_client_point": [
+      2890,
+      1600
+    ],
+    "mapped_point": [
+      1591,
+      891
+    ],
+    "original_process_and_content_preserved": true,
+    "real_desktop_input_authorized": false
+  },
+  "new_independent_xterm": {
+    "target": [
+      2940,
+      1604
+    ],
+    "received": [
+      2938,
+      1603
+    ],
+    "codec": "h264",
+    "created_test_session_cleaned": true
+  },
+  "gates": {
+    "mac_scripts_check": "passed",
+    "linux_cargo_test_workspace": "passed; 4 explicit platform/hardware tests ignored",
+    "linux_agent_include_ignored": "15 passed, including real GStreamer encoder",
+    "app_discovery": "passed",
+    "existing_window_controller_text": "passed",
+    "wayland_with_xwayland": "passed via user manager; direct SSH tty context timed out",
+    "clippy_workspace_all_targets": "passed with -D warnings",
+    "installer_lifecycle": "passed; original running binary inode preserved",
+    "packages": "macOS and Linux built"
+  },
+  "not_verified": [
+    "real original Firefox capture/input/account/tab preservation end to end",
+    "real Feishu via new compositor resize path",
+    "real Feishu 2x interface scaling",
+    "native Wayland clipboard with granted portal input",
+    "fractional scaling and multiple monitors",
+    "macOS publishing after product rename/TCC permissions"
+  ],
+  "logs": "2026-10-22-window-resolution-logs.json.gz"
+}
