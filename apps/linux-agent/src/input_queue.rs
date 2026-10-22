@@ -1,4 +1,4 @@
-use remoteapp_protocol::{Request, MAX_TEXT_BYTES};
+use paneferry_protocol::{Request, MAX_TEXT_BYTES};
 use std::{
     io::Read,
     os::{

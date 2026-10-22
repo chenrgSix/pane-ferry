@@ -55,7 +55,7 @@ impl SharedCapture {
         width: u32,
         height: u32,
     ) -> Result<(u8, u32, Vec<u8>)> {
-        remoteapp_protocol::dimensions(width, height)?;
+        paneferry_protocol::dimensions(width, height)?;
         let length = width as usize * height as usize * 4;
         if self.region.as_ref().is_none_or(|r| r.length < length) {
             if let Some(old) = self.region.take() {

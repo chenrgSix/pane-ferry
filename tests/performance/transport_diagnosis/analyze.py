@@ -53,7 +53,7 @@ def summarize_samples(path,linux):
    cur=collections.defaultdict(float)
    for t in mac_cpu(s['threads_raw']):
     name=pathlib.Path(t['name']).name.rstrip(':')
-    if name not in ['iperf3','easytier-gui','remoteapp-network','ssh','bench-file']:continue
+    if name not in ['iperf3','easytier-gui','remoteapp-network','paneferry-network','ssh','bench-file']:continue
     peaks[name]=max(peaks[name],t['cpu']);cur[name]+=t['cpu']
    for k,v in cur.items():sums[k].append(v)
   d['cpu']={k:{'peak_thread_pct':v,'mean_sum_threads_pct':statistics.mean(sums[k])} for k,v in peaks.items()}

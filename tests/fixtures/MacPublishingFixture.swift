@@ -7,7 +7,7 @@ final class Fixture:NSObject,NSApplicationDelegate,NSTextViewDelegate {
     init(_ state:URL) {self.state=state}
     func applicationDidFinishLaunching(_ notification:Notification) {
         let menu=NSMenu(),application=NSMenuItem(),actions=NSMenu()
-        actions.addItem(withTitle:"Quit RemoteApp Mac Test",action:#selector(NSApplication.terminate(_:)),keyEquivalent:"q")
+        actions.addItem(withTitle:"Quit PaneFerry Mac Test",action:#selector(NSApplication.terminate(_:)),keyEquivalent:"q")
         application.submenu=actions;menu.addItem(application);NSApplication.shared.mainMenu=menu
         let edit=NSMenuItem(title:"Edit",action:nil,keyEquivalent:""),editActions=NSMenu(title:"Edit")
         for (title,selector,key) in [("Cut",#selector(NSText.cut(_:)),"x"),("Copy",#selector(NSText.copy(_:)),"c"),("Paste",#selector(NSText.paste(_:)),"v"),("Select All",#selector(NSText.selectAll(_:)),"a")] {
@@ -24,7 +24,7 @@ final class Fixture:NSObject,NSApplicationDelegate,NSTextViewDelegate {
             self.inputEvents=Array(self.inputEvents.suffix(16));self.write();return event
         }
         window=NSWindow(contentRect:NSRect(x:180,y:180,width:800,height:560),styleMask:[.titled,.closable,.resizable,.miniaturizable],backing:.buffered,defer:false)
-        window.title="LAN RemoteApp Mac 发布测试";window.minSize=NSSize(width:400,height:300)
+        window.title="窗渡 PaneFerry Mac 发布测试";window.minSize=NSSize(width:400,height:300)
         let content=FlippedView(frame:NSRect(x:0,y:0,width:800,height:560));window.contentView=content
         button=NSButton(title:"点击计数 0",target:self,action:#selector(clicked));button.frame=NSRect(x:24,y:24,width:160,height:36);content.addSubview(button)
         let scroll=NSScrollView(frame:NSRect(x:24,y:90,width:740,height:430));scroll.autoresizingMask=[.width,.height]

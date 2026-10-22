@@ -16,7 +16,7 @@ def sample():
    if not proc.name.isdigit():continue
    try:
     name=(proc/'comm').read_text().strip()
-    if not any(s in name for s in ['iperf3','remoteapp-net','easytier','ssh','bench-file']):continue
+    if not any(s in name for s in ['iperf3','remoteapp-net','paneferry-net','easytier','ssh','bench-file']):continue
     for th in (proc/'task').iterdir():
      a=(th/'stat').read_text();v=a[a.rfind(')')+2:].split()
      threads.append({'pid':int(proc.name),'tid':int(th.name),'name':name,'cpu_ticks':int(v[11])+int(v[12])})
@@ -33,7 +33,7 @@ def sample():
   drives=plistlib.loads(subprocess.run(['/usr/sbin/ioreg','-r','-c','IOBlockStorageDriver','-a'],capture_output=True).stdout)
   d['disk_bytes']={k:sum(x.get('Statistics',{}).get(k,0) for x in drives) for k in ['Bytes (Read)','Bytes (Write)']}
   procs=cmd(['ps','-axo','pid=,comm=']).splitlines()
-  pids=[x.strip().split()[0] for x in procs if any(y in x for y in ['lra-path-diagnosis','easytier-gui','/ssh','remoteapp-network'])]
+  pids=[x.strip().split()[0] for x in procs if any(y in x for y in ['lra-path-diagnosis','easytier-gui','/ssh','remoteapp-network','paneferry-network'])]
   d['threads_raw']=cmd(['ps','-M','-p',','.join(pids)]) if pids else ''
 
  for state in p_states():

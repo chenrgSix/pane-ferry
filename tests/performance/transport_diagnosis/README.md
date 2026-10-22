@@ -24,7 +24,7 @@
 
 ```sh
 swiftc -O -module-cache-path /private/tmp/lra-path-diagnosis/swift-cache \
-  apps/mac-windowhost/Sources/RemoteAppWindowHost/SSHAuthentication.swift \
+  apps/mac-windowhost/Sources/PaneFerryWindowHost/SSHAuthentication.swift \
   /private/tmp/lra-path-diagnosis/main.swift \
   -o /private/tmp/lra-path-diagnosis/ssh
 ```
@@ -40,7 +40,7 @@ swiftc -O -module-cache-path /private/tmp/lra-path-diagnosis/swift-cache \
 CARGO_TARGET_DIR=/tmp/lra-path-diagnosis/target cargo build \
   --release --offline --locked \
   --manifest-path /tmp/lra-path-diagnosis/source/Cargo.toml \
-  -p remoteapp-network
+  -p paneferry-network
 cc -O2 /tmp/lra-path-diagnosis/bench-file.c \
   -o /tmp/lra-path-diagnosis/bench-file
 ```

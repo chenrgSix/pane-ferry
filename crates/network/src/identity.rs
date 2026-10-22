@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
 };
 
+// Stable wire identifier across the PaneFerry rename; existing peers use it.
 pub const ALPN: &[u8] = b"lan-remoteapp/2";
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -82,7 +83,7 @@ pub fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 }
 impl Identity {
     pub fn load(directory: &Path, id: Option<&str>) -> Result<Self> {
-        remoteapp_core::node::private_directory(directory)?;
+        paneferry_core::node::private_directory(directory)?;
         let path = directory.join("identity.json");
         if path.exists() {
             let value: Self = read(&path)?;

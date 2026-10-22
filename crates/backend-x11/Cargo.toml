@@ -1,12 +1,12 @@
 [package]
-name = "remoteapp-backend-x11"
+name = "paneferry-backend-x11"
 version.workspace = true
 edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 libc = "0.2"
 x11rb.workspace = true
-remoteapp-protocol = {path="../protocol"}
-remoteapp-capture = {path="../capture"}
+paneferry-protocol = {path="../protocol"}
+paneferry-capture = {path="../capture"}
 png.workspace = true
 serde_json.workspace = true

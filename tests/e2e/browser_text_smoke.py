@@ -23,9 +23,9 @@ children = []
 peers = []
 state = {}
 request_paths = []
-scope = 'remoteapp-browser-regression-' + secrets.token_hex(5) + '.scope'
+scope = 'paneferry-browser-regression-' + secrets.token_hex(5) + '.scope'
 
-PAGE = b'''<!doctype html><meta charset="utf-8"><title>RemoteApp browser regression</title>
+PAGE = b'''<!doctype html><meta charset="utf-8"><title>PaneFerry browser regression</title>
 <style>body{margin:30px}textarea{width:650px;height:180px;font:22px sans-serif}</style>
 <textarea id="entry" autofocus></textarea><button id="button">Click</button>
 <script>
@@ -257,7 +257,7 @@ try:
                 peer.send(type='clipboard.paste.bundle',window_id=wid,transfer_id=transfer)
                 wait(lambda: state.get('pasted') and state['pasted'][0]['sha256']==hashlib.sha256(image).hexdigest(),'browser PNG paste as actual image')
                 print('Firefox PNG paste exposed the original image file to the web page',flush=True)
-                content=b'remoteapp-file-paste\0'+secrets.token_bytes(150000)
+                content=b'paneferry-file-paste\0'+secrets.token_bytes(150000)
                 transfer=upload_clipboard('files',[dict(path='report.txt',size=len(content),directory=False)],content)
                 peer.send(type='clipboard.paste.bundle',window_id=wid,transfer_id=transfer)
                 wait(lambda: state.get('pasted') and state['pasted'][0]['sha256']==hashlib.sha256(content).hexdigest(),'browser file paste as actual file')

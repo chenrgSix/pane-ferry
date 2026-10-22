@@ -3,7 +3,7 @@ import AppKit
 func verifyClipboardBundles() throws {
     let board = NSPasteboard.withUniqueName()
     defer { board.releaseGlobally() }
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("remoteapp-bundle-" + UUID().uuidString)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("paneferry-bundle-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: root) }
     let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 128, pixelsHigh: 64, bitsPerSample: 8,

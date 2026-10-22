@@ -14,7 +14,7 @@ from gi.repository import Gdk, GLib, Gtk
 log = Path(sys.argv[1]).open('a', buffering=1)
 width, height = map(int, sys.argv[2:4])
 animated = sys.argv[4] == 'animated'
-window = Gtk.Window(title='RemoteApp End-to-End Latency Test')
+window = Gtk.Window(title='PaneFerry End-to-End Latency Test')
 scale = int(os.environ.get('GDK_SCALE', '1'))
 window.set_default_size(width // scale, height // scale)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

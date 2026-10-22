@@ -8,7 +8,7 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('GdkX11', '3.0')
 from gi.repository import Gtk, GdkX11, GLib, GdkPixbuf, Gdk
 
-GLib.set_prgname('remoteapp-discovery-fixture')
+GLib.set_prgname('paneferry-discovery-fixture')
 path = Path(sys.argv[1])
 icon = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 32, 32)
 icon.fill(0x3C855FFF)

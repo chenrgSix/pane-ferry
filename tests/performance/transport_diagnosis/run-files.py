@@ -1,6 +1,6 @@
 import pathlib,subprocess,json,time,sys,socket,hashlib,os,shlex
 p=pathlib.Path('/private/tmp/lra-path-diagnosis');r='/tmp/lra-path-diagnosis';out=p/'results';out.mkdir(exist_ok=True)
-ssh=[str(p/'ssh'),'--target','192.168.1.26'];network=p/'target/release/remoteapp-network'
+ssh=[str(p/'ssh'),'--target','192.168.1.26'];network=p/'target/release/paneferry-network'
 label=sys.argv[1] if len(sys.argv)>1 else 'proxy-on';paths=sys.argv[2].split(',') if len(sys.argv)>2 else ['physical','overlay']
 manager=subprocess.Popen(ssh+['python3 '+r+'/manager.py'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(out/(label+'-manager.log')).open('w'),text=True)
 ready=json.loads(manager.stdout.readline());expected=hashlib.file_digest((p/'payload.bin').open('rb'),'sha256').hexdigest();size=(p/'payload.bin').stat().st_size

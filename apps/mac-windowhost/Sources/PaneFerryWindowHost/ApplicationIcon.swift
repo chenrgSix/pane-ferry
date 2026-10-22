@@ -35,6 +35,6 @@ enum ApplicationIcon {
     }
 
     static func fallback() -> NSImage? {
-        Bundle.main.url(forResource: "RemoteApp", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
+        Bundle.main.url(forResource: "PaneFerry", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
     }
 }

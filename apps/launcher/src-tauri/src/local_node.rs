@@ -17,7 +17,7 @@ fn directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 fn component(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
-        .resolve("RemoteAppNode.app", tauri::path::BaseDirectory::Resource)
+        .resolve("PaneFerryNode.app", tauri::path::BaseDirectory::Resource)
         .map_err(|_| "缺少本机共享组件。".into())
 }
 pub fn reveal_component(app: &tauri::AppHandle) -> Result<(), String> {

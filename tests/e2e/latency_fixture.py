@@ -9,7 +9,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
 
 state = Path(sys.argv[1])
-window = Gtk.Window(title='RemoteAppLatencyFixture')
+window = Gtk.Window(title='PaneFerryLatencyFixture')
 window.set_default_size(2560, 1664)
 area = Gtk.DrawingArea()
 area.set_can_focus(True)

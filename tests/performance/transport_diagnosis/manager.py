@@ -6,7 +6,7 @@ def rpc(v):
   s.connect(str(state/'control.sock'));s.sendall(json.dumps(v).encode()+b'\n');return json.loads(s.makefile('rb').readline())
 try:
  children.append(subprocess.Popen([sys.executable,str(p/'publisher.py'),str(p/'pub.sock')]))
- children.append(subprocess.Popen([str(p/'target/release/remoteapp-network'),'serve','--state',str(state),'--publisher',str(p/'pub.sock'),'--listen','0.0.0.0:0','--bulk-agent',str(p/'bench-file')],stdout=subprocess.DEVNULL,stderr=(p/'network.log').open('w')))
+ children.append(subprocess.Popen([str(p/'target/release/paneferry-network'),'serve','--state',str(state),'--publisher',str(p/'pub.sock'),'--listen','0.0.0.0:0','--bulk-agent',str(p/'bench-file')],stdout=subprocess.DEVNULL,stderr=(p/'network.log').open('w')))
  for _ in range(200):
   try:rpc({'op':'status'});break
   except OSError:time.sleep(.05)

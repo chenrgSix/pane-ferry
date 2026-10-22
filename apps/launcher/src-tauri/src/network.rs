@@ -1,5 +1,5 @@
 //! Only private, local IPC reaches device pairing and service management.
-use remoteapp_transport::Target;
+use paneferry_transport::Target;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -19,11 +19,11 @@ pub struct Device {
     pub peer_id: String,
 }
 impl Device {
-    pub fn validate(&self) -> Result<(), remoteapp_transport::Error> {
+    pub fn validate(&self) -> Result<(), paneferry_transport::Error> {
         if uuid::Uuid::parse_str(&self.peer_id).is_ok_and(|v| v.to_string() == self.peer_id) {
             Ok(())
         } else {
-            Err(remoteapp_transport::Error::Invalid("设备身份无效。"))
+            Err(paneferry_transport::Error::Invalid("设备身份无效。"))
         }
     }
     pub fn identity(&self) -> Value {
@@ -39,7 +39,7 @@ pub fn directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 pub fn binary(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
-        .resolve("remoteapp-network", tauri::path::BaseDirectory::Resource)
+        .resolve("paneferry-network", tauri::path::BaseDirectory::Resource)
         .map_err(|_| "缺少网络组件。".into())
 }
 fn exchange(app: &tauri::AppHandle, body: &Value) -> Result<Value, String> {
@@ -107,21 +107,21 @@ pub fn manage(app: &tauri::AppHandle, body: Value) -> Result<Value, String> {
 pub fn target(
     app: &tauri::AppHandle,
     device: &Device,
-) -> Result<Target, remoteapp_transport::Error> {
+) -> Result<Target, paneferry_transport::Error> {
     device.validate()?;
     let id = &device.peer_id;
-    ensure(app).map_err(|_| remoteapp_transport::Error::Connection)?;
+    ensure(app).map_err(|_| paneferry_transport::Error::Connection)?;
     let value = exchange(app, &json!({"op":"status"}))
-        .map_err(|_| remoteapp_transport::Error::Connection)?;
+        .map_err(|_| paneferry_transport::Error::Connection)?;
     if !value["peers"]
         .as_array()
         .is_some_and(|peers| peers.iter().any(|p| p["device_id"] == *id))
     {
-        return Err(remoteapp_transport::Error::PairingRequired);
+        return Err(paneferry_transport::Error::PairingRequired);
     }
     Ok(Target {
         socket: directory(app)
-            .map_err(|_| remoteapp_transport::Error::Connection)?
+            .map_err(|_| paneferry_transport::Error::Connection)?
             .join(format!("r-{id}.sock")),
     })
 }

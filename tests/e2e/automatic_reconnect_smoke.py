@@ -9,8 +9,8 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[2]
-source = root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
-with tempfile.TemporaryDirectory(prefix='remoteapp-auto-resume-') as directory:
+source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
+with tempfile.TemporaryDirectory(prefix='paneferry-auto-resume-') as directory:
     scratch = Path(directory)
     types = scratch/'WindowHostTypes.swift'
     text = (source/'main.swift').read_text()

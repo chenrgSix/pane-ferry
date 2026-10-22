@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use remoteapp_transport::{self as transport, AppCatalog};
+use paneferry_transport::{self as transport, AppCatalog};
 use serde::Serialize;
 use std::{
     io::Write,
@@ -116,7 +116,7 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let path = app
         .path()
         .resolve(
-            "RemoteAppWindowHost.app/Contents/MacOS/RemoteAppWindowHost",
+            "PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| "无法定位 WindowHost。")?;

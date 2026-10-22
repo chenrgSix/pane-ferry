@@ -71,7 +71,7 @@ final class RWPTransport {
     private var closed = false
     private var failure: TransportFailure?
     private var queuedPixels = 0
-    private let writer = DispatchQueue(label: "remoteapp.rwp.writer")
+    private let writer = DispatchQueue(label: "paneferry.rwp.writer")
     private(set) var alive = false
     var onDiagnostic: ((String) -> Void)?
 
@@ -84,7 +84,7 @@ final class RWPTransport {
             self?.fail("设备连接已结束（退出码 \(process.terminationStatus)）。远端会话不会因此主动终止；可用会话 ID 重新连接。")
         }
         try process.run(); alive = true
-        DispatchQueue(label: "remoteapp.rwp.reader").async { [weak self] in self?.readLoop() }
+        DispatchQueue(label: "paneferry.rwp.reader").async { [weak self] in self?.readLoop() }
     }
 
     private func fail(_ message: String, retryable: Bool = true) {
@@ -219,7 +219,7 @@ final class RWPTransport {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
     let applicationName = Bundle.main.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String
-        ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "LAN RemoteApp"
+        ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "窗渡 PaneFerry"
     let applicationIcon: NSImage?
     var transport = RWPTransport()
     var makeTransport: () -> RWPTransport = { RWPTransport() }
@@ -278,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.title = "RemoteApp · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
+        statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         startConnection()
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.pump() }
         RunLoop.main.add(timer, forMode: .common); poll = timer
@@ -290,11 +290,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 else if path.status == .unsatisfied, self.connected { self.connectionLost() }
             }
         }
-        monitor.start(queue: DispatchQueue(label: "remoteapp.network"))
+        monitor.start(queue: DispatchQueue(label: "paneferry.network"))
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("LAN RemoteApp 开发预览\n原生 AppKit 窗口 + PNG。分辨率可随窗口调整或指定像素宽高，界面缩放独立设置为 100%/200%；原桌面窗口沿用其已配置的缩放。输入法在控制端组合，剪贴板只由主动操作触发。Metal 尚未实现。")
+        alert("窗渡 PaneFerry 开发预览\n原生 AppKit 窗口 + PNG。分辨率可随窗口调整或指定像素宽高，界面缩放独立设置为 100%/200%；原桌面窗口沿用其已配置的缩放。输入法在控制端组合，剪贴板只由主动操作触发。Metal 尚未实现。")
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -371,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         pauseConnection(); recovering = true
         guard reconnectTimer == nil else { return }
         for host in windows.values { host.window.subtitle = "连接中断，正在自动重连…" }
-        statusItem?.button?.title = "RemoteApp · 正在重连"
+        statusItem?.button?.title = "PaneFerry · 正在重连"
         let delay = Self.reconnectDelay(reconnectAttempt); reconnectAttempt += 1
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in self?.startConnection() }
         reconnectTimer = timer; RunLoop.main.add(timer, forMode: .common)
@@ -379,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func stopRecovery() {
         pauseConnection(); recovering = false
         reconnectTimer?.invalidate(); reconnectTimer = nil
-        statusItem?.button?.title = "RemoteApp · 已断开"
+        statusItem?.button?.title = "PaneFerry · 已断开"
         for host in windows.values { host.window.subtitle = "已断开，请从启动器重新连接。" }
     }
     private func beginClipboard(timeout: TimeInterval, reading: Bool = false) -> UUID {
@@ -393,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     private func finishClipboard() {
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil; clipboardBusy = false; clipboardReading = false
-        if connected { statusItem?.button?.title = "RemoteApp · 已连接" }
+        if connected { statusItem?.button?.title = "PaneFerry · 已连接" }
         let queued = clipboardDeferred; clipboardDeferred.removeAll()
         for message in queued { send(message) }
     }
@@ -406,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return type != "controller.paste" || replacement
             }
         }
-        NSSound.beep(); finishClipboard(); statusItem?.button?.title = "RemoteApp · 剪贴板操作失败"
+        NSSound.beep(); finishClipboard(); statusItem?.button?.title = "PaneFerry · 剪贴板操作失败"
     }
     private func pasteController(_ window: UInt32) {
         do {
@@ -417,7 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case .bundle(let payload):
                 guard capabilities.contains("clipboard.bundle") else { throw ClipboardFailure.unsupported }
                 let job = beginClipboard(timeout: 310); let transfer = bulk
-                statusItem?.button?.title = "RemoteApp · 正在传输剪贴板"
+                statusItem?.button?.title = "PaneFerry · 正在传输剪贴板"
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     let result = Result { try transfer.upload(payload) }
                     DispatchQueue.main.async {
@@ -472,7 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return
         }
-        if type == "video.ready" { statusItem?.button?.title = "RemoteApp · H.264 视频"; return }
+        if type == "video.ready" { statusItem?.button?.title = "PaneFerry · H.264 视频"; return }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
@@ -490,10 +490,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if code == "window_unavailable" { return }
             if code == "session_controlled", recovering { connectionLost(); return }
             if ["session_expired", "session_exited"].contains(code) {
-                stopRecovery(); statusItem?.button?.title = "RemoteApp · 会话已结束"; return
+                stopRecovery(); statusItem?.button?.title = "PaneFerry · 会话已结束"; return
             }
             if ["controller_text_failed", "clipboard_copy_failed", "clipboard_cut_failed", "clipboard_cut_unavailable"].contains(code) {
-                statusItem?.button?.title = "RemoteApp · 输入或剪贴板失败"
+                statusItem?.button?.title = "PaneFerry · 输入或剪贴板失败"
                 if code == "controller_text_failed" { NSSound.beep() } else { clipboardFailed() }; return
             }
             if handshakeTimer != nil { stopRecovery() }
@@ -504,7 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let session = session, session != id { return }
             session = id; recovering = false; reconnectAttempt = 0
             reconnectTimer?.invalidate(); reconnectTimer = nil; handshakeTimer?.invalidate(); handshakeTimer = nil
-            statusItem?.button?.title = "RemoteApp · 已连接"
+            statusItem?.button?.title = "PaneFerry · 已连接"
         }
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
         guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
@@ -513,13 +513,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let state = object["state"] as? String ?? "unavailable"
             switch state {
             case "ready": desktopInputNotice = nil
-            case "pending": desktopInputNotice = "请在 Ubuntu 确认 LAN RemoteApp Agent 控制授权，并记住本次选择"
+            case "pending": desktopInputNotice = "请在 Ubuntu 确认 窗渡 PaneFerry Agent 控制授权，并记住本次选择"
             case "denied": desktopInputNotice = "Ubuntu 已取消控制授权；重新连接可再次申请"
             case "paused": desktopInputNotice = "Ubuntu 暂停了输入控制，请检查远端锁屏状态"
             default: desktopInputNotice = "Ubuntu 输入授权连接不可用，请重新连接"
             }
             for host in windows.values { host.inputNotice = desktopInputNotice }
-            statusItem?.button?.title = desktopInputNotice == nil ? "RemoteApp · 已连接" : "RemoteApp · 等待 Ubuntu 授权"
+            statusItem?.button?.title = desktopInputNotice == nil ? "PaneFerry · 已连接" : "PaneFerry · 等待 Ubuntu 授权"
             return
         }
         if type == "clipboard.data" {
@@ -545,7 +545,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("LAN RemoteApp/Clipboard")
             let urls = controllerClipboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
             let pins = Set(urls.filter { $0.path.hasPrefix(root.path + "/") }.compactMap { $0.path.dropFirst(root.path.count + 1).split(separator: "/").first.map(String.init) })
-            statusItem?.button?.title = "RemoteApp · 正在接收剪贴板"
+            statusItem?.button?.title = "PaneFerry · 正在接收剪贴板"
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result { try transfer.download(transferID, into: root, protecting: pins) }
                 DispatchQueue.main.async {
@@ -573,7 +573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "session.exited" {
             stopRecovery()
             for host in windows.values { host.closeLocally() }; windows.removeAll()
-            statusItem?.button?.title = "RemoteApp · 应用已退出"; return
+            statusItem?.button?.title = "PaneFerry · 应用已退出"; return
         }
         guard let number = unsignedInteger(object["window_id"]), number <= UInt64(UInt32.max) else { return }
         let id = UInt32(number)
@@ -590,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let video = object["codec"] as? String == "h264"
             let mode = video ? "H.264 视频" : (object["video_error"] == nil ? "PNG 图片" : "编码不可用 · PNG 回退")
             if host.mediaMode != mode { host.mediaMode = mode; host.updateSubtitle() }
-            statusItem?.button?.title = "RemoteApp · " + mode
+            statusItem?.button?.title = "PaneFerry · " + mode
         default: break
         }
     }

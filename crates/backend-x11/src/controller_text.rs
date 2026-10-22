@@ -152,7 +152,7 @@ impl Backend {
         }
     }
     pub fn commit_text(&mut self, window_id: u32, text: String) -> Result<()> {
-        remoteapp_protocol::validate_text(&text)?;
+        paneferry_protocol::validate_text(&text)?;
         let offers = [
             "UTF8_STRING",
             "TEXT",

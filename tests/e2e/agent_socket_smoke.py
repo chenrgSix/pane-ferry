@@ -2,8 +2,8 @@
 """Cloud-only protocol/permission smoke test; does NOT claim GUI interoperability."""
 import json, os, pathlib, socket, subprocess, tempfile, time
 root=pathlib.Path(__file__).resolve().parents[2]
-exe=root/'target/debug/remoteapp-agent'
-with tempfile.TemporaryDirectory(prefix='remoteapp-test-') as tmp:
+exe=root/'target/debug/paneferry-agent'
+with tempfile.TemporaryDirectory(prefix='paneferry-test-') as tmp:
     home=pathlib.Path(tmp); config=home/'.config/lan-remoteapp'; config.mkdir(parents=True)
     (config/'apps.json').write_text(json.dumps([dict(id='approved',name='Approved',executable='/usr/bin/true',argv=[])]))
     proc=subprocess.Popen([str(exe),'serve'],env={**os.environ,'HOME':tmp,'XDG_DATA_HOME':str(home/'data'),'XDG_DATA_DIRS':str(home/'data')},stderr=subprocess.PIPE)

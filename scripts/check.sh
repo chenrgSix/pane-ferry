@@ -20,7 +20,7 @@ if [[ $(uname -s) == Darwin ]]; then
   python3 tests/e2e/automatic_reconnect_smoke.py
   python3 tests/e2e/native_transport_smoke.py
 else
-  cargo build -p remoteapp-agent
+  cargo build -p paneferry-agent
   if command -v xvfb-run >/dev/null; then
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
   fi

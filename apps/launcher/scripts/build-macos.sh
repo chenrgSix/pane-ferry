@@ -5,9 +5,9 @@ if [[ "$(uname -s)" != Darwin ]]; then echo "需要 macOS 和 Xcode Command Line
 ../mac-windowhost/scripts/build-app.sh
 ../mac-node/build-app.sh
 mkdir -p src-tauri/resources
-ditto ../mac-windowhost/dist/RemoteAppWindowHost.app src-tauri/resources/RemoteAppWindowHost.app
-ditto ../mac-node/dist/RemoteAppNode.app src-tauri/resources/RemoteAppNode.app
-cargo build --manifest-path ../../Cargo.toml --release -p remoteapp-network
-install -m 755 ../../target/release/remoteapp-network src-tauri/resources/remoteapp-network
+ditto ../mac-windowhost/dist/PaneFerryWindowHost.app src-tauri/resources/PaneFerryWindowHost.app
+ditto ../mac-node/dist/PaneFerryNode.app src-tauri/resources/PaneFerryNode.app
+cargo build --manifest-path ../../Cargo.toml --release -p paneferry-network
+install -m 755 ../../target/release/paneferry-network src-tauri/resources/paneferry-network
 npm ci
 npm run tauri -- build

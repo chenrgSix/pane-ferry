@@ -64,10 +64,10 @@ def instrument_network(destination):
 
 
 def instrument_mac(destination, bridge, control_path=None):
-    original = ROOT / 'apps/mac-windowhost/Sources/RemoteAppWindowHost'
+    original = ROOT / 'apps/mac-windowhost/Sources/PaneFerryWindowHost'
     shutil.copytree(original, destination)
     main = destination / 'main.swift'
-    text = replace(main.read_text(), '".local/bin/remoteapp-agent bridge"]', json.dumps(bridge) + ']')
+    text = replace(main.read_text(), '".local/bin/paneferry-agent bridge"]', json.dumps(bridge) + ']')
     if control_path:
         text = replace(text, 'SSHAuthentication.configure(process, host: options.host, user: options.user, port: options.port)',
                        json.dumps(['-S', control_path, '-oBatchMode=yes']))
@@ -173,7 +173,7 @@ def main():
     parser.add_argument('--port', type=int, default=22)
     parser.add_argument('--control-path', help='existing authenticated SSH master, including for test orchestration')
     parser.add_argument('--transport', choices=('ssh', 'quic'), default='ssh')
-    parser.add_argument('--network', type=Path, default=ROOT / 'target/release/remoteapp-network',
+    parser.add_argument('--network', type=Path, default=ROOT / 'target/release/paneferry-network',
                         help='local release QUIC binary; used only with --transport quic')
     parser.add_argument('--width', type=int, default=2560)
     parser.add_argument('--height', type=int, default=1664)
@@ -188,20 +188,20 @@ def main():
     assert 0 < args.port < 65536 and 1 <= args.samples <= 70
     assert 320 <= args.width <= 4096 and 128 <= args.height <= 2160 and args.width * args.height <= 8_000_000
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    ssh = ['/usr/bin/ssh', '-F', '/dev/null', '-S', args.control_path or '~/.ssh/lan-remoteapp-%C', '-T',
+    ssh = ['/usr/bin/ssh', '-F', '/dev/null', '-S', args.control_path or '~/.ssh/paneferry-%C', '-T',
            '-oBatchMode=yes', '-oStrictHostKeyChecking=yes', '-oConnectTimeout=8',
            '-oForwardAgent=no', '-oClearAllForwardings=yes', '-p', str(args.port), '-l', args.user, '--', args.host]
 
     def remote_run(argv, **kwargs):
         return subprocess.run(ssh + [shlex.join(argv)], check=True, **kwargs)
 
-    remote_dir = remote_run(['mktemp', '-d', '/tmp/remoteapp-end-to-end-XXXXXX'],
+    remote_dir = remote_run(['mktemp', '-d', '/tmp/paneferry-end-to-end-XXXXXX'],
                             capture_output=True, text=True, timeout=15).stdout.strip()
-    assert re.fullmatch('/tmp/remoteapp-end-to-end-[A-Za-z0-9]+', remote_dir)
+    assert re.fullmatch('/tmp/paneferry-end-to-end-[A-Za-z0-9]+', remote_dir)
     manager = None
     network = None
     try:
-        with tempfile.TemporaryDirectory(prefix='remoteapp-end-to-end-', dir='/tmp') as temporary:
+        with tempfile.TemporaryDirectory(prefix='paneferry-end-to-end-', dir='/tmp') as temporary:
             scratch = Path(temporary)
             agent_source = scratch / 'agent-source'
             for name in ('Cargo.toml', 'Cargo.lock'):
@@ -222,20 +222,20 @@ def main():
             print('Building isolated Ubuntu timing probe...', flush=True)
             remote_run(['tar', 'xzf', '-', '-C', remote_dir], input=archive.getvalue(), timeout=30)
             cargo_target = args.remote_build_cache or remote_dir + '/target'
-            packages = ['-p', 'remoteapp-agent']
+            packages = ['-p', 'paneferry-agent']
             if args.transport == 'quic':
-                packages += ['-p', 'remoteapp-network']
+                packages += ['-p', 'paneferry-network']
             remote_run(['/usr/bin/env', 'CARGO_TARGET_DIR=' + cargo_target, 'cargo', 'build', '--release',
                         '--locked', '--offline', '--manifest-path', remote_dir + '/source/Cargo.toml',
                         *packages], stdout=subprocess.DEVNULL, timeout=180)
-            agent = cargo_target + '/release/remoteapp-agent'
+            agent = cargo_target + '/release/paneferry-agent'
             home = remote_dir + '/home'
             command = ['/usr/bin/python3', remote_dir + '/source/tests/performance/remote.py',
                        '--agent', agent, '--home', home, '--width', str(args.width), '--height', str(args.height)]
             if args.animated:
                 command.append('--animated')
             if args.transport == 'quic':
-                command += ['--network', cargo_target + '/release/remoteapp-network']
+                command += ['--network', cargo_target + '/release/paneferry-network']
             manager = subprocess.Popen(ssh + [shlex.join(command)], stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             ready = json.loads(manager.stdout.readline())
@@ -266,12 +266,12 @@ def main():
             bridge = shlex.join(['/usr/bin/env', 'HOME=' + home, agent, 'bridge'])
             mac_source = scratch / 'mac-source'
             instrument_mac(mac_source, bridge, args.control_path)
-            bundle = scratch / 'RemoteAppLatencyProbe.app'
+            bundle = scratch / 'PaneFerryLatencyProbe.app'
             (bundle / 'Contents/MacOS').mkdir(parents=True)
-            binary = bundle / 'Contents/MacOS/RemoteAppLatencyProbe'
+            binary = bundle / 'Contents/MacOS/PaneFerryLatencyProbe'
             (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps(dict(
-                CFBundleIdentifier='local.lanremoteapp.latency-probe', CFBundleName='RemoteApp Latency Probe',
-                CFBundleExecutable='RemoteAppLatencyProbe', CFBundlePackageType='APPL',
+                CFBundleIdentifier='local.lanremoteapp.latency-probe', CFBundleName='PaneFerry Latency Probe',
+                CFBundleExecutable='PaneFerryLatencyProbe', CFBundlePackageType='APPL',
                 NSHighResolutionCapable=True, LSMinimumSystemVersion='12.0')))
             print('Building actual AppKit host with timing hooks...', flush=True)
             modules = args.mac_module_cache or scratch / 'modules'

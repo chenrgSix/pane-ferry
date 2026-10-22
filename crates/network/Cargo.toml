@@ -1,5 +1,5 @@
 [package]
-name = "remoteapp-network"
+name = "paneferry-network"
 version.workspace = true
 edition.workspace = true
 
@@ -8,7 +8,7 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
-remoteapp-core = { path = "../core" }
+paneferry-core = { path = "../core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time", "sync", "process", "signal"] }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }

@@ -5,8 +5,8 @@ import subprocess
 import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[2]
-source = root / 'apps/mac-windowhost/Sources/RemoteAppWindowHost'
-with tempfile.TemporaryDirectory(prefix='remoteapp-input-', dir='/tmp') as directory:
+source = root / 'apps/mac-windowhost/Sources/PaneFerryWindowHost'
+with tempfile.TemporaryDirectory(prefix='paneferry-input-', dir='/tmp') as directory:
     scratch = pathlib.Path(directory)
     binary = scratch / 'controller-input-smoke'
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),

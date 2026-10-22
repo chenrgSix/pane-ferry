@@ -1,8 +1,8 @@
 //! Bounded output worker: PNG encoding and a slow reader must not stall X11 input.
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use remoteapp_backend_x11::CapturedImage;
-use remoteapp_protocol::Window;
+use paneferry_backend_x11::CapturedImage;
+use paneferry_protocol::Window;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
@@ -239,7 +239,7 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
         value["seq"] = json!(sequence);
         value["session_id"] = json!(session);
         let mut bytes = serde_json::to_vec(&value)?;
-        if bytes.len() + 1 > remoteapp_protocol::MAX_LINE {
+        if bytes.len() + 1 > paneferry_protocol::MAX_LINE {
             bail!("outgoing frame too large")
         }
         bytes.push(b'\n');

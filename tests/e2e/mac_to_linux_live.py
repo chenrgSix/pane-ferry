@@ -37,9 +37,9 @@ while True:
 assert info['sharing_enabled'] and info['permissions']['screen_recording'], 'user sharing/recording permission required'
 assert args.capture_only or info['permissions']['accessibility'], 'user accessibility permission required'
 apps=request(args.peer,'app.list')['apps']
-assert not any('WindowHosts' in a.get('id','') or a.get('name')=='LAN RemoteApp WindowHost' for a in apps)
+assert not any('WindowHosts' in a.get('id','') or a.get('name')=='窗渡 PaneFerry WindowHost' for a in apps)
 windows=request(args.peer,'window.list')['windows']
-targets=[w for w in windows if w['title']=='LAN RemoteApp Mac 发布测试' and w['name']=='RemoteApp Mac Test' and not w.get('minimized')]
+targets=[w for w in windows if w['title']=='窗渡 PaneFerry Mac 发布测试' and w['name']=='PaneFerry Mac Test' and not w.get('minimized')]
 assert len(targets)==1, 'expected exactly one visible dedicated Mac fixture'
 target=targets[0]
 response=request(args.peer,'app.launch','session.started',app_id=target['id'],request_id=uuid.uuid4().hex,backend='native',attach=False)

@@ -51,7 +51,7 @@ class VideoDecoder:
         stride = (width * 3 + 3) & ~3
         return sample.get_buffer().extract_dup(20 * stride + 20 * 3, 1)[0]
     def close(self): self.pipeline.set_state(self.Gst.State.NULL)
-with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
+with tempfile.TemporaryDirectory(prefix='paneferry-latency-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
     config.mkdir(parents=True)
@@ -113,7 +113,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-latency-') as temporary:
                 send(type='video.enable', codec='h264'); until('video.ready')
             send(type='app.launch', app_id='latency', request_id='measure', backend='native')
             until('session.started')
-            _, window, _ = until('window.created', lambda event: event['title'] == 'RemoteAppLatencyFixture')
+            _, window, _ = until('window.created', lambda event: event['title'] == 'PaneFerryLatencyFixture')
             wid = window['window_id']
             assert (window['width'], window['height']) == (2560, 1664), window
             until('frame', lambda event: event['window_id'] == wid)

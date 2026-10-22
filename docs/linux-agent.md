@@ -2,14 +2,14 @@
 
 普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session；应用发现另使用系统 Python GI、GIO/GioUnix、GTK3 和 GdkPixbuf。不会自动安装、启用 linger、改 SSH 配置或防火墙。
 
-HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-proxy` 和当前用户已登录的桌面总线；`remoteapp-agent check` 会报告代理是否可用。该策略只开放 Secret Service，详见[应用启动兼容](application-discovery.md#启动)。
+HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-proxy` 和当前用户已登录的桌面总线；`paneferry-agent check` 会报告代理是否可用。该策略只开放 Secret Service，详见[应用启动兼容](application-discovery.md#启动)。
 
 ## 手工安装
 
-1. 编译：`cargo build --release -p remoteapp-agent`。
-2. 将二进制安装到 `~/.local/bin/remoteapp-agent`（完整产品安装还包括 remoteapp-network 和 GTK 管理界面）。
+1. 编译：`cargo build --release -p paneferry-agent`。
+2. 将二进制安装到 `~/.local/bin/paneferry-agent`（完整产品安装还包括 paneferry-network 和 GTK 管理界面）。
 3. 默认发现当前用户已安装的桌面应用。可选的 `~/.config/lan-remoteapp/apps.json` 用于自定义入口，格式参考 `deploy/apps.example.json`；审核其中的绝对路径及 argv。没有此文件也能运行。应用仍具有当前用户权限，目录不是 OS 沙箱。
-4. 前台运行 `~/.local/bin/remoteapp-agent serve`。或将 service 文件放入 `~/.config/systemd/user/`，由用户自行执行 `systemctl --user daemon-reload` 和 `systemctl --user enable --now remoteapp-agent`。
+4. 前台运行 `~/.local/bin/paneferry-agent serve`。或将 service 文件放入 `~/.config/systemd/user/`，由用户自行执行 `systemctl --user daemon-reload` 和 `systemctl --user enable --now remoteapp-agent.service`。
 5. 两端打开管理界面，用设备邀请和地址完成配对后连接，见[统一传输指南](native-transport.md)。
 
 状态目录 `~/.local/state/lan-remoteapp` 权限 0700；agent.sock 0600。Xvfb 使用共享用户 Xauthority 中每显示独立随机 cookie，关闭 TCP。发布器只提供私有 Unix socket；网络组件监听 UDP 42424，通过 QUIC 设备证书验证对端，不需要 SSH 账号。
@@ -56,7 +56,7 @@ Firefox Snap 可选用 `deploy/firefox-x11.sh` 作为经过审核的固定 execu
 
 ### 原桌面统一输入授权
 
-Ubuntu Wayland / Xwayland 原桌面的键鼠由 **LAN RemoteApp Agent** 统一申请和管理。首次接管时，在 Ubuntu 的系统窗口确认控制授权并保留“记住”选项；授权的是同一 Ubuntu 用户的 Agent。之后新增应用、关闭控制端窗口、网络断线和重新连接，都复用 Agent 的同一个输入会话，不按应用另弹分享窗口。应用列表发现、只准备会话（`attach:false`）和独立 Xvfb 应用不申请原桌面授权。
+Ubuntu Wayland / Xwayland 原桌面的键鼠由 **窗渡 PaneFerry Agent** 统一申请和管理。首次接管时，在 Ubuntu 的系统窗口确认控制授权并保留“记住”选项；授权的是同一 Ubuntu 用户的 Agent。之后新增应用、关闭控制端窗口、网络断线和重新连接，都复用 Agent 的同一个输入会话，不按应用另弹分享窗口。应用列表发现、只准备会话（`attach:false`）和独立 Xvfb 应用不申请原桌面授权。
 
 Agent 使用 RemoteDesktop Portal v2 的 `persist_mode=2` 与系统 libei，申请键盘和指针；不申请 ScreenCast 或系统剪贴板，不扩大全部窗口的捕获范围。原有 XComposite 采集、H.264 over QUIC 和自有双向剪贴板通道保持原样。所有输入仍先核验所选窗口、进程身份和窗口内坐标，然后才交给共用输入连接。普通 Xorg / 独立 Xvfb 继续使用 XTEST。
 

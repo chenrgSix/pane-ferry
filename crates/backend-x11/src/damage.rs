@@ -1,6 +1,6 @@
 //! Coalesced dirty notifications for already-authorized visible windows only.
 use anyhow::Result;
-use remoteapp_protocol::Window;
+use paneferry_protocol::Window;
 use std::collections::HashMap;
 use x11rb::{
     connection::Connection,

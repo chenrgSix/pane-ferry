@@ -14,9 +14,9 @@ import threading
 import time
 
 root = Path(__file__).resolve().parents[2]
-source = root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
-binary = root/'target/debug/remoteapp-network'
-subprocess.run(['cargo','build','-p','remoteapp-network'],cwd=root,check=True)
+source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
+binary = root/'target/debug/paneferry-network'
+subprocess.run(['cargo','build','-p','paneferry-network'],cwd=root,check=True)
 with tempfile.TemporaryDirectory(prefix='rwn-native-',dir='/tmp') as directory:
     scratch=Path(directory); processes=[]; children=[]; sockets=[]
     def manage(state, **body):

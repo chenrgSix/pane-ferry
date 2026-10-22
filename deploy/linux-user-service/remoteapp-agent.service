@@ -1,9 +1,10 @@
 [Unit]
-Description=LAN RemoteApp user agent
+# Keep the unit identity stable when upgrading existing PaneFerry installations.
+Description=窗渡 PaneFerry user agent
 After=default.target
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/remoteapp-agent serve
+ExecStart=%h/.local/bin/paneferry-agent serve
 Restart=on-failure
 RestartSec=3
 UMask=0077

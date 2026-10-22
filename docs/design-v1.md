@@ -1,5 +1,5 @@
 ---
-title: "LAN RemoteApp｜跨平台无缝远程应用系统"
+title: "窗渡 PaneFerry｜跨平台无缝远程应用系统"
 subtitle: "技术设计方案 v1.0 · Ubuntu 26.04 → macOS 首发 · 2026-10-20"
 lang: zh-CN
 ---
@@ -29,7 +29,7 @@ lang: zh-CN
 
 ## 1.2 双向产品原则（2026-10-22 更新）
 
-Ubuntu → Mac 的基础链路打通后，下一阶段推进 Mac → Ubuntu，并统一为每台设备都能发布和接收应用的 LAN RemoteApp。
+Ubuntu → Mac 的基础链路打通后，下一阶段推进 Mac → Ubuntu，并统一为每台设备都能发布和接收应用的 窗渡 PaneFerry。
 
 - 每个平台只有一个产品安装包和管理入口，包含统一的本机服务与该平台所需的辅助组件；用户无需选择服务端版或客户端版。
 - 发布与接收是可同时启用的两项能力，不设置整机互斥的客户端/服务端模式。Mac 使用 Ubuntu 应用时，也能向 Ubuntu 发布自己的应用。
@@ -58,7 +58,7 @@ Ubuntu → Mac 的基础链路打通后，下一阶段推进 Mac → Ubuntu，�
                   QUIC/TLS（首期可先用 SSH）
                            │
   ┌────────────────────────┴───────────────────────────┐
-  │ Ubuntu 26.04 : user-level RemoteApp Agent         │
+  │ Ubuntu 26.04 : user-level PaneFerry Agent         │
   │ 设备注册 / 应用白名单 / 会话管理 / 策略验证          │
   │ LinuxX11Backend                                  │
   │ 独立 X11 显示会话 + Window Manager + GUI 应用     │
@@ -100,7 +100,7 @@ RDP/RAIL 是 Windows 应用发布的重要适配器，但给 Linux→Mac 做一�
 
 ## 4.1 启动与运行隔离
 
-- `remoteapp-agent` 以普通 Linux 用户的 `systemd --user` 服务运行；默认不使用 root、不要求停止本机 GNOME/Wayland。
+- `paneferry-agent` 以普通 Linux 用户的 `systemd --user` 服务运行；默认不使用 root、不要求停止本机 GNOME/Wayland。
 - 用户在 Mac 点图标后，Agent 从已批准应用目录中解析启动信息，创建/复用应用会话，分配唯一 `session_id` 和虚拟显示号。
 - 每个会话启动一个独立的 X11 显示环境（原型：Xvfb；后续根据 GPU 需求替换为适合的 Xorg 虚拟服务器）和轻量级窗口管理器。
 - 启动 GUI 程序时传入对应 `DISPLAY` 和隔离的会话环境；窗口在这个远端显示中绘制，不会出现在 Linux 本机当前桌面上。
@@ -249,7 +249,7 @@ Mac 启动图标
 # 10. 代码仓库建议结构
 
 ```text
-lan-remoteapp/
+paneferry/
 ├── apps/
 │   ├── launcher/                # Tauri 2 管理与应用列表
 │   ├── mac-windowhost/          # Swift AppKit, Metal, IME

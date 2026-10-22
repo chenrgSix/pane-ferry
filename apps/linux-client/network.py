@@ -28,8 +28,8 @@ def ensure():
     except (OSError, ValueError):
         pass
     info = request(None, 'node.info', local=True)
-    binary = Path.home() / '.local/bin/remoteapp-network'
-    agent = Path.home() / '.local/bin/remoteapp-agent'
+    binary = Path.home() / '.local/bin/paneferry-network'
+    agent = Path.home() / '.local/bin/paneferry-agent'
     process = subprocess.Popen([str(binary), 'serve', '--state', str(STATE / 'network'),
         '--publisher', str(STATE / 'agent.sock'), '--device-id', info['device_id'],
         '--name', info.get('name', 'Ubuntu'), '--bulk-agent', str(agent)],

@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use remoteapp_network::{
+use paneferry_network::{
     framing,
     service::{Config, Service},
 };
@@ -13,7 +13,7 @@ use tokio::{
 async fn main() {
     let failed = run().await.is_err();
     if failed {
-        eprintln!("remoteapp-network: operation failed (check pairing, address and local service)");
+        eprintln!("paneferry-network: operation failed (check pairing, address and local service)");
     }
     // Tokio's stdin read is not cancellable. A bridge may lose the network
     // while its parent keeps stdin open; don't let runtime shutdown wait for
@@ -84,7 +84,7 @@ async fn run() -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             };
             let output = async {
-                remoteapp_network::service::receive_bulk(&mut read, &mut tokio::io::stdout(), false)
+                paneferry_network::service::receive_bulk(&mut read, &mut tokio::io::stdout(), false)
                     .await
             };
             tokio::try_join!(input, output)?;

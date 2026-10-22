@@ -6,8 +6,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const EXECUTABLE: &str = "Contents/MacOS/RemoteAppWindowHost";
-const FALLBACK_ICON: &str = "Contents/Resources/RemoteApp.png";
+const EXECUTABLE: &str = "Contents/MacOS/PaneFerryWindowHost";
+const FALLBACK_ICON: &str = "Contents/Resources/PaneFerry.png";
 
 fn display_name(value: Option<&str>) -> String {
     let value: String = value
@@ -115,7 +115,7 @@ fn prepare_inner(
             "CFBundleIdentifier",
             &format!("io.lanremoteapp.host.{identity}"),
         ),
-        ("CFBundleExecutable", "RemoteAppWindowHost"),
+        ("CFBundleExecutable", "PaneFerryWindowHost"),
         ("CFBundlePackageType", "APPL"),
         ("CFBundleInfoDictionaryVersion", "6.0"),
         ("CFBundleVersion", "1"),
@@ -194,7 +194,7 @@ mod tests {
     use super::*;
     #[test]
     fn names_are_bundle_metadata_and_safe_paths_with_isolated_immutable_generations() {
-        let root = std::env::temp_dir().join(format!("remoteapp-bundle-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("paneferry-bundle-{}", std::process::id()));
         let source = root.join("source.app");
         private_directory(&source.join("Contents/MacOS")).unwrap();
         private_directory(&source.join("Contents/Resources")).unwrap();
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn cached_bundles_reject_symlink_retargeting_without_writing_outside() {
         let root =
-            std::env::temp_dir().join(format!("remoteapp-bundle-links-{}", std::process::id()));
+            std::env::temp_dir().join(format!("paneferry-bundle-links-{}", std::process::id()));
         let source = root.join("source.app");
         private_directory(&source.join("Contents/MacOS")).unwrap();
         private_directory(&source.join("Contents/Resources")).unwrap();

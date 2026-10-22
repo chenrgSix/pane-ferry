@@ -12,7 +12,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 args = parser.parse_args()
-with tempfile.TemporaryDirectory(prefix='remoteapp-stale-') as temporary:
+with tempfile.TemporaryDirectory(prefix='paneferry-stale-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
     config.mkdir(parents=True)

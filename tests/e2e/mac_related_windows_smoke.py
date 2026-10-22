@@ -62,7 +62,7 @@ class Peer:
 def bundle(path, identifier, executable, accessory=False):
     (path/'Contents/MacOS').mkdir(parents=True, exist_ok=True)
     (path/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleIdentifier=identifier,
-        CFBundleName='RemoteApp Related Test', CFBundleDisplayName='RemoteApp Related Test',
+        CFBundleName='PaneFerry Related Test', CFBundleDisplayName='PaneFerry Related Test',
         CFBundleExecutable=executable, CFBundlePackageType='APPL', LSUIElement=accessory,
         NSHighResolutionCapable=True)))
     return path/'Contents/MacOS'/executable
@@ -94,7 +94,7 @@ try:
     app = scratch/'Fixture.app'
     executable = bundle(app, 'dev.lra.related.fixture', 'Fixture')
     helper = bundle(app/'Contents/Helpers/Preview.app', 'dev.lra.related.fixture.helper', 'Preview', True)
-    source = root/'apps/mac-node/Sources/RemoteAppNode'
+    source = root/'apps/mac-node/Sources/PaneFerryNode'
     node = bundle(scratch/'Node.app', 'dev.lra.related.node', 'Node', True)
     cache = scratch/'modules'
     subprocess.run(['swiftc', '-parse-as-library', '-module-cache-path', str(cache), str(root/'tests/fixtures/MacRelatedWindowFixture.swift'), '-o', str(executable)], check=True, timeout=120)

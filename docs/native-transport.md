@@ -1,10 +1,10 @@
 # 统一传输与设备配对
 
-两端各安装一个 LAN RemoteApp。Rust `remoteapp-network` 是产品内的公共网络组件，每个用户实例同时监听和主动连接；没有另一个客户端版或服务端版。平台发布器继续使用私有 Unix socket，AppKit / GTK 接收器继续使用同一套窗口、输入、剪贴板和恢复协议。
+两端各安装一个 窗渡 PaneFerry。Rust `paneferry-network` 是产品内的公共网络组件，每个用户实例同时监听和主动连接；没有另一个客户端版或服务端版。平台发布器继续使用私有 Unix socket，AppKit / GTK 接收器继续使用同一套窗口、输入、剪贴板和恢复协议。
 
 ## 使用
 
-1. 更新两端安装包并打开 LAN RemoteApp。网络组件随管理界面启动，默认监听 IPv4 UDP 42424；不会改防火墙或路由器，也不要求 Mac 开启 SSH 服务。目标是可信局域网直连，不提供公网穿透。
+1. 更新两端安装包并打开 窗渡 PaneFerry。网络组件随管理界面启动，默认监听 IPv4 UDP 42424；不会改防火墙或路由器，也不要求 Mac 开启 SSH 服务。目标是可信局域网直连，不提供公网穿透。
 2. 在一端生成配对邀请，通过可信方式传给另一端。邀请包含设备证书、公有设备标识及随机一次性秘密，五分钟内有效；新邀请替换旧邀请，重启会失效。不要把邀请贴入日志或仓库。
 3. 另一端填写对方的局域网 `IP:42424` 和邀请，点击配对。双方均保存配对关系，一条 QUIC 连接支持两端同时发起应用请求。首次共享仍需本机共享开关及各平台权限。
 4. 选择已配对的 QUIC 设备读取应用、打开或恢复窗口。可以同时打开不同设备的窗口；切换管理列表不改变已有窗口的归属。
@@ -23,7 +23,7 @@ flowchart LR
   P --> W[本机应用与窗口]
 ```
 
-本机兼容边缘继续使用 RWP/1 JSON Lines。`remoteapp-transport::Target` 只包含本机网络组件提供的私有设备路由，统一控制握手、响应解析、长度检查和会话恢复语义。原生路由固定绑定设备 UUID，不从远端响应中接受 socket 路径或命令。
+本机兼容边缘继续使用 RWP/1 JSON Lines。`paneferry-transport::Target` 只包含本机网络组件提供的私有设备路由，统一控制握手、响应解析、长度检查和会话恢复语义。原生路由固定绑定设备 UUID，不从远端响应中接受 socket 路径或命令。
 
 网络使用 ALPN `lan-remoteapp/2` 和 Quinn 可靠双向流。每个逻辑 RWP 会话先建立高优先级控制流；发布端为每个窗口建立独立视频流，上传/下载另用低优先级流。同一设备共享连接，不同设备分别连接、独立建立连接锁；当前最多保存 32 个配对，每个设备最多 4 条活动连接用于连接交接。
 
@@ -45,18 +45,18 @@ TLS 客户端验证邀请/已保存的服务端证书，并再次比较精确证
 
 ## 开发与验证
 
-公共组件：`cargo build -p remoteapp-network`。Mac 打包脚本会将网络组件与现有两个辅助 App 一起打包；Linux 包也包含相同网络组件及 GTK 配对入口。无需额外安装一个网络程序。
+公共组件：`cargo build -p paneferry-network`。Mac 打包脚本会将网络组件与现有两个辅助 App 一起打包；Linux 包也包含相同网络组件及 GTK 配对入口。无需额外安装一个网络程序。
 
 隔离运行可用：
 
 ```sh
-remoteapp-network serve --state /tmp/lra-test/network \
+paneferry-network serve --state /tmp/lra-test/network \
   --publisher /tmp/lra-test/publisher.sock --listen 127.0.0.1:42424
 ```
 
 `status` / `invite` 读取对应 `--state` 的本机管理 socket；`pair` / `revoke` / `address` 从 stdin 读取 JSON，邀请不得放命令行。生产地址和测试状态分开，测试结束只停止自建服务。开发者不得为了运行测试自动开启用户的共享或修改系统权限。
 
-`cargo test -p remoteapp-network` 覆盖三节点双向调用、邀请复用拒绝、证书不匹配、设备撤销隔离、媒体顺序及失效帧过滤。`native_routes_smoke.py` 使用实际 Python Wire 和三个本机 QUIC 节点验证双向调用、多设备隔离、单设备撤销和旧路由记录不会回退；`native_transport_smoke.py` 使用实际 AppKit 接收器和独立测试发布器验证恢复、合成 H.264 关键帧/P 帧解码和二进制文件往返。完整门禁为 `scripts/check.sh`。
+`cargo test -p paneferry-network` 覆盖三节点双向调用、邀请复用拒绝、证书不匹配、设备撤销隔离、媒体顺序及失效帧过滤。`native_routes_smoke.py` 使用实际 Python Wire 和三个本机 QUIC 节点验证双向调用、多设备隔离、单设备撤销和旧路由记录不会回退；`native_transport_smoke.py` 使用实际 AppKit 接收器和独立测试发布器验证恢复、合成 H.264 关键帧/P 帧解码和二进制文件往返。完整门禁为 `scripts/check.sh`。
 
 2026-10-22 在删除产品 SSH 前后均完成真实 Mac / Ubuntu 双向 QUIC 回归；删除后的业务阶段关闭任务专用 SSH 连接，双向并行保持 60 秒。反向使用真实 Mac 屏幕采集和 Ubuntu GTK/Xvfb，正向使用真实 GTK 编辑器和 AppKit 接收器。输入、剪贴板、H.264、恢复和打包范围见[QUIC 独立链路验收](quic-only-validation.md)。
 

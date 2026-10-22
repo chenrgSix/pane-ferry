@@ -12,8 +12,8 @@ import uuid
 root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root/'apps/linux-client'))
 import wire
-binary = root/'target/debug/remoteapp-network'
-subprocess.run(['cargo', 'build', '-p', 'remoteapp-network'], cwd=root, check=True)
+binary = root/'target/debug/paneferry-network'
+subprocess.run(['cargo', 'build', '-p', 'paneferry-network'], cwd=root, check=True)
 with tempfile.TemporaryDirectory(prefix='rwn-routes-', dir='/tmp') as temporary:
     state = Path(temporary)
     processes, listeners = [], []

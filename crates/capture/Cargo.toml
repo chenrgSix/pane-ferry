@@ -1,8 +1,8 @@
 [package]
-name = "remoteapp-capture"
+name = "paneferry-capture"
 version.workspace = true
 edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 png.workspace = true
-remoteapp-protocol = {path="../protocol"}
+paneferry-protocol = {path="../protocol"}

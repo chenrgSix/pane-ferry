@@ -1,7 +1,7 @@
 use crate::{process_identity, ProcessIdentity};
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use remoteapp_core::{App, SessionBus};
+use paneferry_core::{App, SessionBus};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -57,7 +57,7 @@ impl DesktopApp {
         Ok(entry)
     }
     fn validate(&self) -> Result<()> {
-        if !remoteapp_protocol::identifier(&self.id)
+        if !paneferry_protocol::identifier(&self.id)
             || !self.id.starts_with("desktop-")
             || self.name.is_empty()
             || self.name.len() > 1024
@@ -229,7 +229,7 @@ impl RunningWindow {
             executable: self.identity.executable.to_string_lossy().into_owned(),
             argv: vec![],
             session_bus: SessionBus::Isolated,
-            existing: Some(remoteapp_core::ExistingWindow {
+            existing: Some(paneferry_core::ExistingWindow {
                 display: self.desktop.display,
                 xauthority: self.desktop.authority.to_string_lossy().into_owned(),
                 process_id: self.identity.pid,
@@ -254,7 +254,7 @@ pub fn running(
             continue;
         }
         let Ok(windows) =
-            remoteapp_backend_x11::desktop_windows(desktop.display, &desktop.authority)
+            paneferry_backend_x11::desktop_windows(desktop.display, &desktop.authority)
         else {
             continue;
         };

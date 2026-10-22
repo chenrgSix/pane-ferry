@@ -1,6 +1,6 @@
 #!/bin/sh
 # Optional approved-app wrapper for Firefox, including its confined Snap build.
-# Run only inside a RemoteApp-owned X11 session. No desktop settings are changed.
+# Run only inside a PaneFerry-owned X11 session. No desktop settings are changed.
 set -eu
 display_number=${DISPLAY#:}
 case "$display_number" in ''|*[!0-9]*) echo 'A local numeric DISPLAY is required.' >&2; exit 2 ;; esac

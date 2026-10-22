@@ -1,8 +1,8 @@
 //! One input-only portal/EIS connection for the Agent's graphical desktop.
 //! A disconnected controller releases its inputs, not the shared permission.
 use anyhow::{bail, Context, Result};
-use remoteapp_backend_x11::DesktopInput;
-use remoteapp_protocol::read_line_limit;
+use paneferry_backend_x11::DesktopInput;
+use paneferry_protocol::read_line_limit;
 use serde_json::{json, Value};
 use std::{
     io::{BufReader, Write},

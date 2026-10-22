@@ -14,7 +14,7 @@ import tempfile
 import time
 
 if '--private-bus' not in sys.argv:
-    with tempfile.TemporaryDirectory(prefix='remoteapp-private-bus-') as folder:
+    with tempfile.TemporaryDirectory(prefix='paneferry-private-bus-') as folder:
         config = Path(folder)/'session.conf'
         config.write_text('''<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
 "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
@@ -273,7 +273,7 @@ class Helper:
         assert self.process.returncode == 0 and 'Traceback' not in stderr, stderr
 
 
-with tempfile.TemporaryDirectory(prefix='remoteapp-portal-test-') as temporary:
+with tempfile.TemporaryDirectory(prefix='paneferry-portal-test-') as temporary:
     root = Path(temporary)
     fixture = FixturePortal()
     helper = Helper(root)

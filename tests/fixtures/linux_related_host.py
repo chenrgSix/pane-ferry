@@ -54,11 +54,11 @@ try:
     start(['openbox'],env,'openbox');time.sleep(.4)
     state=directory/'fixture.json'
     fixture=start(['/usr/bin/python3',str(root/'tests/e2e/discovery_fixture.py'),str(state)],env,'fixture')
-    start([str(root/'target/debug/remoteapp-agent'),'serve'],env,'agent')
+    start([str(root/'target/debug/paneferry-agent'),'serve'],env,'agent')
     publisher=home/'.local/state/lan-remoteapp/agent.sock'
     wait(lambda:ready(publisher,dict(type='hello',version=1)));wait(state.exists)
     network=directory/'network'
-    start([str(root/'target/debug/remoteapp-network'),'serve','--state',str(network),'--publisher',str(publisher),'--listen','0.0.0.0:0'],env,'network')
+    start([str(root/'target/debug/paneferry-network'),'serve','--state',str(network),'--publisher',str(publisher),'--listen','0.0.0.0:0'],env,'network')
     wait(lambda:ready(network/'control.sock',dict(op='status')))
     status=request(network/'control.sock',dict(op='status'))
     (directory/'ready.json').write_text(json.dumps(dict(status=status,state=str(state),display=display,fixture_pid=fixture.pid)))

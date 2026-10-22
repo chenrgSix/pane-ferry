@@ -11,7 +11,7 @@ gi.require_version('Gdk', '3.0')
 gi.require_version('GdkX11', '3.0')
 from gi.repository import Gtk, Gdk, GdkX11, GLib
 root = Path(sys.argv[1])
-window = Gtk.Window(title='RemoteApp rich clipboard fixture')
+window = Gtk.Window(title='PaneFerry rich clipboard fixture')
 window.set_default_size(500, 300)
 area = Gtk.DrawingArea(); area.set_can_focus(True); window.add(area)
 clipboard = Gdk.Atom.intern('CLIPBOARD', False)

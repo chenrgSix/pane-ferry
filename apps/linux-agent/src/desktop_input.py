@@ -1,4 +1,4 @@
-"""Private, persistent input-only portal broker, embedded in remoteapp-agent.
+"""Private, persistent input-only portal broker, embedded in paneferry-agent.
 
 No screen cast or portal clipboard is requested. The Agent validates target
 windows before sending coordinates/keycodes over this inherited private pipe.
@@ -108,7 +108,7 @@ class Eis:
         self.disconnected = False
         if not self.context:
             raise RuntimeError('libei context unavailable')
-        self.lib.ei_configure_name(self.context, b'LAN RemoteApp Agent')
+        self.lib.ei_configure_name(self.context, '窗渡 PaneFerry Agent'.encode('utf-8'))
         # libei takes ownership. Give it a duplicate; the caller closes the
         # descriptor received through Gio's UnixFDList on every path.
         if self.lib.ei_setup_backend_fd(self.context, os.dup(fd)) != 0:
@@ -249,7 +249,7 @@ class Portal:
         apps.mkdir(parents=True, exist_ok=True)
         executable = str(executable).replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%')
         atomic_write(apps / (APP_ID + '.desktop'), ('[Desktop Entry]\nType=Application\n'
-            'Name=LAN RemoteApp Agent\nNoDisplay=true\nIcon=preferences-desktop-remote-desktop\n'
+            'Name=窗渡 PaneFerry Agent\nNoDisplay=true\nIcon=preferences-desktop-remote-desktop\n'
             'Exec="' + executable + '" serve\n').encode())
         self.bus.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus',
             'NameOwnerChanged', '/org/freedesktop/DBus', PORTAL, Gio.DBusSignalFlags.NONE,

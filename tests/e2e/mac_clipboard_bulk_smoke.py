@@ -14,7 +14,7 @@ parser.add_argument('--peer', required=True)
 parser.add_argument('--state', required=True, type=Path)
 parser.add_argument('--network', required=True, type=Path)
 args = parser.parse_args()
-source = root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
+source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
 with tempfile.TemporaryDirectory(prefix='lra-quic-bulk-') as directory:
     scratch = Path(directory)
     files = ['SurfaceView.swift', 'ClipboardBundle.swift', 'ClipboardBulkTransfer.swift', 'RenderGeometry.swift']

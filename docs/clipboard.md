@@ -29,7 +29,7 @@ clipboard.bundle {window_id,request_id,transfer_id}  // 带 session_id、seq 的
 
 文本回包沿用 `clipboard.data`；旧客户端的 `clipboard.copy` / `clipboard.paste` 不变。新版客户端连接旧 Agent 时保留文字功能，不以物理按键替代未知的图片或文件接口。
 
-大内容通过同一配对设备的独立低优先级 QUIC 流传输；Linux 网络组件只调用固定的本机 `remoteapp-agent clipboard-upload` / `clipboard-download ID`。数据是最多 1 MiB 的 JSON manifest 行，随后按 manifest 顺序传输各普通文件的精确字节数。文件使用 64 KiB 缓冲流式读写；没有把二进制塞进画面 JSON 队列，复用已有 QUIC 设备连接。每个快照的随机 ID 由接收端生成，远端命令不插入文件名或任意路径。
+大内容通过同一配对设备的独立低优先级 QUIC 流传输；Linux 网络组件只调用固定的本机 `paneferry-agent clipboard-upload` / `clipboard-download ID`。数据是最多 1 MiB 的 JSON manifest 行，随后按 manifest 顺序传输各普通文件的精确字节数。文件使用 64 KiB 缓冲流式读写；没有把二进制塞进画面 JSON 队列，复用已有 QUIC 设备连接。每个快照的随机 ID 由接收端生成，远端命令不插入文件名或任意路径。
 
 manifest 包含 `kind: image|files` 和 `entries: [{path,size,directory}]`。只接受相对路径，拒绝绝对路径、空段、`..`、反斜杠、换行、重复条目、文件/目录冲突、缺失父目录和超过总大小的声明。收发双方检查长度、类型、条目数及中断流；未完成下载不会改写控制端剪贴板。
 

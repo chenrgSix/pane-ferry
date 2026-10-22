@@ -481,6 +481,94 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "paneferry-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "libc",
+ "paneferry-backend-x11",
+ "paneferry-core",
+ "paneferry-protocol",
+ "serde",
+ "serde_json",
+ "signal-hook",
+]
+
+[[package]]
+name = "paneferry-backend-x11"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "paneferry-capture",
+ "paneferry-protocol",
+ "png",
+ "serde_json",
+ "x11rb",
+]
+
+[[package]]
+name = "paneferry-capture"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "paneferry-protocol",
+ "png",
+]
+
+[[package]]
+name = "paneferry-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "paneferry-protocol",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "paneferry-network"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "libc",
+ "paneferry-core",
+ "quinn",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "paneferry-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "paneferry-transport"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,94 +710,6 @@ dependencies = [
  "time",
  "x509-parser",
  "yasna",
-]
-
-[[package]]
-name = "remoteapp-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "libc",
- "remoteapp-backend-x11",
- "remoteapp-core",
- "remoteapp-protocol",
- "serde",
- "serde_json",
- "signal-hook",
-]
-
-[[package]]
-name = "remoteapp-backend-x11"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libc",
- "png",
- "remoteapp-capture",
- "remoteapp-protocol",
- "serde_json",
- "x11rb",
-]
-
-[[package]]
-name = "remoteapp-capture"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "png",
- "remoteapp-protocol",
-]
-
-[[package]]
-name = "remoteapp-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "remoteapp-protocol",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "remoteapp-network"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "libc",
- "quinn",
- "rcgen",
- "remoteapp-core",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "remoteapp-protocol"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "remoteapp-transport"
-version = "0.1.0"
-dependencies = [
- "base64",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "uuid",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 //! Private disk snapshots and a bounded binary stream over a dedicated QUIC reliable stream.
 use anyhow::{bail, Context, Result};
-use remoteapp_protocol::{clipboard::*, identifier, read_line_limit};
+use paneferry_protocol::{clipboard::*, identifier, read_line_limit};
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, Read, Write},

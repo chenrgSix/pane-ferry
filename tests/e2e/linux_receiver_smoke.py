@@ -71,7 +71,7 @@ class PublisherFixture:
 stop=threading.Event();network_processes=[]
 fixture=PublisherFixture(path);other_path=Path(temporary.name)/'other.sock';other=PublisherFixture(other_path)
 events,connections=fixture.events,fixture.connections
-binary=root/'target/debug/remoteapp-network'
+binary=root/'target/debug/paneferry-network'
 def manage(directory,**body):
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(10);client.connect(str(directory/'control.sock'))
@@ -100,10 +100,10 @@ from types import SimpleNamespace
 opened=[]
 manager=SimpleNamespace(activate=lambda *_:None,open_viewer=lambda *a,**kw:opened.append((a,kw)))
 for invalid in [peer[5:], 'legacy:'+peer[5:], 'quic:invalid', peer.upper()]:
-    command=SimpleNamespace(get_arguments=lambda value=invalid:['lan-remoteapp','--peer',value,'--session','fixture'])
+    command=SimpleNamespace(get_arguments=lambda value=invalid:['paneferry','--peer',value,'--session','fixture'])
     assert Manager.command_line(manager,None,command)==1
 assert not opened
-command=SimpleNamespace(get_arguments=lambda:['lan-remoteapp','--peer',peer,'--session','fixture'])
+command=SimpleNamespace(get_arguments=lambda:['paneferry','--peer',peer,'--session','fixture'])
 assert Manager.command_line(manager,None,command)==0 and opened[0][0][0]==peer
 app=Gtk.Application(application_id='dev.lra.ReceiverFixture');app.register(None)
 viewer=Viewer(app,peer,'fixture',session_id='fixture')

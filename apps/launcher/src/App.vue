@@ -93,7 +93,7 @@ async function toggleSharing() {
 async function requestPermissions() {
   localBusy.value=true;
   try {localNode.value=await invoke<LocalNode>("request_local_permissions");}
-  catch {localWarning.value="请在 macOS 系统设置中允许 LAN RemoteApp 的录屏与辅助功能。";}
+  catch {localWarning.value="请在 macOS 系统设置中允许 窗渡 PaneFerry 的录屏与辅助功能。";}
   finally {localBusy.value=false;}
 }
 async function showLocalComponent() {
@@ -337,7 +337,7 @@ onUnmounted(() => {
   <div class="shell">
     <aside>
       <div class="brand">
-        <span class="brand-icon">↗</span><span>LAN<br /><b>RemoteApp</b></span>
+        <span class="brand-icon">↗</span><span>窗渡<br /><b>PaneFerry</b></span>
       </div>
       <div class="nav">▦　应用工作台</div>
       <div class="aside-bottom">
@@ -369,7 +369,7 @@ onUnmounted(() => {
       </section>
       <section class="connection">
         <div class="section-title"><h2><span>已配对设备</span></h2><button :disabled="pairing" @click="inviteDevice">生成本机配对邀请</button></div>
-        <p class="hint">两端打开 LAN RemoteApp，用对方的局域网 IP 和邀请配对。邀请五分钟有效、仅可使用一次；请通过可信方式传递。</p>
+        <p class="hint">两端打开 窗渡 PaneFerry，用对方的局域网 IP 和邀请配对。邀请五分钟有效、仅可使用一次；请通过可信方式传递。</p>
         <textarea v-if="ownInvite" :value="ownInvite" readonly rows="3" aria-label="本机配对邀请" style="width:100%;overflow-wrap:anywhere" />
         <div class="fields"><label>对方地址<input v-model="pairAddress" placeholder="192.168.1.20:42424" :disabled="pairing" /></label>
           <label>对方邀请<input v-model="pairCode" type="password" autocomplete="off" :disabled="pairing" /></label>

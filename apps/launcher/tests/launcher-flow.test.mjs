@@ -17,7 +17,7 @@ const script = compileScript(descriptor, { id: "launcher-flow" }).content
   .replace(/import AppIcon from "\.\/AppIcon.vue";/, "const AppIcon = {};")
   .replace(/from ["']vue["']/g, `from ${JSON.stringify(import.meta.resolve("vue"))}`)
   .replace(/from "(\.\/[^".]+(?:-[^".]+)*)"/g, (_, relative) => `from ${JSON.stringify(new URL(`${relative}.ts`, source).href)}`);
-const scratch = await mkdtemp(join(tmpdir(), "remoteapp-launcher-flow-"));
+const scratch = await mkdtemp(join(tmpdir(), "paneferry-launcher-flow-"));
 const modulePath = join(scratch, "App.mjs");
 await writeFile(modulePath, ts.transpileModule(script, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
 const Component = (await import(pathToFileURL(modulePath).href)).default;

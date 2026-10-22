@@ -71,7 +71,7 @@ class Peer:
 
 
 try:
-    with tempfile.TemporaryDirectory(prefix='remoteapp-existing-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='paneferry-existing-') as tmp:
         root = Path(tmp)
         home = root / 'home'
         config = home / '.config/lan-remoteapp'

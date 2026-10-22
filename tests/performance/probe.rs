@@ -1,5 +1,5 @@
 //! Compiled only into a temporary benchmark copy, never the installed Agent.
-use remoteapp_protocol::Request;
+use paneferry_protocol::Request;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,

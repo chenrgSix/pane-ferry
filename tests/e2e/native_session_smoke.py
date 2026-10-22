@@ -22,7 +22,7 @@ parser.add_argument("--user", required=True)
 parser.add_argument("--port", type=int, default=22)
 parser.add_argument("--control-path")
 parser.add_argument("--native-socket", type=Path, required=True)
-parser.add_argument("--network", type=Path, default=Path(__file__).resolve().parents[2] / "target/debug/remoteapp-network")
+parser.add_argument("--network", type=Path, default=Path(__file__).resolve().parents[2] / "target/debug/paneferry-network")
 parser.add_argument("--reconnects", type=int, default=3)
 parser.add_argument("--detached-seconds", type=float, default=1)
 args = parser.parse_args()
@@ -142,7 +142,7 @@ x.XCloseDisplay(d)
 peer = None
 session = None
 window_id = None
-marker = "/tmp/lan-remoteapp-native-" + uuid.uuid4().hex
+marker = "/tmp/paneferry-native-" + uuid.uuid4().hex
 request_id = uuid.uuid4().hex
 try:
     peer = Peer()

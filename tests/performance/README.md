@@ -8,7 +8,7 @@
 python3 tests/performance/end_to_end.py \
   --host UBUNTU_IP --user UBUNTU_USER \
   --width 2560 --height 1664 --samples 30 --animated \
-  --output /tmp/remoteapp-end-to-end.json
+  --output /tmp/paneferry-end-to-end.json
 ```
 
 需要 Mac Swift/AppKit 和 Ubuntu 的 Agent 构建依赖、GTK 3 Python GI、GStreamer/OpenH264。
@@ -18,7 +18,7 @@ SSH 必须已通过 `scripts/connect-ssh.sh` 建立，也可用 `--control-path 
 默认业务通道为 `--transport ssh`。对照 QUIC 时添加：
 
 ```sh
---transport quic --network /absolute/path/to/release/remoteapp-network
+--transport quic --network /absolute/path/to/release/paneferry-network
 ```
 
 QUIC 模式在两端建立临时网络实例与一次性配对，输入和视频只走 QUIC；SSH 仅用于上传/构建测试副本、管理临时进程和取回日志。邀请只经过已认证的管理管道，不出现在命令行或测量报告。两端网络组件使用 release 构建；Ubuntu 临时网络副本仅在读取状态时附加 RTT、包丢失和字节计数，不改变传输参数。报告记录 `transport`；SSH 与 QUIC 应按交错顺序在相同尺寸、画质与输入样本数下比较，不能只留下更快的轮次。

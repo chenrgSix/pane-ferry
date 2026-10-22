@@ -26,7 +26,7 @@ impl Image {
         )
     }
     pub fn bgrx(&self) -> Result<Cow<'_, [u8]>> {
-        remoteapp_protocol::dimensions(self.width, self.height)?;
+        paneferry_protocol::dimensions(self.width, self.height)?;
         if self.bpp == 32 && self.pad == 32 && self.little && self.masks == (0xff0000, 0xff00, 0xff)
         {
             let length = self.pixels() * 4;
@@ -83,7 +83,7 @@ fn rgb_pixels(
     little: bool,
     masks: (u32, u32, u32),
 ) -> Result<Vec<u8>> {
-    remoteapp_protocol::dimensions(w, h)?;
+    paneferry_protocol::dimensions(w, h)?;
     if ![24, 32].contains(&bpp) || ![8, 16, 32].contains(&pad) {
         bail!("unsupported X11 pixel format")
     }

@@ -1,10 +1,10 @@
 [package]
-name = "remoteapp-core"
+name = "paneferry-core"
 version.workspace = true
 edition.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-remoteapp-protocol = {path="../protocol"}
+paneferry-protocol = {path="../protocol"}
 uuid = { version = "1", features = ["v4"] }

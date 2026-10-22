@@ -3,7 +3,7 @@
 启动器分开显示：
 
 - **已安装应用**：通过系统 GIO 读取桌面入口、本地化名称和真实图标。首次读取成功后，启动器按配对设备 UUID 在本机缓存名称和图标，重开直接显示；安装、卸载或修改入口后点击“刷新应用”更新。刷新失败保留上一次成功结果。
-- **运行中的窗口**：将可接入的桌面窗口和 RemoteApp 远程会话合并为一份列表。统一点击“连接”：已有会话直接重连，其余桌面窗口才接管，保留原进程、内容和登录状态。同一个窗口和会话不重复显示；同一应用的多个独立会话仍分别保留。
+- **运行中的窗口**：将可接入的桌面窗口和 PaneFerry 远程会话合并为一份列表。统一点击“连接”：已有会话直接重连，其余桌面窗口才接管，保留原进程、内容和登录状态。同一个窗口和会话不重复显示；同一应用的多个独立会话仍分别保留。
 
 原有 `~/.config/lan-remoteapp/apps.json` 是可选的**自定义入口**，用于固定参数、独立测试资料或旧的进程接入配置，不再代替系统应用列表。自定义配置在服务启动时加载，并随应用目录缓存在控制端；“刷新应用”才重新请求目录，窗口和会话状态不使用持久缓存。没有 apps.json 也能启动 Agent。
 
@@ -15,7 +15,7 @@
 
 文件图标和主题图标在 Ubuntu 端通过 GdkPixbuf 转成 PNG；不把 SVG / XML 或 Ubuntu 文件路径直接送到 WebView。优先输出 96px，复杂图标降为 64px / 48px，使应用图标不超过 12KiB；窗口图标最多 16KiB。控制端检查格式头、尺寸和长度，只构造固定 PNG data URL。缺失或解码失败时显示名称首字母。
 
-需要系统 Python3 GI、GIO / GioUnix、GTK3、GdkPixbuf 和图片解码器；Ubuntu 26 的 SVG 解码还使用系统 Glycin 配置。本机 Ubuntu 已具备这些组件。缺少组件时明确报告发现失败，保留自定义入口，不把静态目录当作系统扫描成功。`remoteapp-agent check` 会报告应用与图标数量。
+需要系统 Python3 GI、GIO / GioUnix、GTK3、GdkPixbuf 和图片解码器；Ubuntu 26 的 SVG 解码还使用系统 Glycin 配置。本机 Ubuntu 已具备这些组件。缺少组件时明确报告发现失败，保留自定义入口，不把静态目录当作系统扫描成功。`paneferry-agent check` 会报告应用与图标数量。
 
 字段依据 [Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry/latest/)和 [Icon Theme 规范](https://specifications.freedesktop.org/icon-theme/latest/)。
 
@@ -45,8 +45,8 @@ Mac 主窗口关闭只断开连接，远端窗口继续运行；关联预览的�
 
 ## 验证
 
-`tests/e2e/app_discovery_smoke.py --agent /ABS/remoteapp-agent` 在独立 HOME / XDG / Xvfb 验证桌面入口、本地化、SVG 图标、覆盖和隐藏规则、刷新及真实启动；再以同一进程的三个窗口和按 F2 创建的独立子进程验证主窗口/弹窗隔离、跨进程预览、其他会话与伪造属性输入拒绝、Unicode、主动复制粘贴、重连、子窗口独立关闭及原进程存活。只借用系统公开的图片 loader、主题等配置，不枚举用户原桌面。
+`tests/e2e/app_discovery_smoke.py --agent /ABS/paneferry-agent` 在独立 HOME / XDG / Xvfb 验证桌面入口、本地化、SVG 图标、覆盖和隐藏规则、刷新及真实启动；再以同一进程的三个窗口和按 F2 创建的独立子进程验证主窗口/弹窗隔离、跨进程预览、其他会话与伪造属性输入拒绝、Unicode、主动复制粘贴、重连、子窗口独立关闭及原进程存活。只借用系统公开的图片 loader、主题等配置，不枚举用户原桌面。
 
 实机与构建结果见 [验证记录](validation.md)。
 
-`tests/e2e/session_bus_smoke.py --agent /ABS/remoteapp-agent` 使用临时用户总线和伪 Secret Service，验证仅允许目标服务、拒绝其他服务及其 unique name、禁止应用名称注册、多个会话的独立 socket、默认隔离策略、清理和启动失败回滚。测试不访问真实密钥内容。
+`tests/e2e/session_bus_smoke.py --agent /ABS/paneferry-agent` 使用临时用户总线和伪 Secret Service，验证仅允许目标服务、拒绝其他服务及其 unique name、禁止应用名称注册、多个会话的独立 socket、默认隔离策略、清理和启动失败回滚。测试不访问真实密钥内容。

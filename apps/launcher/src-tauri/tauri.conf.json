@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LAN RemoteApp",
+  "productName": "窗渡 PaneFerry",
   "version": "0.1.0",
   "identifier": "io.lanremoteapp.launcher",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "LAN RemoteApp",
+        "title": "窗渡 PaneFerry",
         "width": 1080,
         "height": 760,
         "minWidth": 780,
@@ -29,9 +29,9 @@
       "app"
     ],
     "resources": {
-      "resources/RemoteAppWindowHost.app": "RemoteAppWindowHost.app",
-      "resources/RemoteAppNode.app": "RemoteAppNode.app",
-      "resources/remoteapp-network": "remoteapp-network"
+      "resources/PaneFerryWindowHost.app": "PaneFerryWindowHost.app",
+      "resources/PaneFerryNode.app": "PaneFerryNode.app",
+      "resources/paneferry-network": "paneferry-network"
     },
     "macOS": {
       "minimumSystemVersion": "13.0"

@@ -7,7 +7,7 @@ import CoreMedia
 /// encoded access units remain ordered, with a fresh IDR on every attachment.
 final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
-    private let queue = DispatchQueue(label: "io.lanremoteapp.encode", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "paneferry.encode", qos: .userInteractive)
     private let rawLock = NSLock()
     private var newest: CVPixelBuffer?, scheduled = false, stopped = false, reportedFailure = false
     private var encoder: VTCompressionSession?

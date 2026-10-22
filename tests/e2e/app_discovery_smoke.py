@@ -69,7 +69,7 @@ class Peer:
 
 
 try:
-    with tempfile.TemporaryDirectory(prefix='remoteapp-discovery-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='paneferry-discovery-') as temporary:
         root = Path(temporary)
         home, user_data, system_data = root/'home', root/'user-data', root/'system-data'
         for directory in (home, user_data/'applications', system_data/'applications'):
@@ -229,7 +229,7 @@ try:
         assert terminal_input.read_text().strip() == '终端输入中文🙂'
         sessions = Peer(sock)
         assert {s['session_id'] for s in sessions.request('session.list')['sessions']} == {beta_session, started['session_id']}
-        # Private RemoteApp desktops must not appear as original desktop windows.
+        # Private PaneFerry desktops must not appear as original desktop windows.
         assert all(w['title'] != 'Discovered-only' for w in sessions.request('window.list')['windows'])
         sessions.close()
         launch.close()

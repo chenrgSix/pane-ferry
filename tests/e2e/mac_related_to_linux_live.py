@@ -16,7 +16,7 @@ parser.add_argument('--peer',required=True)
 parser.add_argument('--state',type=Path,required=True)
 args=parser.parse_args();wire.STATE=args.state.resolve()
 targets=wire.request(args.peer,'window.list')['windows']
-target=next(w for w in targets if w['title']=='LAN RemoteApp Related Alpha' and w['name']=='RemoteApp Related Test')
+target=next(w for w in targets if w['title']=='窗渡 PaneFerry Related Alpha' and w['name']=='PaneFerry Related Test')
 sid=wire.request(args.peer,'app.launch','session.started',app_id=target['id'],request_id=uuid.uuid4().hex,backend='native',attach=False)['session_id']
 class FixedViewer(Viewer):
     def allocated(self,*args): pass

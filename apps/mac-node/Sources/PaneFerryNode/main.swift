@@ -13,4 +13,4 @@ MainActor.assumeIsolated { do {
     let node=try Node(directory)
     app.delegate=node
     withExtendedLifetime(node) { app.run() }
-} catch { fputs("LAN RemoteApp: service configuration unavailable\n",stderr);exit(1) } }
+} catch { fputs("窗渡 PaneFerry: service configuration unavailable\n",stderr);exit(1) } }

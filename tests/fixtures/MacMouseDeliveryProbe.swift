@@ -19,8 +19,8 @@ private struct Recipe {
         actions.addItem(withTitle:"Quit",action:#selector(NSApplication.terminate(_:)),keyEquivalent:"q")
         item.submenu=actions;menu.addItem(item);NSApplication.shared.mainMenu=menu
         window=NSWindow(contentRect:NSRect(x:240,y:240,width:620,height:180),styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        window.title="LAN RemoteApp 鼠标诊断（仅专用测试窗口）"
-        status=NSTextField(wrappingLabelWithString:"只操作 RemoteApp Mac Test，不读取其他应用、不联网、不注入全桌面事件。")
+        window.title="窗渡 PaneFerry 鼠标诊断（仅专用测试窗口）"
+        status=NSTextField(wrappingLabelWithString:"只操作 PaneFerry Mac Test，不读取其他应用、不联网、不注入全桌面事件。")
         status.frame=NSRect(x:20,y:90,width:580,height:65);window.contentView?.addSubview(status)
         let permission=NSButton(title:"请求诊断辅助功能权限",target:self,action:#selector(requestPermission))
         permission.frame=NSRect(x:20,y:25,width:240,height:40);window.contentView?.addSubview(permission)
@@ -47,7 +47,7 @@ private struct Recipe {
             let windows=value as? [AXUIElement] else {throw NodeError.window_unavailable}
         let matches=windows.filter { window in
             var title:CFTypeRef?
-            return AXUIElementCopyAttributeValue(window,kAXTitleAttribute as CFString,&title) == .success && title as? String=="LAN RemoteApp Mac 发布测试"
+            return AXUIElementCopyAttributeValue(window,kAXTitleAttribute as CFString,&title) == .success && title as? String=="窗渡 PaneFerry Mac 发布测试"
         }
         guard matches.count==1 else {throw NodeError.window_unavailable}
         stage="fixture_geometry"

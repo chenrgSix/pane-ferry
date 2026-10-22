@@ -1,8 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
 let package = Package(
-    name: "RemoteAppWindowHost",
+    name: "PaneFerryWindowHost",
     platforms: [.macOS(.v12)],
-    products: [.executable(name: "RemoteAppWindowHost", targets: ["RemoteAppWindowHost"])],
-    targets: [.executableTarget(name: "RemoteAppWindowHost")]
+    products: [.executable(name: "PaneFerryWindowHost", targets: ["PaneFerryWindowHost"])],
+    targets: [.executableTarget(name: "PaneFerryWindowHost")]
 )

@@ -1,6 +1,6 @@
 //! Runtime-loaded GStreamer C API: share captured pixels, without a raw-frame subprocess.
 use anyhow::{bail, Context, Result};
-use remoteapp_backend_x11::CapturedImage;
+use paneferry_backend_x11::CapturedImage;
 use std::{
     borrow::Cow,
     ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
@@ -156,7 +156,7 @@ fn pipeline(width: u32, height: u32) -> String {
 }
 impl Encoder {
     pub fn new(width: u32, height: u32, stream: u64) -> Result<Self> {
-        remoteapp_protocol::dimensions(width, height)?;
+        paneferry_protocol::dimensions(width, height)?;
         let api = api().context("H.264 components unavailable")?;
         let description = CString::new(pipeline(width, height))?;
         let mut error = ptr::null_mut();

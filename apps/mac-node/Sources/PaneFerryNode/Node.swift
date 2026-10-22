@@ -20,7 +20,7 @@ final class Client {
     }
     func applicationDidFinishLaunching(_ notification:Notification) {
         do { try listen("node.sock",local:false);try listen("management.sock",local:true) }
-        catch { fputs("LAN RemoteApp: local service already running or unavailable\n",stderr);NSApplication.shared.terminate(nil);return }
+        catch { fputs("窗渡 PaneFerry: local service already running or unavailable\n",stderr);NSApplication.shared.terminate(nil);return }
         timer=Timer.scheduledTimer(withTimeInterval:0.5,repeats:true){ [weak self] _ in
             MainActor.assumeIsolated { self?.checkSessions() }
         }

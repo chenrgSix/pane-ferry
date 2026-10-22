@@ -27,7 +27,7 @@ def wait_for(predicate):
     raise AssertionError('test condition timed out')
 
 
-with tempfile.TemporaryDirectory(prefix='remoteapp-hidpi-') as directory:
+with tempfile.TemporaryDirectory(prefix='paneferry-hidpi-') as directory:
     root = Path(directory)
     config = root / '.config/lan-remoteapp'
     config.mkdir(parents=True)

@@ -144,7 +144,7 @@ class Viewer:
         self.copy_request = None; self.waiting_paste = False; self.resize_timer = None
         self.last_requested = None; self.epoch = 0
         self.window = Gtk.ApplicationWindow(application=application, title=name + ' · 连接中')
-        self.window.set_wmclass('lan-remoteapp-receiver', 'LAN RemoteApp')
+        self.window.set_wmclass('paneferry-receiver', 'PaneFerry')
         self.window.set_default_size(900, 650)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.notice = Gtk.Label(label='正在连接 ' + name)

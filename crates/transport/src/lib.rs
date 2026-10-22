@@ -78,8 +78,8 @@ pub enum Error {
 pub fn remote_error_message(code: &str) -> String {
     match code {
         "sharing_disabled" => "对方已停止本机共享，应用仍在原设备运行。".into(),
-        "screen_recording_required" => "请在 Mac 允许 LAN RemoteApp 的录屏权限。".into(),
-        "accessibility_required" => "请在 Mac 允许 LAN RemoteApp 的辅助功能权限。".into(),
+        "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
+        "accessibility_required" => "请在 Mac 允许 窗渡 PaneFerry 的辅助功能权限。".into(),
         "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
         "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),

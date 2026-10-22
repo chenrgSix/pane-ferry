@@ -1,5 +1,5 @@
 [package]
-name = "remoteapp-protocol"
+name = "paneferry-protocol"
 version.workspace = true
 edition.workspace = true
 [dependencies]

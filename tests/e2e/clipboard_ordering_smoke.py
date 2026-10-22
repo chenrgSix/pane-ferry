@@ -3,8 +3,8 @@
 from pathlib import Path
 import subprocess
 import tempfile
-root=Path(__file__).resolve().parents[2];source=root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
-with tempfile.TemporaryDirectory(prefix='remoteapp-clipboard-order-') as directory:
+root=Path(__file__).resolve().parents[2];source=root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
+with tempfile.TemporaryDirectory(prefix='paneferry-clipboard-order-') as directory:
     scratch=Path(directory);types=scratch/'WindowHostTypes.swift'
     text=(source/'main.swift').read_text();marker='\n// WINDOWHOST_ENTRYPOINT\n';assert text.count(marker)==1
     types.write_text(text.split(marker)[0])

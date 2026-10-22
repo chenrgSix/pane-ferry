@@ -11,7 +11,7 @@ parser.add_argument('--peer',required=True)
 parser.add_argument('--state',type=Path,required=True)
 parser.add_argument('--network',type=Path,required=True)
 parser.add_argument('--test-app',required=True)
-args=parser.parse_args();source=root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
+args=parser.parse_args();source=root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
 with tempfile.TemporaryDirectory(prefix='lra-related-quic-') as directory:
     scratch=Path(directory);types=scratch/'WindowHostTypes.swift'
     types.write_text((source/'main.swift').read_text().split('\n// WINDOWHOST_ENTRYPOINT\n')[0])

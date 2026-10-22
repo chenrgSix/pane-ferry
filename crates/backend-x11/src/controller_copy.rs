@@ -1,7 +1,7 @@
 //! Explicit selection reads, including ICCCM INCR, scoped to the controlled app.
 use super::*;
 use clipboard_store::{validate_png, ClipboardStore};
-use remoteapp_protocol::clipboard::MAX_IMAGE_BYTES;
+use paneferry_protocol::clipboard::MAX_IMAGE_BYTES;
 use std::time::{Duration, Instant};
 use x11rb::protocol::{res::ConnectionExt as _, Event};
 
@@ -154,7 +154,7 @@ impl Backend {
         let files = ["text/uri-list", "x-special/gnome-copied-files"].contains(&kind);
         let text = if kind == "UTF8_STRING" {
             let s = String::from_utf8(bytes.clone())?;
-            remoteapp_protocol::validate_text(&s)?;
+            paneferry_protocol::validate_text(&s)?;
             s
         } else {
             String::new()

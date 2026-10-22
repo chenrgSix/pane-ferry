@@ -85,7 +85,7 @@ fn bind(path: &Path) -> Result<UnixListener> {
 use std::os::unix::fs::FileTypeExt;
 impl Service {
     pub fn new(config: Config) -> Result<Arc<Self>> {
-        remoteapp_core::node::private_directory(&config.state)?;
+        paneferry_core::node::private_directory(&config.state)?;
         let lock_path = config.state.join("service.lock");
         ensure!(!lock_path.is_symlink(), "invalid service lock");
         let lock = fs::OpenOptions::new()

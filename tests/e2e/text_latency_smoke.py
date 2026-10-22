@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 parser.add_argument('--max-text-ms', type=float, default=0)
 args = parser.parse_args()
-with tempfile.TemporaryDirectory(prefix='remoteapp-text-latency-') as temporary:
+with tempfile.TemporaryDirectory(prefix='paneferry-text-latency-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
     config.mkdir(parents=True)

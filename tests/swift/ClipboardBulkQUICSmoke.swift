@@ -5,7 +5,7 @@ struct ClipboardBulkQUICSmoke {
         let args = CommandLine.arguments
         guard args.count == 4 else { fatalError("HOST USER PORT AGENT") }
         let bulk = ClipboardBulkTransfer(native: NativeRoute(peer:args[1],state:args[2],helper:args[3]))
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("remoteapp-ssh-" + UUID().uuidString)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("paneferry-ssh-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1024, pixelsHigh: 512, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!

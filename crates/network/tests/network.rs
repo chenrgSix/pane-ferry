@@ -1,4 +1,4 @@
-use remoteapp_network::{
+use paneferry_network::{
     framing,
     service::{Config, Service},
 };

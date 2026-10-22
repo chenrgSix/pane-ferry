@@ -1,9 +1,9 @@
 #[cfg(not(unix))]
 compile_error!("Linux agent requires Unix");
 use anyhow::{bail, Context, Result};
-use remoteapp_backend_x11::Backend;
-use remoteapp_core::{load_catalog, App, SessionBus};
-use remoteapp_protocol::{identifier, read_line_limit, Request, Window};
+use paneferry_backend_x11::Backend;
+use paneferry_core::{load_catalog, App, SessionBus};
+use paneferry_protocol::{identifier, read_line_limit, Request, Window};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -164,7 +164,7 @@ fn catalog() -> Result<Vec<App>> {
 }
 fn main() {
     if let Err(e) = run() {
-        eprintln!("remoteapp-agent: {e:#}");
+        eprintln!("paneferry-agent: {e:#}");
         std::process::exit(1)
     }
 }
@@ -172,14 +172,14 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("clipboard-upload") => {
-            let store = remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?;
+            let store = paneferry_backend_x11::clipboard_store::ClipboardStore::open()?;
             let id = store.receive(&mut std::io::BufReader::new(std::io::stdin().lock()))?;
             println!("{id}");
             Ok(())
         }
         Some("clipboard-download") => {
             let id = args.get(2).context("clipboard transfer id required")?;
-            remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?
+            paneferry_backend_x11::clipboard_store::ClipboardStore::open()?
                 .send(id, &mut std::io::stdout().lock())
         }
         Some("serve") => serve(),
@@ -216,7 +216,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         _ => {
-            bail!("usage: remoteapp-agent serve | bridge | check")
+            bail!("usage: paneferry-agent serve | bridge | check")
         }
     }
 }
@@ -261,7 +261,7 @@ fn serve() -> Result<()> {
     });
     listener.set_nonblocking(true)?;
     let state = Arc::new(Mutex::new(State {
-        device_id: remoteapp_core::node::device_id(&dir)?,
+        device_id: paneferry_core::node::device_id(&dir)?,
         sharing: fs::read(dir.join("sharing-enabled")).map_or(true, |bytes| bytes == b"1"),
         sessions: HashMap::new(),
         requests: HashMap::new(),
@@ -272,7 +272,7 @@ fn serve() -> Result<()> {
         desktop_input: desktop_input::Manager::new(dir.clone()),
         runtime: dir,
     }));
-    eprintln!("remoteapp-agent listening on private user socket");
+    eprintln!("paneferry-agent listening on private user socket");
     while !STOP.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((s, _)) => {
@@ -325,7 +325,7 @@ fn launch(
     req: &str,
     scale_factor: u8,
 ) -> Result<Arc<Mutex<Session>>> {
-    remoteapp_protocol::validate_scale(scale_factor)?;
+    paneferry_protocol::validate_scale(scale_factor)?;
     if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
     }
@@ -687,7 +687,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         loop {
             match read_line_limit(&mut input, 65536) {
                 Ok(Some(line)) if line.len() <= 65536 => {
-                    match remoteapp_protocol::parse_request(&line) {
+                    match paneferry_protocol::parse_request(&line) {
                         Ok(req) => {
                             if tx.send(req).is_err() {
                                 break;

@@ -7,17 +7,17 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 swift build -c release
 BIN_DIR="$(swift build -c release --show-bin-path)"
-APP="dist/RemoteAppWindowHost.app"
+APP="dist/PaneFerryWindowHost.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/RemoteAppWindowHost" "$APP/Contents/MacOS/RemoteAppWindowHost"
-cp ../launcher/src-tauri/icons/icon.png "$APP/Contents/Resources/RemoteApp.png"
+cp "$BIN_DIR/PaneFerryWindowHost" "$APP/Contents/MacOS/PaneFerryWindowHost"
+cp ../launcher/src-tauri/icons/icon.png "$APP/Contents/Resources/PaneFerry.png"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>local.lanremoteapp.windowhost</string>
-<key>CFBundleName</key><string>LAN RemoteApp WindowHost</string>
-<key>CFBundleExecutable</key><string>RemoteAppWindowHost</string>
+<key>CFBundleName</key><string>窗渡 PaneFerry WindowHost</string>
+<key>CFBundleExecutable</key><string>PaneFerryWindowHost</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
@@ -26,4 +26,4 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 printf '已生成 %s（本机开发包，未签名/公证）。\n' "$APP"
-printf '通过启动器或带 --native-peer --native-state --native-helper --app 参数启动 Contents/MacOS/RemoteAppWindowHost。\n'
+printf '通过启动器或带 --native-peer --native-state --native-helper --app 参数启动 Contents/MacOS/PaneFerryWindowHost。\n'

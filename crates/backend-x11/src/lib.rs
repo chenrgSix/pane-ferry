@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
-pub use remoteapp_capture::Image as CapturedImage;
-use remoteapp_protocol::Window;
+pub use paneferry_capture::Image as CapturedImage;
+use paneferry_protocol::Window;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -185,7 +185,7 @@ impl Backend {
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
-        remoteapp_protocol::validate_scale(scale)?;
+        paneferry_protocol::validate_scale(scale)?;
         self.scale_factor = scale;
         Ok(())
     }
@@ -355,7 +355,7 @@ impl Backend {
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
-            if remoteapp_protocol::dimensions(g.width.into(), g.height.into()).is_err() {
+            if paneferry_protocol::dimensions(g.width.into(), g.height.into()).is_err() {
                 // A restored maximized app can initially exceed the frame
                 // budget (the virtual desktop is larger than one allowed frame).
                 // Normalize it instead of silently losing its only window.
@@ -552,7 +552,7 @@ impl Backend {
     }
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
         self.known(id)?;
-        remoteapp_protocol::dimensions(w, h)?;
+        paneferry_protocol::dimensions(w, h)?;
         self.resize_window(id, w, h, self.windows[&id].role == "popup")
     }
     fn resize_window(&self, id: u32, w: u32, h: u32, popup: bool) -> Result<()> {

@@ -1,5 +1,5 @@
 [package]
-name = "lan-remoteapp-launcher"
+name = "paneferry-launcher"
 version = "0.1.0"
 edition = "2021"
 [workspace]
@@ -12,7 +12,7 @@ serde_json = "1"
 plist = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
-remoteapp-transport = { path = "../../../crates/transport" }
+paneferry-transport = { path = "../../../crates/transport" }
 tokio = { version = "1", features = ["process", "io-util", "time"] }
 
 # macOS 27 rejects misaligned dylibs produced by affected Rust strip paths.

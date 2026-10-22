@@ -21,7 +21,7 @@ final class RelatedFixture: NSObject, NSApplicationDelegate, NSTextViewDelegate 
             editing.addItem(withTitle:title,action:action,keyEquivalent:key)
         }
         edit.submenu=editing;menu.addItem(edit);NSApplication.shared.mainMenu=menu
-        for (index,title) in (helper ? ["LAN RemoteApp Related Preview"] : ["LAN RemoteApp Related Alpha","LAN RemoteApp Related Beta"]).enumerated() {
+        for (index,title) in (helper ? ["窗渡 PaneFerry Related Preview"] : ["窗渡 PaneFerry Related Alpha","窗渡 PaneFerry Related Beta"]).enumerated() {
             let window=NSWindow(contentRect:NSRect(x:100+index*540,y:180,width:500,height:320),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
             window.isReleasedWhenClosed=false;window.title=title
             let field=NSTextView(frame:NSRect(x:15,y:15,width:470,height:240));field.isRichText=false

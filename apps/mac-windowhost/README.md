@@ -4,15 +4,15 @@
 
 ## 构建与运行
 
-macOS 12+，Xcode Command Line Tools / Swift 5.9+。先启动两端 LAN RemoteApp 并通过设备邀请配对。一般由启动器传入设备身份、网络状态目录和打包网络组件路径；不接受 SSH 登录参数。
+macOS 12+，Xcode Command Line Tools / Swift 5.9+。先启动两端 窗渡 PaneFerry 并通过设备邀请配对。一般由启动器传入设备身份、网络状态目录和打包网络组件路径；不接受 SSH 登录参数。
 
 ```sh
 cd apps/mac-windowhost
 swift build -c release
-.build/release/RemoteAppWindowHost \
+.build/release/PaneFerryWindowHost \
   --native-peer DEVICE_UUID \
   --native-state "$HOME/.local/state/lan-remoteapp/network" \
-  --native-helper /absolute/path/to/remoteapp-network \
+  --native-helper /absolute/path/to/paneferry-network \
   --session SESSION_ID
 ```
 
@@ -21,7 +21,7 @@ swift build -c release
 ## 当前能力与限制
 
 - 每个远端窗口一个 NSWindow；窗口标题、大小、焦点与父子窗口层级；主窗口关闭时断开连接，关联预览关闭时只关闭该远端预览。
-- 从启动器连接时，Dock 使用所选 Ubuntu 应用或运行窗口的图标；新建、接管和恢复会话复用已有图标缓存，不增加远端扫描。图标由本机匿名管道交付，仅接受大小受限的 PNG；断线重连保留图标。无有效图标时使用 RemoteApp 标识。
+- 从启动器连接时，Dock 使用所选 Ubuntu 应用或运行窗口的图标；新建、接管和恢复会话复用已有图标缓存，不增加远端扫描。图标由本机匿名管道交付，仅接受大小受限的 PNG；断线重连保留图标。无有效图标时使用 PaneFerry 标识。
 - Dock、应用切换器和本机应用菜单使用 Ubuntu 应用名称。启动器在本机私有 `WindowHosts` 目录缓存各应用的 `.app` 入口，包名与显示名称随应用匹配，按配对设备 UUID、应用和宿主版本隔离；更新不会改写运行中的宿主，也不修改正式安装包。断开重连后加载当前入口；网页或文档标题仍独立显示在窗口标题栏。
 - H.264 通过系统 VideoToolbox 解码，优先启用硬件加速；解码后由 NSView/CoreGraphics 显示。未实现 Metal 或 WebRTC。依赖的 P 帧全部按顺序解码，只合并已解码的待显示图像；PNG 为兼容/编码失败回退。
 - 键鼠、滚轮与 Command→Control 快捷键。Command 快捷键成对发送按下/释放，重复由本机按键事件驱动，避免抬键事件缺失后远端持续输入字母。NSTextInputClient 在控制端保留预编辑，提交 Unicode 后交给 Agent；普通字母与输入法修饰键不再作为物理按键转给 Ubuntu 输入法。候选框以最近点击位置为锚，尚无精确远端插入点和周边文本协议，复杂输入法/替换范围与非 ANSI 快捷键仍待完整验收。

@@ -44,7 +44,7 @@ def png():
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1024,512,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(pixels))+chunk(b'IEND',b'')
 
 try:
- with tempfile.TemporaryDirectory(prefix='remoteapp-rich-') as directory:
+ with tempfile.TemporaryDirectory(prefix='paneferry-rich-') as directory:
     root=Path(directory);home=root/'home';home.mkdir();config=home/'.config/lan-remoteapp';config.mkdir(parents=True)
     authority=root/'Xauthority';authority.touch(mode=0o600)
     display=next(i for i in range(1100,2000) if not Path(f'/tmp/.X11-unix/X{i}').exists())

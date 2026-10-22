@@ -1,5 +1,5 @@
 [package]
-name = "remoteapp-agent"
+name = "paneferry-agent"
 version.workspace = true
 edition.workspace = true
 [dependencies]
@@ -7,8 +7,8 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
-remoteapp-protocol = {path="../../crates/protocol"}
-remoteapp-core = {path="../../crates/core"}
-remoteapp-backend-x11 = {path="../../crates/backend-x11"}
+paneferry-protocol = {path="../../crates/protocol"}
+paneferry-core = {path="../../crates/core"}
+paneferry-backend-x11 = {path="../../crates/backend-x11"}
 libc = "0.2"
 signal-hook = "0.3"

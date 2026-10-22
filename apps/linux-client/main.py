@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single LAN RemoteApp entry: local publishing and remote native windows."""
+"""Single 窗渡 PaneFerry entry: local publishing and remote native windows."""
 import atexit
 import hashlib
 import json
@@ -25,7 +25,7 @@ def ensure_service():
         wire = Wire(local=True); wire.close(); return
     except (OSError, EOFError):
         pass
-    agent = Path.home() / '.local/bin/remoteapp-agent'
+    agent = Path.home() / '.local/bin/paneferry-agent'
     if not agent.is_file():
         raise ValueError('agent_unavailable')
     subprocess.Popen([str(agent), 'serve'], stdin=subprocess.DEVNULL,
@@ -86,10 +86,10 @@ class Manager(Gtk.Application):
     def activate(self, *args):
         if self.window:
             self.window.present(); return
-        self.window = Gtk.ApplicationWindow(application=self, title='LAN RemoteApp')
+        self.window = Gtk.ApplicationWindow(application=self, title='窗渡 PaneFerry')
         self.window.set_default_size(1020, 740)
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin=20)
-        title = Gtk.Label(label='LAN RemoteApp · 应用工作台', xalign=0); title.set_markup('<big><b>LAN RemoteApp · 应用工作台</b></big>')
+        title = Gtk.Label(label='窗渡 PaneFerry · 应用工作台', xalign=0); title.set_markup('<big><b>窗渡 PaneFerry · 应用工作台</b></big>')
         root.pack_start(title, False, False, 0)
         local = Gtk.Box(spacing=12)
         local.pack_start(Gtk.Label(label='本机应用共享', xalign=0), False, False, 0)

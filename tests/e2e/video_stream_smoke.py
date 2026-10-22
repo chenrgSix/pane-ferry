@@ -18,7 +18,7 @@ parser.add_argument('--export', type=Path)
 parser.add_argument('--network', type=Path, help='route RWP through two isolated native QUIC nodes')
 args = parser.parse_args()
 records = []
-with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
+with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
     config.mkdir(parents=True)
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
         try:
             peer.send(type='app.launch', app_id='video', request_id='video', backend='native')
             sid = peer.until('session.started')['session_id']
-            window = peer.until('window.created', lambda event: event['title'] == 'RemoteAppLatencyFixture')
+            window = peer.until('window.created', lambda event: event['title'] == 'PaneFerryLatencyFixture')
             wid = window['window_id']
             first = frame(peer)
             assert first['key_frame'] and (first['width'], first['height']) == (2560, 1664)
@@ -137,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
         try:
             static.send(type='app.launch', app_id='static', request_id='static', backend='native')
             static_sid = static.until('session.started')['session_id']
-            static.until('window.created', lambda event: event['title'] == 'RemoteAppLatencyFixture')
+            static.until('window.created', lambda event: event['title'] == 'PaneFerryLatencyFixture')
             static_first = frame(static, connection=2)
             assert static_first['key_frame']
             time.sleep(.3)
