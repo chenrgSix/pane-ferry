@@ -132,6 +132,7 @@ impl Rpc {
                     "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
                     "wayland_capture_unavailable" => "wayland_capture_unavailable",
                     "wayland_text_unavailable" => "wayland_text_unavailable",
+                    "wayland_text_outcome_unknown" => "wayland_text_outcome_unknown",
                     _ => "wayland_bridge_failed",
                 }
             )
@@ -203,7 +204,7 @@ impl Backend {
         // GNOME caches loaded extension modules until the next login. An
         // upgraded Agent must not silently use the old text/capture contract.
         paneferry_protocol::validate_scale(scale)?;
-        if target.info.bridge_version < 3 {
+        if target.info.bridge_version < 4 {
             bail!("wayland_bridge_outdated")
         }
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {

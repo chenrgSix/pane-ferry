@@ -121,6 +121,9 @@ struct AutomaticReconnectSmoke {
         app.receive(Incoming(object:["type":"error", "code":"display_scale_requires_restart", "window_id":42], image:nil))
         precondition(app.connected && original.window.subtitle.contains("尚未执行") && other.resolutionNotice == nil,
                      "DPI migration notice must preserve this connection and unrelated windows")
+        app.receive(Incoming(object:["type":"error", "code":"wayland_text_outcome_unknown", "window_id":42], image:nil))
+        precondition(app.connected && original.inputNotice?.contains("勿重复提交") == true && other.inputNotice == nil,
+                     "an unconfirmed text commit must warn only this window and keep the original session")
         app.windows.removeValue(forKey:43); other.closeLocally()
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
         until { ((try? String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)) ?? "").contains("after reconnect") }

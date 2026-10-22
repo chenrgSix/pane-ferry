@@ -6,12 +6,13 @@ calls are a fixture driver, not a product alternative to Portal authorization.
 import json
 import importlib.util
 import os
+import signal
 from pathlib import Path
 import time
 from gi.repository import Gio, GLib
 
 
-def verify(env, pid, state, Bridge, wait, expect_method, delayed_paste=False):
+def verify(env, pid, state, Bridge, wait, expect_method, delayed_paste=False, paused_client=False):
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     service = 'org.gnome.Mutter.RemoteDesktop'
     session = bus.call_sync(service, '/org/gnome/Mutter/RemoteDesktop', service, 'CreateSession',
@@ -41,6 +42,10 @@ def verify(env, pid, state, Bridge, wait, expect_method, delayed_paste=False):
             key(29, False)
 
     bridge = Bridge(env)
+    def stall_client(long=False):
+        before=json.loads(state.read_text())['input_pauses']
+        os.kill(pid, signal.SIGUSR2 if long else signal.SIGUSR1)
+        wait(lambda:json.loads(state.read_text())['input_pauses']>before and json.loads(state.read_text())['input_paused'])
     original = json.loads(state.read_text())['text']
     try:
         call('Start')
@@ -89,6 +94,7 @@ def verify(env, pid, state, Bridge, wait, expect_method, delayed_paste=False):
             print('PASS: missing text-input context rejects before editing, clipboard untouched, explicit paste works',flush=True)
             return
         for run in range(3):
+            if paused_client and run==0: stall_client()
             stroke(30, control=True)
             eis.sync()
             parts = ['about', ':', 'newtab', '-Aa09/?:; ', '中文🙂', '连续输入 ', str(run)] * 4
@@ -113,7 +119,59 @@ def verify(env, pid, state, Bridge, wait, expect_method, delayed_paste=False):
         assert 'result' in bridge.call(op='commit_text',window_id=wid,text=original)
         try: wait(lambda:json.loads(state.read_text())['text']==original,seconds=3)
         except AssertionError: raise AssertionError({'restore':original,'actual':json.loads(state.read_text())}) from None
+        for cycle in range(16):
+            if paused_client and cycle in (0,7): stall_client()
+            expected=f'replace {cycle}: 中文🙂'
+            stroke(30, control=True)
+            eis.sync()
+            assert 'result' in bridge.call(op='commit_text',window_id=wid,text=expected)
+            try: wait(lambda:json.loads(state.read_text())['text']==expected,seconds=3)
+            except AssertionError: raise AssertionError({'replace_cycle':cycle,'expected':expected,'actual':json.loads(state.read_text())}) from None
+        stroke(30, control=True)
+        eis.sync()
+        assert 'result' in bridge.call(op='commit_text',window_id=wid,text=original)
+        wait(lambda:json.loads(state.read_text())['text']==original)
+        for code, part, expected in [(107,'!',original+'!'), (105,'X',original+'X!'), (14,'Y',original+'Y!')]:
+            stroke(code)
+            eis.sync()
+            assert 'result' in bridge.call(op='commit_text',window_id=wid,text=part)
+            wait(lambda:json.loads(state.read_text())['text']==expected)
+        stroke(28);eis.sync()
+        following_return=bridge.call(op='commit_text',window_id=wid,text='R')
+        if following_return.get('error')=='wayland_text_unavailable':
+            # A single-line activation may produce no new IM state. A bounded
+            # refusal is safe; pretending that the client acknowledged is not.
+            assert json.loads(state.read_text())['text']==original+'Y!'
+            print('LIMIT: this single-line client sends no state after Return; later text is refused before editing until a new state is confirmed',flush=True)
+        else:
+            assert 'result' in following_return,following_return
+            wait(lambda:json.loads(state.read_text())['text']==original+'YR!')
+        stroke(30, control=True)
+        eis.sync()
+        assert 'result' in bridge.call(op='commit_text',window_id=wid,text=original)
+        wait(lambda:json.loads(state.read_text())['text']==original)
         print('PASS:',expect_method,'three continuous Unicode/punctuation bursts, following Return ordering, untouched clipboard and scoped target',flush=True)
+        print('PASS: 16 rapid select-all/replace cycles and final restore preserve exact contents',flush=True)
+        print('PASS: End at an existing boundary, Left and Backspace followed immediately by text; Return either confirmed or rejected before editing',flush=True)
+        if paused_client:
+            stall_client(long=True)
+            stroke(30, control=True);eis.sync()
+            rejected=bridge.call(op='commit_text',window_id=wid,text='must not insert before earlier keys complete')
+            assert rejected.get('error')=='wayland_text_unavailable',rejected
+            wait(lambda:not json.loads(state.read_text())['input_paused'])
+            assert json.loads(state.read_text())['text']==original
+            # Deliberately let the app edit, then stall before it sends its
+            # acknowledgement. The result is ambiguous, not a safe retry.
+            uncertain=bridge.call(op='commit_text',window_id=wid,text='test-owned unconfirmed commit')
+            assert uncertain.get('error')=='wayland_text_outcome_unknown',uncertain
+            blocked=bridge.call(op='commit_text',window_id=wid,text='must not overtake unconfirmed text')
+            assert blocked.get('error')=='wayland_text_outcome_unknown',blocked
+            wait(lambda:not json.loads(state.read_text())['input_paused'])
+            assert json.loads(state.read_text())['text']=='test-owned unconfirmed commit'
+            stroke(30, control=True);eis.sync()
+            assert 'result' in bridge.call(op='commit_text',window_id=wid,text=original)
+            wait(lambda:json.loads(state.read_text())['text']==original)
+            print('PASS: pre-commit timeout edits nothing; post-commit uncertainty rejects later text without replay; late acknowledgement and explicit restore recover',flush=True)
     finally:
         bridge.close()
         if eis: eis.close()

@@ -539,9 +539,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // connection. Never open one blocking alert per typed character.
                 if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
                    let host = windows[UInt32(number)] {
-                    host.inputNotice = "当前输入框不支持直接输入，请使用粘贴"
+                    host.inputNotice = "当前输入框未确认输入状态，请重新聚焦或使用粘贴"
                 }
                 statusItem?.button?.title = "PaneFerry · 请使用粘贴输入"; NSSound.beep(); return
+            }
+            if code == "wayland_text_outcome_unknown" {
+                if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
+                   let host = windows[UInt32(number)] {
+                    host.inputNotice = "文本可能已输入，请先核对内容，勿重复提交"
+                }
+                statusItem?.button?.title = "PaneFerry · 请核对输入结果"; NSSound.beep(); return
             }
             if ["controller_text_failed", "clipboard_copy_failed", "clipboard_cut_failed", "clipboard_cut_unavailable"].contains(code) {
                 statusItem?.button?.title = "PaneFerry · 输入或剪贴板失败"

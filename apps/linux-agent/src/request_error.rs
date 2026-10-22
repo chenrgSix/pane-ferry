@@ -13,6 +13,7 @@ pub fn code(message: &str) -> &'static str {
         "wayland_binary_clipboard_unavailable" => "wayland_binary_clipboard_unavailable",
         "wayland_cut_unavailable" => "wayland_cut_unavailable",
         "wayland_text_unavailable" => "wayland_text_unavailable",
+        "wayland_text_outcome_unknown" => "wayland_text_outcome_unknown",
         "desktop_authorization_pending" => "desktop_authorization_pending",
         "desktop_authorization_denied" => "desktop_authorization_denied",
         "desktop_input_paused" => "desktop_input_paused",

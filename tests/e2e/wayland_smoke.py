@@ -25,6 +25,8 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--agent', required=True, type=Path)
 p.add_argument('--private-bus', action='store_true')
 p.add_argument('--with-xwayland', action='store_true')
+p.add_argument('--key-filter-delay-ms', type=int, default=0, choices=range(0,501), metavar='0..500',
+               help='test-only: delay real IBus completions in the private compositor')
 a = p.parse_args()
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
     p.error('Run from the graphical login or via systemd-run --user --collect --wait --pipe; a headless GNOME launched in an SSH login may not render.')
@@ -34,7 +36,7 @@ if not a.private_bus:
         conf.write_text('''<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
 <policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>''')
         # No activation of the user's calendar, keyring, document portal or IM.
-        raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus', *(['--with-xwayland'] if a.with_xwayland else [])]))
+        raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus', '--key-filter-delay-ms', str(a.key_filter_delay_ms), *(['--with-xwayland'] if a.with_xwayland else [])]))
 root = Path(__file__).resolve().parents[2]
 children = []
 
@@ -108,6 +110,25 @@ try:
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
         shutil.copytree(root/'apps/linux-agent/gnome-extension',ext)
+        if a.key_filter_delay_ms:
+            # Installed only in this test-owned extension copy. Keep the real
+            # IBus filter and result, delaying its forwarding callback to expose
+            # the race between key filtering and the independent text channel.
+            (ext/'testKeyFilterDelay.js').write_text('''import GLib from 'gi://GLib';
+import IBus from 'gi://IBus';
+const original = IBus.InputContext.prototype.process_key_event_async;
+IBus.InputContext.prototype.process_key_event_async = function (...args) {
+    const callback = args.at(-1);
+    if (typeof callback === 'function') args[args.length - 1] = (...reply) => {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, DELAY, () => {
+            callback(...reply); return GLib.SOURCE_REMOVE;
+        });
+    };
+    return original.apply(this, args);
+};
+'''.replace('DELAY',str(a.key_filter_delay_ms)))
+            main=ext/'extension.js'
+            main.write_text("import './testKeyFilterDelay.js';\n"+main.read_text())
         (data/'gnome-shell/update-check-50').touch()
         applications=data/'applications';applications.mkdir()
         state=t/'state.json';fixture=root/'tests/e2e/wayland_fixture.py'
@@ -204,9 +225,9 @@ try:
                 verify(env,app.pid,state,Bridge,wait,None,delayed_paste=True)
                 wait(lambda:monitor_layout()==baseline_monitors)
                 im_state=t/'im-state.json'
-                im_app=start(['/usr/bin/python3',str(fixture),str(im_state),'--im'],dict(env,GDK_BACKEND='wayland',GTK_IM_MODULE='wayland'),log)
+                im_app=start(['/usr/bin/python3',str(fixture),str(im_state),'--im','--pause-input'],dict(env,GDK_BACKEND='wayland',GTK_IM_MODULE='wayland'),log)
                 wait(im_state.exists)
-                verify(env,im_app.pid,im_state,Bridge,wait,'text-input')
+                verify(env,im_app.pid,im_state,Bridge,wait,'text-input',paused_client=True)
                 wait(lambda:monitor_layout()==baseline_monitors)
                 before=state.read_text()
                 started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False,scale_factor=2)
@@ -316,15 +337,35 @@ try:
                             if (pixels['width'],pixels['height'])==(2800,1500):break
                         assert (pixels['width'],pixels['height'])==(2800,1500),pixels.keys()
                         assert struct.unpack('>II',base64.b64decode(pixels['png'])[16:24])==(2800,1500)
+                        # The frame can arrive before GTK's periodic state
+                        # sample. Compare the settled requested geometry, not
+                        # a stale sample from the preceding raw resize.
+                        wait(lambda:(json.loads(xstate.read_text())['width'],json.loads(xstate.read_text())['height'])==(2800,1500))
                         before=json.loads(xstate.read_text())
                         denied=other.request('window.viewport','error',window_id=target['xwindow'],logical_width=1470,logical_height=802,scale_factor=2)
                         assert denied['code']=='display_scale_requires_restart',denied
                         time.sleep(.2)
-                        assert json.loads(xstate.read_text())==before, 'shared Xwayland DPI rejection must not resize or alter the original application'
+                        after=json.loads(xstate.read_text())
+                        assert after==before, ('shared Xwayland DPI rejection must not resize or alter the original application',before,after)
                         assert xapp.poll() is None and json.loads(other_state.read_text())['scale']==1
                         print('PASS: shared Xwayland requires explicit app restart for DPI migration; original geometry, process/content and other windows preserved')
                         print('PASS: publisher Xwayland takeover and compositor resize produce actual 2940x1660 and 2800x1500 XComposite PNG frames')
                     finally:other.close()
+                # Restore and reinstall the observer hooks through GNOME's
+                # actual lifecycle, only on this private bus/compositor.
+                peer.close()
+                wait(lambda:monitor_layout()==baseline_monitors)
+                for method in ('DisableExtension','EnableExtension'):
+                    subprocess.run(['gdbus','call','--timeout','5','--session','--dest','org.gnome.Shell',
+                        '--object-path','/org/gnome/Shell','--method','org.gnome.Shell.Extensions.'+method,'paneferry@local'],
+                        env=env,check=True,capture_output=True,text=True)
+                def bridge_ready():
+                    probe=Bridge(env)
+                    try:return bool(probe.call(op='list').get('result'))
+                    finally:probe.close()
+                wait(bridge_ready)
+                verify(env,im_app.pid,im_state,Bridge,wait,'text-input')
+                print('PASS: extension disable/enable restores and reinstalls key observation without stopping the original application')
                 print('NOT TESTED: real Firefox, real desktop input authorization, binary clipboard or multi-monitor scale changes')
             except Exception:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
