@@ -17,6 +17,16 @@ type Result = {
   pid: number;
   message: string;
 };
+const navigation = [
+  { id: "apps", label: "应用工作台", eyebrow: "APPLICATIONS", description: "打开其他设备的应用，继续正在进行的工作。", icon: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" },
+  { id: "devices", label: "设备管理", eyebrow: "DEVICES", description: "配对新设备，管理每台设备的连接。", icon: "M3 4h18v12H3zM8 21h8M12 16v5" },
+  { id: "sharing", label: "本机共享", eyebrow: "SHARING", description: "让已配对设备使用这台电脑上的应用。", icon: "M12 16V3m-5 5 5-5 5 5M4 13v7h16v-7" },
+  { id: "display", label: "显示设置", eyebrow: "PREFERENCES", description: "调整新打开的远程应用窗口。", icon: "M4 7h9m4 0h3M4 17h3m4 0h9M13 4v6M7 14v6" },
+  { id: "history", label: "连接记录", eyebrow: "ACTIVITY", description: "查看本次打开启动器后的应用连接记录。", icon: "M12 8v5l3 2M3 12a9 9 0 1 0 3-6.7M3 3v5h5" },
+] as const;
+type Page = typeof navigation[number]["id"];
+const activePage = ref<Page>("apps");
+const currentPage = computed(() => navigation.find(item => item.id === activePage.value) ?? navigation[0]);
 const endpoint = ref<Endpoint>({ peerId: "" }),
   apps = ref<AppInfo[]>([]),
   desktopWindows = ref<DesktopWindow[]>([]),
@@ -35,7 +45,7 @@ const busy = ref(false),
   attemptedEndpoint = ref(""),
   actionConnectionError = ref(false),
   sessions = ref<SessionInfo[]>([]),
-  launches = ref<{ name: string; result: Result }[]>([]);
+  launches = ref<{ name: string; result: Result; deviceName: string; deviceAddress: string; peerId: string; createdAt: number }[]>([]);
 let storage: Storage | undefined;
 try {
   storage = localStorage;
@@ -46,6 +56,8 @@ type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permis
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
+const pairNotice = ref("");
+const selectedPeer = computed(() => nativePeers.value.find(peer => peer.device_id === endpoint.value.peerId));
 const addressEdits=ref<Record<string,string>>({});
 let inviteTimer:ReturnType<typeof setTimeout>|undefined;
 async function networkAction(body:Record<string,unknown>) { return invoke<any>("network_action",{body}); }
@@ -63,13 +75,20 @@ async function inviteDevice() {
 }
 async function pairDevice() {
   pairing.value=true;
-  try { await networkAction({op:"pair",address:pairAddress.value.trim(),invitation:pairCode.value.trim()}); pairCode.value=""; await readNetwork(); notice.value="设备已双向配对，可选择设备使用应用。"; }
+  pairNotice.value="";
+  try { await networkAction({op:"pair",address:pairAddress.value.trim(),invitation:pairCode.value.trim()}); pairCode.value=""; await readNetwork(); pairNotice.value="设备已双向配对，点击“查看应用”即可开始使用。"; }
   catch {nativeWarning.value="配对未完成，请检查设备 IP、端口和五分钟内生成的邀请。身份变更需先撤销旧配对。";}
   finally {pairing.value=false;}
 }
 async function selectPeer(peer:NativePeer) {
+  if (busy.value) return;
+  activePage.value="apps";
   endpoint.value={peerId:peer.device_id};
   await nextTick(); await load();
+}
+async function changePeer(event: Event) {
+  const peer = nativePeers.value.find(item => item.device_id === (event.target as HTMLSelectElement).value);
+  if (peer) await selectPeer(peer);
 }
 async function updatePeerAddress(peer:NativePeer) {
   pairing.value=true;
@@ -184,7 +203,6 @@ async function load(refreshApps = false) {
       catalogSavedAt.value = catalog.value.savedAt;
       catalogPersisted.value = catalog.value.persisted;
       connected.value = endpointKey(sent);
-      notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
     } else failures.push(`应用读取失败：${requestFailure(catalog.reason).message}`);
     actionConnectionError.value = catalog.status === "rejected" && isConnectionFailure(catalog.reason);
     error.value = failures.join(" ");
@@ -233,7 +251,7 @@ async function refresh() {
   }
 }
 function record(name: string, result: Result) {
-  launches.value.unshift({ name, result });
+  launches.value.unshift({ name, result, deviceName: selectedPeer.value?.name || endpoint.value.peerId, deviceAddress: selectedPeer.value?.address || "", peerId: endpoint.value.peerId, createdAt: Date.now() });
   launches.value = launches.value.slice(0, 20);
   notice.value = result.message;
   save();
@@ -316,6 +334,7 @@ function onOnline() {
   onFocus();
 }
 watch(signature, restoreCatalog);
+watch(activePage, () => window.scrollTo?.(0, 0), { flush: "post" });
 onMounted(() => {
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onOnline);
@@ -335,154 +354,202 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="shell">
-    <aside>
+    <aside class="sidebar">
       <div class="brand">
-        <span class="brand-icon">↗</span><span>窗渡<br /><b>PaneFerry</b></span>
+        <span class="brand-icon" aria-hidden="true">↗</span><span>窗渡<br /><b>PaneFerry</b></span>
       </div>
-      <div class="nav">▦　应用工作台</div>
+      <nav class="navigation" aria-label="主导航">
+        <template v-for="(item, index) in navigation" :key="item.id">
+          <p v-if="index === 1" class="nav-group-label">管理与偏好</p>
+          <button class="nav-item" :class="{ active: activePage === item.id }" :aria-current="activePage === item.id ? 'page' : undefined" @click="activePage = item.id">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="item.icon" /></svg>
+            <span>{{ item.label }}</span>
+            <span v-if="item.id === 'devices' && nativePeers.length" class="nav-count">{{ nativePeers.length }}</span>
+          </button>
+        </template>
+      </nav>
       <div class="aside-bottom">
-        ● 本地网络 · 加密连接
+        <span class="network-note"><span class="status-dot" />本地网络 · 加密连接</span>
         <p>应用留在原设备<br />窗口来到当前桌面</p>
         <small>开发预览 0.1.0</small>
       </div>
     </aside>
     <main>
-      <header>
+      <header class="page-header">
         <div>
-          <div class="eyebrow">YOUR APPS, A DIFFERENT DESKTOP</div>
-          <h1>让工作跨越桌面</h1>
-          <p>共享本机应用，同时使用其他设备的应用。</p>
+          <div class="eyebrow">{{ currentPage.eyebrow }}</div>
+          <h1>{{ currentPage.label }}</h1>
+          <p>{{ currentPage.description }}</p>
         </div>
-        <span class="badge">QUIC 设备连接</span>
+        <span class="badge">双向应用共享</span>
       </header>
-      <section class="connection">
-        <div class="section-title"><h2><span>本机应用共享</span></h2>
-          <button :disabled="localBusy || !localNode" @click="toggleSharing">{{localNode?.sharing_enabled ? "停止共享" : "开启共享"}}</button></div>
-        <p class="hint">{{localNode?.name || "Mac"}} · {{localNode?.sharing_enabled ? "已开启，已配对设备可读取本机应用" : "未开启"}}。本机应用继续显示在 Mac 桌面；收到的远程应用不会再次发布。</p>
-        <p v-if="localNode && (!localNode.permissions.screen_recording || !localNode.permissions.accessibility)" class="hint">
-          {{!localNode.permissions.screen_recording ? "需要录屏权限。" : ""}} {{!localNode.permissions.accessibility ? "需要辅助功能权限。" : ""}}
-          <button :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button>
-          <button :disabled="localBusy" @click="showLocalComponent">显示共享组件</button>
-          <br />系统列表已开启仍不生效时，点“显示共享组件”，移除权限列表中的旧条目，再添加访达选中的当前程序。
-        </p>
-        <p v-if="localWarning" class="alert error">{{localWarning}}</p>
-      </section>
-      <section class="connection">
-        <div class="section-title"><h2><span>已配对设备</span></h2><button :disabled="pairing" @click="inviteDevice">生成本机配对邀请</button></div>
-        <p class="hint">两端打开 窗渡 PaneFerry，用对方的局域网 IP 和邀请配对。邀请五分钟有效、仅可使用一次；请通过可信方式传递。</p>
-        <textarea v-if="ownInvite" :value="ownInvite" readonly rows="3" aria-label="本机配对邀请" style="width:100%;overflow-wrap:anywhere" />
-        <div class="fields"><label>对方地址<input v-model="pairAddress" placeholder="192.168.1.20:42424" :disabled="pairing" /></label>
-          <label>对方邀请<input v-model="pairCode" type="password" autocomplete="off" :disabled="pairing" /></label>
-          <button :disabled="pairing || !pairAddress || !pairCode" @click="pairDevice">配对设备</button></div>
-        <div v-for="peer in nativePeers" :key="peer.device_id" class="desktop-window-row">
-          <div class="window-label"><strong>{{peer.name}} · {{peer.address}}</strong><p :title="peer.fingerprint">指纹 {{peer.fingerprint}}</p></div>
-          <span>{{peer.connected ? "已连接" : "已配对"}}</span>
-          <input v-model="addressEdits[peer.device_id]" :disabled="pairing" aria-label="设备地址" style="width:150px" /><button :disabled="pairing" @click="updatePeerAddress(peer)">更新地址</button>
-          <button :disabled="busy || pairing" @click="selectPeer(peer)">{{endpoint.peerId===peer.device_id ? "刷新应用" : "使用应用"}}</button>
-          <button :disabled="pairing" @click="revokePeer(peer)">撤销配对</button>
+
+      <div v-if="activePage === 'apps'" class="page-content">
+        <div class="workspace-toolbar">
+          <div class="device-picker">
+            <label for="workspace-device">应用来源</label>
+            <select id="workspace-device" :value="endpoint.peerId" :disabled="busy || !nativePeers.length" @change="changePeer">
+              <option value="" disabled>选择已配对设备</option>
+              <option v-if="endpoint.peerId && !selectedPeer" :value="endpoint.peerId">上次使用的设备</option>
+              <option v-for="peer in nativePeers" :key="peer.device_id" :value="peer.device_id">{{ peer.name }} · {{ peer.address }}</option>
+            </select>
+            <span v-if="selectedPeer" class="device-status" :class="{ online: selectedPeer.connected }"><span class="status-dot" />{{ selectedPeer.connected ? "已连接" : "已配对" }}</span>
+          </div>
+          <button class="text-action" @click="activePage = 'devices'">管理设备 ↗</button>
         </div>
-        <p v-if="nativeWarning" class="alert error">{{nativeWarning}}</p>
-      </section>
-      <section class="options">
-        <div>
-          <h2>01 <span>原生窗口</span></h2>
-          <p class="hint">
-            使用控制端输入法，支持主动复制与粘贴。新会话可按本机屏幕清晰度渲染。
-          </p>
-          <label for="render-scale">界面缩放（新会话）</label>
-          <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
-            <option value="auto">自动 · 跟随本机像素密度</option>
-            <option value="1">100%</option>
-            <option value="2">200% · Retina</option>
-          </select>
-          <p class="hint">分辨率按本机窗口的实际像素尺寸调整；原生窗口的“显示”菜单可适应屏幕或输入像素宽高。已有会话保留原缩放。</p>
-        </div>
-      </section>
-      <div v-if="error" class="alert error" role="alert">{{ error }}</div>
-      <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
-      <section class="catalog">
-        <div class="section-title">
-          <h2>
-            02 <span>已安装应用</span><span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span>
-          </h2>
-          <div class="catalog-actions"><input
-            v-model="search"
-            class="search"
-            placeholder="搜索应用或窗口…"
-            aria-label="搜索应用或窗口"
-          /><button class="session-action" :disabled="!valid || busy" @click="load(true)">刷新应用</button></div>
-        </div>
-        <p v-if="catalogSavedAt" class="hint">上次更新：{{ new Date(catalogSavedAt).toLocaleString() }}。安装或卸载应用后可点“刷新应用”。</p>
-        <p v-if="catalogSavedAt && !catalogPersisted" class="hint">本机缓存无法保存；当前列表仍可使用，退出启动器后需要重新读取。</p>
-        <p v-if="discoveryWarning" class="alert error" role="status">{{ discoveryWarning }}</p>
-        <div v-if="!apps.some(app => app.source === 'desktop')" class="empty">
-          <div>▦</div>
-          <h3>{{ busy ? "正在读取设备应用" : "选择设备后显示已安装应用" }}</h3>
-          <p>
-            首次连接后读取并缓存名称和图标，下次打开直接显示。
-          </p>
-        </div>
-        <div v-else class="app-grid">
-          <button
-            v-for="app in installed"
-            :key="app.id"
-            class="app-card"
-            :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)"
-            @click="launch(app)"
-          >
-            <AppIcon :icon="app.icon_png" :name="app.name" />
-            <strong>{{ app.name }}</strong>
-            <p>{{ app.unavailable_reason || app.description }}</p>
-            <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : "打开应用 ↗" }}</span>
-          </button>
-        </div>
-        <p v-if="apps.some(app => app.source === 'desktop') && !installed.length" class="hint">没有匹配的应用。</p>
-        <p v-if="apps.length && !catalogCurrent" class="hint">
-          主机信息已改变，请连接当前主机。
-        </p>
-      </section>
-      <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
-        <div class="section-title">
-          <h2>03 <span>运行中的窗口</span><span class="count">{{ runningConnections.length }}</span></h2>
-          <button class="session-action" :disabled="busy" @click="refresh">刷新运行状态</button>
-        </div>
-        <p class="hint">点击“连接”自动恢复已有会话或接管桌面窗口，保留应用内容。首次接管可能需要在 Ubuntu 确认授权；关闭本机窗口只会断开连接。</p>
-        <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
-        <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
-        <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口，打开应用后会显示在这里。" }}</p>
-        <p v-else-if="runningConnections.length && !filteredConnections.length" class="hint">没有匹配的窗口。</p>
-        <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row">
-          <AppIcon :icon="row.icon_png" :name="row.name" />
-          <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
-          <span class="window-state">{{ row.kind === "desktop" ? "Ubuntu 桌面" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
-          <button class="session-action" :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
-        </div>
-      </section>
-      <section v-if="custom.length" class="catalog">
-        <div class="section-title"><h2><span>自定义入口</span><span class="count">{{ custom.length }}</span></h2></div>
-        <p class="hint">保留 Ubuntu 上单独配置的启动参数和固定窗口入口。</p>
-        <div class="app-grid">
-          <button v-for="app in custom" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)" @click="launch(app)">
-            <AppIcon :icon="app.icon_png" :name="app.name" /><strong>{{ app.name }}</strong>
-            <p>{{ app.unavailable_reason || app.description || app.id }}</p><span class="launch-label">{{ app.unavailable_reason ? "入口不可用" : "打开 ↗" }}</span>
-          </button>
-        </div>
-      </section>
-      <section v-if="launches.length" class="history">
-        <h2>本次连接记录</h2>
-        <div v-for="(entry, i) in launches" :key="i">
-          <b>{{ entry.name }}</b
-          ><span>原生窗口 · 客户端已启动</span
-          ><code v-if="entry.result.session_id"
-            >会话 {{ entry.result.session_id }}</code
-          >
-        </div>
-        <p class="hint">请以实际窗口确认连接成功。</p>
-      </section>
-      <footer>
-        一套软件 · 双向应用共享
-        <span>剪贴板按需传输 · 不做后台同步</span>
-      </footer>
+        <div v-if="error" class="alert error" role="alert">{{ error }}</div>
+        <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
+        <section class="catalog">
+          <div class="section-title">
+            <h2>已安装应用 <span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span></h2>
+            <div class="catalog-actions">
+              <input v-model="search" class="search" type="search" placeholder="搜索应用或窗口…" aria-label="搜索应用或窗口" />
+              <button :disabled="!valid || busy" @click="load(true)">{{ busy ? "读取中…" : "刷新应用" }}</button>
+            </div>
+          </div>
+          <p v-if="catalogSavedAt" class="hint catalog-updated">更新于 {{ new Date(catalogSavedAt).toLocaleString() }}</p>
+          <p v-if="catalogSavedAt && !catalogPersisted" class="hint">本机缓存无法保存；当前列表仍可使用，退出启动器后需要重新读取。</p>
+          <p v-if="discoveryWarning" class="alert error" role="status">{{ discoveryWarning }}</p>
+          <div v-if="!apps.some(app => app.source === 'desktop')" class="empty">
+            <div class="empty-icon" aria-hidden="true">▦</div>
+            <h3>{{ busy ? "正在读取设备应用" : valid ? "这台设备暂无可显示的应用" : "从另一台设备开始" }}</h3>
+            <p>{{ valid ? "可刷新应用列表，或检查对方设备是否已开启共享。" : "选择一台已配对设备，即可在这里打开它的应用。" }}</p>
+            <button v-if="!valid" class="primary-action" @click="activePage = 'devices'">{{ nativePeers.length ? "选择设备" : "配对第一台设备" }}</button>
+          </div>
+          <div v-else-if="installed.length" class="app-grid">
+            <button v-for="app in installed" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)" @click="launch(app)">
+              <AppIcon :icon="app.icon_png" :name="app.name" />
+              <strong>{{ app.name }}</strong>
+              <p :title="app.unavailable_reason || app.description">{{ app.unavailable_reason || app.description }}</p>
+              <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : "打开应用 ↗" }}</span>
+            </button>
+          </div>
+          <p v-else class="empty search-empty">没有匹配的应用，试试其他关键词。</p>
+          <p v-if="apps.length && !catalogCurrent" class="hint">设备已改变，请刷新当前设备的应用。</p>
+        </section>
+        <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
+          <div class="section-title">
+            <h2>运行中的窗口 <span class="count">{{ runningConnections.length }}</span></h2>
+            <button :disabled="busy" @click="refresh">刷新运行状态</button>
+          </div>
+          <p class="hint">连接已有窗口可继续原来的工作；关闭本机窗口只会断开连接。</p>
+          <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
+          <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
+          <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口。" }}</p>
+          <p v-else-if="runningConnections.length && !filteredConnections.length" class="hint">没有匹配的窗口。</p>
+          <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row">
+            <AppIcon :icon="row.icon_png" :name="row.name" />
+            <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
+            <span class="window-state">{{ row.kind === "desktop" ? "设备桌面" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
+            <button :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
+          </div>
+        </section>
+        <section v-if="custom.length" class="catalog">
+          <div class="section-title"><h2>自定义入口 <span class="count">{{ custom.length }}</span></h2></div>
+          <div class="app-grid">
+            <button v-for="app in custom" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)" @click="launch(app)">
+              <AppIcon :icon="app.icon_png" :name="app.name" /><strong>{{ app.name }}</strong>
+              <p :title="app.unavailable_reason || app.description || app.id">{{ app.unavailable_reason || app.description || app.id }}</p>
+              <span class="launch-label">{{ app.unavailable_reason ? "入口不可用" : "打开应用 ↗" }}</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-else-if="activePage === 'devices'" class="page-content">
+        <p v-if="nativeWarning" class="alert error" role="alert">{{ nativeWarning }}</p>
+        <p v-if="pairNotice" class="alert notice" role="status">{{ pairNotice }}</p>
+        <section class="panel">
+          <div class="section-title"><h2>已配对设备 <span class="count">{{ nativePeers.length }}</span></h2></div>
+          <p v-if="!nativePeers.length" class="hint">还没有配对设备。在下方添加设备，或生成邀请让另一台设备连接本机。</p>
+          <article v-for="peer in nativePeers" :key="peer.device_id" class="peer-card">
+            <div class="peer-heading">
+              <div class="peer-identity"><span class="device-icon" aria-hidden="true">↔</span><div class="window-label"><h3>{{ peer.name }}</h3><p>{{ peer.address }}</p></div></div>
+              <span class="device-status" :class="{ online: peer.connected }"><span class="status-dot" />{{ peer.connected ? "已连接" : "已配对" }}</span>
+              <button class="primary-action" :disabled="busy || pairing" @click="selectPeer(peer)">查看应用 ↗</button>
+            </div>
+            <div class="peer-address">
+              <label :for="'address-' + peer.device_id">连接地址<input :id="'address-' + peer.device_id" v-model="addressEdits[peer.device_id]" :disabled="pairing" spellcheck="false" /></label>
+              <button :disabled="pairing" @click="updatePeerAddress(peer)">更新地址</button>
+              <button class="danger-action" :disabled="pairing" @click="revokePeer(peer)">撤销配对</button>
+            </div>
+            <p class="fingerprint" :title="peer.fingerprint">设备指纹 <code>{{ peer.fingerprint }}</code></p>
+          </article>
+        </section>
+        <section class="panel">
+          <div class="section-title"><h2>添加设备</h2><button :disabled="pairing" @click="inviteDevice">生成本机邀请</button></div>
+          <p class="hint">两端打开 窗渡 PaneFerry，填写对方的局域网地址和配对邀请。</p>
+          <form class="fields" @submit.prevent="pairDevice">
+            <label for="pair-address">对方地址<input id="pair-address" v-model="pairAddress" placeholder="192.168.1.20:42424" :disabled="pairing" spellcheck="false" /></label>
+            <label for="pair-code">对方邀请<input id="pair-code" v-model="pairCode" type="password" autocomplete="off" placeholder="粘贴对方生成的邀请" :disabled="pairing" /></label>
+            <button class="primary-action" :disabled="pairing || !pairAddress.trim() || !pairCode.trim()" type="submit">配对设备</button>
+          </form>
+          <div v-if="ownInvite" class="invite-box">
+            <label for="own-invite">本机配对邀请</label>
+            <textarea id="own-invite" :value="ownInvite" readonly rows="3" spellcheck="false" />
+            <p class="hint">将这段邀请填写到对方设备，并使用本机的局域网地址连接。</p>
+          </div>
+          <p class="hint">邀请五分钟内有效、仅可使用一次，请通过可信方式传递。</p>
+        </section>
+      </div>
+
+      <div v-else-if="activePage === 'sharing'" class="page-content">
+        <section class="panel">
+          <div class="section-title"><h2>本机应用共享</h2><span class="badge" :class="{ enabled: localNode?.sharing_enabled }">{{ localNode ? localNode.sharing_enabled ? "已开启" : "未开启" : "正在读取…" }}</span></div>
+          <div class="sharing-summary">
+            <div><h3>{{ localNode?.name || "这台设备" }}</h3><p class="hint">{{ localNode?.sharing_enabled ? "已配对设备可以读取并打开本机应用。" : "开启后，已配对设备可以读取并打开本机应用。" }}</p></div>
+            <button :class="{ 'primary-action': !localNode?.sharing_enabled }" :disabled="localBusy || !localNode" @click="toggleSharing">{{ localNode?.sharing_enabled ? "停止共享" : "开启共享" }}</button>
+          </div>
+          <p class="hint separated">应用仍在本机运行并显示。收到的远程应用不会再次共享给其他设备。</p>
+          <p v-if="localWarning" class="alert error" role="alert">{{ localWarning }}</p>
+        </section>
+        <section v-if="localNode" class="panel">
+          <div class="section-title"><h2>系统权限</h2></div>
+          <div class="setting-row"><div><h3>屏幕录制</h3><p class="hint">用于传输本机应用窗口的画面。</p></div><span class="permission-state" :class="{ granted: localNode.permissions.screen_recording }">{{ localNode.permissions.screen_recording ? "已允许" : "待允许" }}</span></div>
+          <div class="setting-row"><div><h3>辅助功能</h3><p class="hint">用于接收远程键盘和鼠标操作。</p></div><span class="permission-state" :class="{ granted: localNode.permissions.accessibility }">{{ localNode.permissions.accessibility ? "已允许" : "待允许" }}</span></div>
+          <template v-if="!localNode.permissions.screen_recording || !localNode.permissions.accessibility">
+            <div class="button-row"><button class="primary-action" :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button><button :disabled="localBusy" @click="showLocalComponent">显示共享组件</button></div>
+            <p class="hint">系统列表已开启仍不生效时，点“显示共享组件”，移除权限列表中的旧条目，再添加访达选中的当前程序。</p>
+          </template>
+        </section>
+      </div>
+
+      <div v-else-if="activePage === 'display'" class="page-content">
+        <section class="panel">
+          <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
+          <div class="setting-row scale-setting"><div><label for="render-scale">界面缩放</label><p class="hint">对新会话生效，已有会话保留原来的缩放。</p></div>
+            <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
+              <option value="auto">自动 · 跟随本机像素密度</option>
+              <option value="1">100%</option>
+              <option value="2">200% · Retina</option>
+            </select>
+          </div>
+          <div class="setting-row"><div><h3>窗口分辨率</h3><p class="hint">随本机窗口的实际像素尺寸调整。可在应用窗口的“显示”菜单中适应屏幕，或输入像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
+        </section>
+        <section class="panel">
+          <div class="section-title"><h2>输入与剪贴板</h2></div>
+          <div class="setting-row"><div><h3>输入法</h3><p class="hint">使用当前控制设备的输入法。</p></div></div>
+          <div class="setting-row"><div><h3>复制与粘贴</h3><p class="hint">主动复制或粘贴时传输剪贴板内容，不做后台同步。</p></div></div>
+        </section>
+      </div>
+
+      <div v-else-if="activePage === 'history'" class="page-content">
+        <section class="panel history">
+          <div class="section-title"><h2>本次连接记录 <span class="count">{{ launches.length }}</span></h2><span class="subtle-label">最近 20 次</span></div>
+          <div v-if="!launches.length" class="empty">
+            <div class="empty-icon" aria-hidden="true">↗</div><h3>还没有连接记录</h3><p>从工作台打开应用或连接已有窗口后，记录会显示在这里。</p><button @click="activePage = 'apps'">前往应用工作台</button>
+          </div>
+          <ol v-else class="history-list">
+            <li v-for="(entry, i) in launches" :key="i">
+              <div class="history-heading"><h3>{{ entry.name }}</h3><time :datetime="new Date(entry.createdAt).toISOString()">{{ new Date(entry.createdAt).toLocaleTimeString() }}</time></div>
+              <p class="hint" :title="entry.peerId">{{ entry.deviceName }}{{ entry.deviceAddress ? " · " + entry.deviceAddress : "" }} · 已请求打开原生窗口</p>
+              <code v-if="entry.result.session_id" class="session-id">会话 {{ entry.result.session_id }}</code>
+            </li>
+          </ol>
+          <p v-if="launches.length" class="hint">请以实际应用窗口确认连接成功。</p>
+        </section>
+      </div>
+      <footer>一套软件 · 双向应用共享<span>窗渡 PaneFerry</span></footer>
     </main>
   </div>
 </template>

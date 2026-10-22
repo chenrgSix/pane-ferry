@@ -325,3 +325,64 @@ test("legacy connection settings cannot become a paired device or trigger connec
     assert.equal(mounted.calls.filter(c => ["list_apps","list_sessions","list_desktop_windows"].includes(c.command)).length, 0);
   } finally { mounted.unmount(); }
 });
+
+test("menu navigation preserves the active device, app search, display preference and live sessions", async () => {
+  const peer = { device_id: endpoint.peerId, name: "Ubuntu", address: "10.0.1.66:42424", fingerprint: "test", connected: true };
+  const mounted = mount(storage(), {
+    network_action: () => ({ peers: [peer] }),
+    local_node_info: () => ({ name: "Mac", sharing_enabled: true, permissions: { screen_recording: true, accessibility: true } }),
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    state.search = "fire";
+    state.renderScale = "2";
+    state.pairAddress = "192.168.1.20:42424";
+    const calls = mounted.calls.length;
+    for (const page of ["devices", "sharing", "display", "history", "apps"]) {
+      state.activePage = page;
+      await nextTick();
+      assert.equal(state.currentPage.id, page);
+      assert.equal(state.selectedPeer.device_id, endpoint.peerId);
+      assert.equal(state.filtered[0].name, "Firefox");
+      assert.equal(state.renderScale, "2");
+      assert.equal(state.pairAddress, "192.168.1.20:42424");
+      assert.equal(state.runningConnections[0].sessionId, "remote");
+    }
+    assert.equal(mounted.calls.length, calls, "changing pages must not reconnect, rescan apps or change sharing");
+    await state.launch(state.installed[0]);
+    assert.equal(actions(mounted).at(-1).args.renderScale, 2);
+    assert.equal(actions(mounted).at(-1).args.endpoint.peerId, endpoint.peerId);
+  } finally { mounted.unmount(); }
+});
+
+test("device actions return to the workspace and keep catalogs and connection records associated with each peer", async () => {
+  const peers = [
+    { device_id: endpoint.peerId, name: "Ubuntu", address: "10.0.1.66:42424", fingerprint: "first", connected: true },
+    { device_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Ubuntu", address: "10.0.1.67:42424", fingerprint: "second", connected: false },
+  ];
+  const mounted = mount(storage(), {
+    network_action: () => ({ peers }),
+    list_apps: ({ endpoint: target }) => ({ apps: [{ ...app, name: target.peerId === peers[0].device_id ? "Firefox" : "Files" }], discovery_error: null }),
+    list_sessions: ({ endpoint: target }) => [session(target.peerId, "firefox", 228)],
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    await state.launch(state.apps[0]);
+    state.activePage = "devices";
+    await state.selectPeer(peers[1]);
+    assert.equal(state.activePage, "apps");
+    assert.equal(state.selectedPeer.address, peers[1].address, "same display names must not alias devices");
+    assert.equal(state.apps[0].name, "Files");
+    assert.equal(state.runningConnections[0].sessionId, peers[1].device_id);
+    await state.launch(state.apps[0]);
+    assert.equal(actions(mounted).at(-1).args.endpoint.peerId, peers[1].device_id);
+    assert.deepEqual(state.launches.map(entry => entry.peerId), [peers[1].device_id, peers[0].device_id]);
+    await state.changePeer({ target: { value: peers[0].device_id } });
+    assert.equal(state.apps[0].name, "Firefox");
+    assert.equal(state.runningConnections[0].sessionId, peers[0].device_id);
+    assert.equal(mounted.calls.filter(call => call.command === "list_apps").length, 2, "returning to a device reuses its own catalog");
+    assert.equal(state.launches.length, 2, "switching devices preserves the session's connection history");
+  } finally { mounted.unmount(); }
+});
