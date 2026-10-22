@@ -25,6 +25,8 @@
 
 独立会话沿用 Xvfb / Openbox、缩放、H.264、控制端输入法和主动双向文本剪贴板。终端型入口使用 xterm；新建 XTerm/UXTerm 实例添加 Ctrl+Shift+C/V 与 CLIPBOARD 的绑定，不修改全局 Xresources、原有窗口或用户配置。Snap 入口在用户应用 scope 前台运行，使用 Snap 可读目录里的私有会话 cookie，结束时清理；不关闭认证或沙箱。
 
+用户 Agent 服务需使用正常的同 UID 应用启动权限，不能对整棵应用进程树设置 `NoNewPrivileges=yes`：`systemd-run --scope` 会继承该标志，导致 Snap 的 setuid `snap-confine` 在建立自身沙箱前就因缺少 capability 退出。服务模板已移除此标志；没有以 root 启动 Agent，没有关闭 Snap/AppArmor 沙箱，也没有向 QUIC 增加任意命令执行接口。其他本地部署若额外继承了该限制仍需调整。`snap_service_launch_smoke.py` 用同一个真实 Firefox Snap 的 `--version` 在旧限制和当前服务策略下对照，不打开或复制浏览器配置。
+
 HexHub 的 `HexHub.desktop` / `/opt/hexhub/HexHub` 入口自动采用 `desktop_secrets` 兼容策略：每个会话通过独立的 `xdg-dbus-proxy` socket 访问已登录用户的 `org.freedesktop.secrets`，窗口仍位于自己的 Xvfb。不会向应用开放整个桌面总线、其他服务或应用激活；不添加关闭密码加密或沙箱的参数。其他应用默认仍使用 `dbus-run-session`。确实需要同类兼容的本地自定义入口可配置 `"session_bus":"desktop_secrets"`，或在本地 `.desktop` 文件添加 `X-LANRemoteApp-SessionBus=desktop_secrets`；不适用于 Snap 或 existing 窗口。代理随会话清理，Agent 意外退出时也会通过生命周期描述符停止。缺少代理或桌面总线时明确拒绝启动。
 
 发现入口不等于所有应用已完成运行兼容性验收。单实例浏览器、依赖完整 GNOME 会话、GPU 或原生 Wayland 的程序可能需要专门适配；已有窗口可从运行窗口区接入。不会复制默认浏览器资料或改其配置。

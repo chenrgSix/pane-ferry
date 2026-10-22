@@ -8,7 +8,10 @@ ExecStart=%h/.local/bin/paneferry-agent serve
 Restart=on-failure
 RestartSec=3
 UMask=0077
-NoNewPrivileges=yes
+# This user service launches locally approved desktop applications. Snap's
+# setuid snap-confine must establish its own confinement with normal user-launch
+# privileges; systemd-run --scope inherits NoNewPrivileges from its parent.
+# Setting NoNewPrivileges here prevents every discovered Snap from starting.
 # Do not use PrivateTmp: X11 clients need the same Unix socket namespace.
 [Install]
 WantedBy=default.target
