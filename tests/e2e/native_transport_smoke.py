@@ -33,14 +33,9 @@ with tempfile.TemporaryDirectory(prefix='rwn-native-',dir='/tmp') as directory:
             except (OSError,ValueError):time.sleep(.05)
         raise AssertionError('network daemon did not start')
     try:
-        # Reuse the existing disconnect fixture, including its request log and
-        # stable NSWindow/session assertions, through the new native adapter.
-        original=(root/'tests/e2e/automatic_reconnect_smoke.py').read_text()
-        begin=original.index("    fixture.write_text('''")+len("    fixture.write_text('''")
-        end=original.index("''')",begin)
-        fixture_text=original[begin:end].replace('\\\\n','\\n')
-        fixture_text=fixture_text.replace("if item['type']=='hello':", "if item['type']=='node.info': emit(type='node.info', sharing_enabled=True)\n        if item['type']=='hello':")
-        fixture=scratch/'publisher';fixture.write_text(fixture_text);fixture.chmod(0o700)
+        (scratch/'video.json').write_bytes((root/'tests/fixtures/native-video.json').read_bytes())
+        fixture=scratch/'publisher'
+        fixture.write_bytes((root/'tests/fixtures/native_publisher.py').read_bytes());fixture.chmod(0o700)
         listener=socket.socket(socket.AF_UNIX);listener.bind(str(scratch/'publisher.sock'));listener.listen();sockets.append(listener)
         def serve():
             while True:
@@ -91,6 +86,10 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         text=text.replace('let options = Options(host: "fixture.invalid", user: "fixture", port: 22, app: nil, session: "retained")',
             'let options = try Options.parse(["--native-peer", CommandLine.arguments[2], "--native-state", CommandLine.arguments[3], "--native-helper", CommandLine.arguments[4], "--session", "retained"])')
         text=text.replace('        app.makeTransport = { SSHTransport(executable: root.appendingPathComponent("fake-ssh")) }','')
+        text=text.replace('until { app.windows[42] != nil }', 'until { app.windows[42]?.surface.image != nil && app.lastSequence >= 11 }')
+        text=text.replace('until { app.lastSequence >= 3 }', 'until { app.lastSequence >= 11 && app.windows[42]?.surface.image != nil }\n        let image = app.windows[42]!.surface.image!\n        let red = NSBitmapImageRep(cgImage:image).colorAt(x:20,y:20)!.usingColorSpace(.sRGB)!\n        precondition(red.redComponent > 0.8 && red.greenComponent < 0.2 && image.width == 640, "QUIC H.264 output is incorrect")\n        let nativeNextSequence = app.lastSequence + 1\n        print("PASS: real H.264 IDR and dependent P frames through QUIC into AppKit; decoded red pixels after reconnect")')
+        for offset, seq in enumerate([4,5,6,7]):
+            text=text.replace('"seq":'+str(seq)+',', '"seq":nativeNextSequence+'+str(offset)+',')
         test.write_text(text)
         files=[str(file) for file in source.glob('*.swift') if file.name!='main.swift']
         receiver=scratch/'receiver'

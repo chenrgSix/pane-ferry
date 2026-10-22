@@ -563,7 +563,7 @@ impl Service {
                 }
                 Some("bulk-upload" | "bulk-download") => {
                     self.bulk_client(&request, &mut read, &mut write).await?;
-                    return Ok(Value::Null);
+                    Ok(Value::Null)
                 }
                 _ => bail!("unknown management operation"),
             }
@@ -932,8 +932,10 @@ mod tests {
     use super::*;
     #[test]
     fn late_frames_cannot_revive_windows_or_cross_geometry_changes() {
-        let mut merge = Merge::default();
-        merge.barrier = 1;
+        let mut merge = Merge {
+            barrier: 1,
+            ..Default::default()
+        };
         merge.observe(&json!({"type":"session.snapshot","windows":[{"type":"window.created","window_id":7,"geometry_revision":4}]})).unwrap();
         let frame = |barrier, revision| {
             Packet::new(json!({"type":"frame","window_id":7,"geometry_revision":revision,"codec":"h264","data":"YQ=="}),barrier).unwrap()
