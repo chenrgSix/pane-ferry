@@ -1,0 +1,194 @@
+{
+  "date": "2026-10-22",
+  "implementation_commit": "dd4349a",
+  "commits": [
+    "fa21c65",
+    "06922fa",
+    "0adc4f5",
+    "b9a3297",
+    "2ba50db",
+    "dd4349a"
+  ],
+  "environment": {
+    "macOS": "27.0.1 arm64",
+    "ubuntu": "26.04.1 x86_64",
+    "transport": "QUIC reliable streams over existing EasyTier addresses",
+    "physical_machines": 2,
+    "multi_device_fixture_nodes": 3,
+    "ssh": "development deployment and test orchestration only"
+  },
+  "feishu_observation": {
+    "scope": "window/process metadata only; no chat input or message sending; interactive acceptance uses dedicated fixtures",
+    "mac": {
+      "main_pid": 709,
+      "main_window": 66,
+      "preview_pid": 65990,
+      "preview_window_latest_probe": 16270,
+      "preview_parent_pid": 709,
+      "preview_launch_date_available": false,
+      "new_publisher_candidates": 2,
+      "kernel_identities_valid": true
+    },
+    "ubuntu": {
+      "main_pid": 44108,
+      "main_window": 48234500,
+      "preview_pid": 1854186,
+      "preview_window": 100663300,
+      "preview_parent_pid": 44108,
+      "WM_TRANSIENT_FOR": null,
+      "WM_CLIENT_LEADER": null,
+      "WM_CLASS": null
+    }
+  },
+  "tests": [
+    {
+      "name": "Mac scripts/check.sh",
+      "status": "passed",
+      "rust_passed": 44,
+      "rust_ignored": 4,
+      "frontend_passed": 22,
+      "note": "Final ambiguity hardening afterward was separately rechecked by Swift boundaries, Rust, Clippy, native dual-machine tests and release builds."
+    },
+    {
+      "name": "Ubuntu cargo test --workspace",
+      "status": "passed",
+      "rust_passed": 47,
+      "rust_ignored": 4
+    },
+    {
+      "name": "Rust fmt and workspace all-targets Clippy -D warnings",
+      "status": "passed"
+    },
+    {
+      "name": "app_discovery_smoke.py",
+      "status": "passed",
+      "covers": [
+        "actual child process without transient property",
+        "same-PID independent windows",
+        "forged PID/transient rejection",
+        "two session isolation",
+        "child input/close",
+        "reconnect"
+      ]
+    },
+    {
+      "name": "linux_receiver_smoke.py",
+      "status": "passed",
+      "covers": [
+        "actual GTK/GStreamer over three paired QUIC nodes",
+        "identical device session/window IDs",
+        "scoped clipboard errors",
+        "native windows retained on reconnect",
+        "child close",
+        "late frame rejection"
+      ]
+    },
+    {
+      "name": "mac_publisher_boundaries.py",
+      "status": "passed",
+      "covers": [
+        "PID reuse",
+        "unambiguous interaction requirement",
+        "receiver exclusion",
+        "dimensions",
+        "window input coordinates"
+      ]
+    },
+    {
+      "name": "mac_related_windows_smoke.py",
+      "status": "passed",
+      "covers": [
+        "real accessory child process",
+        "SCK/H264",
+        "child Unicode and copy",
+        "other session input rejection",
+        "reconnect",
+        "child close preserves root"
+      ]
+    },
+    {
+      "name": "mac_related_to_linux_live.py",
+      "status": "passed",
+      "direction": "Mac -> Ubuntu",
+      "transport": "real cross-machine QUIC",
+      "reconnects": 2,
+      "covers": [
+        "real accessory child window",
+        "automatic GTK child",
+        "Unicode/copy",
+        "native window retention",
+        "child close preserves root",
+        "detach preserves Mac application"
+      ]
+    },
+    {
+      "name": "mac_related_receiver_live.py",
+      "status": "passed",
+      "direction": "Ubuntu -> Mac",
+      "transport": "real cross-machine QUIC",
+      "reconnects": 2,
+      "covers": [
+        "real GTK child process",
+        "AppKit H264",
+        "Unicode/copy",
+        "native window retention",
+        "child close preserves root"
+      ]
+    },
+    {
+      "name": "delivered release WindowHost/native-network startup",
+      "status": "passed",
+      "transport": "real cross-machine QUIC",
+      "scope": "dedicated Ubuntu fixture"
+    }
+  ],
+  "artifacts": {
+    "linux_archive": {
+      "path": "dist/lan-remoteapp-linux-related.tar.gz",
+      "bytes": 3335577,
+      "sha256": "d993456c2a1529e878d8f61a50105a6fafdd4f6f7cde7ac75bdad756f4b6e437"
+    },
+    "mac_launcher": {
+      "path": "dist/lan-remoteapp-related-macos/LAN RemoteApp.app/Contents/MacOS/lan-remoteapp-launcher",
+      "bytes": 10791280,
+      "sha256": "efea87393b2907932e25386b20b84112a460a8689c66341dfd0a690a84af097c"
+    },
+    "mac_publisher": {
+      "path": "dist/lan-remoteapp-related-macos/LAN RemoteApp.app/Contents/Resources/RemoteAppNode.app/Contents/MacOS/RemoteAppNode",
+      "bytes": 590704,
+      "sha256": "859ab5a743c1edc01e05824d1aa93191a0e8112897e586484e132b05799b17cb"
+    },
+    "mac_receiver": {
+      "path": "dist/lan-remoteapp-related-macos/LAN RemoteApp.app/Contents/Resources/RemoteAppWindowHost.app/Contents/MacOS/RemoteAppWindowHost",
+      "bytes": 623232,
+      "sha256": "dc1dd7509e72ebe8de2b2c54248fb9eb61e4eca2619945dd946bc4b62356b996"
+    },
+    "mac_network": {
+      "path": "dist/lan-remoteapp-related-macos/LAN RemoteApp.app/Contents/Resources/remoteapp-network",
+      "bytes": 4994800,
+      "sha256": "4d0d0faf474d02abc72d36efd1ca977ed974f8cf915efbe539afd7fcc7f77847"
+    }
+  },
+  "installed": false,
+  "limitations": [
+    "No claim of full Feishu image-control E2E; only actual ownership observations plus dedicated interactive fixtures.",
+    "Ambiguous same-application concurrent sessions do not infer unparented windows.",
+    "Unrelated existing windows, system-launched external viewers without verifiable ancestry, and native Wayland need separate handling.",
+    "Three-node isolation is not a three-physical-machine test.",
+    "No new performance comparison, simultaneous bidirectional typing, CI, notarization or production acceptance."
+  ],
+  "signing": {
+    "mac_publisher_adhoc_bundle_verify": "passed",
+    "mac_windowhost_bundle_verify": "not passed: existing unsigned template workflow has no resource seal",
+    "mac_windowhost_macho_verify_ignore_resources": "passed",
+    "formal_signing_and_notarization": "not performed"
+  },
+  "cleanup": {
+    "temporary_publishers_receivers_network_nodes": "stopped",
+    "temporary_pairing_certificates_and_state": "removed",
+    "development_ssh_master": "closed",
+    "permanent_ubuntu_agent": "active",
+    "permanent_mac_publisher": "reachable, sharing enabled, recording/accessibility available",
+    "current_installations": "not replaced"
+  }
+}

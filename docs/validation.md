@@ -326,3 +326,33 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 - 会话与幂等表在内存；停止 Agent 会结束其子进程，不能将断线恢复通过解释为 Agent/系统重启后仍能恢复。
 
 当前技术为配对 QUIC 可靠流、兼容 JSON Lines、H.264（PNG 回退）、XDamage / MIT-SHM 窗口采集（可回退 GetImage 轮询）、原生 GStreamer C API / OpenH264 软件编码与 Swift VideoToolbox/AppKit/CoreGraphics。QUIC 网络视频使用二进制负载，控制水位协调跨流顺序。Protobuf schema 为后续草案；WebRTC、QUIC DATAGRAM、Metal、精确远端文本上下文与文件拖放未实现。视频编码为有损 4:2:0；长时间稳定性、弱网丢包/拥塞和其他设备的性能尚未验收。
+
+
+## 关联窗口与跨进程预览（2026-10-22）
+
+本轮由飞书图片预览问题触发。Mac 的主窗口属于 PID 709，图片窗口属于其子进程 `Lark Helper` PID 65990；辅助进程是 accessory 应用，`NSRunningApplication.launchDate` 为空。Ubuntu 的主窗口属于 PID 44108，图片窗口属于其子进程 PID 1854186，且没有 `WM_TRANSIENT_FOR`、`WM_CLIENT_LEADER` 或 `WM_CLASS`。这说明只检查同一 PID、主应用启动时间或显式 transient 关系都会漏掉该场景。新版 Mac 扫描实际读到这两个窗口的有效内核身份。
+
+上述飞书检查只读取窗口与进程元数据。用户手动打开图片，自动点击未作为成功证据；没有向聊天输入框写入或发送消息。后续交互和双机回归使用专用测试应用，不能将夹具通过写成全部飞书图片操作已验收。
+
+实现分步提交：`fa21c65` 为 X11 跨进程跟随和 Mac 子窗口关闭，`06922fa` 为 GTK 多窗口接收，`0adc4f5` 为父窗口消失后的关联后代清理，`b9a3297` 为窗口级剪贴板失败处理，`2ba50db` 为多会话歧义拒绝，`dd4349a` 为 Mac 辅助窗口采集、输入和双机夹具。产品仍是一个程序双向使用，业务传输仍是 QUIC；SSH 只用于本次开发部署、执行测试与清理。
+
+| 验证 | 实际结果 |
+| --- | --- |
+| Ubuntu → Mac，真实双机 QUIC | 实际 GTK 主窗口、显式对话框和无 transient 的独立子进程预览，经 H.264 显示为 AppKit 窗口；预览中文/emoji、复制、两次重连保留原生窗口、关闭预览后继续操作主窗口均通过 |
+| Mac → Ubuntu，真实双机 QUIC | 真实 accessory 子进程经 SCK/VideoToolbox → QUIC → GTK/GStreamer；预览中文/emoji、原生复制、两次重连、独立关闭和断开保留源应用均通过 |
+| Mac 本机生产发布代码 | 两个同 PID 独立主窗口隔离；辅助子进程单独采集、输入、复制；其他会话输入被拒绝；目录归属、重连与预览关闭均通过 |
+| 三个真实 QUIC 节点 / GTK | 两个配对设备使用相同会话号和窗口号时，原生窗口、输入、解码器与关闭互不混用；迟到帧不复活窗口；窗口级复制失败只取消对应窗口；无窗口号的旧端失败也不会无限等待 |
+| X11 隔离桌面 | 实际子进程创建窗口；伪造 PID/transient 不能越权；相同 PID 的其他主窗口不被接入；重连、中文、复制粘贴、独立关闭与原进程存活通过 |
+| 内核身份和歧义规则 | PID/启动时间变化拒绝、窗口标识不重绑定、父窗口消失后的后代退役、同一应用多个会话近期输入时不推测弹窗归属，均通过 |
+| 自动门禁 | Mac `scripts/check.sh` 完整通过（Rust 44 项通过、4 项按条件忽略；前端 22 项及构建；Python、Swift/AppKit 回归）；最终归属规则加固后另重跑对应 Rust/Swift 边界、Clippy、真实双机测试和 release 构建。Ubuntu Rust 47 项通过、4 项按条件忽略；最终根 workspace Clippy `-D warnings` 与格式检查通过 |
+| 打包与包内检查 | Mac Tauri release 和 Linux 安装包构建通过；包内 Node/WindowHost 二进制与构建产物一致，Linux 接收源码与最终版本一致；交付包内 release WindowHost 和网络组件实际连接 Ubuntu 夹具通过 |
+
+首次反向双机复制失败，原因是辅助窗口输入时只激活了主应用，未激活辅助进程的 Edit 菜单/响应对象。修复后本机和双机复制均通过；错误回包补充 `window_id`，接收端也兼容旧端没有窗口编号的失败。测试夹具同时修复了子进程退出清理、路径别名、事件监听保留以及隔离显示服务就绪检查，未把夹具故障归因于 QUIC。
+
+可复现入口：`app_discovery_smoke.py`、`linux_receiver_smoke.py`、`mac_publisher_boundaries.py`；真实 Mac 发布代码使用 `mac_related_windows_smoke.py --directory /tmp/lra-related-mac --hold`。独立 Ubuntu 主机夹具为 `tests/fixtures/linux_related_host.py --directory /tmp/lra-related-linux`。在各自隔离状态目录启动网络组件并配对后，运行 `mac_related_receiver_live.py` 与 `mac_related_to_linux_live.py`；命令参数由各脚本的 `--help` 给出。这两个双机接收测试自身不调用 SSH。
+
+开发产物为 `dist/lan-remoteapp-related-macos/LAN RemoteApp.app` 与 `dist/lan-remoteapp-linux-related.tar.gz`，**尚未覆盖当前运行的安装**。Node 的 ad-hoc bundle 校验通过；WindowHost 按既有流程提供未签名的应用模板，完整 bundle 签名检查不通过，Mach-O 校验和包内实际启动通过。不是正式签名、公证或生产发行产物。
+
+边界：无法证明亲缘关系的外部应用/系统服务窗口、已经显示但无法归属的独立窗口，以及同一应用多个会话同时输入造成的歧义，不会自动接纳。没有完成三个物理设备并发、两个方向同时争用键盘/剪贴板、长时间压力、休眠唤醒、原生 Wayland 或所有应用兼容性验收；本轮未做性能对比，也未执行 CI。结构化条件、产物 SHA-256 与检查输出见 [JSON 记录](validation-artifacts/2026-10-22-related-windows.json)和[压缩日志](validation-artifacts/2026-10-22-related-windows-logs.json.gz)。
+
+验收结束后已停止专用测试应用、发布器、接收器与网络组件，移除两端临时配对证书/状态及编译缓存，并关闭本次开发 SSH master。原 Ubuntu Agent 仍为 active；原 Mac 发布器可访问，共享、录屏与辅助功能状态正常。
