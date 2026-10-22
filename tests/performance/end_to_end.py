@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Opt-in Mac -> SSH -> isolated Ubuntu GTK -> H.264 -> actual AppKit draw benchmark.
+"""Opt-in Mac -> SSH/QUIC -> isolated Ubuntu GTK -> H.264 -> AppKit draw benchmark.
 
 Builds temporary instrumented copies. Does not replace either installed app, load
 the user's catalog, inspect the system clipboard or control existing sessions.
-Clock differences are never subtracted: network/SSH is a round-trip residual.
+Clock differences are never subtracted: transport/network is a round-trip residual.
 """
 import argparse
 import io
@@ -15,6 +15,7 @@ import plistlib
 import re
 import shlex
 import shutil
+import socket
 import statistics
 import subprocess
 import tarfile
@@ -51,11 +52,25 @@ def instrument_agent(destination):
     output.write_text(text)
 
 
-def instrument_mac(destination, bridge):
+def instrument_network(destination):
+    """Expose aggregate transport counters only in the temporary timing binary."""
+    service = destination / 'crates/network/src/service.rs'
+    text = replace(service.read_text(), '"peers":peers})', '''"peers":peers,"_probe_connections":state.connections.values().flatten().map(|c| {
+            let s=c.stats(); json!({"rtt_ms":s.path.rtt.as_secs_f64()*1000.0,"min_rtt_ms":s.path.min_rtt.as_secs_f64()*1000.0,
+                "sent_packets":s.path.sent_packets,"lost_packets":s.path.lost_packets,"congestion_events":s.path.congestion_events,
+                "mtu":s.path.current_mtu,"tx_bytes":s.udp_tx.bytes,"rx_bytes":s.udp_rx.bytes})
+        }).collect::<Vec<_>>()})''')
+    service.write_text(text)
+
+
+def instrument_mac(destination, bridge, control_path=None):
     original = ROOT / 'apps/mac-windowhost/Sources/RemoteAppWindowHost'
     shutil.copytree(original, destination)
     main = destination / 'main.swift'
     text = replace(main.read_text(), '".local/bin/remoteapp-agent bridge"]', json.dumps(bridge) + ']')
+    if control_path:
+        text = replace(text, 'SSHAuthentication.configure(process, host: options.host, user: options.user, port: options.port)',
+                       json.dumps(['-S', control_path, '-oBatchMode=yes']))
     text = replace(text, 'let line = buffer.prefix(upTo: newline)',
                    'let probeReceived = Probe.now()\n                    let line = buffer.prefix(upTo: newline)')
     text = replace(text, 'try enqueue(Incoming(object: lightweight, image: image))',
@@ -68,7 +83,7 @@ def instrument_mac(destination, bridge):
                    'DispatchQueue.main.async { [weak host] in if let host = host { Probe.configure(host) } }')
     text = replace(text, 'application.delegate = applicationDelegate\n    application.run()',
                    'application.delegate = applicationDelegate\n    Probe.start(applicationDelegate!)\n    application.run()')
-    text = replace(text, '        let alert = NSAlert(); alert.messageText = "LAN RemoteApp"; alert.informativeText = message\n        alert.addButton(withTitle: "好"); alert.runModal()',
+    text = replace(text, '        let alert = NSAlert(); alert.messageText = applicationName; alert.informativeText = message\n        if let icon = applicationIcon { alert.icon = icon }\n        alert.addButton(withTitle: "好"); alert.runModal()',
                    '        Probe.finish(error: message)')
     text = replace(text, 'func send(_ object: [String: Any]) {',
                    'func send(_ object: [String: Any]) {\n        if ["hello", "video.enable", "app.launch"].contains(object["type"] as? String ?? "") { FileHandle.standardError.write(Data(("Probe sends " + (object["type"] as? String ?? "") + "\\n").utf8)) }')
@@ -125,7 +140,7 @@ def analyze(mac, remote):
                    encoder_queue=p['encode_start'] - p['capture_end'],
                    encode=p['encode_end'] - p['encode_start'],
                    server_prepare=p['ready'] - p['encode_end'],
-                   ssh_network=(frame['received'] - frame['write_end']) - server,
+                   transport_network=(frame['received'] - frame['write_end']) - server,
                    decode=frame['decoded'] - frame['received'],
                    main_queue=frame['selected'] - frame['decoded'],
                    draw=frame['draw_end'] - frame['selected'])
@@ -135,7 +150,7 @@ def analyze(mac, remote):
         # supplementary diagnostics and can overlap a blocking X11 GetImage.
         closed = sum(row[key] for key in ('controller_input', 'agent_input_queue', 'x11_delivery',
                      'response_to_capture', 'encoder_queue', 'encode', 'server_prepare',
-                     'ssh_network', 'decode', 'main_queue', 'draw'))
+                     'transport_network', 'decode', 'main_queue', 'draw'))
         assert abs(closed - row['total']) < .001
         rows.append(row)
     metrics = {key: summary([row[key] for row in rows])
@@ -145,7 +160,7 @@ def analyze(mac, remote):
     groups = dict(input=('controller_input', 'agent_input_queue', 'x11_delivery'),
                   remote_capture=('response_to_capture',),
                   remote_encode=('encoder_queue', 'encode', 'server_prepare'),
-                  transport=('ssh_network',), mac=('decode', 'main_queue', 'draw'))
+                  transport=('transport_network',), mac=('decode', 'main_queue', 'draw'))
     grouped = {name: summary([sum(row[key] for key in keys) for row in rows]) for name, keys in groups.items()}
     return dict(samples=len(rows), stages_ms=metrics, modes_ms=modes, groups_ms=grouped,
                 response_packet_bytes=summary([row['bytes'] for row in rows]), rows=rows)
@@ -156,6 +171,10 @@ def main():
     parser.add_argument('--host', required=True)
     parser.add_argument('--user', required=True)
     parser.add_argument('--port', type=int, default=22)
+    parser.add_argument('--control-path', help='existing authenticated SSH master, including for test orchestration')
+    parser.add_argument('--transport', choices=('ssh', 'quic'), default='ssh')
+    parser.add_argument('--network', type=Path, default=ROOT / 'target/release/remoteapp-network',
+                        help='local release QUIC binary; used only with --transport quic')
     parser.add_argument('--width', type=int, default=2560)
     parser.add_argument('--height', type=int, default=1664)
     parser.add_argument('--samples', type=int, default=30, help='measured samples per input kind, plus two warmups')
@@ -169,7 +188,7 @@ def main():
     assert 0 < args.port < 65536 and 1 <= args.samples <= 70
     assert 320 <= args.width <= 4096 and 128 <= args.height <= 2160 and args.width * args.height <= 8_000_000
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    ssh = ['/usr/bin/ssh', '-F', '/dev/null', '-S', '~/.ssh/lan-remoteapp-%C', '-T',
+    ssh = ['/usr/bin/ssh', '-F', '/dev/null', '-S', args.control_path or '~/.ssh/lan-remoteapp-%C', '-T',
            '-oBatchMode=yes', '-oStrictHostKeyChecking=yes', '-oConnectTimeout=8',
            '-oForwardAgent=no', '-oClearAllForwardings=yes', '-p', str(args.port), '-l', args.user, '--', args.host]
 
@@ -180,6 +199,7 @@ def main():
                             capture_output=True, text=True, timeout=15).stdout.strip()
     assert re.fullmatch('/tmp/remoteapp-end-to-end-[A-Za-z0-9]+', remote_dir)
     manager = None
+    network = None
     try:
         with tempfile.TemporaryDirectory(prefix='remoteapp-end-to-end-', dir='/tmp') as temporary:
             scratch = Path(temporary)
@@ -193,6 +213,8 @@ def main():
                                 ignore=shutil.ignore_patterns('target', '.build'))
             # Cargo's workspace excludes this app, but all remaining members must exist.
             instrument_agent(agent_source)
+            if args.transport == 'quic':
+                instrument_network(agent_source)
             shutil.copytree(HERE, agent_source / 'tests/performance', ignore=shutil.ignore_patterns('__pycache__'))
             archive = io.BytesIO()
             with tarfile.open(fileobj=archive, mode='w:gz', format=tarfile.PAX_FORMAT) as tar:
@@ -200,22 +222,50 @@ def main():
             print('Building isolated Ubuntu timing probe...', flush=True)
             remote_run(['tar', 'xzf', '-', '-C', remote_dir], input=archive.getvalue(), timeout=30)
             cargo_target = args.remote_build_cache or remote_dir + '/target'
+            packages = ['-p', 'remoteapp-agent']
+            if args.transport == 'quic':
+                packages += ['-p', 'remoteapp-network']
             remote_run(['/usr/bin/env', 'CARGO_TARGET_DIR=' + cargo_target, 'cargo', 'build', '--release',
                         '--locked', '--offline', '--manifest-path', remote_dir + '/source/Cargo.toml',
-                        '-p', 'remoteapp-agent'], stdout=subprocess.DEVNULL, timeout=180)
+                        *packages], stdout=subprocess.DEVNULL, timeout=180)
             agent = cargo_target + '/release/remoteapp-agent'
             home = remote_dir + '/home'
             command = ['/usr/bin/python3', remote_dir + '/source/tests/performance/remote.py',
                        '--agent', agent, '--home', home, '--width', str(args.width), '--height', str(args.height)]
             if args.animated:
                 command.append('--animated')
+            if args.transport == 'quic':
+                command += ['--network', cargo_target + '/release/remoteapp-network']
             manager = subprocess.Popen(ssh + [shlex.join(command)], stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             ready = json.loads(manager.stdout.readline())
-            assert ready['ready'], ready
+            assert ready['ready'], 'test publisher unavailable'
+            host_arguments = ['--host', args.host, '--user', args.user, '--port', str(args.port)]
+            if args.transport == 'quic':
+                state = scratch / 'network'
+                network = subprocess.Popen([str(args.network.resolve()), 'serve', '--state', str(state),
+                    '--publisher', str(scratch / 'unused.sock'), '--listen', '0.0.0.0:0',
+                    '--name', 'Isolated timing receiver'], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                deadline = time.monotonic() + 10
+                while not (state / 'control.sock').exists():
+                    assert network.poll() is None and time.monotonic() < deadline, 'test network startup failed'
+                    time.sleep(.02)
+                with socket.socket(socket.AF_UNIX) as client:
+                    client.settimeout(25); client.connect(str(state / 'control.sock'))
+                    address = f'{socket.gethostbyname(args.host)}:{ready["network_port"]}'
+                    client.sendall(json.dumps(dict(op='pair', address=address, invitation=ready.pop('invitation'))).encode() + b'\n')
+                    peer = json.loads(client.makefile('rb').readline(131073))
+                    assert 'error' not in peer, 'test pairing failed'
+                identity = peer['device_id']
+                deadline = time.monotonic() + 5
+                while not (state / ('r-' + identity + '.sock')).exists():
+                    assert time.monotonic() < deadline
+                    time.sleep(.02)
+                host_arguments = ['--native-peer', identity, '--native-state', str(state), '--native-helper', str(args.network.resolve())]
             bridge = shlex.join(['/usr/bin/env', 'HOME=' + home, agent, 'bridge'])
             mac_source = scratch / 'mac-source'
-            instrument_mac(mac_source, bridge)
+            instrument_mac(mac_source, bridge, args.control_path)
             bundle = scratch / 'RemoteAppLatencyProbe.app'
             (bundle / 'Contents/MacOS').mkdir(parents=True)
             binary = bundle / 'Contents/MacOS/RemoteAppLatencyProbe'
@@ -230,8 +280,7 @@ def main():
             env = dict(os.environ, PROBE_WIDTH=str(args.width), PROBE_HEIGHT=str(args.height),
                        PROBE_SAMPLES=str(args.samples), PROBE_OUTPUT=str(scratch / 'mac.json'))
             print(f'Measuring {args.samples * 3} steady-state input responses at {args.width}x{args.height}...', flush=True)
-            run = subprocess.run([str(binary), '--host', args.host, '--user', args.user, '--port', str(args.port),
-                                  '--app', 'latency'], env=env, timeout=100)
+            run = subprocess.run([str(binary), *host_arguments, '--app', 'latency'], env=env, timeout=100)
             mac = json.loads((scratch / 'mac.json').read_text())
             stdout, stderr = manager.communicate('stop\n', timeout=20)
             assert manager.returncode == 0, stderr
@@ -240,13 +289,15 @@ def main():
             if run.returncode:
                 args.output.write_text(json.dumps(dict(mac=mac, remote=remote), indent=2) + '\n')
                 raise AssertionError(mac.get('error', 'test host failed'))
-            report = dict(host=args.host, width=args.width, height=args.height,
+            report = dict(host=args.host, width=args.width, height=args.height, transport=args.transport,
                           animated=args.animated, measured_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                           endpoint=mac['endpoint'], injection=mac['injection'],
                           **analyze(mac, remote), raw=dict(mac=mac, remote=remote))
             args.output.write_text(json.dumps(report, indent=2) + '\n')
             print(json.dumps({key: value for key, value in report.items() if key not in ('raw', 'rows')}, indent=2))
     finally:
+        if network is not None:
+            network.terminate(); network.wait(timeout=10)
         if manager is not None:
             try:
                 manager.communicate('stop\n', timeout=15)

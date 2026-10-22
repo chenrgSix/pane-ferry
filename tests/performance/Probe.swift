@@ -1,4 +1,4 @@
-// Temporary benchmark hooks around the real SSHTransport, decoder and NSView draw.
+// Temporary benchmark hooks around the real RWPTransport, decoder and NSView draw.
 // Synthetic test input only; never reads the controller clipboard.
 import AppKit
 
@@ -36,7 +36,7 @@ enum Probe {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { waitForWindow() }; return
         }
         guard !started else { return }; started = true
-        // Exclude SSH startup, first keyframe and first decoder allocation from steady-state samples.
+        // Exclude transport startup, first keyframe and decoder allocation from steady-state samples.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { next() }
     }
     static func written(_ line: Data, start: UInt64, end: UInt64) {
