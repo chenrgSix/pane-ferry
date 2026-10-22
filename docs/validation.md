@@ -435,3 +435,30 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 已在 Ubuntu 写入同名持久单元 `/etc/systemd/system/easytier-recovery.service` 和开机依赖链接；配置原样复制到 `/etc/easytier/recovery/network.toml`，仅 root 可读写（0600），目录 0700，网络密钥未输出或写入仓库。持久单元等待 `network-online.target`，使用原二进制和网络配置，退出后每 5 秒重试。没有启动第二份相同网络、没有重启现有服务或注销桌面。`systemd-analyze verify` 通过，排除临时目录的开机单元检查返回 `enabled`，当前 EasyTier PID 2900526 保持且为 active。运行中的临时单元仍承载当前连接，持久单元供下次开机使用。
 
 此次仅验证持久配置、开机依赖和当前连接保留；尚未重启验收，也未验证 RustDesk 在登录界面的实际控制能力。此项不改变 PaneFerry 新版暂缓激活的决定。
+
+## 2026-10-23：统一逻辑尺寸、DPI 与原始像素
+
+根因是高像素数与应用显示密度脱节：已有 1× Xwayland 应用被扩大为 2940×1604 的布局，再放到 Mac 1470×802 points 内容区，控件仍按 1× 绘制。修复采用 `window.viewport` 同时协商逻辑尺寸和密度；原生 Wayland 改变租约私有输出，独立 X11 使用标准 XSETTINGS/Xft DPI。源码移除飞书缩放特判，未添加其他应用特判或截图重采样。共享桌面的已有 Xwayland 没有实现可安全使用的逐窗口 DPI 迁移，明确保留原窗口并提示保存后重开，不能声称这一现有窗口已高清。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 原生 Wayland 逻辑视口 | 私有 GNOME 50.1、同一 GTK 进程：1470×802 @2× → 2940×1604；1000×700 @1× → 1000×700；再回 1470×802 @2× → 2940×1604。原内容保留，其他应用保持 1× |
+| 独立 X11 GTK | 1×/2× 客户区同为 1470×802；实际帧分别 1470×802/2940×1604；应用报告 scale=1/2，按钮逻辑高度同为 34、文字度量同为 230×20。同 PID 动态 2×→1×→2× 与重连通过 |
+| 独立 X11 Electron 42.3.0 | 应用自身 DPR=1/2，逻辑客户区同为 1470×802，按钮同为 40 CSS px；实际 2× 像素点击命中按钮；动态切换保留 PID、文本及点击计数。使用自有运行时、临时资料和本地 data: 页面，未运行真实 ChatGPT |
+| 共享 Xwayland 保护 | DPI 请求在任何窗口/DPI 修改前拒绝；原 PID、完整夹具状态及几何不变。旧原始像素尺寸命令仍能采集 2940×1660、2800×1500，坐标检查通过 |
+| Wayland 租约和采集 | 并发输出隔离、错误 owner/PID/窗口拒绝、物理布局不变、释放恢复、重连及 960×540 H.264 通过；最终两轮完整回归为 17.617 / 18.082 秒，测试进程组峰值 3.6 GiB（包含整个私有 Shell/应用，并非单窗口性能） |
+| Mac 门禁 | `bash scripts/check.sh` 通过：Rust 49 通过/5 忽略、前端 24、Swift/AppKit、等比绘制与坐标、逻辑视口/密度请求、原窗口错误隔离、重连、两个隔离 QUIC 节点与视频/二进制传输。workspace/all-targets Clippy `-D warnings` 通过 |
+| Ubuntu 验证 | workspace 52 通过/5 忽略；Python 授权 5 项通过；原窗口 Unicode、复制/粘贴/剪切、重连及进程保留通过；安装保护通过。Ubuntu 未安装 Clippy，未执行该项 |
+| 构建 | Mac WindowHost、网络组件、启动器 release 与 Ubuntu 统一安装包成功；Mac 独立包 ad-hoc 深度签名检查通过，未公证；Linux 包内二进制/扩展与源码、构建产物逐项一致 |
+
+过程失败与结论边界：
+
+- Wayland 初次 1×→2× 切换失败，旧虚拟输出的 Stop 回复早于连接器退出布局，重新分配同一名称时新输出被误认为原有。释放/创建共用串行队列并等待连接器移除后，两次完整回归通过。
+- 一次回归在最后“Ctrl+A 后恢复文本”时出现先追加文本、后全选；此前三轮连续输入已通过，后续完整复测也通过，仍不能证明偶发乱序已修复。本轮发现并修复 libei 对非 PONG 事件调用专用 getter，但未建立它与乱序的因果关系。真实 Firefox 连续输入仍未验收，旧记录中“顺序已修复”的结论由本段限定。
+- Qt 实际工具包、分数 DPI、真实 Mac 显示器切换、真实 Firefox/ChatGPT/飞书新版视觉、多物理设备和本轮双向真实 E2E、CI 均未验收。GNOME 夹具使用自有 Mutter/EIS 会话，不代替用户桌面的 Portal 授权。独立 X11 测试不能冒充私有 Xwayland 服务器的 DPI 测试。
+
+代码提交：`6b06574` 私有 X11 DPI；`fda9a71` 逻辑视口、Wayland 密度、共享 Xwayland 保护；`2c268d8` libei 事件类型校验；`4996c60` 同进程密度切换回归。
+
+**当前部署仍未切换。** 新 Mac 包在 `dist/unified-dpi-20261023/窗渡 PaneFerry.app`；Ubuntu 包在 `/home/chenrg/.local/state/lan-remoteapp/upgrades/unified-dpi-20261023/paneferry-linux`。原 Mac bundle 二进制哈希全部不变；Ubuntu EasyTier、GNOME、Firefox、ChatGPT、Agent、飞书的 PID/内核启动时间保持。没有安装到活动路径、退出应用、重启服务、注销或重启电脑，也没有创建/复制账号资料。加载新 GNOME 模块与切换拥有飞书的 Agent 需要另行安排，不得自动执行。
+
+详细行为见[窗口像素与缩放](window-resolution.md#2026-10-23统一逻辑视口与显示密度已打包未激活)，条件、哈希、保留的失败及检查日志索引见[JSON](validation-artifacts/2026-10-23-unified-dpi.json)。本地完整日志位于新 Mac 包同级 `validation/`；现有账号/标签页不变的依据是进程和资料保留，不是读取账号和逐个检查标签页。

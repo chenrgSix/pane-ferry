@@ -1,0 +1,459 @@
+{
+  "date": "2026-10-23",
+  "repository": "/Users/chenzhirong/Code/ideProject/lan-remoteapp",
+  "implementation_head": "4996c60",
+  "commits": {
+    "private_x11_dpi": "6b06574",
+    "logical_viewport_and_wayland_density": "fda9a71",
+    "libei_typed_getter": "2c268d8",
+    "live_density_regression": "4996c60"
+  },
+  "activation": {
+    "status": "staged_only_preserve_active_sessions",
+    "installed": false,
+    "real_apps_restarted": false,
+    "agent_restarted": false,
+    "desktop_logout": false,
+    "computer_reboot": false,
+    "reason": "Loading the new GNOME modules requires a new Shell session; restarting the current Agent would terminate its owned Feishu instance. User requires keeping current Feishu running."
+  },
+  "conditions": {
+    "mac": {
+      "os": "macOS 27.0.1 (26A434)",
+      "arch": "arm64",
+      "rustc": "1.97.1",
+      "swift": "6.4"
+    },
+    "ubuntu": {
+      "os": "Ubuntu 26.04.1 LTS",
+      "arch": "x86_64",
+      "gnome": "50.1",
+      "rustc": "1.93.1"
+    },
+    "electron": "42.3.0 test-owned official runtime; isolated HOME/profile; local data: page; test-only --no-sandbox for Ubuntu unregistered user namespace restriction, production sandbox unchanged",
+    "network": "Product remains QUIC. SSH used only for development access. Most new source-rendering checks use local Unix sockets inside isolated publishers, not cross-machine QUIC E2E."
+  },
+  "design": {
+    "units": "logical viewport + display density -> actual application pixels",
+    "new_app_specific_scale_flags": false,
+    "removed_app_specific_scaling": "Feishu exact-entry scale_argument and force-device-scale-factor injection",
+    "screenshot_resampling_added": false,
+    "global_desktop_scale_modified": false,
+    "firefox_profile_created_copied_or_read": false,
+    "shared_xwayland_policy": "Reject window.viewport before resizing or changing shared XSETTINGS; keep original app and show explicit save/reopen requirement. High-DPI migration of an existing shared Xwayland process is NOT implemented.",
+    "private_x11": "Owned Xvfb DPI, XSETTINGS Gdk/WindowScalingFactor + Gdk/UnscaledDPI + Xft/DPI, and private RESOURCE_MANAGER Xft.dpi. No per-app name checks.",
+    "native_wayland": "Original app on a leased private output with negotiated 1x/2x density; logical resize and original cropped PipeWire source pixels.",
+    "title": "Received actual image pixels, requested logical viewport/density and source/display/compositor scale mode; does not claim arbitrary app DPI was measured."
+  },
+  "private_x11_results": {
+    "gtk": {
+      "logical_client": [
+        1470,
+        802
+      ],
+      "pixels_1x": [
+        1470,
+        802
+      ],
+      "pixels_2x": [
+        2940,
+        1604
+      ],
+      "app_reported_scale": [
+        1,
+        2
+      ],
+      "button_logical_height": [
+        34,
+        34
+      ],
+      "label_logical_metrics": [
+        [
+          230,
+          20
+        ],
+        [
+          230,
+          20
+        ]
+      ],
+      "resume": "same PID and original text",
+      "live_density": [
+        2,
+        1,
+        2
+      ]
+    },
+    "electron": {
+      "logical_client": [
+        1470,
+        802
+      ],
+      "pixels_1x": [
+        1470,
+        802
+      ],
+      "pixels_2x": [
+        2940,
+        1604
+      ],
+      "app_reported_dpr": [
+        1,
+        2
+      ],
+      "button_css_height": [
+        40,
+        40
+      ],
+      "source_pixel_pointer": "clicked real test button, click counter became 1",
+      "live_density": [
+        2,
+        1,
+        2
+      ],
+      "retained": "same PID, text, control size and click count"
+    },
+    "isolation": "Other private display stayed at 1x. No real desktop display/settings/apps used.",
+    "not_a_private_xwayland_server_test": true
+  },
+  "private_gnome_results": {
+    "native_png_sizes": [
+      [
+        1200,
+        700
+      ],
+      [
+        2940,
+        1604
+      ],
+      [
+        2940,
+        1846
+      ],
+      [
+        800,
+        500
+      ]
+    ],
+    "viewports": [
+      {
+        "logical": [
+          1470,
+          802
+        ],
+        "scale": 2,
+        "actual": [
+          2940,
+          1604
+        ]
+      },
+      {
+        "logical": [
+          1000,
+          700
+        ],
+        "scale": 1,
+        "actual": [
+          1000,
+          700
+        ]
+      },
+      {
+        "logical": [
+          1470,
+          802
+        ],
+        "scale": 2,
+        "actual": [
+          2940,
+          1604
+        ]
+      }
+    ],
+    "h264_actual": [
+      960,
+      540
+    ],
+    "shared_xwayland_raw_resize_png": [
+      [
+        2940,
+        1660
+      ],
+      [
+        2800,
+        1500
+      ]
+    ],
+    "shared_xwayland_dpi": "request rejected; entire original fixture state, geometry and PID unchanged",
+    "isolation": [
+      "distinct concurrent outputs",
+      "owner/PID/window rejection",
+      "physical output layout preserved",
+      "release restores original geometry and density",
+      "resume retains process/content"
+    ],
+    "final_runs": [
+      {
+        "seconds": 17.617,
+        "peak_test_process_group_gib": 3.6
+      },
+      {
+        "seconds": 18.082,
+        "peak_test_process_group_gib": 3.6
+      }
+    ],
+    "input_driver": "production Eis class using test-owned Mutter session, not real user Portal authorization",
+    "real_firefox_verified": false
+  },
+  "failures_and_limits": [
+    {
+      "issue": "shared Xwayland cannot be migrated per window to a different display DPI by this implementation",
+      "status": "explicit limitation, original process/geometry retained, not solved by title changes"
+    },
+    {
+      "issue": "virtual output connector reuse made 1x-to-2x acquisition fail",
+      "evidence": "paneferry-unified-wayland-retry.log",
+      "fix": "Serialize output destruction/creation and wait for old connector removal. Two final complete runs passed."
+    },
+    {
+      "issue": "one final Ctrl+A then text restore ran in the wrong order",
+      "evidence": "paneferry-unified-wayland.log",
+      "status": "unresolved intermittent input ordering; subsequent passes do not establish root cause or stable correctness"
+    },
+    {
+      "issue": "libei pong getter used for modifier events",
+      "fix": "Call typed getter only for EI_EVENT_PONG=90; new unit test passed. Not claimed as the input-ordering root cause."
+    }
+  ],
+  "gates": {
+    "mac_scripts_check": {
+      "passed": true,
+      "rust_passed": 49,
+      "rust_ignored": 5,
+      "frontend_passed": 24,
+      "includes": [
+        "Swift/AppKit logical viewport and aspect/coordinates",
+        "scope-aware DPI rejection",
+        "reconnect",
+        "two real isolated QUIC nodes",
+        "H264 decode and binary clipboard transport"
+      ]
+    },
+    "mac_clippy": "workspace/all-targets -D warnings passed earlier in this task",
+    "ubuntu_workspace": {
+      "passed": 52,
+      "ignored": 5,
+      "failed": 0
+    },
+    "authorization_python": "5 passed after libei getter guard",
+    "existing_x11_window": "Unicode, explicit copy/paste/cut, isolation, reconnect and original process survival passed",
+    "linux_install_safety": "passed using fake manager and disposable HOME; no installed service modified",
+    "ubuntu_clippy": "not installed, not run",
+    "builds": "Mac release WindowHost/network/launcher and Ubuntu package passed",
+    "mac_signature": "ad-hoc codesign --verify --deep --strict passed; not notarized",
+    "ci": "not run"
+  },
+  "preservation": {
+    "mac_active_bundle_unchanged": true,
+    "mac_active_binary_sha256": {
+      "Contents/MacOS/paneferry-launcher": "cdb262347cf3e6af16c9bc629c4dd39504f0f7ef89956c4298d63ecce2c3ee3a",
+      "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "f6ac4c97215161a402aa865f2fd41cf7729948dc2061f22e8ffd133534269c18"
+    },
+    "ubuntu_processes": [
+      {
+        "name": "EasyTier",
+        "pid": 2900526,
+        "start_ticks": 29782254,
+        "unchanged": true
+      },
+      {
+        "name": "GNOME",
+        "pid": 2904453,
+        "start_ticks": 29789695,
+        "unchanged": true
+      },
+      {
+        "name": "Firefox",
+        "pid": 2973421,
+        "start_ticks": 29932989,
+        "unchanged": true
+      },
+      {
+        "name": "ChatGPT",
+        "pid": 3007634,
+        "start_ticks": 29991836,
+        "unchanged": true
+      },
+      {
+        "name": "Agent",
+        "pid": 3032522,
+        "start_ticks": 30026538,
+        "unchanged": true
+      },
+      {
+        "name": "Feishu",
+        "pid": 3056368,
+        "start_ticks": 30061642,
+        "unchanged": true
+      }
+    ],
+    "ubuntu_active_service": "active",
+    "ubuntu_global_settings": {
+      "scaling-factor": "uint32 0",
+      "text-scaling-factor": "1.0",
+      "experimental-features": "@as []"
+    },
+    "ubuntu_active_agent_sha256": "82e8a08bd8b906f944471eca87faa062e8a2bff1540c53e9373cfe7fc2d1d3be",
+    "account_tabs": "profiles not inspected or changed; retention evidenced by unchanged original processes, not per-tab inspection"
+  },
+  "artifacts": {
+    "mac": {
+      "commit": "4996c60b2f53315e8a438b4fc7b6ac1152cce4fc",
+      "app": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/unified-dpi-20261023/窗渡 PaneFerry.app",
+      "sha256": {
+        "Contents/MacOS/paneferry-launcher": "58e2ffdf591976fdfb99260247b1c7d09f6ca0ade4295646b1f4f19449b7935e",
+        "Contents/Resources/paneferry-network": "1a69ff9c837a167b729f1ea0760f4a5f9606b3be4e25c328345c905fa8f4bc6f",
+        "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+        "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "b741a5d549fcfee009703a3fb85f57d491ff30893e86f47e2894dc834d19150e"
+      },
+      "active_bundle_unchanged": true,
+      "activation": "not installed or launched",
+      "signature": "ad-hoc, not notarized"
+    },
+    "ubuntu": {
+      "processes": [
+        {
+          "name": "EasyTier",
+          "pid": 2900526,
+          "start_ticks": 29782254,
+          "unchanged": true
+        },
+        {
+          "name": "GNOME",
+          "pid": 2904453,
+          "start_ticks": 29789695,
+          "unchanged": true
+        },
+        {
+          "name": "Firefox",
+          "pid": 2973421,
+          "start_ticks": 29932989,
+          "unchanged": true
+        },
+        {
+          "name": "ChatGPT",
+          "pid": 3007634,
+          "start_ticks": 29991836,
+          "unchanged": true
+        },
+        {
+          "name": "Agent",
+          "pid": 3032522,
+          "start_ticks": 30026538,
+          "unchanged": true
+        },
+        {
+          "name": "Feishu",
+          "pid": 3056368,
+          "start_ticks": 30061642,
+          "unchanged": true
+        }
+      ],
+      "service": "active",
+      "global_settings": {
+        "scaling-factor": "uint32 0",
+        "text-scaling-factor": "1.0",
+        "experimental-features": "@as []"
+      },
+      "package": "/home/chenrg/.local/state/lan-remoteapp/upgrades/unified-dpi-20261023/paneferry-linux",
+      "sha256": {
+        "bin/paneferry-agent": "34ba94459bf751756b31dfc0f5d4cf5af098d66e719bc066930b771b8eb7ccf5",
+        "bin/paneferry-network": "6e887b7e36ff045ae4f8ccc723b5fea2d41670e960636073330b925158bd42ef",
+        "share/gnome-shell/extensions/paneferry@local/virtualOutput.js": "85c52ede8ffc985413d80a7ea5fb5f62c55cd000ac26b3adc11d1ecd993b62e0",
+        "share/gnome-shell/extensions/paneferry@local/extension.js": "b9ffda0f0fc93036265f359149c4d96bbccd64e85a5c81ef74c9b21f414047f5",
+        "share/gnome-shell/extensions/paneferry@local/textInput.js": "76bdbb77a5d02e6d783a722ff977c21c5d86cee8e3865d91785552d2fba96a86",
+        "share/gnome-shell/extensions/paneferry@local/metadata.json": "2f6df1bbcda49ab59ba45e5193e2d05217ca6dbd49f00aff09adc966950f587e"
+      },
+      "archive_sha256": "2830280c99fed20cf3c134dc6281f2b8bbbbac97548c63d22889521b9d512a51",
+      "active_agent_sha256": "82e8a08bd8b906f944471eca87faa062e8a2bff1540c53e9373cfe7fc2d1d3be",
+      "activation": "staged only, not installed"
+    }
+  },
+  "not_verified": [
+    "real Firefox/ChatGPT/Feishu using new code",
+    "real Firefox continuous typing after activation",
+    "real Mac GUI full-screen/dragging against new Ubuntu build",
+    "real Portal authorization after activation",
+    "Qt toolkit rendering",
+    "fractional or physical mixed-monitor DPI",
+    "fresh private Xwayland high-DPI server (private X11 source DPI verified instead)",
+    "bidirectional multi-physical-device E2E this turn",
+    "long-duration stability",
+    "formal signing/notarization and CI"
+  ],
+  "logs": {
+    "paneferry-unified-authorization.log": {
+      "sha256": "6273232de4d3ef7acd4ecafa5c86beeeb974f56586b21089a2990b3f72facbe6",
+      "bytes": 103
+    },
+    "paneferry-unified-check.log": {
+      "sha256": "88fc3a1557547fa2b2ee8379d4ed427ab9cbe3c1fd064851c62ac5cb1d179700",
+      "bytes": 17258
+    },
+    "paneferry-unified-dynamic-dpi.log": {
+      "sha256": "29c4860b4af1db0ec9792b2d3ddce128eb4fe96c90614b5a8a4a58e66111ba6b",
+      "bytes": 1834
+    },
+    "paneferry-unified-existing.log": {
+      "sha256": "d708feb03aa86f323a053fbb3e78cacf9ac5d84a18a4ee50c625ed923372112c",
+      "bytes": 408
+    },
+    "paneferry-unified-install.log": {
+      "sha256": "db48f977b995488bc8af077b7257ac57214e6a0b6f62fb28907c4e66afa8d039",
+      "bytes": 157
+    },
+    "paneferry-unified-launcher-release.log": {
+      "sha256": "fe2563901fc255dbfa45c1c9f71e98ca7a2ef953c676017c2d7fc200fca654ff",
+      "bytes": 1004
+    },
+    "paneferry-unified-linux-release.log": {
+      "sha256": "b1766b332703edff1d06cac0cd507c63ea58021dba6fb5ab5f5d16f480b4addd",
+      "bytes": 757
+    },
+    "paneferry-unified-linux-tests.log": {
+      "sha256": "259b2a8096317d2a0a0498a3589a9501ffb4bbca64817647ed27b5d6465a92e8",
+      "bytes": 7731
+    },
+    "paneferry-unified-network-release.log": {
+      "sha256": "b4dfa4c8f218d2a4aa09d3faa7a03359a29a8623d16d6cf69b9450ea8005e951",
+      "bytes": 370
+    },
+    "paneferry-unified-private-dpi.log": {
+      "sha256": "325f072201822fdf400b366d970e5096b10dd75779f4a341b65803cb319738e1",
+      "bytes": 959
+    },
+    "paneferry-unified-wayland-final.log": {
+      "sha256": "28243da528f432517297c79f592b45e88a5e87250faea4d7438c015509e8b630",
+      "bytes": 3067
+    },
+    "paneferry-unified-wayland-fixed.log": {
+      "sha256": "8972ef68b39c84ef1966c568207ee273dfe925786e5871dc47941f2c37ca9ed9",
+      "bytes": 4593
+    },
+    "paneferry-unified-wayland-retry.log": {
+      "sha256": "02666a93914bac5dabe429543cfd64690961b42dacf0da6012ea247f70b3dc3f",
+      "bytes": 9329
+    },
+    "paneferry-unified-wayland.log": {
+      "sha256": "2955e3c6554886b1976db0f95bd229f6a359d2cecdbad1d736e6d3b4903f4511",
+      "bytes": 9070
+    },
+    "paneferry-unified-windowhost-release.log": {
+      "sha256": "d3d58b267619d5ab6f84168ac8ef6f6fc4a96656a853eec51538b543ba933c02",
+      "bytes": 632
+    }
+  },
+  "local_full_log_directory": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/unified-dpi-20261023/validation"
+}
