@@ -25,6 +25,8 @@
 
 独立会话沿用 Xvfb / Openbox、缩放、H.264、控制端输入法和主动双向文本剪贴板。终端型入口使用 xterm；新建 XTerm/UXTerm 实例添加 Ctrl+Shift+C/V 与 CLIPBOARD 的绑定，不修改全局 Xresources、原有窗口或用户配置。Snap 入口在用户应用 scope 前台运行，使用 Snap 可读目录里的私有会话 cookie，结束时清理；不关闭认证或沙箱。
 
+HexHub 的 `HexHub.desktop` / `/opt/hexhub/HexHub` 入口自动采用 `desktop_secrets` 兼容策略：每个会话通过独立的 `xdg-dbus-proxy` socket 访问已登录用户的 `org.freedesktop.secrets`，窗口仍位于自己的 Xvfb。不会向应用开放整个桌面总线、其他服务或应用激活；不添加关闭密码加密或沙箱的参数。其他应用默认仍使用 `dbus-run-session`。确实需要同类兼容的本地自定义入口可配置 `"session_bus":"desktop_secrets"`，或在本地 `.desktop` 文件添加 `X-LANRemoteApp-SessionBus=desktop_secrets`；不适用于 Snap 或 existing 窗口。代理随会话清理，Agent 意外退出时也会通过生命周期描述符停止。缺少代理或桌面总线时明确拒绝启动。
+
 发现入口不等于所有应用已完成运行兼容性验收。单实例浏览器、依赖完整 GNOME 会话、GPU 或原生 Wayland 的程序可能需要专门适配；已有窗口可从运行窗口区接入。不会复制默认浏览器资料或改其配置。
 
 ## 窗口与范围
@@ -46,3 +48,5 @@ Mac 主窗口关闭只断开连接，远端窗口继续运行；关联预览的�
 `tests/e2e/app_discovery_smoke.py --agent /ABS/remoteapp-agent` 在独立 HOME / XDG / Xvfb 验证桌面入口、本地化、SVG 图标、覆盖和隐藏规则、刷新及真实启动；再以同一进程的三个窗口和按 F2 创建的独立子进程验证主窗口/弹窗隔离、跨进程预览、其他会话与伪造属性输入拒绝、Unicode、主动复制粘贴、重连、子窗口独立关闭及原进程存活。只借用系统公开的图片 loader、主题等配置，不枚举用户原桌面。
 
 实机与构建结果见 [验证记录](validation.md)。
+
+`tests/e2e/session_bus_smoke.py --agent /ABS/remoteapp-agent` 使用临时用户总线和伪 Secret Service，验证仅允许目标服务、拒绝其他服务及其 unique name、禁止应用名称注册、多个会话的独立 socket、默认隔离策略、清理和启动失败回滚。测试不访问真实密钥内容。

@@ -6,6 +6,7 @@ pub fn code(message: &str) -> &'static str {
         "desktop_authorization_denied" => "desktop_authorization_denied",
         "desktop_input_paused" => "desktop_input_paused",
         "desktop_input_unavailable" => "desktop_input_unavailable",
+        "desktop_secrets_unavailable" => "desktop_secrets_unavailable",
         "window is hidden" | "unknown window" => "window_unavailable",
         "approved existing process unavailable" => "existing_process_unavailable",
         "existing process does not match approved executable" => "existing_process_mismatch",

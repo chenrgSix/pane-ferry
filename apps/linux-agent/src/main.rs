@@ -2,7 +2,7 @@
 compile_error!("Linux agent requires Unix");
 use anyhow::{bail, Context, Result};
 use remoteapp_backend_x11::Backend;
-use remoteapp_core::{load_catalog, App};
+use remoteapp_core::{load_catalog, App, SessionBus};
 use remoteapp_protocol::{identifier, read_line_limit, Request, Window};
 use serde_json::{json, Value};
 use std::{
@@ -30,6 +30,7 @@ mod discovery;
 mod input_queue;
 mod output;
 mod request_error;
+mod session_bus;
 mod video;
 struct Session {
     id: String,
@@ -43,6 +44,7 @@ struct Session {
     existing: Option<ProcessIdentity>,
     root_window: Option<u32>,
     private_authority: Option<PathBuf>,
+    secrets_bus: Option<session_bus::SecretsBus>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -198,7 +200,13 @@ fn run() -> Result<()> {
                     "installed applications: unavailable (requires Python GI, GIO and GTK3)"
                 ),
             }
-            for cmd in ["Xvfb", "openbox", "xauth", "dbus-run-session"] {
+            for cmd in [
+                "Xvfb",
+                "openbox",
+                "xauth",
+                "dbus-run-session",
+                "xdg-dbus-proxy",
+            ] {
                 let ok = Command::new("/usr/bin/env")
                     .args(["which", cmd])
                     .status()?
@@ -440,6 +448,7 @@ fn launch(
             existing: Some(identity),
             root_window,
             private_authority: None,
+            secrets_bus: None,
         }));
         st.requests.insert(req.into(), id.clone());
         st.sessions.insert(id, session.clone());
@@ -470,6 +479,7 @@ fn launch(
         existing: None,
         root_window: None,
         private_authority: None,
+        secrets_bus: None,
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
@@ -577,6 +587,14 @@ fn launch(
                 format!("unix:path=/run/user/{}/bus", unsafe { libc::geteuid() }),
             )
             .env("XAUTHORITY", authority);
+    } else if app.session_bus == SessionBus::DesktopSecrets {
+        let bus = session_bus::SecretsBus::start(&st.runtime, &s.id)
+            .map_err(|_| anyhow::anyhow!("desktop_secrets_unavailable"))?;
+        command = Command::new(&app.executable);
+        command
+            .args(&application_args)
+            .env("DBUS_SESSION_BUS_ADDRESS", bus.address());
+        s.secrets_bus = Some(bus);
     } else {
         command.arg(&app.executable).args(&application_args);
     }

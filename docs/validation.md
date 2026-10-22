@@ -356,3 +356,21 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 边界：无法证明亲缘关系的外部应用/系统服务窗口、已经显示但无法归属的独立窗口，以及同一应用多个会话同时输入造成的歧义，不会自动接纳。没有完成三个物理设备并发、两个方向同时争用键盘/剪贴板、长时间压力、休眠唤醒、原生 Wayland 或所有应用兼容性验收；本轮未做性能对比，也未执行 CI。结构化条件、产物 SHA-256 与检查输出见 [JSON 记录](validation-artifacts/2026-10-22-related-windows.json)和[压缩日志](validation-artifacts/2026-10-22-related-windows-logs.json.gz)。
 
 验收结束后已停止专用测试应用、发布器、接收器与网络组件，移除两端临时配对证书/状态及编译缓存，并关闭本次开发 SSH master。原 Ubuntu Agent 仍为 active；原 Mac 发布器可访问，共享、录屏与辅助功能状态正常。
+
+## HexHub 启动停在 Logo（2026-10-22）
+
+实机复现为 Ubuntu 已创建进程和独立会话，但前 15 秒没有窗口事件；随后只有 600×330 的启动 Logo，1400×815 主窗口保持 `IsUnMapped`。不是 QUIC 断链：同一连接可以接收 Logo 的 PNG。捕获启动日志后发现独立 D-Bus 的 `org.freedesktop.secrets` 激活超时，约 25 秒后出现 `OSCrypt tried Libsecret but couldn't initialise`。GPU 初始化也有警告，但在成功组仍然出现，不能据此认定 GPU 是阻塞原因。
+
+同一 Ubuntu、HexHub 安装、用户资料、Xvfb 显示、工作目录、缩放和 `NoNewPrivileges=1` 下，仅改变应用的会话总线连接，依次观察：
+
+| 会话总线条件 | 实际观察 |
+| --- | --- |
+| 原有独立 `dbus-run-session` | 约一分钟仍未显示主窗口；测试结束时停止自有进程 |
+| 直接连接当前用户桌面总线（仅诊断） | 主窗口正常映射，10 秒检查时已显示 |
+| 每会话过滤代理，仅允许 Secret Service | 首次约 1 秒采样时主窗口已显示；连续观察 31 秒保持正常 |
+
+以上为定位故障的单次对照，非启动性能基准。最终实现采用第三组，默认应用继续使用独立总线。没有修改 HexHub 程序、用户资料、密码存储策略或系统密钥配置，没有添加禁用沙箱的参数。
+
+验证通过：根 Rust workspace 测试与 Clippy `-D warnings`；Mac WindowHost 编译和自动重连回归；三节点 QUIC 路由隔离回归；Ubuntu `session_bus_smoke.py`（仅伪密钥服务）、`app_discovery_smoke.py`、`stale_launch_smoke.py`。初版总线测试夹具未带入 Openbox 主题目录，导致无窗口；补齐测试资源后通过，产品代码未因此调整。
+
+已备份并更新 Ubuntu 的实际 `remoteapp-agent.service`，安装二进制 SHA-256 为 `9aa7e1e7ed602f669a8036d2261ebe7018d4fe15ed8d4f8a4047ecbb6cdb5e80`。从当前运行的 Mac 启动器点击 HexHub 后，实际 AppKit 窗口显示完整主界面及应用自己的更新提示，副标题为 **2940×1604、界面 200%、H.264**。本轮未操作 HexHub 中的账号、数据库连接或更新按钮；窗口保留供用户使用。Mac 接收端使用当前已有版本，本次新增的错误提示源码已编译但未重新打包安装。没有进行完整双向 E2E 或长期压力测试。

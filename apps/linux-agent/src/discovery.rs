@@ -1,7 +1,7 @@
 use crate::{process_identity, ProcessIdentity};
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use remoteapp_core::App;
+use remoteapp_core::{App, SessionBus};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -27,6 +27,8 @@ pub struct DesktopApp {
     pub argv: Vec<String>,
     pub cwd: Option<PathBuf>,
     pub snap: Option<String>,
+    #[serde(default)]
+    pub session_bus: SessionBus,
     pub unavailable_reason: Option<String>,
 }
 impl DesktopApp {
@@ -41,6 +43,7 @@ impl DesktopApp {
             description: self.description.clone(),
             executable: self.executable.clone(),
             argv: self.argv.clone(),
+            session_bus: self.session_bus,
             existing: None,
         }
     }
@@ -71,6 +74,7 @@ impl DesktopApp {
                         .bytes()
                         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
             })
+            || self.snap.is_some() && self.session_bus != SessionBus::Isolated
         {
             bail!("invalid desktop application")
         }
@@ -224,6 +228,7 @@ impl RunningWindow {
             description: self.title.clone(),
             executable: self.identity.executable.to_string_lossy().into_owned(),
             argv: vec![],
+            session_bus: SessionBus::Isolated,
             existing: Some(remoteapp_core::ExistingWindow {
                 display: self.desktop.display,
                 xauthority: self.desktop.authority.to_string_lossy().into_owned(),

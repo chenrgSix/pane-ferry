@@ -2,6 +2,8 @@
 
 普通用户运行，不更改当前 GNOME/Wayland。运行依赖：Xvfb、Openbox、xauth、dbus-run-session；应用发现另使用系统 Python GI、GIO/GioUnix、GTK3 和 GdkPixbuf。不会自动安装、启用 linger、改 SSH 配置或防火墙。
 
+HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-proxy` 和当前用户已登录的桌面总线；`remoteapp-agent check` 会报告代理是否可用。该策略只开放 Secret Service，详见[应用启动兼容](application-discovery.md#启动)。
+
 ## 手工安装
 
 1. 编译：`cargo build --release -p remoteapp-agent`。

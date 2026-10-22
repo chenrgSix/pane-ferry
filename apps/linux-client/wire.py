@@ -124,6 +124,7 @@ MESSAGES = {
     'accessibility_required': '请在 Mac 的 LAN RemoteApp 中允许辅助功能。',
     'session_exited': '原应用窗口已关闭。', 'session_expired': '原会话已结束，请刷新窗口列表。',
     'session_controlled': '此窗口已有控制端，请先断开原连接。',
+    'desktop_secrets_unavailable': '应用需要 Ubuntu 桌面密钥服务，请确认桌面已登录且已安装 xdg-dbus-proxy。',
     'desktop_locked': 'Mac 桌面已锁定，解锁后重连。',
     'clipboard_invalid': '剪贴板格式不可用或超过 8 MiB / 256 项限制。',
     'clipboard_copy_failed': '应用没有提供选中的内容。',

@@ -122,18 +122,33 @@ def entry(app, theme=None):
                 icon_png=icon_png(app, theme) if theme else None,
                 startup_class=(app.get_startup_wm_class() or '')[:256],
                 executable='', argv=[], cwd=app.get_string('Path') or None,
-                snap=None, unavailable_reason=None)
+                snap=None, session_bus='isolated', unavailable_reason=None)
     try:
         if data['cwd'] and (not Path(data['cwd']).is_absolute() or not Path(data['cwd']).is_dir()):
             data['cwd'] = None
             raise ValueError('desktop_working_directory_unavailable')
         argv = command(app)
         data.update(executable=argv[0], argv=argv[1:])
+        # HexHub's CEF startup stalls without the logged-in user's Secret Service.
+        # Keep this compatibility rule tied to the installed entry and executable,
+        # never a display name supplied by a controller.
+        policy = app.get_string('X-LANRemoteApp-SessionBus')
+        if not policy and desktop_id == 'HexHub.desktop' and argv[0] == '/opt/hexhub/HexHub':
+            policy = 'desktop_secrets'
+        if policy:
+            if policy not in ('isolated', 'desktop_secrets'):
+                raise ValueError('desktop_command_unsupported')
+            data['session_bus'] = policy
+            if policy == 'desktop_secrets' and not shutil.which('xdg-dbus-proxy'):
+                raise ValueError('desktop_secrets_unavailable')
         # Snap confinement needs a readable per-session cookie and an app scope.
         if '/snapd/desktop/applications/' in filename:
             snap = Path(filename).name.split('_', 1)[0]
             if snap and len(snap) <= 64 and all(c in 'abcdefghijklmnopqrstuvwxyz0123456789-' for c in snap):
                 data['snap'] = snap
+                if data['session_bus'] != 'isolated':
+                    data['session_bus'] = 'isolated'
+                    raise ValueError('desktop_command_unsupported')
     except (GLib.Error, ValueError) as error:
         data['unavailable_reason'] = str(error) if isinstance(error, ValueError) else 'desktop_command_unsupported'
     return data

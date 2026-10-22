@@ -91,6 +91,9 @@ pub fn remote_error_message(code: &str) -> String {
         "request_id_conflict" => "启动参数已变化，请重新打开应用。".into(),
         "app_not_approved" => "应用或窗口入口已失效，请重新读取列表。".into(),
         "desktop_application_unavailable" => "应用已变更或卸载，请刷新应用列表。".into(),
+        "desktop_secrets_unavailable" => {
+            "应用需要 Ubuntu 桌面密钥服务，请确认桌面已登录且已安装 xdg-dbus-proxy。".into()
+        }
         "desktop_activation_unavailable" | "desktop_command_unsupported" => {
             "该应用的启动方式暂未支持。".into()
         }
@@ -137,6 +140,7 @@ impl Error {
                     | "request_id_conflict"
                     | "app_not_approved"
                     | "desktop_application_unavailable"
+                    | "desktop_secrets_unavailable"
                     | "session_limit"
                     | "request_history_limit"
             ),
