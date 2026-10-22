@@ -401,3 +401,7 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 - Ubuntu 真实 GStreamer/OpenH264 输出测试验证：静止刷新 PNG 与编码前原像素生成的 PNG 字节完全一致；下一帧继续原 H.264 流；几何变化取消待发旧刷新；未协商的 H.264-only 接收端不接收 PNG。
 - 两个隔离 QUIC 节点的 `video_stream_smoke.py` 通过，导出 19 帧。Mac `video_decoder_smoke.py` 成功解码 18 张 H.264 硬件帧与 1 张 PNG，验证无损刷新后的 P 帧连续性、奇数尺寸和重连。该测试不等于真实 Firefox/飞书的视觉验收。
 - `snap_service_launch_smoke.py` 在 Ubuntu 真实 Snap 下通过：旧 `NoNewPrivileges=yes` 策略稳定触发 snap-confine capability 拒绝；相同 `--version` 命令在修正后的用户服务策略下成功。全程不创建浏览器配置。安装生命周期隔离回归仍通过。
+
+上述新版本现已部署。经用户保存工作、授权重新登录并恢复已选 GNOME 扩展，PaneFerry 扩展处于启用状态；系统仍为 GNOME 50.1 / Wayland。新独立飞书真实客户区为 2940×1604，带 2× 渲染参数，用户确认“清晰很多了，可以接受”。由于电脑工具未获准读取飞书画面，该项视觉结果以用户反馈为依据。
+
+真实原生 Firefox 的同一 PID/窗口接管、1200×700 接收、PNG 无损刷新、指针、整段粘贴和回车导航已验证。自动化逐字输入仍有冒号缺失的未定位现象，不能将上述检查写成完整输入验收。当前原生 Wayland 窗口流仍受完整采集范围限制，未达到大 Mac 窗口的 Retina 像素目标；没有改用独立 Firefox 配置、切换桌面或全局缩放。完整边界、进程身份与二进制校验和见[激活后实机记录](window-resolution.md#激活后的实机结果2026-10-22)和[结构化记录](validation-artifacts/2026-10-22-window-activation.json)。此前“尚待激活”的段落是历史检查点，不是当前部署状态。

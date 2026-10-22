@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-22",
+  "checkpoint": "after user-authorized graphical login and extension activation",
+  "earlier_checkpoint": "2026-10-22-window-resolution.json",
+  "code_commits": ["3394f21", "be580d6"],
+  "sha256": {
+    "mac_launcher": "cdb262347cf3e6af16c9bc629c4dd39504f0f7ef89956c4298d63ecce2c3ee3a",
+    "mac_window_host": "f6ac4c97215161a402aa865f2fd41cf7729948dc2061f22e8ffd133534269c18",
+    "mac_network_node": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+    "installed_linux_agent": "82e8a08bd8b906f944471eca87faa062e8a2bff1540c53e9373cfe7fc2d1d3be"
+  },
+  "deployment": {
+    "mac": "rebuilt complete bundle and running new launcher/window host",
+    "linux_agent_pid": 3032522,
+    "linux_agent_active": true,
+    "no_new_privileges": false,
+    "agent_runs_as": "ordinary logged-in user",
+    "backup": "/home/chenrg/.local/state/lan-remoteapp/upgrades/clarity-snap-20261022",
+    "agent_restarted_after_new_feishu_launch": false
+  },
+  "desktop": {
+    "name": "GNOME",
+    "version": "50.1",
+    "session_type": "Wayland",
+    "shell_pid": 2904453,
+    "desktop_switched": false,
+    "global_scale_changed": false,
+    "extension": "paneferry@local",
+    "extension_state": 1,
+    "extension_enabled": true,
+    "extension_error": "",
+    "user_approved_restoring_selected_extensions": true,
+    "settings_backup": "/home/chenrg/.local/state/lan-remoteapp/upgrades/gnome-extensions-before-activation-20261022.json"
+  },
+  "feishu": {
+    "kind": "new independent session after authorized logout; not original desktop-window takeover",
+    "pid": 3056368,
+    "session_id": "fac64e089464a1d6960e5d6a5c2386b9",
+    "display": 288,
+    "window_id": 6291459,
+    "renderer_argument": "--force-device-scale-factor=2",
+    "actual_x11_client_pixels": [2940, 1604],
+    "map_state": "IsViewable",
+    "same_pid_and_session_reused_after_launch_pending": true,
+    "user_visual_feedback": "清晰很多了，可以接受",
+    "visual_acceptance_basis": "user feedback; computer-use access to Feishu was not approved",
+    "mac_decoded_frame_independently_verified": false,
+    "exact_application_dpi_measured": false
+  },
+  "firefox": {
+    "kind": "normal user-profile process started after authorized logout; native Wayland",
+    "version": "154",
+    "pid": 2973421,
+    "executable": "/snap/firefox/8763/usr/lib/firefox/firefox",
+    "new_or_copied_profile_created": false,
+    "profile_or_no_remote_override": false,
+    "pre_logout_account_and_tabs_verified": false,
+    "window_ids": [32, 33, 34],
+    "selected_window_id": 32,
+    "session_id": "c4e93169742a7ca7b64a017e81ef08a4",
+    "actual_window_pixels": [1200, 700],
+    "mac_received_pixels": [1200, 700],
+    "other_window_pixels": [[1460, 796], [1460, 796]],
+    "compositor_complete_capture_limit": [1868, 1028],
+    "codecs_observed": ["H.264", "PNG lossless refinement"],
+    "actual_pixels_menu_verified": true,
+    "aspect_fit_and_enlargement_label_verified": true,
+    "multiple_windows_entry_requires_selection": true,
+    "input_verified": [
+      "pointer focused selected address bar",
+      "Ctrl+L selected address",
+      "whole-text paste preserved about:newtab including colon",
+      "Return navigated to local New Tab page",
+      "Shift+semicolon entered a colon"
+    ],
+    "input_unresolved": "Automation typeText('about:newtab') omitted colon; whole-text paste succeeded. Cause not attributed to transport or application; rapid typing and clipboard round trip not accepted.",
+    "full_retina_large_window_supported": false
+  },
+  "gates": {
+    "mac_scripts_check": "passed",
+    "mac_workspace_clippy_all_targets_deny_warnings": "passed",
+    "ubuntu_real_gstreamer_refinement_regression": "passed; exact source PNG, following P-frame, stale geometry cancellation and opt-out",
+    "two_isolated_quic_nodes_video_smoke": "passed; 19 exported frames",
+    "mac_mixed_video_decoder": "passed; 18 H.264 hardware-decoded frames plus 1 PNG",
+    "ubuntu_snap_service_policy_comparison": "passed; old confinement helper failure versus corrected policy success",
+    "linux_install_lifecycle": "passed",
+    "mac_bundle_and_linux_release_builds": "passed",
+    "ci_run": false
+  },
+  "network_recovery": {
+    "easytier_recovery_service_active": true,
+    "survives_logout": true,
+    "persistent_across_reboot": false,
+    "product_transport": "QUIC",
+    "ssh_use": "authorized development and recovery only"
+  },
+  "not_verified": [
+    "existing original desktop Feishu via compositor large-pixel resize",
+    "independent read of accepted Feishu Mac frame and controls",
+    "Firefox pre-logout account and each tab restoration",
+    "rapid native Wayland typing, Chinese input and complete text clipboard round trip",
+    "fractional scaling, multiple monitors and long-duration load",
+    "real Mac-to-Ubuntu publishing after rename/TCC changes; Mac sharing remains off"
+  ]
+}

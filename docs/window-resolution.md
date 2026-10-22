@@ -2,6 +2,8 @@
 
 本页区分已定位的问题、代码行为和实机验收。Firefox 的目标是连接原窗口、账号和标签页；飞书目标是窗口重新布局后采集原始像素，不把低分辨率截图拉伸为目标尺寸。
 
+下列初始证据保留激活前的状态。用户保存工作并授权重新登录后，扩展、新 Agent 和清晰度版本已经启用；最新真实应用结果见文末“激活后的实机结果”。
+
 ## 2026-10-22 根因与证据
 
 实机为 macOS Retina 控制端与 Ubuntu GNOME 50.1 / Xwayland 发布端，通过已配对 QUIC 通信。SSH 只用于开发构建、读取进程状态和部署。Firefox 为 Snap 154，原进程使用 `GDK_BACKEND=wayland`；飞书原进程来自 `/opt/bytedance/feishu/feishu`。
@@ -34,7 +36,7 @@ Mac 标题会显示实际画面的放大百分比；“显示 → 原始像素�
 
 点击应用入口先查同一应用的已有会话，再查原桌面窗口，最后才新建实例。有多个候选要求选择，有控制端则报告占用。十秒内没有可见窗口返回待确认并保留请求 ID，提前退出明确失败，不把退出码 0 当成已经有画面。
 
-已有飞书仍由其原工具包决定 UI 缩放。已检查安装包装器会转发参数，渲染库支持 Chromium 的 `force-device-scale-factor`；仅对准确匹配的飞书桌面入口的新独立实例添加该参数，保留用户显式参数。GTK/Qt 环境变量不是飞书缩放已生效的证据。真实飞书 2× 视觉效果没有验收，因为没有为测试退出原应用；需要重启时须另行保存工作并明确执行。
+已有飞书仍由其原工具包决定 UI 缩放。已检查安装包装器会转发参数，渲染库支持 Chromium 的 `force-device-scale-factor`；仅对准确匹配的飞书桌面入口的新独立实例添加该参数，保留用户显式参数。GTK/Qt 环境变量不是飞书缩放已生效的证据。激活前没有为测试退出原应用；用户授权重新登录后，新独立实例的清晰度与按钮大小已获得用户认可，具体证据和未验证范围见文末。此结果不能替代已有桌面窗口的缩放验收。
 
 Firefox 接管只使用合成器识别的原 PID / 窗口，不创建或复制浏览器配置。无法获得原窗口时明确提示，不自动改用隔离资料。新 Wayland 路径和原 X11 路径共用 Agent、QUIC、会话控制和设备隔离。
 
@@ -44,7 +46,7 @@ Firefox 接管只使用合成器识别的原 PID / 窗口，不创建或复制�
 
 - **原生 Wayland**：Mutter RecordWindow 提供 PipeWire 流。GNOME 50 的窗口流采用显示器大小的缓冲区，实际区域由 crop 元数据描述。GStreamer 直接提取原始 BGRx 区域并去除阴影，不先做 videoconvert 丢掉 crop，也不通过缩放制造目标像素。超出完整采集范围明确返回 `resolution_limited`。该路径暂不支持超过显示器采集范围的原生窗口。
 - **Xwayland**：保留 XComposite 像素采集，用合成器 `move_resize_frame(true, …)` 处理明确的用户尺寸请求，区分客户区、装饰和合成器坐标。窗口可比原显示器更大；输入先校验实际客户区尺寸，仅移动被选窗口，使对应点处于可输入范围。该移动会体现在 Ubuntu 本机桌面。
-- **输入和剪贴板**：键鼠仍须系统 RemoteDesktop Portal 授权。原生 Wayland 当前只有文本复制/粘贴，剪切在删除前拒绝，图片/文件剪贴板明确不支持。实际原生 Firefox 的键鼠与剪贴板还未验收。
+- **输入和剪贴板**：键鼠仍须系统 RemoteDesktop Portal 授权。原生 Wayland 当前只有文本复制/粘贴，剪切在删除前拒绝，图片/文件剪贴板明确不支持。实际 Firefox 已验证指针、选中地址栏、整段文本粘贴及回车导航；连续输入和完整剪贴板往返仍有未验收项，见文末。
 
 依据同版本源码：[Mutter 尺寸约束](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/core/constraints.c)、[窗口流缓冲区](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/backends/meta-screen-cast-window-stream.c)、[窗口采集及 crop](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/backends/meta-screen-cast-window-stream-src.c)。平台行为通过下述隔离桌面实测交叉核对；其他 GNOME 版本和其他 Wayland 合成器不在当前支持范围。
 
@@ -74,3 +76,21 @@ python3 tests/e2e/wayland_smoke.py --agent target/debug/paneferry-agent --with-x
 Wayland 夹具从已登录桌面的终端运行。若从 SSH 执行，通过当前用户的 manager 启动，例如 `systemd-run --user --collect --wait --pipe --working-directory="$PWD" python3 tests/e2e/wayland_smoke.py --agent target/debug/paneferry-agent --with-xwayland`。本次直接在 SSH 的 tty 会话启动私有 GNOME 时出现窗口/握手超时；通过用户 manager 复跑 4.657 秒通过。该差异属于隔离合成器的运行上下文，测试提前解释此限制，不因此更改产品权限或真实桌面。
 
 首次安装的 GNOME 扩展在当前登录中可能未注册，需要下次登录才生效。不得为了激活而自动注销桌面；注销会结束原应用，重启 Agent 也会结束其自建独立会话。安装准备完成不等于真实 Firefox 或飞书大分辨率已经验收，必须在用户保存工作并完成激活后继续测试。
+
+## 激活后的实机结果（2026-10-22）
+
+用户保存工作并授权注销/重新登录后，仍为 GNOME 50.1 / Wayland，没有切换桌面或改变全局缩放。GNOME 此前因 Shell 失败关闭了用户扩展总开关；按用户明确选择，恢复已选扩展并启用 PaneFerry。`GetExtensionInfo` 返回 `state=1`、`enabled=true`、`error=''`。恢复扩展时 Shell PID 2904453 未改变。
+
+| 对象 | 已确认结果 | 验收边界 |
+| --- | --- | --- |
+| 新独立飞书 | PID 3056368，Xvfb `:288`，实际参数 `--force-device-scale-factor=2`；Mac 调整窗口后，`xwininfo` 确认客户区 **2940×1604**、`IsViewable`；用户反馈“清晰很多了，可以接受” | 不是注销前的原桌面飞书。工具未获准读取飞书画面，Mac 解码像素及视觉效果未独立复核；用户反馈是本次视觉验收依据，不把 2× 参数当作精确 DPI 测量 |
+| 原生 Wayland Firefox | 正常 Firefox 配置启动的 PID 2973421，未添加 profile/no-remote 参数；三个原生主窗口可被发现，选择窗口 32 后接管同一 PID；真实窗口和 Mac 标题均为 **1200×700**，视频停下后显示 PNG 无损刷新 | 注销前 PID 已随获准注销结束。没有创建或复制资料，也没有读取账号内容；未核验注销前每个标签页/账号的恢复 |
+| Firefox 输入 | 指针定位地址栏、Ctrl+L、整段粘贴 `about:newtab`、回车打开本地新标签页成功；单独 Shift+分号能输入冒号 | 自动化 `typeText('about:newtab')` 时冒号缺失，整段粘贴成功；尚不能归因于网络、协议或应用丢字。连续逐字输入、中文输入及复制回传未判定通过 |
+| Firefox 大窗口 | 当前合成器给出的完整采集范围为 1868×1028；超过范围的请求明确拒绝。宿主保持比例，并显示实际接收像素、目标/放大比例；原始像素模式按 Retina backing scale 缩小内容区 | 仍未支持当前原生 Wayland Firefox 在大 Mac 窗口中的完整 Retina 分辨率。PNG 只消除压缩损失，不增加源像素；没有用放大冒充适配 |
+| 应用入口与 Snap | 多个 Firefox 窗口时启动器要求从运行列表选择；新飞书首次超时明确提示等待，随后复用同一 PID/会话。真实 Snap 对照证明旧服务 `NoNewPrivileges=yes` 阻止 snap-confine，修正后版本探测成功 | 当前 Agent 仍以普通用户运行，保留 Snap 自身沙箱；没有新增远程命令执行接口 |
+
+新 Agent PID 3032522，安装前备份位于 `~/.local/state/lan-remoteapp/upgrades/clarity-snap-20261022`。恢复 Firefox 后的 Agent 更新没有结束原 Firefox；新飞书启动后没有再次重启 Agent。Mac 完整应用已重新构建并运行。静止无损刷新及原始像素模式提交为 `be580d6`，Snap 启动修复为 `3394f21`。
+
+本次完整 Mac 门禁、Clippy、Ubuntu 编码回归、Snap 对照、两个隔离 QUIC 节点及 Mac 混合 PNG/H.264 解码回归通过；详见[验证记录](validation.md#2026-10-22-清晰度与-snap-启动回归)。不代表真实双向发布、多显示器、分数缩放、长时间输入压力或原桌面飞书路径全部通过。Mac 本机共享仍为关闭状态，本轮未重新完成反向实机验收。
+
+结构化结果及已部署二进制校验和见[激活后记录](validation-artifacts/2026-10-22-window-activation.json)。[激活前记录](validation-artifacts/2026-10-22-window-resolution.json)保留原始状态，两份记录不可混作同一次进程存活证明。
