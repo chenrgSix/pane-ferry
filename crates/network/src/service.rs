@@ -673,7 +673,7 @@ impl Service {
                     tokio::select! {
                         packet = control_rx.recv() => {
                             let packet = packet.context("control ended")?; ensure!(packet.value["type"] != "frame" && packet.barrier == merge.barrier+1, "control ordering");
-                            merge.barrier = packet.barrier; merge.observe(&packet.value);
+                            merge.barrier = packet.barrier; merge.observe(&packet.value)?;
                             let value = merge.deliver(packet); framing::json(&mut write,&value).await?;
                         }
                         packet = rx.recv(), if pending.len() < 8 => {
@@ -811,19 +811,25 @@ struct Merge {
     windows: HashMap<u64, (u64, u64, bool)>,
 }
 impl Merge {
-    fn observe(&mut self, value: &Value) {
+    fn observe(&mut self, value: &Value) -> Result<()> {
         match value["type"].as_str() {
             Some("session.snapshot" | "session.exited") => {
                 self.windows.clear();
                 self.reset = self.barrier;
                 if let Some(windows) = value["windows"].as_array() {
                     for window in windows {
-                        self.observe(window);
+                        let mut window = window.clone();
+                        window["type"] = json!("window.created");
+                        self.observe(&window)?;
                     }
                 }
             }
             Some("window.created" | "window.metadata" | "window.destroyed") => {
                 if let Some(id) = value["window_id"].as_u64() {
+                    ensure!(
+                        self.windows.contains_key(&id) || self.windows.len() < 128,
+                        "window history limit"
+                    );
                     let previous =
                         self.windows
                             .get(&id)
@@ -843,6 +849,7 @@ impl Merge {
             }
             _ => {}
         }
+        Ok(())
     }
     fn current(&self, packet: &Packet) -> bool {
         packet.barrier >= self.reset
@@ -927,20 +934,26 @@ mod tests {
     fn late_frames_cannot_revive_windows_or_cross_geometry_changes() {
         let mut merge = Merge::default();
         merge.barrier = 1;
-        merge.observe(&json!({"type":"session.snapshot","windows":[{"type":"window.created","window_id":7,"geometry_revision":4}]}));
+        merge.observe(&json!({"type":"session.snapshot","windows":[{"type":"window.created","window_id":7,"geometry_revision":4}]})).unwrap();
         let frame = |barrier, revision| {
             Packet::new(json!({"type":"frame","window_id":7,"geometry_revision":revision,"codec":"h264","data":"YQ=="}),barrier).unwrap()
         };
         assert!(merge.current(&frame(1, 4)));
         merge.barrier = 2;
-        merge.observe(&json!({"type":"window.metadata","window_id":7,"geometry_revision":5}));
+        merge
+            .observe(&json!({"type":"window.metadata","window_id":7,"geometry_revision":5}))
+            .unwrap();
         assert!(!merge.current(&frame(1, 4)));
         assert!(merge.current(&frame(2, 5)));
         merge.barrier = 3;
-        merge.observe(&json!({"type":"window.destroyed","window_id":7}));
+        merge
+            .observe(&json!({"type":"window.destroyed","window_id":7}))
+            .unwrap();
         assert!(!merge.current(&frame(2, 5)));
         merge.barrier = 4;
-        merge.observe(&json!({"type":"window.created","window_id":7,"geometry_revision":5}));
+        merge
+            .observe(&json!({"type":"window.created","window_id":7,"geometry_revision":5}))
+            .unwrap();
         assert!(!merge.current(&frame(2, 5)));
         assert!(merge.current(&frame(4, 5)));
     }

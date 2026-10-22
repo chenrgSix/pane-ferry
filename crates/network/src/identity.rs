@@ -10,7 +10,13 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fs, io::Write, os::unix::fs::OpenOptionsExt, path::Path, sync::Arc};
+use std::{
+    fs,
+    io::Write,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    path::Path,
+    sync::Arc,
+};
 
 pub const ALPN: &[u8] = b"lan-remoteapp/2";
 #[derive(Clone, Serialize, Deserialize)]
@@ -67,6 +73,10 @@ pub fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     ensure!(
         info.file_type().is_file() && info.len() < 1024 * 1024,
         "invalid private file"
+    );
+    ensure!(
+        info.uid() == unsafe { libc::geteuid() } && info.mode() & 0o077 == 0,
+        "unsafe private file permissions"
     );
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
