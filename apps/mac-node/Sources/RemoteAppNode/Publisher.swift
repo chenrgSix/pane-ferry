@@ -2,6 +2,7 @@ import AppKit
 import ScreenCaptureKit
 import ApplicationServices
 import CryptoKit
+import Darwin
 
 struct PublishedApp {
     let id:String, name:String, url:URL, bundleID:String
@@ -54,15 +55,39 @@ struct Target {
     let launched:Date
     var id:String { "window-\(window.windowID)-\(application.processIdentifier)-\(Int64(launched.timeIntervalSince1970*1000))" }
 }
-func windowMouseEvent(_ type:NSEvent.EventType,windowID:UInt32,location:CGPoint,flags:CGEventFlags,button:CGMouseButton,number:Int,pressure:Float) -> CGEvent? {
-    // CGEvent's "window under pointer" fields do not set AppKit's receiving
-    // window. Create the native window-targeted event in window base coordinates
-    // before posting only to its owning PID; never use the global event tap.
-    guard let native=NSEvent.mouseEvent(with:type,location:location,modifierFlags:NSEvent.ModifierFlags(rawValue:UInt(flags.rawValue)),
+// PID delivery needs both screen and window-local coordinates. AppKit's factory
+// supplies the receiving-window header; CGEventSetLocation alone overwrites the
+// hit-test location. Resolve the window-local setter at runtime and fail closed
+// if this OS does not support it. Events are never posted to a global event tap.
+private typealias SetWindowLocation=@convention(c)(CGEvent,CGPoint)->Void
+private let setWindowLocation:SetWindowLocation? = {
+    guard let symbol=dlsym(UnsafeMutableRawPointer(bitPattern:-2),"CGEventSetWindowLocation") else { return nil }
+    return unsafeBitCast(symbol,to:SetWindowLocation.self)
+}()
+func targetPointerEvent(_ event:CGEvent,windowID:UInt32,frame:CGRect,location:CGPoint) -> CGEvent? {
+    guard let setLocation=setWindowLocation else { return nil }
+    event.setIntegerValueField(.mouseEventWindowUnderMousePointer,value:Int64(windowID))
+    event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent,value:Int64(windowID))
+    event.location=CGPoint(x:frame.minX+location.x,y:frame.minY+location.y)
+    setLocation(event,location)
+    return event
+}
+func windowMouseEvent(_ type:NSEvent.EventType,windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEventFlags,button:CGMouseButton,number:Int,pressure:Float) -> CGEvent? {
+    let base=CGPoint(x:location.x,y:frame.height-location.y)
+    guard let native=NSEvent.mouseEvent(with:type,location:base,modifierFlags:NSEvent.ModifierFlags(rawValue:UInt(flags.rawValue)),
         timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:Int(windowID),context:nil,eventNumber:number,clickCount:1,pressure:pressure),
         let event=native.cgEvent else { return nil }
     event.setIntegerValueField(.mouseEventButtonNumber,value:Int64(button.rawValue))
-    return event
+    event.setIntegerValueField(.mouseEventSubtype,value:3)
+    return targetPointerEvent(event,windowID:windowID,frame:frame,location:location)
+}
+func windowScrollEvent(windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEventFlags,vertical:Int32,horizontal:Int32) -> CGEvent? {
+    guard let event=CGEvent(scrollWheelEvent2Source:nil,units:.line,wheelCount:2,wheel1:vertical,wheel2:horizontal,wheel3:0) else { return nil }
+    // Scroll has no NSEvent factory; this is the receiving-window header filled
+    // by that factory for mouse events, separate from the hit-test window tags.
+    guard let windowField=CGEventField(rawValue:51) else { return nil }
+    event.setIntegerValueField(windowField,value:Int64(windowID));event.flags=flags
+    return targetPointerEvent(event,windowID:windowID,frame:frame,location:location)
 }
 final class PublishedSession {
     let id:String, appID:String, target:Target
@@ -130,15 +155,13 @@ final class PublishedSession {
         if pressed || button == 0 { try ensureInput() }
         else { guard valid() else { throw NodeError.session_exited } }
         guard x>=0,y>=0,x<width,y<height,(0...7).contains(button) else { throw NodeError.invalid_request }
-        if button != 0 && pressed { try focus() }
-        let point=CGPoint(x:Double(x)*lastFrame.width/Double(width),y:lastFrame.height-Double(y)*lastFrame.height/Double(height))
+        let point=CGPoint(x:Double(x)*lastFrame.width/Double(width),y:Double(y)*lastFrame.height/Double(height))
         pointerSerial=pointerSerial%Int(Int32.max)+1
         if (4...7).contains(button) {
-            if pressed,let event=windowMouseEvent(.mouseMoved,windowID:target.window.windowID,location:point,flags:flags,button:.left,number:pointerSerial,pressure:0) {
-                event.type = .scrollWheel
-                event.setIntegerValueField(.scrollWheelEventDeltaAxis1,value:button==4 ? 3 : button==5 ? -3 : 0)
-                event.setIntegerValueField(.scrollWheelEventDeltaAxis2,value:button==6 ? 3 : button==7 ? -3 : 0)
-                event.setIntegerValueField(.scrollWheelEventIsContinuous,value:0)
+            if pressed {
+                guard let moved=windowMouseEvent(.mouseMoved,windowID:target.window.windowID,frame:lastFrame,location:point,flags:flags,button:.left,number:pointerSerial,pressure:0),
+                    let event=windowScrollEvent(windowID:target.window.windowID,frame:lastFrame,location:point,flags:flags,vertical:button==4 ? 3 : button==5 ? -3 : 0,horizontal:button==6 ? 3 : button==7 ? -3 : 0) else { throw NodeError.input_unsupported }
+                moved.postToPid(target.application.processIdentifier)
                 event.postToPid(target.application.processIdentifier)
             };return
         }
@@ -146,7 +169,7 @@ final class PublishedSession {
         let mouse:CGMouseButton = active==3 ? .right : active==2 ? .center : .left
         let type:NSEvent.EventType = button==0 ? (active==1 ? .leftMouseDragged : active==3 ? .rightMouseDragged : active==2 ? .otherMouseDragged : .mouseMoved)
             : button==1 ? (pressed ? .leftMouseDown:.leftMouseUp) : button==3 ? (pressed ? .rightMouseDown:.rightMouseUp) : (pressed ? .otherMouseDown:.otherMouseUp)
-        guard let event=windowMouseEvent(type,windowID:target.window.windowID,location:point,flags:flags,button:mouse,number:pointerSerial,pressure:pressed || (button==0 && active != 0) ? 1:0) else { throw NodeError.input_unsupported }
+        guard let event=windowMouseEvent(type,windowID:target.window.windowID,frame:lastFrame,location:point,flags:flags,button:mouse,number:pointerSerial,pressure:pressed || (button==0 && active != 0) ? 1:0) else { throw NodeError.input_unsupported }
         event.postToPid(target.application.processIdentifier)
         if button>0 { if pressed { buttons.insert(button) } else { buttons.remove(button) } }
     }

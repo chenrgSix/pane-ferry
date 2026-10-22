@@ -88,6 +88,18 @@ final class Client {
         client.wire.send(snapshot ? ["type":"session.snapshot","windows":[session.metadata]] : session.metadata,session:session.id)
         do { try await capture.start(window) } catch { client.detach();throw NodeError.capture_failed }
     }
+    func focusForInput(_ session:PublishedSession,_ client:Client) async throws {
+        try session.focus()
+        for _ in 0..<30 {
+            // Activation is asynchronous. Revalidate ownership after each yield
+            // so stopping sharing/detaching cannot deliver a delayed click.
+            guard publisher.sharing,session.controller==client.id,client.session===session else { throw NodeError.window_unavailable }
+            try session.ensureInput()
+            if session.target.application.isActive { return }
+            try await Task.sleep(nanoseconds:10_000_000)
+        }
+        throw NodeError.window_unavailable
+    }
     func handle(_ request:[String:Any],_ client:Client) async throws {
         guard let type=request["type"] as? String else { throw NodeError.invalid_request }
         // Strict request schema. Protocol extensions are negotiated, not silently
@@ -142,8 +154,12 @@ final class Client {
             guard publisher.sharing else { throw NodeError.sharing_disabled }
             guard let session=client.session,session.controller==client.id,let window=request["window_id"] as? UInt32,window==session.target.window.windowID,session.valid() else { throw NodeError.window_unavailable }
             try session.ensureInput()
+            if type=="window.focus" || type.hasPrefix("clipboard.") ||
+                (type=="input.pointer" && request["pressed"] as? Bool == true && request["button"] as? Int != 0) {
+                try await focusForInput(session,client)
+            }
             switch type {
-            case "window.focus":try session.focus()
+            case "window.focus":break
             case "window.close.request":
                 let window=try session.axWindow();var button:CFTypeRef?
                 guard AXUIElementCopyAttributeValue(window,kAXCloseButtonAttribute as CFString,&button) == .success,let button=button,CFGetTypeID(button)==AXUIElementGetTypeID() else { throw NodeError.window_unavailable }

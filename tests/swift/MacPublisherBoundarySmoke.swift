@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 @main struct MacPublisherBoundarySmoke {
     static func main() throws {
         precondition(receivedApplication(URL(fileURLWithPath:"/Applications/Firefox.app"),"io.lanremoteapp.host.fixture"))
@@ -11,13 +12,16 @@ import AppKit
         var data=Data([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,10,0,0,0,10])
         try checkPNG(data);data[16]=127
         do {try checkPNG(data);fatalError("oversized image accepted")} catch NodeError.clipboard_invalid {}
-        let event=windowMouseEvent(.leftMouseDown,windowID:42,location:CGPoint(x:104,y:346),flags:.maskShift,button:.left,number:17,pressure:1)!
+        let frame=CGRect(x:-800,y:180,width:800,height:592),point=CGPoint(x:104,y:70)
+        let event=windowMouseEvent(.leftMouseDown,windowID:42,frame:frame,location:point,flags:.maskShift,button:.left,number:17,pressure:1)!
         let native=NSEvent(cgEvent:event)!
-        precondition(native.windowNumber==42 && native.locationInWindow==CGPoint(x:104,y:346))
+        typealias GetWindowLocation=@convention(c)(CGEvent)->CGPoint
+        let getLocation=unsafeBitCast(dlsym(UnsafeMutableRawPointer(bitPattern:-2),"CGEventGetWindowLocation")!,to:GetWindowLocation.self)
+        precondition(native.windowNumber==42 && event.location==CGPoint(x:-696,y:250) && getLocation(event)==point)
         precondition(native.modifierFlags.contains(.shift) && native.eventNumber==17)
-        event.type = .scrollWheel;event.setIntegerValueField(.scrollWheelEventDeltaAxis1,value:3)
-        let scroll=NSEvent(cgEvent:event)!
-        precondition(scroll.windowNumber==42 && scroll.locationInWindow==CGPoint(x:104,y:346) && scroll.scrollingDeltaY==3)
+        let scrollEvent=windowScrollEvent(windowID:42,frame:frame,location:point,flags:[],vertical:3,horizontal:0)!
+        let scroll=NSEvent(cgEvent:scrollEvent)!
+        precondition(scroll.windowNumber==42 && scroll.scrollingDeltaY==3 && getLocation(scrollEvent)==point)
         print("PASS: Mac publisher exclusion, identifiers, frame and image budgets")
     }
 }
