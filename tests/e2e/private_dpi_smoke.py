@@ -47,6 +47,22 @@ class Peer:
         raise AssertionError('Missing '+kind)
     def close(self):self.file.close();self.sock.close()
 
+def density_changes(peer, state, window, original):
+    # The source application, not just frame metadata, must react to a display
+    # change. Keep its process, contents and logical control size throughout.
+    for scale in (1,2):
+        peer.send(type='window.viewport',window_id=window,logical_width=1470,logical_height=802,scale_factor=scale)
+        while True:
+            frame=peer.until('frame')
+            if (frame['width'],frame['height'])==(1470*scale,802*scale):break
+        wait(lambda: (lambda d:(d['scale'],d['width'],d['height'])==(scale,1470,802))(json.loads(state.read_text())))
+        actual=json.loads(state.read_text())
+        for field in ('pid','text','button_height'):
+            assert actual[field]==original[field], (field,original,actual)
+        if 'text_pixels' in original:
+            assert actual['text_pixels']==original['text_pixels'], (original,actual)
+        print('PASS: live display density',scale,'actual pixels',frame['width'],frame['height'],'client',actual,flush=True)
+
 with tempfile.TemporaryDirectory(prefix='paneferry-dpi-') as temporary:
     folder=Path(temporary); home=folder/'home'
     conf=home/'.config/lan-remoteapp';conf.mkdir(parents=True)
@@ -95,6 +111,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-dpi-') as temporary:
                 resumed.until('session.snapshot');resumed.until('frame')
                 assert json.loads(state.read_text())['pid']==data['pid']
                 print('PASS: DPI',scale,'actual pixels',frame['width'],frame['height'],'client',data,flush=True)
+                if scale==2:density_changes(resumed,state,frame['window_id'],data)
             assert results[0]['button_height']==results[1]['button_height'], results
             assert results[0]['text_pixels']==results[1]['text_pixels'], results
             assert json.loads((folder/'1.json').read_text())['scale']==1
@@ -118,6 +135,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-dpi-') as temporary:
                         peer.send(type='input.pointer',window_id=frame['window_id'],x=int(data['button_x']*scale),y=int(data['button_y']*scale),button=1,pressed=pressed)
                     wait(lambda:json.loads(state.read_text())['clicks']==1)
                     print('PASS: Electron viewport/DPR/control size/source pixels/pointer',scale,data,flush=True)
+                    if scale==2:density_changes(peer,state,frame['window_id'],data)
         except Exception:
             print((folder/'agent.log').read_text(errors='replace')[-6000:])
             raise
