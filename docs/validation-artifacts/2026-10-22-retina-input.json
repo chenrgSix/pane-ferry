@@ -6,9 +6,11 @@
     "text_input": "7bd8439"
   },
   "activation": {
-    "status": "prepared_not_activated",
+    "status": "deferred_by_user",
     "installed_over_active_version": false,
-    "awaiting_user_decision": true,
+    "awaiting_user_decision": false,
+    "user_decision": "保留当前会话，稍后再切换",
+    "activation_requires_new_user_request": true,
     "reason": "GNOME 50 caches extension imports until a new Shell session; restarting the current Agent terminates its owned Feishu session."
   },
   "scope": {

@@ -425,3 +425,5 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 **此次新改进尚未激活到真实桌面。** GNOME 50 会缓存已导入的扩展模块，禁用/启用不能加载新代码；当前 Agent 又拥有正在使用的独立飞书进程。为遵守保留会话的要求，未注销 GNOME、未重启 Agent、未关闭 Firefox/飞书，也未覆盖正在运行的 Mac 应用包。Firefox PID 2973421/启动时间 29932989、飞书 PID 3056368/30061642、Agent PID 3032522/30026538、Shell PID 2904453/29789695 均保持。没有读取或更换 Firefox 账号资料、标签页配置。
 
 待切换的 Mac 包为 `dist/retina-input-20261022/窗渡 PaneFerry.app`；Ubuntu 包在 `/home/chenrg/.local/state/lan-remoteapp/upgrades/retina-input-20261022/paneferry-linux`。需要用户安排保存工作后的激活，再核验真实 Firefox 的大窗口、连续输入、原账号及标签页；不能把 GTK 夹具通过写成 Firefox 已验收。Mac 本机反向发布、多物理设备并发、混合/分数缩放、长期压力和 CI 本轮未验收。结构化证据、日志摘要与包校验和见[记录](validation-artifacts/2026-10-22-retina-input.json)；完整本地日志保存在上述 Mac 包同级的 `validation/`。
+
+用户随后明确选择“保留当前会话，稍后再切换”。激活状态记为用户暂缓，新版安装包保留；没有安排自动切换，待用户再次要求后继续激活与实机验收。
