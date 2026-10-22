@@ -20,7 +20,7 @@ pub struct SessionKey {
     pub session_id: String,
 }
 
-/// A changed address is never evidence of device identity or SSH trust.
+/// A changed address is never evidence of device identity or pairing trust.
 /// Late results must carry the exact generation which initiated the request.
 #[derive(Default)]
 pub struct Connections {

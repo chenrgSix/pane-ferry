@@ -1,4 +1,4 @@
-const connectionKinds = new Set(["authentication_required", "connection", "host_verification", "agent_unavailable"]);
+const connectionKinds = new Set(["connection", "pairing_required"]);
 
 export function requestFailure(value: unknown): { message: string; kind: string } {
   if (value && typeof value === "object" && "message" in value && typeof value.message === "string") {

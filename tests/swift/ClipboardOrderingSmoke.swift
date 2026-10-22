@@ -4,7 +4,7 @@ struct ClipboardOrderingSmoke {
     static func main() {
         _ = NSApplication.shared
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
-        let app = AppDelegate(options: Options(host: "invalid.example", user: "fixture", port: 22, app: nil, session: "fixture"), clipboard: board)
+        let app = AppDelegate(options: Options(app: nil, session: "fixture", native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: "/tmp/fixture", helper: "/tmp/fixture/bridge")), clipboard: board)
         app.capabilities = ["clipboard.copy", "clipboard.cut", "clipboard.paste", "clipboard.bundle"]
         app.session = "fixture"
         let host = HostedWindow(id: 42, width: 640, height: 480, revision: 1, scale: 1, popup: false, disconnect: {}) { _ in }

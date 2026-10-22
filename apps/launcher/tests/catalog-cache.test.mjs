@@ -13,7 +13,7 @@ test("names and icons survive restart; cached reads do not call Ubuntu until exp
   const storage = memory();
   let calls = 0;
   const fetch = async () => ({ apps: [app("firefox", "火狐")], discovery_error: null, calls: ++calls });
-  const key = endpointKey({ host: "ubuntu", user: "alice", port: 22 });
+  const key = endpointKey({ peerId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" });
   const first = await readCatalog(new CatalogCache(storage), key, fetch);
   assert.equal(first.fromCache, false);
   assert.equal(first.persisted, true);
@@ -28,11 +28,12 @@ test("names and icons survive restart; cached reads do not call Ubuntu until exp
   assert.deepEqual(new CatalogCache(storage).get(key).apps, refreshed.catalog.apps);
 });
 
-test("host, account and SSH port have isolated catalogs", async () => {
+test("paired devices have isolated catalogs", async () => {
   const cache = new CatalogCache(memory());
   const keys = [
-    { host: "a", user: "u", port: 22 }, { host: "b", user: "u", port: 22 },
-    { host: "a", user: "v", port: 22 }, { host: "a", user: "u", port: 2222 },
+    { peerId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" },
+    { peerId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" },
+    { peerId: "cccccccc-cccc-cccc-cccc-cccccccccccc" },
   ].map(endpointKey);
   for (const [i, key] of keys.entries()) {
     const result = await readCatalog(cache, key, async () => ({ apps: [app(`app-${i}`)], discovery_error: null }));

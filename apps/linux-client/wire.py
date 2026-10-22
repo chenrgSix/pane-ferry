@@ -32,16 +32,6 @@ def save(path, value):
 
 def peers():
     result = []
-    for path in sorted((STATE / 'peers').glob('*.json')):
-        try:
-            if path.is_symlink() or path.stat().st_size > 4096:
-                continue
-            value = json.loads(path.read_text())
-            if value['version'] == 1 and str(uuid.UUID(value['device_id'])) == value['device_id']:
-                value["connection_id"] = value["device_id"]
-                result.append(value)
-        except (OSError, ValueError, KeyError):
-            pass
     path = STATE / 'network/peers.json'
     try:
         if not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
@@ -49,35 +39,20 @@ def peers():
             for identity, peer in list(values.items())[:32]:
                 if str(uuid.UUID(identity)) == identity and peer['device_id'] == identity:
                     result.append(dict(device_id=identity, connection_id='quic:'+identity,
-                        name=peer['name']+' · QUIC', address=peer['address'], transport='quic', generation=identity))
+                        name=peer['name'], address=peer['address'], transport='quic', generation=identity))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         pass
     return result
 
 
 def route(peer_id):
-    # Resolve again on every attempt. A viewer never retains a stale route path
-    # after the owning SSH connection is replaced.
-    if peer_id.startswith('quic:'):
-        identity = peer_id[5:]
-        if str(uuid.UUID(identity)) != identity or not any(p.get('connection_id') == peer_id for p in peers()):
-            raise ValueError('invalid_device')
-        expected = STATE / 'network' / ('r-' + identity + '.sock')
-        metadata = expected.lstat()
-        if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
-            raise ValueError('invalid_route')
-        return expected
-    if str(uuid.UUID(peer_id)) != peer_id:
+    # Every receiver is bound to one paired UUID. Legacy return routes are ignored.
+    if not isinstance(peer_id, str) or not peer_id.startswith('quic:'):
         raise ValueError('invalid_device')
-    value = next((p for p in peers() if p['device_id'] == peer_id), None)
-    if not value:
-        raise OSError('peer_unavailable')
-    generation = value.get('generation', '')
-    if len(generation) != 32 or any(c not in '0123456789abcdef' for c in generation):
-        raise ValueError('invalid_route')
-    expected = STATE / 'peers' / ('p' + generation + '.sock')
-    if value.get('socket') != str(expected):
-        raise ValueError('invalid_route')
+    identity = peer_id[5:]
+    if str(uuid.UUID(identity)) != identity or not any(p.get('connection_id') == peer_id for p in peers()):
+        raise ValueError('invalid_device')
+    expected = STATE / 'network' / ('r-' + identity + '.sock')
     metadata = expected.lstat()
     if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != os.getuid():
         raise ValueError('invalid_route')

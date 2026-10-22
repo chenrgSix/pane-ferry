@@ -30,13 +30,13 @@ const renderer = createRenderer({
   parentNode: node => node.parent,
   nextSibling: () => null,
 });
-const endpoint = { host: "ubuntu", user: "alice", port: 22 };
+const endpoint = { peerId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" };
 const app = { id: "firefox", name: "Firefox", source: "desktop", description: "浏览器", icon_png: "Y2FjaGVkLWFwcC1pY29u" };
 const session = (id, appId, display = 0, controlled = false) => ({ session_id: id, app_id: appId, display, controlled, backend: "native" });
 const window = (id, sessionId = null, controlled = false) => ({ id, session_id: sessionId, controlled, name: "Firefox", title: "测试页面", minimized: false, window_id: 100, icon_png: "bGl2ZS13aW5kb3ctaWNvbg==" });
 function storage() {
   const data = new Map([["lan-remoteapp.connection", JSON.stringify({ endpoint, renderScale: "auto" })]]);
-  return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
+  return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
 }
 function mount(saved, fixtures = {}) {
   const calls = [];
@@ -159,7 +159,7 @@ test("catalog failures do not block live sessions; late metadata from a previous
     assert.equal(actions(mounted).at(-1).command, "resume_session");
     deferWindows = true;
     const pending = state.refresh();
-    state.endpoint = { ...endpoint, host: "other-ubuntu" };
+    state.endpoint = { ...endpoint, peerId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" };
     await nextTick();
     rejectWindows(new Error("old host offline"));
     await pending;
@@ -204,31 +204,30 @@ test("focus refresh never swallows the first connection click or overwrites newe
   }
 });
 
-test("network restoration and explicit SSH login recover metadata without replaying app operations", async () => {
+test("network restoration recovers metadata without replaying app operations", async () => {
   let phase = "online";
   function requireConnection() {
-    if (phase === "offline") throw { kind: "connection", message: "SSH 网络离线" };
-    if (phase === "authentication") throw { kind: "authentication_required", message: "SSH 登录已失效，请重新登录 SSH" };
+    if (phase === "offline") throw { kind: "connection", message: "设备网络离线" };
+    if (phase === "authentication") throw { kind: "pairing_required", message: "设备已解除配对，请重新配对" };
   }
   const mounted = mount(storage(), {
     list_sessions: () => { requireConnection(); return [session("remote", "firefox", 228)]; },
     list_desktop_windows: () => { requireConnection(); return { windows: [], unavailable_reason: null }; },
     resume_session: () => { requireConnection(); return { session_id: "remote", pid: 123, message: "客户端已启动" }; },
-    open_ssh_login: () => undefined,
   });
   try {
     const { state } = mounted;
     await settled(state);
     phase = "offline";
     await state.refresh();
-    assert.match(state.windowWarning, /SSH 网络离线/);
+    assert.match(state.windowWarning, /设备网络离线/);
     assert.equal(state.apps[0].name, "Firefox");
     phase = "authentication";
     await state.refresh();
-    assert.match(state.sessionWarning, /SSH 登录已失效/);
+    assert.match(state.sessionWarning, /设备已解除配对/);
     assert.doesNotMatch(state.windowWarning, /object Object/);
     await state.connect(state.runningConnections[0]);
-    assert.match(state.error, /SSH 登录已失效/);
+    assert.match(state.error, /设备已解除配对/);
     phase = "online";
     mounted.listeners.get("online")();
     await settled(state);
@@ -236,17 +235,6 @@ test("network restoration and explicit SSH login recover metadata without replay
     assert.equal(state.sessionWarning, "");
     assert.equal(state.windowWarning, "");
     assert.equal(actions(mounted).length, 1, "online event must not replay the failed resume");
-    phase = "authentication";
-    await state.refresh();
-    await state.login();
-    assert.equal(mounted.calls.filter(c => c.command === "open_ssh_login").length, 1);
-    assert.equal(state.waitingForLogin, true);
-    assert.match(state.notice, /系统终端/);
-    phase = "online";
-    mounted.listeners.get("focus")();
-    await settled(state);
-    assert.equal(state.waitingForLogin, false);
-    assert.match(state.notice, /SSH 登录已恢复/);
     assert.equal(state.runningConnections[0].sessionId, "remote");
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 1);
     assert.equal(actions(mounted).length, 1);
@@ -254,26 +242,24 @@ test("network restoration and explicit SSH login recover metadata without replay
   assert.equal(mounted.listeners.size, 0);
 });
 
-test("a stuck previous connection cannot block online or post-login recovery", async () => {
-  for (const recovery of ["online", "login"]) {
+test("a stuck previous connection cannot block network recovery", async () => {
+  for (const recovery of ["online"]) {
     let stalled = false;
     const rejectOld = [];
     const mounted = mount(storage(), {
       list_sessions: () => stalled ? new Promise((_, reject) => rejectOld.push(reject)) : [session("remote", "firefox", 228)],
       list_desktop_windows: () => stalled ? new Promise((_, reject) => rejectOld.push(reject)) : { windows: [], unavailable_reason: null },
-      open_ssh_login: () => undefined,
-    });
+      });
     try {
       await settled(mounted.state);
       stalled = true;
       mounted.state.onFocus();
       assert.equal(rejectOld.length, 2);
-      if (recovery === "login") await mounted.state.login();
       stalled = false;
-      mounted.listeners.get(recovery === "online" ? "online" : "focus")();
+      mounted.listeners.get(recovery)();
       await settled(mounted.state);
       assert.equal(mounted.calls.filter(c => c.command === "list_sessions").length, 3);
-      for (const reject of rejectOld) reject({ kind: "connection", message: "old TCP connection failed" });
+      for (const reject of rejectOld) reject({ kind: "connection", message: "old connection failed" });
       await settled(mounted.state);
       assert.equal(mounted.state.windowWarning, "");
       assert.equal(mounted.state.sessionWarning, "");
@@ -291,7 +277,7 @@ test("metadata reconnects with bounded backoff without clicks, catalog scans or 
   globalThis.setTimeout = (callback, delay) => { const id = ++sequence; timers.set(id, {callback, delay}); return id; };
   globalThis.clearTimeout = id => timers.delete(id);
   function requireConnection() {
-    if (auth) throw { kind: "authentication_required", message: "设备授权已失效" };
+    if (auth) throw { kind: "pairing_required", message: "设备授权已失效" };
     if (offline) throw { kind: "connection", message: "network offline" };
   }
   const mounted = mount(storage(), {
@@ -312,39 +298,30 @@ test("metadata reconnects with bounded backoff without clicks, catalog scans or 
     assert.equal(timers.size, 0);
     assert.equal(mounted.state.windowWarning, "");
     assert.match(mounted.state.notice, /自动恢复/);
-    assert.equal(mounted.state.loginNeeded, false);
     assert.equal(actions(mounted).length, 0);
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 1);
     auth = true; await mounted.state.refresh();
-    assert.equal(timers.size, 0, "revoked authentication needs login, not unlimited retries");
-    assert.equal(mounted.state.loginNeeded, true);
+    assert.equal(timers.size, 0, "revoked pairing must stop automatic retries");
     auth = false; offline = true; await mounted.state.refresh();
     assert.equal(timers.size, 1);
-    mounted.state.endpoint = { ...endpoint, host: "another-device" }; await nextTick();
+    mounted.state.endpoint = { ...endpoint, peerId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" }; await nextTick();
     assert.equal(timers.size, 0, "changing endpoint must cancel recovery of the previous device");
   } finally {
     mounted.unmount(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear;
   }
 });
 
-test("one Connect sends entered credentials to the Mac service and never persists them in browser preferences", async () => {
-  const saved = storage(); let fails = false;
-  const mounted = mount(saved, {save_ssh_password: () => { if (fails) throw new Error("storage rejected"); }});
+test("legacy connection settings cannot become a paired device or trigger connection", async () => {
+  const saved = storage();
+  saved.setItem("lan-remoteapp.connection", JSON.stringify({endpoint:{host:"ubuntu",user:"alice",port:22},renderScale:"2"}));
+  saved.setItem("lan-remoteapp.devices", JSON.stringify([{host:"ubuntu",user:"alice",port:22}]));
+  const mounted = mount(saved);
   try {
     await settled(mounted.state);
-    mounted.state.password = "fixture secret value";
-    await mounted.state.connectHost();
-    const writes = mounted.calls.filter(c => c.command === "save_ssh_password");
-    assert.equal(writes.length, 1);
-    assert.equal(writes[0].args.password, "fixture secret value");
-    assert.deepEqual(writes[0].args.endpoint, endpoint);
-    assert.equal(mounted.state.password, "");
-    assert.doesNotMatch(saved.getItem("lan-remoteapp.connection"), /fixture secret|password/i);
-    await mounted.state.connectHost();
-    assert.equal(mounted.calls.filter(c => c.command === "save_ssh_password").length, 1);
-    fails = true; mounted.state.password = "rejected secret";
-    await mounted.state.connectHost();
-    assert.match(mounted.state.error, /连接配置/);
-    assert.doesNotMatch(mounted.state.error, /rejected secret/);
+    assert.equal(mounted.state.valid, false);
+    assert.equal(mounted.state.renderScale, "2");
+    assert.equal(saved.getItem("lan-remoteapp.devices"), null);
+    assert.doesNotMatch(saved.getItem("lan-remoteapp.connection"), /host|user|port/);
+    assert.equal(mounted.calls.filter(c => ["list_apps","list_sessions","list_desktop_windows"].includes(c.command)).length, 0);
   } finally { mounted.unmount(); }
 });

@@ -6,26 +6,16 @@ struct NativeRoute {
 }
 
 /// Length-bounded manifest followed by exact file bytes. Runs over a separate
-/// channel of the same authenticated SSH connection, without shell file paths.
+/// reliable QUIC stream of the paired device, without shell file paths.
 final class ClipboardBulkTransfer {
-    let host: String, user: String, port: UInt16
-    let agent: String
-    let native: NativeRoute?
-    init(host: String, user: String, port: UInt16, agent: String = ".local/bin/remoteapp-agent", native: NativeRoute? = nil) {
-        self.host = host; self.user = user; self.port = port; self.agent = agent; self.native = native
-    }
+    let native: NativeRoute
+    init(native: NativeRoute) { self.native = native }
     private func start(_ command: String) throws -> (Process, FileHandle, FileHandle, DispatchWorkItem) {
-        guard !agent.isEmpty, agent.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || "/._-".utf8.contains($0) }) else { throw ClipboardFailure.invalid }
         let process = Process(), input = Pipe(), output = Pipe()
-        if let native = native {
-            process.executableURL = URL(fileURLWithPath: native.helper)
-            let fields = command.split(separator: " ").map(String.init)
-            process.arguments = [fields[0] == "clipboard-upload" ? "bulk-upload" : "bulk-download", "--state", native.state, "--peer", native.peer]
-            if fields.count == 2 { process.arguments! += ["--transfer", fields[1]] }
-        } else {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = ["-F", "/dev/null", "-T"] + SSHAuthentication.configure(process, host: host, user: user, port: port) + ["-oStrictHostKeyChecking=yes", "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no", "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2", "-p", String(port), "-l", user, "--", host, agent + " " + command]
-        }
+        process.executableURL = URL(fileURLWithPath: native.helper)
+        let fields = command.split(separator: " ").map(String.init)
+        process.arguments = [fields[0] == "clipboard-upload" ? "bulk-upload" : "bulk-download", "--state", native.state, "--peer", native.peer]
+        if fields.count == 2 { process.arguments! += ["--transfer", fields[1]] }
         process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
         try process.run()
         let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }

@@ -6,7 +6,7 @@ import { PendingLaunches } from "../src/session-store.ts";
 test("terminal session failure permits a new launch; lost replies keep the original ID", () => {
   const pending = new PendingLaunches();
   const id = pending.id("app");
-  for (const error of ["SSH failed", new Error("timeout"), { message: "unknown" }]) {
+  for (const error of ["connection failed", new Error("timeout"), { message: "unknown" }]) {
     assert.equal(launchFailure(error).retrySameRequest, true);
     assert.equal(pending.id("app"), id);
   }

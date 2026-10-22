@@ -1,5 +1,3 @@
-#[cfg(test)]
-use remoteapp_transport::Endpoint;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -202,11 +200,7 @@ mod tests {
         private_directory(&source.join("Contents/Resources")).unwrap();
         fs::write(source.join(EXECUTABLE), b"fixture binary v1").unwrap();
         fs::write(source.join(FALLBACK_ICON), b"fixture icon").unwrap();
-        let endpoint = Endpoint {
-            host: "fixture.invalid".into(),
-            user: "fixture".into(),
-            port: 22,
-        };
+        let endpoint = serde_json::json!({"transport":"quic","device_id":"device-a"});
         let cache = root.join("cache");
         let original = prepare(
             &cache,
@@ -259,10 +253,7 @@ mod tests {
             .unwrap(),
             original
         );
-        let other_endpoint = Endpoint {
-            port: 2222,
-            ..endpoint.clone()
-        };
+        let other_endpoint = serde_json::json!({"transport":"quic","device_id":"device-b"});
         assert_ne!(
             prepare(
                 &cache,
@@ -327,11 +318,7 @@ mod tests {
         private_directory(&source.join("Contents/Resources")).unwrap();
         fs::write(source.join(EXECUTABLE), b"fixture binary").unwrap();
         fs::write(source.join(FALLBACK_ICON), b"fixture icon").unwrap();
-        let endpoint = Endpoint {
-            host: "fixture.invalid".into(),
-            user: "fixture".into(),
-            port: 22,
-        };
+        let endpoint = serde_json::json!({"transport":"quic","device_id":"device-a"});
         let cache = root.join("cache");
         let host = prepare(
             &cache,

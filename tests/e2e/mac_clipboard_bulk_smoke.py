@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
-"""Opt-in real SSH bulk test; sends generated test bytes only and removes its own remote snapshots."""
+"""Opt-in clipboard bundle round trip to an already paired QUIC device.
+
+Transfers generated fixture bytes only. Remote snapshots follow the publisher's
+normal cache expiry; use an isolated publisher when running repeatedly.
+"""
 import argparse
-import json
 from pathlib import Path
 import subprocess
 import tempfile
-parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--host',required=True);parser.add_argument('--user',required=True);parser.add_argument('--port',default='22');parser.add_argument('--agent',default='.local/bin/remoteapp-agent')
-args=parser.parse_args();root=Path(__file__).resolve().parents[2];source=root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
-with tempfile.TemporaryDirectory(prefix='remoteapp-bulk-') as directory:
-    binary=Path(directory)/'bulk'
-    subprocess.run(['swiftc','-module-cache-path',str(Path(directory)/'modules'),str(source/'SurfaceView.swift'),str(source/'ClipboardBundle.swift'),str(source/'ClipboardBulkTransfer.swift'),str(source/'SSHAuthentication.swift'),str(source/'RenderGeometry.swift'),str(root/'tests/swift/ClipboardBulkSSHSmoke.swift'),'-o',str(binary)],check=True,timeout=120)
-    result=subprocess.run([str(binary),args.host,args.user,args.port,args.agent],check=True,capture_output=True,text=True,timeout=120)
-    lines=result.stdout.splitlines();print(lines[0])
-    ids=json.loads(lines[-1])['ids']
-    cleanup='''import json,re,shutil
-from pathlib import Path
-ids=json.loads(%r)
-root=Path.home()/'.cache/lan-remoteapp/clipboard'
-for identity in ids:
- assert re.fullmatch('[0-9a-f]{32}',identity)
- path=root/identity
- assert path.is_dir() and not path.is_symlink()
- shutil.rmtree(path)
-'''%json.dumps(ids)
-    subprocess.run(['ssh','-F','/dev/null','-T','-S','~/.ssh/lan-remoteapp-%C','-oBatchMode=yes','-oStrictHostKeyChecking=yes','-p',args.port,'-l',args.user,'--',args.host,'python3 -'],input=cleanup,text=True,check=True,timeout=15)
+root = Path(__file__).resolve().parents[2]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--peer', required=True)
+parser.add_argument('--state', required=True, type=Path)
+parser.add_argument('--network', required=True, type=Path)
+args = parser.parse_args()
+source = root/'apps/mac-windowhost/Sources/RemoteAppWindowHost'
+with tempfile.TemporaryDirectory(prefix='lra-quic-bulk-') as directory:
+    scratch = Path(directory)
+    files = ['SurfaceView.swift', 'ClipboardBundle.swift', 'ClipboardBulkTransfer.swift', 'RenderGeometry.swift']
+    binary = scratch/'bulk-test'
+    subprocess.run(['swiftc','-module-cache-path',str(scratch/'modules'),
+        *[str(source/f) for f in files],str(root/'tests/swift/ClipboardBulkQUICSmoke.swift'),'-o',str(binary)],check=True)
+    subprocess.run([str(binary),args.peer,str(args.state.resolve()),str(args.network.resolve())],check=True,timeout=300)

@@ -12,22 +12,22 @@ function memory() {
 
 test("a lost reply keeps the same request ID across launcher restarts", () => {
   const storage = memory();
-  const first = new PendingLaunches(storage).id("host-a:user:xterm:native");
+  const first = new PendingLaunches(storage).id("device-a:xterm:native");
   assert.equal(
-    new PendingLaunches(storage).id("host-a:user:xterm:native"),
+    new PendingLaunches(storage).id("device-a:xterm:native"),
     first,
   );
   const retry = new PendingLaunches(storage);
-  retry.resolve("host-a:user:xterm:native");
+  retry.resolve("device-a:xterm:native");
   assert.notEqual(
-    new PendingLaunches(storage).id("host-a:user:xterm:native"),
+    new PendingLaunches(storage).id("device-a:xterm:native"),
     first,
   );
 });
 
-test("different hosts, users and apps do not share a request", () => {
+test("different devices and apps do not share a request", () => {
   const pending = new PendingLaunches(memory());
-  const keys = ["a:u:x:native", "b:u:x:native", "a:u:y:native", "a:v:x:native"];
+  const keys = ["a:x:native", "b:x:native", "a:y:native", "c:x:native"];
   assert.equal(new Set(keys.map((key) => pending.id(key))).size, keys.length);
 });
 

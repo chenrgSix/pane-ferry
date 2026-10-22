@@ -16,7 +16,7 @@ import Foundation
         try pipe.fileHandleForWriting.close()
         if arrived == .timedOut { _ = completed.wait(timeout: .now() + 2) }
         try pipe.fileHandleForReading.close()
-        precondition(arrived == .success, "A short SSH hello must not wait for EOF or 64 KiB")
+        precondition(arrived == .success, "A short bridge hello must not wait for EOF or 64 KiB")
 
         let bounded = Pipe()
         try bounded.fileHandleForWriting.write(contentsOf: Data("abcdef".utf8))
@@ -26,6 +26,6 @@ import Foundation
         let eof = try readPipeChunk(from: bounded.fileHandleForReading)
         precondition(first == Data("abc".utf8) && second == Data("def".utf8) && eof.isEmpty)
         try bounded.fileHandleForReading.close()
-        print("PASS: short SSH handshake, bounded chunks, EOF")
+        print("PASS: short bridge handshake, bounded chunks, EOF")
     }
 }

@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use remoteapp_transport::{self as transport, AppCatalog, Endpoint};
+use remoteapp_transport::{self as transport, AppCatalog};
 use serde::Serialize;
 use std::{
     io::Write,
@@ -7,11 +7,10 @@ use std::{
     process::{Command, Stdio},
 };
 use tauri::Manager;
-mod credential_store;
+mod legacy_settings;
 mod local_node;
 mod network;
 use network::Device;
-mod ssh_login;
 mod window_host;
 #[tauri::command]
 async fn local_node_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -31,10 +30,6 @@ async fn request_local_permissions(app: tauri::AppHandle) -> Result<serde_json::
 #[tauri::command]
 async fn reveal_local_component(app: tauri::AppHandle) -> Result<(), String> {
     local_node::reveal_component(&app)
-}
-#[tauri::command]
-async fn share_to_device(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
-    local_node::offer(&app, &endpoint, &native_host(&app)?)
 }
 #[tauri::command]
 async fn network_action(
@@ -114,27 +109,6 @@ async fn list_sessions(
         .await
         .map_err(RequestFailure::from)
 }
-#[tauri::command]
-async fn open_ssh_login(app: tauri::AppHandle, endpoint: Endpoint) -> Result<(), String> {
-    endpoint.validate().map_err(|error| error.to_string())?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| "无法定位本机登录目录。")?;
-    ssh_login::open(&cache, &endpoint)
-}
-#[tauri::command]
-async fn save_ssh_password(
-    app: tauri::AppHandle,
-    endpoint: Endpoint,
-    password: String,
-) -> Result<(), String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "无法定位连接配置目录。")?;
-    credential_store::save(&directory, endpoint, password)
-}
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {
         return Err("原生 WindowHost 目前只支持 macOS。".into());
@@ -181,28 +155,15 @@ fn spawn_host(
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
     let mut command = Command::new(path);
-    if let Some(id) = &endpoint.peer_id {
-        command
-            .arg("--native-peer")
-            .arg(id)
-            .arg("--native-state")
-            .arg(network::directory(app)?)
-            .arg("--native-helper")
-            .arg(network::binary(app)?)
-            .arg("--session")
-            .arg(session_id);
-    } else {
-        command.args([
-            "--host",
-            &endpoint.host,
-            "--user",
-            &endpoint.user,
-            "--port",
-            &endpoint.port.to_string(),
-            "--session",
-            session_id,
-        ]);
-    }
+    command
+        .arg("--native-peer")
+        .arg(&endpoint.peer_id)
+        .arg("--native-state")
+        .arg(network::directory(app)?)
+        .arg("--native-helper")
+        .arg(network::binary(app)?)
+        .arg("--session")
+        .arg(session_id);
     if icon.is_some() {
         command.arg("--icon-stdin");
     }
@@ -327,10 +288,11 @@ async fn launch_app(
 }
 fn main() {
     tauri::Builder::default()
-        .manage(local_node::LocalNode::default())
         .setup(|app| {
-            if let Ok(path) = native_host(app.handle()) {
-                transport::set_password_helper(path);
+            if let Ok(directory) = app.path().app_data_dir() {
+                if legacy_settings::retire(&directory).is_err() {
+                    eprintln!("旧连接配置清理失败；当前仅支持设备配对连接。");
+                }
             }
             Ok(())
         })
@@ -346,13 +308,10 @@ fn main() {
             list_sessions,
             launch_app,
             resume_session,
-            open_ssh_login,
-            save_ssh_password,
             local_node_info,
             set_local_sharing,
             request_local_permissions,
             reveal_local_component,
-            share_to_device,
             network_action
         ])
         .build(tauri::generate_context!())

@@ -83,9 +83,8 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         types.write_text((source/'main.swift').read_text().split('\n// WINDOWHOST_ENTRYPOINT\n')[0])
         test=scratch/'NativeSmoke.swift'
         text=(root/'tests/swift/AutomaticReconnectSmoke.swift').read_text()
-        text=text.replace('let options = Options(host: "fixture.invalid", user: "fixture", port: 22, app: nil, session: "retained")',
+        text=text.replace('let options = Options(app: nil, session: "retained", native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: root.path, helper: root.appendingPathComponent("fake-bridge").path))',
             'let options = try Options.parse(["--native-peer", CommandLine.arguments[2], "--native-state", CommandLine.arguments[3], "--native-helper", CommandLine.arguments[4], "--session", "retained"])')
-        text=text.replace('        app.makeTransport = { SSHTransport(executable: root.appendingPathComponent("fake-ssh")) }','')
         text=text.replace('until { app.windows[42] != nil }', 'until { app.windows[42]?.surface.image != nil && app.lastSequence >= 11 }')
         text=text.replace('until { app.lastSequence >= 3 }', 'until { app.lastSequence >= 11 && app.windows[42]?.surface.image != nil }\n        let image = app.windows[42]!.surface.image!\n        let red = NSBitmapImageRep(cgImage:image).colorAt(x:20,y:20)!.usingColorSpace(.sRGB)!\n        precondition(red.redComponent > 0.8 && red.greenComponent < 0.2 && image.width == 640, "QUIC H.264 output is incorrect")\n        let nativeNextSequence = app.lastSequence + 1\n        print("PASS: real H.264 IDR and dependent P frames through QUIC into AppKit; decoded red pixels after reconnect")')
         for offset, seq in enumerate([4,5,6,7]):
@@ -102,13 +101,10 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         assert 'PASS: real transport' in checked.stdout, (checked.stdout,checked.stderr)
         print(checked.stdout,end='')
         test=scratch/'BulkSmoke.swift'
-        text=(root/'tests/swift/ClipboardBulkSSHSmoke.swift').read_text().replace('guard args.count == 5','guard args.count == 4')
-        text=text.replace('ClipboardBulkTransfer(host: args[1], user: args[2], port: UInt16(args[3])!, agent: args[4])',
-            'ClipboardBulkTransfer(host: "", user: "", port: 1, native:NativeRoute(peer:args[1],state:args[2],helper:args[3]))')
-        text=text.replace('actual Mac↔Ubuntu SSH binary channel','native QUIC binary streams with actual Swift clipboard adapter')
+        text=(root/'tests/swift/ClipboardBulkQUICSmoke.swift').read_text()
         test.write_text(text)
         bulk_test=scratch/'bulk-test'
-        subset=['SurfaceView.swift','ClipboardBundle.swift','ClipboardBulkTransfer.swift','SSHAuthentication.swift','RenderGeometry.swift']
+        subset=['SurfaceView.swift','ClipboardBundle.swift','ClipboardBulkTransfer.swift','RenderGeometry.swift']
         subprocess.run(['swiftc','-module-cache-path','/tmp/lra-network-verification/swift-cache',*[str(source/f) for f in subset],str(test),'-o',str(bulk_test)],check=True,timeout=120)
         subprocess.run([str(bulk_test),b['device_id'],str(states[0]),str(binary)],check=True,timeout=45)
         print('PASS: two real QUIC nodes, Swift receiver reconnect and independent binary bulk without SSH')

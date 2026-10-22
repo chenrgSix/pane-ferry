@@ -1,10 +1,10 @@
 import AppKit
 @main
-struct ClipboardBulkSSHSmoke {
+struct ClipboardBulkQUICSmoke {
     static func main() throws {
         let args = CommandLine.arguments
-        guard args.count == 5 else { fatalError("HOST USER PORT AGENT") }
-        let bulk = ClipboardBulkTransfer(host: args[1], user: args[2], port: UInt16(args[3])!, agent: args[4])
+        guard args.count == 4 else { fatalError("HOST USER PORT AGENT") }
+        let bulk = ClipboardBulkTransfer(native: NativeRoute(peer:args[1],state:args[2],helper:args[3]))
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("remoteapp-ssh-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -26,7 +26,7 @@ struct ClipboardBulkSSHSmoke {
         let (receivedFiles, _) = try bulk.download(fileID, into: root.appendingPathComponent("downloads"))
         let roundTripFile = try Data(contentsOf: receivedFiles.appendingPathComponent(file.lastPathComponent))
         precondition(roundTripFile == png && FileManager.default.fileExists(atPath: receivedFiles.appendingPathComponent("folder/empty").path))
-        print("PASS: actual Mac↔Ubuntu SSH binary channel, >1MiB PNG, Unicode file, directory and empty file round trips")
+        print("PASS: native QUIC binary streams with actual Swift clipboard adapter, >1MiB PNG, Unicode file, directory and empty file round trips")
         let ids = try JSONSerialization.data(withJSONObject: ["ids": [imageID, fileID]])
         print(String(data: ids, encoding: .utf8)!)
     }

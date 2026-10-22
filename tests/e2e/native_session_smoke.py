@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Opt-in real SSH or QUIC/X11 test; starts only its own approved xterm.
+"""Opt-in real QUIC/X11 test; starts only its own approved xterm.
 
-With --native-socket, RWP uses QUIC exclusively. SSH remains an out-of-band
+RWP uses QUIC exclusively. SSH remains an out-of-band
 test oracle for marker files and the test window's X11 state.
 """
 import argparse
@@ -21,7 +21,7 @@ parser.add_argument("--host", required=True)
 parser.add_argument("--user", required=True)
 parser.add_argument("--port", type=int, default=22)
 parser.add_argument("--control-path")
-parser.add_argument("--native-socket", type=Path)
+parser.add_argument("--native-socket", type=Path, required=True)
 parser.add_argument("--network", type=Path, default=Path(__file__).resolve().parents[2] / "target/debug/remoteapp-network")
 parser.add_argument("--reconnects", type=int, default=3)
 parser.add_argument("--detached-seconds", type=float, default=1)
@@ -36,8 +36,7 @@ ssh += ["--", args.host]
 
 class Peer:
     def __init__(self):
-        command = ([str(args.network.resolve()), "bridge", "--socket", str(args.native_socket.resolve())]
-                   if args.native_socket else ssh + [".local/bin/remoteapp-agent bridge"])
+        command = [str(args.network.resolve()), "bridge", "--socket", str(args.native_socket.resolve())]
         self.process = subprocess.Popen(command,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL)
@@ -59,7 +58,7 @@ class Peer:
                 raise TimeoutError("Timed out waiting for an Agent event")
             chunk = os.read(self.process.stdout.fileno(), 65536)
             if not chunk:
-                raise EOFError("SSH/Agent connection closed")
+                raise EOFError("QUIC/Agent connection closed")
             self.buffer.extend(chunk)
             if len(self.buffer) > 16 * 1024 * 1024 + 65536:
                 raise ValueError("Agent event exceeds the protocol limit")
@@ -226,7 +225,7 @@ try:
     peer.send(type="session.list")
     assert not any(s["session_id"] == session for s in peer.until(lambda e: e["type"] == "session.list")["sessions"])
     session = None
-    print(json.dumps({"result": "PASS", "transport": "quic" if args.native_socket else "ssh", "checks": ["real X11 PNG", "idempotent launch",
+    print(json.dumps({"result": "PASS", "transport": "quic", "checks": ["real X11 PNG", "idempotent launch",
           "exclusive controller", "remote keyboard/pointer input", "held input release", "resize", "hide/remap",
           "session discovery", "close/exited"], "reconnects": args.reconnects,
           "detached_seconds_each": args.detached_seconds}))

@@ -14,50 +14,30 @@ func unsignedInteger(_ value: Any?) -> UInt64? {
 }
 
 struct Options {
-    let host: String
-    let user: String
-    let port: UInt16
     let app: String?
     let session: String?
     var iconFromStdin = false
-    var native: NativeRoute? = nil
+    let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
-        let allowed: Set<String> = ["--host", "--user", "--port", "--app", "--session", "--native-peer", "--native-state", "--native-helper"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper"]
         while i < args.count {
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
                 iconFromStdin = true; i += 1; continue
             }
             guard allowed.contains(args[i]), i + 1 < args.count, values[args[i]] == nil else {
-                throw HostError.message("参数格式错误；使用 --host HOST --user USER [--port 22] --app APP_ID 或 --session SESSION_ID")
+                throw HostError.message("参数格式错误；使用 --native-peer UUID --native-state DIR --native-helper PATH 和 --app APP_ID 或 --session SESSION_ID")
             }
             values[args[i]] = args[i + 1]; i += 2
         }
-        let host: String, user: String, port: UInt16
-        var native: NativeRoute?
-        if let peer = values["--native-peer"] {
-            guard UUID(uuidString: peer)?.uuidString.lowercased() == peer,
-                  let state = values["--native-state"], state.hasPrefix("/"),
-                  let helper = values["--native-helper"], helper.hasPrefix("/"),
-                  values["--host"] == nil, values["--user"] == nil, values["--port"] == nil
-            else { throw HostError.message("设备连接参数无效") }
-            native = NativeRoute(peer: peer, state: state, helper: helper)
-            host = "paired"; user = "local"; port = 1
-        } else {
-            guard values["--native-state"] == nil, values["--native-helper"] == nil else { throw HostError.message("设备参数不完整") }
-            guard let parsedHost = values["--host"], parsedHost.count <= 253,
-                  parsedHost.range(of: "^[A-Za-z0-9][A-Za-z0-9.-]*$", options: .regularExpression) != nil,
-                  parsedHost.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.count <= 63 && !$0.hasPrefix("-") && !$0.hasSuffix("-") }),
-                  let parsedUser = values["--user"], parsedUser.count <= 64,
-                  parsedUser.range(of: "^[A-Za-z0-9_][A-Za-z0-9_-]*$", options: .regularExpression) != nil,
-                  let parsedPort = UInt16(values["--port"] ?? "22"), parsedPort > 0 else {
-                throw HostError.message("主机、SSH 用户名或端口无效。使用真实主机名/IP，不接受 SSH 别名配置或额外选项。")
-            }
-            host = parsedHost; user = parsedUser; port = parsedPort
-        }
+        guard let peer = values["--native-peer"], UUID(uuidString: peer)?.uuidString.lowercased() == peer,
+              let state = values["--native-state"], state.hasPrefix("/"), !state.contains("\0"),
+              let helper = values["--native-helper"], helper.hasPrefix("/"), !helper.contains("\0")
+        else { throw HostError.message("必须指定已配对设备和本机网络组件。") }
+        let native = NativeRoute(peer: peer, state: state, helper: helper)
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
         for id in [app, session].compactMap({ $0 }) {
@@ -65,7 +45,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(host: host, user: user, port: port, app: app, session: session, iconFromStdin: iconFromStdin, native: native)
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -74,79 +54,46 @@ struct Incoming {
     let object: [String: Any]
     let image: CGImage?
 }
-struct SSHFailure {
+struct TransportFailure {
     let message: String
     let retryable: Bool
 }
 
-/// Both adapters carry the same bounded RWP stream and decoder lifecycle.
-typealias SSHTransport = RWPTransport
+/// The local QUIC bridge carries the bounded RWP stream and decoder lifecycle.
 final class RWPTransport {
-    let executable: URL
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
-    private let errors = Pipe()
     private let lock = NSLock()
     private var inbox: [Incoming] = []
     private var writes: [Data] = []
     private var writing = false
     private var closed = false
-    private var failure: SSHFailure?
-    private var diagnostic = Data()
+    private var failure: TransportFailure?
     private var queuedPixels = 0
-    private let writer = DispatchQueue(label: "remoteapp.ssh.writer")
+    private let writer = DispatchQueue(label: "remoteapp.rwp.writer")
     private(set) var alive = false
     var onDiagnostic: ((String) -> Void)?
-    init(executable: URL = URL(fileURLWithPath: "/usr/bin/ssh")) { self.executable = executable }
 
     func start(_ options: Options) throws {
-        if let native = options.native {
-            process.executableURL = URL(fileURLWithPath: native.helper)
-            process.arguments = ["bridge", "--socket", native.socket]
-        } else {
-        process.executableURL = executable
-        // Ignore SSH config: otherwise a user's ProxyCommand/RemoteCommand could change transport semantics.
-        process.arguments = ["-F", "/dev/null", "-T"] + SSHAuthentication.configure(process, host: options.host, user: options.user, port: options.port) + ["-oStrictHostKeyChecking=yes",
-            "-oClearAllForwardings=yes", "-oForwardAgent=no", "-oForwardX11=no", "-oPermitLocalCommand=no",
-            "-oConnectTimeout=8", "-oServerAliveInterval=10", "-oServerAliveCountMax=2",
-            "-p", String(options.port), "-l", options.user, "--", options.host,
-            ".local/bin/remoteapp-agent bridge"]
-        }
-        process.standardInput = input; process.standardOutput = output; process.standardError = errors
+        process.executableURL = URL(fileURLWithPath: options.native.helper)
+        process.arguments = ["bridge", "--socket", options.native.socket]
+        process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
         // Do not expose remote stderr (which may contain private app data) in normal logs.
         process.terminationHandler = { [weak self] process in
             self?.fail("设备连接已结束（退出码 \(process.terminationStatus)）。远端会话不会因此主动终止；可用会话 ID 重新连接。")
         }
         try process.run(); alive = true
-        DispatchQueue(label: "remoteapp.ssh.stderr").async { [weak self] in
-            guard let self = self else { return }
-            while true {
-                do {
-                    let chunk = try readPipeChunk(from: self.errors.fileHandleForReading, maximumCount: 4096)
-                    if chunk.isEmpty { break }
-                    self.lock.lock(); self.diagnostic.append(chunk.prefix(max(0, 8192 - self.diagnostic.count))); self.lock.unlock()
-                } catch { break }
-            }
-        }
-        DispatchQueue(label: "remoteapp.ssh.reader").async { [weak self] in self?.readLoop() }
+        DispatchQueue(label: "remoteapp.rwp.reader").async { [weak self] in self?.readLoop() }
     }
 
     private func fail(_ message: String, retryable: Bool = true) {
-        lock.lock(); if failure == nil { failure = SSHFailure(message: message, retryable: retryable) }; lock.unlock()
+        lock.lock(); if failure == nil { failure = TransportFailure(message: message, retryable: retryable) }; lock.unlock()
     }
-    func drain() -> ([Incoming], SSHFailure?) {
+    func drain() -> ([Incoming], TransportFailure?) {
         lock.lock(); defer { lock.unlock() }
         let events = inbox; inbox.removeAll(keepingCapacity: true); queuedPixels = 0
-        var error = failure; failure = nil
-        if error != nil {
-            let text = String(decoding: diagnostic, as: UTF8.self)
-            if text.contains("Host key verification failed") || text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
-                error = SSHFailure(message: "远端设备身份发生变化，请核验后重新连接。", retryable: false)
-            } else if text.contains("Permission denied (") || text.contains("Too many authentication failures") {
-                error = SSHFailure(message: "设备登录授权已失效，请在启动器重新登录。", retryable: false)
-            }
-        }
+        let error = failure; failure = nil
         return (events, error)
     }
     private func enqueue(_ value: Incoming) throws {
@@ -304,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var clipboardJob: UUID?
     var clipboardTimer: Timer?
     var clipboardChangeCount = 0
-    var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(host: options.host, user: options.user, port: options.port, native: options.native) }
+    var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(native: options.native) }
     init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
         self.options = options; self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
@@ -696,7 +643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         for host in windows.values { host.surface.releaseInput() }
         send(["type": "session.detach"])
-        // An intentional detach can finish SSH before AppKit completes quit.
+        // An intentional detach can finish the bridge before AppKit completes quit.
         // Stop diagnostics now so the polling timer cannot open a modal alert.
         stopping = true; reconnectTimer?.invalidate(); reconnectTimer = nil; handshakeTimer?.invalidate(); handshakeTimer = nil
         networkMonitor?.cancel(); networkMonitor = nil
@@ -712,7 +659,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 }
 
 // WINDOWHOST_ENTRYPOINT
-if let result = runCredentialCommand(Array(CommandLine.arguments.dropFirst())) { exit(result) }
 let application = NSApplication.shared
 var applicationDelegate: AppDelegate?
 do {

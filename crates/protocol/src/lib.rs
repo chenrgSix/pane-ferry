@@ -20,8 +20,6 @@ pub enum VideoCodec {
 pub enum Request {
     #[serde(rename = "node.info")]
     NodeInfo {},
-    #[serde(rename = "peer.prepare")]
-    PreparePeer { device_id: String },
     #[serde(rename = "sharing.set")]
     Sharing { enabled: bool },
     #[serde(rename = "hello")]

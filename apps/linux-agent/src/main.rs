@@ -29,7 +29,6 @@ mod desktop_input;
 mod discovery;
 mod input_queue;
 mod output;
-mod peers;
 mod request_error;
 mod video;
 struct Session {
@@ -170,7 +169,6 @@ fn main() {
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("peer-hold") => peers::hold(&runtime()?),
         Some("clipboard-upload") => {
             let store = remoteapp_backend_x11::clipboard_store::ClipboardStore::open()?;
             let id = store.receive(&mut std::io::BufReader::new(std::io::stdin().lock()))?;
@@ -808,10 +806,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "publishing_supported":true,"receiving_supported":true,"sharing_enabled":st.sharing}),
                             "",
                         )?;
-                    }
-                    Request::PreparePeer { device_id } => {
-                        let st = state.lock().unwrap();
-                        send(&mut out, peers::prepare(&st.runtime, &device_id)?, "")?;
                     }
                     Request::Sharing { enabled } => {
                         let mut st = state.lock().unwrap();

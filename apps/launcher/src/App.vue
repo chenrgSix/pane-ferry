@@ -4,20 +4,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { PendingLaunches } from "./session-store";
 import { launchFailure } from "./launch-failure";
 import { CatalogCache, readCatalog } from "./catalog-cache";
-import { endpointKey } from "./launcher-types";
+import { endpointKey, validPeerId } from "./launcher-types";
 import { connections } from "./connections";
 import { isConnectionFailure, requestFailure } from "./request-failure";
 import type { Connection } from "./connections";
 import type { AppCatalog, AppInfo, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
+import { retireLegacyPreferences } from "./connection-preferences";
 type Result = {
   session_id: string | null;
   display: string | null;
   pid: number;
   message: string;
 };
-const endpoint = ref<Endpoint>({ host: "", user: "", port: 22 }),
-  password = ref(""),
+const endpoint = ref<Endpoint>({ peerId: "" }),
   apps = ref<AppInfo[]>([]),
   desktopWindows = ref<DesktopWindow[]>([]),
   discoveryWarning = ref(""),
@@ -34,16 +34,15 @@ const busy = ref(false),
   runtimeEndpoint = ref(""),
   attemptedEndpoint = ref(""),
   actionConnectionError = ref(false),
-  waitingForLogin = ref(false),
-  loginNeeded = ref(false),
   sessions = ref<SessionInfo[]>([]),
   launches = ref<{ name: string; result: Result }[]>([]);
 let storage: Storage | undefined;
 try {
   storage = localStorage;
 } catch {}
+retireLegacyPreferences(storage);
 const attempts = new PendingLaunches(storage);
-type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}; routes?:{endpoint:string; state:string}[]};
+type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}};
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
@@ -69,7 +68,7 @@ async function pairDevice() {
   finally {pairing.value=false;}
 }
 async function selectPeer(peer:NativePeer) {
-  endpoint.value={host:peer.name,user:"",port:42424,peerId:peer.device_id};
+  endpoint.value={peerId:peer.device_id};
   await nextTick(); await load();
 }
 async function updatePeerAddress(peer:NativePeer) {
@@ -80,25 +79,15 @@ async function updatePeerAddress(peer:NativePeer) {
 async function revokePeer(peer:NativePeer) {
   pairing.value=true;
   try { await networkAction({op:"revoke",device_id:peer.device_id}); await readNetwork();
-    if(endpoint.value.peerId===peer.device_id) endpoint.value={host:"",user:"",port:22};
+    if(endpoint.value.peerId===peer.device_id) endpoint.value={peerId:""};
   } catch {nativeWarning.value="撤销未完成，请重试。";} finally {pairing.value=false;}
 }
-const devices=ref<Endpoint[]>([]);
-try { const values=JSON.parse(storage?.getItem("lan-remoteapp.devices") || "[]");
-  if(Array.isArray(values)) devices.value=values.filter(v=>typeof v.host==="string" && typeof v.user==="string" && Number.isInteger(v.port)).slice(0,128);
-} catch {}
 async function readLocal() {
   try {localNode.value=await invoke<LocalNode>("local_node_info"); localWarning.value="";} catch {localWarning.value="本机共享组件尚未就绪。";}
-}
-async function offerDevice(sent={...endpoint.value}) {
-  if (sent.peerId || !localNode.value?.sharing_enabled || !sent.host || !sent.user) return;
-  try {await invoke("share_to_device",{endpoint:sent});await readLocal();}
-  catch {localWarning.value="返回通道尚未就绪，请确认 Ubuntu 已升级后重新连接。";}
 }
 async function toggleSharing() {
   localBusy.value=true;
   try {localNode.value=await invoke<LocalNode>("set_local_sharing",{enabled:!localNode.value?.sharing_enabled});
-    if(localNode.value.sharing_enabled) for(const device of devices.value) await offerDevice({...device});
   } catch {localWarning.value="共享状态未能更新，请重试。";} finally {localBusy.value=false;}
 }
 async function requestPermissions() {
@@ -141,14 +130,7 @@ function retryRuntime() {
   const delay = [1000, 2000, 4000, 8000, 15000][Math.min(recoveryAttempt++, 4)];
   recoveryTimer = setTimeout(() => { recoveryTimer = undefined; onFocus(); }, delay);
 }
-const valid = computed(() =>
-  Boolean(endpoint.value.peerId || (
-    endpoint.value.host.trim() &&
-      endpoint.value.user.trim() &&
-      Number.isInteger(endpoint.value.port) &&
-      endpoint.value.port > 0 &&
-      endpoint.value.port < 65536)),
-);
+const valid = computed(() => validPeerId(endpoint.value.peerId));
 function save() {
   try {
     storage?.setItem(
@@ -157,33 +139,13 @@ function save() {
     );
   } catch {}
 }
-function rememberDevice(sent:Endpoint) {
-  if(sent.peerId) return;
-  if(!devices.value.some(d=>endpointKey(d)===endpointKey(sent))) devices.value.push({...sent});
-  devices.value=devices.value.slice(-128);
-  try{storage?.setItem("lan-remoteapp.devices",JSON.stringify(devices.value));}catch{}
-  void offerDevice({...sent});
-}
 try {
-  const s = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
-  if (["auto", "1", "2"].includes(s?.renderScale)) renderScale.value = s.renderScale;
-  if (
-    s &&
-    typeof s.endpoint?.host === "string" &&
-    typeof s.endpoint?.user === "string" &&
-    Number.isInteger(s.endpoint?.port)
-  ) {
-    endpoint.value = {
-      host: s.endpoint.host,
-      user: s.endpoint.user,
-      port: s.endpoint.port,
-      ...(typeof s.endpoint.peerId === "string" ? {peerId:s.endpoint.peerId} : {}),
-    };
-  }
+  const saved = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
+  if (["auto", "1", "2"].includes(saved?.renderScale)) renderScale.value = saved.renderScale;
+  if (validPeerId(saved?.endpoint?.peerId)) endpoint.value = { peerId: saved.endpoint.peerId };
 } catch {}
 function restoreCatalog() {
   stopRetry();
-  password.value = "";
   const cached = catalogCache.get(signature());
   apps.value = cached?.apps ?? [];
   connected.value = cached ? signature() : "";
@@ -194,8 +156,6 @@ function restoreCatalog() {
   runtimeEndpoint.value = "";
   attemptedEndpoint.value = cached ? signature() : "";
   actionConnectionError.value = false;
-  waitingForLogin.value = false;
-  loginNeeded.value = false;
   runtimeRevision++;
   focusRead = undefined;
   discoveryWarning.value = "";
@@ -203,21 +163,6 @@ function restoreCatalog() {
   sessionWarning.value = "";
   error.value = "";
   notice.value = "";
-}
-async function connectHost() {
-  if (busy.value || !valid.value) return;
-  if (password.value && !endpoint.value.peerId) {
-    busy.value = true;
-    const sent = { ...endpoint.value };
-    try {
-      await invoke<void>("save_ssh_password", { endpoint: sent, password: password.value });
-      password.value = "";
-    } catch {
-      error.value = "连接配置未能保存，请重试。";
-      return;
-    } finally { busy.value = false; }
-  }
-  await load();
 }
 async function load(refreshApps = false) {
   if (!valid.value || busy.value) return;
@@ -242,10 +187,8 @@ async function load(refreshApps = false) {
       notice.value = `${catalog.value.fromCache ? "已使用缓存" : "已读取"} ${apps.value.filter(app => app.source === "desktop").length} 个已安装应用。`;
     } else failures.push(`应用读取失败：${requestFailure(catalog.reason).message}`);
     actionConnectionError.value = catalog.status === "rejected" && isConnectionFailure(catalog.reason);
-    if (catalog.status === "rejected" && requestFailure(catalog.reason).kind === "authentication_required") loginNeeded.value = true;
     error.value = failures.join(" ");
     save();
-    if(catalog.status==="fulfilled") rememberDevice(sent);
   } finally {
     busy.value = false;
   }
@@ -270,14 +213,12 @@ async function readRuntime(sent = { ...endpoint.value }) {
   } else windowWarning.value = `运行窗口读取失败：${requestFailure(desktop.reason).message}`;
   if (running.status === "fulfilled" && desktop.status === "fulfilled") {
     const recovered = recoveryAttempt > 0;
-    stopRetry(); loginNeeded.value = false;
+    stopRetry();
     if (actionConnectionError.value) { error.value = ""; actionConnectionError.value = false; }
-    if (waitingForLogin.value) { notice.value = "SSH 登录已恢复，窗口与会话列表已更新。"; waitingForLogin.value = false; }
-    else if (recovered) notice.value = "连接已自动恢复。";
+    if (recovered) notice.value = "连接已自动恢复。";
   } else {
     const failures = [running, desktop].filter(result => result.status === "rejected").map(result => requestFailure((result as PromiseRejectedResult).reason));
-    loginNeeded.value = failures.some(failure => failure.kind === "authentication_required" || failure.kind === "host_verification");
-    if (failures.every(failure => ["connection", "agent_unavailable"].includes(failure.kind))) {
+    if (failures.every(failure => failure.kind === "connection")) {
       notice.value = "连接暂时中断，正在自动重连…"; retryRuntime();
     } else stopRetry();
   }
@@ -290,25 +231,6 @@ async function refresh() {
   } finally {
     busy.value = false;
   }
-}
-async function login() {
-  if (busy.value || !valid.value) return;
-  busy.value = true;
-  error.value = "";
-  actionConnectionError.value = false;
-  runtimeRevision++;
-  focusRead = undefined;
-  const sent = { ...endpoint.value };
-  attemptedEndpoint.value = endpointKey(sent);
-  try {
-    await invoke<void>("open_ssh_login", { endpoint: sent });
-    if (signature() !== endpointKey(sent)) return;
-    waitingForLogin.value = true;
-    notice.value = "已在系统终端打开 SSH 登录；完成认证后返回这里，会自动恢复窗口与会话列表。";
-    save();
-  } catch (reason) {
-    if (signature() === endpointKey(sent)) error.value = requestFailure(reason).message;
-  } finally { busy.value = false; }
 }
 function record(name: string, result: Result) {
   launches.value.unshift({ name, result });
@@ -388,7 +310,7 @@ function onFocus() {
   void pending.finally(() => { if (focusRead === pending) focusRead = undefined; });
 }
 function onOnline() {
-  // A request on the previous TCP connection must not block recovery on a new one.
+  // A request on the previous connection must not block recovery on a new one.
   runtimeRevision++;
   focusRead = undefined;
   onFocus();
@@ -399,7 +321,7 @@ onMounted(() => {
   window.addEventListener("online", onOnline);
   restoreCatalog();
   if (valid.value) void load();
-  void readLocal().then(()=> { for(const device of devices.value) void offerDevice({...device}); });
+  void readLocal();
   void readNetwork();
   localTimer=setInterval(()=> {void readLocal(); void readNetwork();},5000);
 });
@@ -431,23 +353,22 @@ onUnmounted(() => {
           <h1>让工作跨越桌面</h1>
           <p>共享本机应用，同时使用其他设备的应用。</p>
         </div>
-        <span class="badge">{{endpoint.peerId ? "QUIC 设备直连" : "SSH 兼容连接"}}</span>
+        <span class="badge">QUIC 设备连接</span>
       </header>
       <section class="connection">
         <div class="section-title"><h2><span>本机应用共享</span></h2>
           <button :disabled="localBusy || !localNode" @click="toggleSharing">{{localNode?.sharing_enabled ? "停止共享" : "开启共享"}}</button></div>
-        <p class="hint">{{localNode?.name || "Mac"}} · {{localNode?.sharing_enabled ? "已开启，已连接的 Ubuntu 可读取本机应用" : "未开启"}}。本机应用继续显示在 Mac 桌面；收到的远程应用不会再次发布。</p>
+        <p class="hint">{{localNode?.name || "Mac"}} · {{localNode?.sharing_enabled ? "已开启，已配对设备可读取本机应用" : "未开启"}}。本机应用继续显示在 Mac 桌面；收到的远程应用不会再次发布。</p>
         <p v-if="localNode && (!localNode.permissions.screen_recording || !localNode.permissions.accessibility)" class="hint">
           {{!localNode.permissions.screen_recording ? "需要录屏权限。" : ""}} {{!localNode.permissions.accessibility ? "需要辅助功能权限。" : ""}}
           <button :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button>
           <button :disabled="localBusy" @click="showLocalComponent">显示共享组件</button>
           <br />系统列表已开启仍不生效时，点“显示共享组件”，移除权限列表中的旧条目，再添加访达选中的当前程序。
         </p>
-        <p v-for="route in localNode?.routes || []" :key="route.endpoint" class="hint">{{JSON.parse(route.endpoint).host}} · {{route.state}}</p>
         <p v-if="localWarning" class="alert error">{{localWarning}}</p>
       </section>
       <section class="connection">
-        <div class="section-title"><h2><span>已配对设备 · QUIC</span></h2><button :disabled="pairing" @click="inviteDevice">生成本机配对邀请</button></div>
+        <div class="section-title"><h2><span>已配对设备</span></h2><button :disabled="pairing" @click="inviteDevice">生成本机配对邀请</button></div>
         <p class="hint">两端打开 LAN RemoteApp，用对方的局域网 IP 和邀请配对。邀请五分钟有效、仅可使用一次；请通过可信方式传递。</p>
         <textarea v-if="ownInvite" :value="ownInvite" readonly rows="3" aria-label="本机配对邀请" style="width:100%;overflow-wrap:anywhere" />
         <div class="fields"><label>对方地址<input v-model="pairAddress" placeholder="192.168.1.20:42424" :disabled="pairing" /></label>
@@ -462,51 +383,9 @@ onUnmounted(() => {
         </div>
         <p v-if="nativeWarning" class="alert error">{{nativeWarning}}</p>
       </section>
-      <section class="connection">
-        <div class="section-title">
-          <h2>01 <span>SSH 兼容连接</span></h2>
-          <span>连接配置由本机服务保存</span>
-        </div>
-        <label v-if="devices.length">已保存设备 <select :value="signature()" :disabled="busy" @change="endpoint={...devices.find(d=>endpointKey(d)===($event.target as HTMLSelectElement).value)!}"><option v-for="device in devices" :key="endpointKey(device)" :value="endpointKey(device)">{{device.user}}@{{device.host}}:{{device.port}}</option></select></label>
-        <button v-if="endpoint.peerId" :disabled="busy" @click="endpoint={host:'',user:'',port:22}">配置 SSH 连接</button>
-        <div v-else class="fields">
-          <label
-            >主机 IP / DNS<input
-              v-model.trim="endpoint.host"
-              :disabled="busy"
-              placeholder="192.168.1.20"
-              autocapitalize="none"
-              autocorrect="off"
-              spellcheck="false"
-              autocomplete="off" /></label
-          ><label
-            >SSH 用户名<input
-              v-model.trim="endpoint.user"
-              :disabled="busy"
-              placeholder="linux-user"
-              autocapitalize="none"
-              autocorrect="off"
-              spellcheck="false"
-              autocomplete="off" /></label
-          ><label>密码<input v-model="password" type="password" :disabled="busy" placeholder="已保存时可留空" autocomplete="current-password" /></label
-          ><label class="port"
-            >端口<input
-              v-model.number="endpoint.port"
-              :disabled="busy"
-              type="number"
-              min="1"
-              max="65535" /></label
-          ><button :disabled="!valid || busy" @click="connectHost">
-            {{ busy ? "连接中…" : "连接" }}
-          </button>
-        </div>
-        <p class="hint">
-          使用这里填写的账号和密码连接，留空使用已保存配置。断网恢复后自动继续原窗口。
-        </p>
-      </section>
       <section class="options">
         <div>
-          <h2>02 <span>原生窗口</span></h2>
+          <h2>01 <span>原生窗口</span></h2>
           <p class="hint">
             使用控制端输入法，支持主动复制与粘贴。新会话可按本机屏幕清晰度渲染。
           </p>
@@ -524,7 +403,7 @@ onUnmounted(() => {
       <section class="catalog">
         <div class="section-title">
           <h2>
-            03 <span>已安装应用</span><span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span>
+            02 <span>已安装应用</span><span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span>
           </h2>
           <div class="catalog-actions"><input
             v-model="search"
@@ -538,7 +417,7 @@ onUnmounted(() => {
         <p v-if="discoveryWarning" class="alert error" role="status">{{ discoveryWarning }}</p>
         <div v-if="!apps.some(app => app.source === 'desktop')" class="empty">
           <div>▦</div>
-          <h3>{{ busy ? "正在读取 Ubuntu 应用" : "Ubuntu 已安装应用将在这里" }}</h3>
+          <h3>{{ busy ? "正在读取设备应用" : "选择设备后显示已安装应用" }}</h3>
           <p>
             首次连接后读取并缓存名称和图标，下次打开直接显示。
           </p>
@@ -564,7 +443,7 @@ onUnmounted(() => {
       </section>
       <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
         <div class="section-title">
-          <h2>04 <span>运行中的窗口</span><span class="count">{{ runningConnections.length }}</span></h2>
+          <h2>03 <span>运行中的窗口</span><span class="count">{{ runningConnections.length }}</span></h2>
           <button class="session-action" :disabled="busy" @click="refresh">刷新运行状态</button>
         </div>
         <p class="hint">点击“连接”自动恢复已有会话或接管桌面窗口，保留应用内容。首次接管可能需要在 Ubuntu 确认授权；关闭本机窗口只会断开连接。</p>

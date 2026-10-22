@@ -1,4 +1,5 @@
-export type Endpoint = { host: string; user: string; port: number; peerId?: string };
+export type Endpoint = { peerId: string };
+export const validPeerId = (id: unknown): id is string => typeof id === "string" && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id);
 export type LaunchTarget = { id: string; name: string; icon_png?: string | null; unavailable_reason?: string | null };
 export type AppInfo = LaunchTarget & {
   description: string;
@@ -22,6 +23,4 @@ export type SessionInfo = {
   controlled: boolean;
 };
 
-export const endpointKey = (endpoint: Endpoint) => endpoint.peerId ? JSON.stringify({transport:"quic", deviceId:endpoint.peerId}) : JSON.stringify({
-  host: endpoint.host, user: endpoint.user, port: endpoint.port,
-});
+export const endpointKey = (endpoint: Endpoint) => JSON.stringify({transport:"quic", deviceId:endpoint.peerId});

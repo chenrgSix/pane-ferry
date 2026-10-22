@@ -73,7 +73,8 @@ class Manager(Gtk.Application):
         if '--peer' in args and '--session' in args:
             try:
                 peer = args[args.index('--peer')+1]; session = args[args.index('--session')+1]
-                uuid.UUID(peer[5:] if peer.startswith("quic:") else peer)
+                assert peer.startswith("quic:")
+                uuid.UUID(peer[5:])
                 if not session or len(session)>100 or not all(c.isalnum() or c in '-_' for c in session):
                     return 1
                 name = next((p['name'] for p in peers() if p['connection_id']==peer), 'Mac')
@@ -112,7 +113,7 @@ class Manager(Gtk.Application):
         revoke = Gtk.Button(label='撤销所选配对'); revoke.connect('clicked', self.revoke_device); controls.pack_start(revoke, False, False, 0)
         update = Gtk.Button(label='更新设备地址'); update.connect('clicked', self.update_address); controls.pack_start(update, False, False, 0)
         root.pack_start(controls, False, False, 0)
-        self.notice = Gtk.Label(label='使用设备邀请建立双向直连；已有 SSH 返回连接仍可使用。', xalign=0)
+        self.notice = Gtk.Label(label='使用设备邀请建立双向连接，可同时使用多台已配对设备的应用。', xalign=0)
         self.notice.set_line_wrap(True);root.pack_start(self.notice, False, False, 0)
         scroll = Gtk.ScrolledWindow(); self.rows = Gtk.ListBox(); self.rows.set_selection_mode(Gtk.SelectionMode.NONE)
         scroll.add(self.rows);root.pack_start(scroll, True, True, 0)

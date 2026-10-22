@@ -43,7 +43,7 @@ struct AutomaticReconnectSmoke {
             try? pipe.fileHandleForWriting.close()
         }
         precondition(ApplicationIcon.read(from:pipe.fileHandleForReading)?.size == icon.size)
-        let args = ["--host", "fixture.invalid", "--user", "fixture", "--session", "retained", "--icon-stdin"]
+        let args = ["--native-peer", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "--native-state", "/tmp/fixture", "--native-helper", "/tmp/fixture/bridge", "--session", "retained", "--icon-stdin"]
         let parsed = try Options.parse(args)
         precondition(parsed.iconFromStdin)
         do { _ = try Options.parse(args + ["--icon-stdin"]); preconditionFailure("duplicate icon flag accepted") }
@@ -56,9 +56,8 @@ struct AutomaticReconnectSmoke {
         let icon = try verifyIcons()
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
-        let options = Options(host: "fixture.invalid", user: "fixture", port: 22, app: nil, session: "retained")
+        let options = Options(app: nil, session: "retained", native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: root.path, helper: root.appendingPathComponent("fake-bridge").path))
         let app = AppDelegate(options: options, clipboard: board, applicationIcon:icon)
-        app.makeTransport = { SSHTransport(executable: root.appendingPathComponent("fake-ssh")) }
         defer {
             app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
             for host in app.windows.values { host.closeLocally() }
@@ -124,7 +123,7 @@ struct AutomaticReconnectSmoke {
 
         // A lost initial launch response must reuse its request ID. Once a
         // session is known, even --app startup resumes instead of relaunching.
-        let launch = AppDelegate(options:Options(host:options.host, user:options.user, port:22, app:"fixture-app", session:nil), clipboard:board)
+        let launch = AppDelegate(options:Options(app:"fixture-app", session:nil, native:options.native), clipboard:board)
         var sent:[[String:Any]]=[]; launch.wireSink = { sent.append($0) }
         let hello = Incoming(object:["type":"hello", "capabilities":[]], image:nil)
         launch.receive(hello); launch.ready = false; launch.recovering = true; launch.receive(hello)

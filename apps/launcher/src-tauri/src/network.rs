@@ -1,5 +1,5 @@
 //! Only private, local IPC reaches device pairing and service management.
-use remoteapp_transport::{Endpoint, Target};
+use remoteapp_transport::Target;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -15,36 +15,19 @@ static START: Mutex<()> = Mutex::new(());
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Device {
-    pub host: String,
-    pub user: String,
-    pub port: u16,
-    #[serde(rename = "peerId", default, skip_serializing_if = "Option::is_none")]
-    pub peer_id: Option<String>,
+    #[serde(rename = "peerId")]
+    pub peer_id: String,
 }
 impl Device {
-    pub fn ssh(&self) -> Endpoint {
-        Endpoint {
-            host: self.host.clone(),
-            user: self.user.clone(),
-            port: self.port,
-        }
-    }
     pub fn validate(&self) -> Result<(), remoteapp_transport::Error> {
-        if let Some(id) = &self.peer_id {
-            if uuid::Uuid::parse_str(id).is_ok_and(|v| v.to_string() == *id) {
-                Ok(())
-            } else {
-                Err(remoteapp_transport::Error::Invalid("设备身份无效。"))
-            }
+        if uuid::Uuid::parse_str(&self.peer_id).is_ok_and(|v| v.to_string() == self.peer_id) {
+            Ok(())
         } else {
-            self.ssh().validate()
+            Err(remoteapp_transport::Error::Invalid("设备身份无效。"))
         }
     }
     pub fn identity(&self) -> Value {
-        self.peer_id.as_ref().map_or_else(
-            || json!(self.ssh()),
-            |id| json!({"transport":"quic","device_id":id}),
-        )
+        json!({"transport":"quic","device_id":self.peer_id})
     }
 }
 pub fn directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -126,24 +109,41 @@ pub fn target(
     device: &Device,
 ) -> Result<Target, remoteapp_transport::Error> {
     device.validate()?;
-    if let Some(id) = &device.peer_id {
-        ensure(app).map_err(|_| remoteapp_transport::Error::Connection)?;
-        let value = exchange(app, &json!({"op":"status"}))
-            .map_err(|_| remoteapp_transport::Error::Connection)?;
-        if !value["peers"]
-            .as_array()
-            .is_some_and(|peers| peers.iter().any(|p| p["device_id"] == *id))
-        {
-            return Err(remoteapp_transport::Error::Invalid(
-                "设备已解除配对，请重新配对。",
-            ));
+    let id = &device.peer_id;
+    ensure(app).map_err(|_| remoteapp_transport::Error::Connection)?;
+    let value = exchange(app, &json!({"op":"status"}))
+        .map_err(|_| remoteapp_transport::Error::Connection)?;
+    if !value["peers"]
+        .as_array()
+        .is_some_and(|peers| peers.iter().any(|p| p["device_id"] == *id))
+    {
+        return Err(remoteapp_transport::Error::PairingRequired);
+    }
+    Ok(Target {
+        socket: directory(app)
+            .map_err(|_| remoteapp_transport::Error::Connection)?
+            .join(format!("r-{id}.sock")),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_paired_device_id_is_a_connection_target() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let device: Device = serde_json::from_value(json!({"peerId":id})).unwrap();
+        device.validate().unwrap();
+        assert_eq!(device.identity()["device_id"], id);
+        for value in [
+            json!({"host":"ubuntu","user":"alice","port":22}),
+            json!({"peerId":id,"host":"ubuntu"}),
+            json!({}),
+        ] {
+            assert!(serde_json::from_value::<Device>(value).is_err());
         }
-        Ok(Target::Native(
-            directory(app)
-                .map_err(|_| remoteapp_transport::Error::Connection)?
-                .join(format!("r-{id}.sock")),
-        ))
-    } else {
-        Ok(Target::Ssh(device.ssh()))
+        for id in ["", "../route", "not-a-uuid"] {
+            assert!(Device { peer_id: id.into() }.validate().is_err());
+        }
     }
 }

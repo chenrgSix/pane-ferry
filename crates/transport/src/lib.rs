@@ -1,48 +1,12 @@
-//! RWP control transport. SSH and native-network routes share protocol validation.
+//! Bounded RWP control exchanges over device-scoped local QUIC routes.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{path::PathBuf, process::Stdio, sync::OnceLock, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::Command,
-};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-const REMOTE_COMMAND: &str = ".local/bin/remoteapp-agent bridge";
-const SSH: &str = "/usr/bin/ssh";
 const MAX_CONTROL_LINE: usize = 16 * 1024 * 1024;
-static PASSWORD_HELPER: OnceLock<PathBuf> = OnceLock::new();
-pub fn set_password_helper(path: PathBuf) {
-    if path.is_absolute() && path.is_file() {
-        let _ = PASSWORD_HELPER.set(path);
-    }
-}
-const SSH_OPTIONS: &[&str] = &[
-    "-F",
-    "/dev/null",
-    "-T",
-    "-S",
-    "~/.ssh/lan-remoteapp-%C",
-    "-oBatchMode=yes",
-    "-oStrictHostKeyChecking=yes",
-    "-oConnectTimeout=8",
-    "-oConnectionAttempts=1",
-    "-oClearAllForwardings=yes",
-    "-oForwardAgent=no",
-    "-oForwardX11=no",
-    "-oPermitLocalCommand=no",
-    "-oServerAliveInterval=10",
-    "-oServerAliveCountMax=2",
-];
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Endpoint {
-    pub host: String,
-    pub user: String,
-    pub port: u16,
-}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppInfo {
     pub id: String,
@@ -102,12 +66,8 @@ pub enum Error {
     Invalid(&'static str),
     #[error("连接暂时中断，请等待网络恢复。")]
     Connection,
-    #[error("账号或密码需要更新，请在连接配置中填写密码后重试。")]
-    AuthenticationRequired,
-    #[error("SSH 主机指纹未通过校验，请在系统终端核验主机身份；不会自动信任或修改指纹。")]
-    HostVerification,
-    #[error("SSH 已连接，但 Ubuntu Agent 尚未运行，请在 Ubuntu 启动 remoteapp-agent。")]
-    AgentUnavailable,
+    #[error("设备已解除配对，请重新配对。")]
+    PairingRequired,
     #[error("远端控制请求超时；不会自动重试启动，请先检查远端会话。")]
     Timeout,
     #[error("远端返回无效或过大的消息。")]
@@ -156,9 +116,7 @@ pub fn remote_error_message(code: &str) -> String {
 impl Error {
     pub fn kind(&self) -> &'static str {
         match self {
-            Self::AuthenticationRequired => "authentication_required",
-            Self::HostVerification => "host_verification",
-            Self::AgentUnavailable => "agent_unavailable",
+            Self::PairingRequired => "pairing_required",
             Self::Connection | Self::Timeout => "connection",
             Self::Invalid(_) => "invalid",
             Self::Protocol => "protocol",
@@ -168,7 +126,7 @@ impl Error {
     /// Only explicit rejections prove it is safe to discard an idempotency key.
     pub fn retry_same_request(&self) -> bool {
         match self {
-            Error::Invalid(_) => false,
+            Error::Invalid(_) | Error::PairingRequired => false,
             Error::Remote(code) => !matches!(
                 code.as_str(),
                 "existing_process_unavailable"
@@ -185,165 +143,6 @@ impl Error {
             _ => true,
         }
     }
-}
-fn ssh_failure(stderr: &[u8]) -> Error {
-    // Classify a bounded, C-locale diagnostic. Never return arbitrary SSH or
-    // remote stderr, and never treat an application's error as an SSH login error.
-    let text = String::from_utf8_lossy(stderr);
-    if text.contains("Host key verification failed")
-        || text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
-    {
-        Error::HostVerification
-    } else if text.contains("Permission denied (")
-        || text.contains("Too many authentication failures")
-    {
-        Error::AuthenticationRequired
-    } else if text.contains("remoteapp-agent: agent unavailable") {
-        Error::AgentUnavailable
-    } else {
-        Error::Connection
-    }
-}
-impl Endpoint {
-    pub fn validate(&self) -> Result<(), Error> {
-        // Narrow host grammar deliberately excludes ssh aliases/config expansion, IPv6, URLs, options.
-        if self.host.is_empty()
-            || self.host.len() > 253
-            || !self
-                .host
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
-            || !self.host.as_bytes()[0].is_ascii_alphanumeric()
-            || !self.host.as_bytes()[self.host.len() - 1].is_ascii_alphanumeric()
-        {
-            return Err(Error::Invalid(
-                "主机必须是 IPv4 地址或 DNS 名，不支持 URL、SSH 别名配置或 IPv6。",
-            ));
-        }
-        if self.host.split('.').any(|label| {
-            label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-')
-        }) {
-            return Err(Error::Invalid("主机名格式无效。"));
-        }
-        if self.user.is_empty()
-            || self.user.len() > 64
-            || !self
-                .user
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
-            || self.user.starts_with('-')
-        {
-            return Err(Error::Invalid("SSH 用户名格式无效。"));
-        }
-        if self.port == 0 {
-            return Err(Error::Invalid("SSH 端口必须在 1–65535。"));
-        }
-        Ok(())
-    }
-    pub fn ssh_args(&self) -> Result<Vec<String>, Error> {
-        self.ssh_args_with_password(false)
-    }
-    pub fn ssh_args_with_password(&self, password: bool) -> Result<Vec<String>, Error> {
-        self.validate()?;
-        let mut args = SSH_OPTIONS
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        if password {
-            let control = args.iter().position(|argument| argument == "-S").unwrap();
-            args[control + 1] = "~/.ssh/lra-pw-%C".into();
-            let batch = args
-                .iter()
-                .position(|argument| argument == "-oBatchMode=yes")
-                .unwrap();
-            args[batch] = "-oBatchMode=no".into();
-            args.extend([
-                "-oNumberOfPasswordPrompts=1".into(),
-                "-oControlMaster=auto".into(),
-                "-oControlPersist=10m".into(),
-            ]);
-        }
-        args.extend([
-            "-p".into(),
-            self.port.to_string(),
-            "-l".into(),
-            self.user.clone(),
-            "--".into(),
-            self.host.clone(),
-            REMOTE_COMMAND.into(),
-        ]);
-        Ok(args)
-    }
-}
-pub async fn node_info(endpoint: &Endpoint) -> Result<Value, Error> {
-    request(
-        endpoint,
-        json!({"type":"node.info","version":1}),
-        "node.info",
-    )
-    .await
-}
-pub async fn prepare_peer(endpoint: &Endpoint, device_id: &str) -> Result<Value, Error> {
-    if uuid::Uuid::parse_str(device_id).is_err() {
-        return Err(Error::Invalid("设备身份无效。"));
-    }
-    request(
-        endpoint,
-        json!({"type":"peer.prepare","version":1,"device_id":device_id}),
-        "peer.prepared",
-    )
-    .await
-}
-/// A dedicated SSH process owns exactly one return route. It never modifies or
-/// terminates a shared login master, or exposes a network listening port.
-pub fn reverse_args(
-    endpoint: &Endpoint,
-    password: bool,
-    remote: &str,
-    local: &str,
-) -> Result<Vec<String>, Error> {
-    if !remote.starts_with('/')
-        || remote.len() > 100
-        || remote.contains("..")
-        || !remote
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"/-_.".contains(&c))
-        || !remote.ends_with(".sock")
-        || !local.starts_with('/')
-        || local.contains(['\0', '\n', '\r', ':'])
-    {
-        return Err(Error::Invalid("返回通道地址无效。"));
-    }
-    let mut args = endpoint.ssh_args_with_password(password)?;
-    let destination = args.len() - 7;
-    let trailing = args.split_off(destination);
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "-S" {
-            args[index + 1] = "none".into();
-            index += 2;
-            continue;
-        }
-        if args[index].starts_with("-oControlMaster=")
-            || args[index].starts_with("-oControlPersist=")
-            || args[index] == "-oClearAllForwardings=yes"
-        {
-            args.remove(index);
-            continue;
-        };
-        index += 1;
-    }
-    args.extend([
-        "-oControlMaster=no".into(),
-        "-oControlPersist=no".into(),
-        "-oExitOnForwardFailure=yes".into(),
-        "-oStreamLocalBindMask=0177".into(),
-        "-R".into(),
-        format!("{remote}:{local}"),
-    ]);
-    args.extend(trailing);
-    *args.last_mut().ok_or(Error::Protocol)? = ".local/bin/remoteapp-agent peer-hold".into();
-    Ok(args)
 }
 pub fn validate_id(id: &str) -> Result<(), Error> {
     if id.is_empty()
@@ -398,32 +197,16 @@ async fn read_message<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Res
     }
     Ok(value)
 }
-/// Explicit connection choice; a failed native route never falls back to SSH.
+/// Private device route supplied by the local network service, never by a peer.
 #[derive(Debug, Clone)]
-pub enum Target {
-    Ssh(Endpoint),
-    /// Private socket supplied by the local network service, never by the peer.
-    Native(PathBuf),
-}
-pub trait ControlTarget {
-    fn target(&self) -> Target;
-}
-impl ControlTarget for Endpoint {
-    fn target(&self) -> Target {
-        Target::Ssh(self.clone())
-    }
-}
-impl ControlTarget for Target {
-    fn target(&self) -> Target {
-        self.clone()
-    }
+pub struct Target {
+    pub socket: PathBuf,
 }
 async fn exchange<R, W>(
     output: &mut R,
     input: &mut W,
     body: Value,
     expected: &str,
-    received_hello: &mut bool,
 ) -> Result<Value, Error>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -437,7 +220,6 @@ where
     if read_message(output).await?["type"] != "hello" {
         return Err(Error::Protocol);
     }
-    *received_hello = true;
     let mut data = serde_json::to_vec(&body).map_err(|_| Error::Protocol)?;
     if data.len() >= MAX_CONTROL_LINE {
         return Err(Error::Protocol);
@@ -456,98 +238,21 @@ where
     }
     Err(Error::Protocol)
 }
-async fn request(
-    endpoint: &impl ControlTarget,
-    body: Value,
-    expected: &str,
-) -> Result<Value, Error> {
-    match endpoint.target() {
-        Target::Ssh(endpoint) => ssh_request(&endpoint, body, expected).await,
-        Target::Native(socket) => tokio::time::timeout(Duration::from_secs(25), async {
-            let socket = tokio::net::UnixStream::connect(socket)
-                .await
-                .map_err(|_| Error::Connection)?;
-            let (read, mut write) = socket.into_split();
-            let mut read = BufReader::new(read);
-            let result = exchange(&mut read, &mut write, body, expected, &mut false).await;
-            let _ = write.shutdown().await;
-            result
-        })
-        .await
-        .map_err(|_| Error::Timeout)?,
-    }
-}
-async fn ssh_request(endpoint: &Endpoint, body: Value, expected: &str) -> Result<Value, Error> {
-    endpoint.validate()?;
-    let helper = PASSWORD_HELPER.get().filter(|helper| {
-        std::process::Command::new(helper)
-            .args([
-                "--credential-check",
-                &endpoint.host,
-                &endpoint.user,
-                &endpoint.port.to_string(),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    });
-    let mut command = Command::new(SSH);
-    command
-        .args(endpoint.ssh_args_with_password(helper.is_some())?)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    if let Some(helper) = helper {
-        command
-            .env("SSH_ASKPASS", helper)
-            .env("SSH_ASKPASS_REQUIRE", "force")
-            .env(
-                "REMOTEAPP_SSH_ASKPASS_ACCOUNT",
-                format!("{}@{}:{}", endpoint.user, endpoint.host, endpoint.port),
-            );
-    }
-    let mut child = command.spawn().map_err(|_| Error::Connection)?;
-    let mut input = child.stdin.take().ok_or(Error::Connection)?;
-    let mut output = BufReader::new(child.stdout.take().ok_or(Error::Connection)?);
-    let mut stderr = child.stderr.take().ok_or(Error::Connection)?.take(8192);
-    let mut received_hello = false;
-    let result = tokio::time::timeout(
-        Duration::from_secs(25),
-        exchange(&mut output, &mut input, body, expected, &mut received_hello),
-    )
+async fn request(endpoint: &Target, body: Value, expected: &str) -> Result<Value, Error> {
+    tokio::time::timeout(Duration::from_secs(25), async {
+        let socket = tokio::net::UnixStream::connect(&endpoint.socket)
+            .await
+            .map_err(|_| Error::Connection)?;
+        let (read, mut write) = socket.into_split();
+        let mut read = BufReader::new(read);
+        let result = exchange(&mut read, &mut write, body, expected).await;
+        let _ = write.shutdown().await;
+        result
+    })
     .await
-    .map_err(|_| Error::Timeout)
-    .and_then(|v| v);
-    // Closing this control connection never implies termination of the session.
-    let _ = input
-        .write_all(b"{\"type\":\"session.detach\",\"version\":1}\n")
-        .await;
-    drop(input);
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-    let mut diagnostic = Vec::new();
-    let _ = tokio::time::timeout(
-        Duration::from_millis(250),
-        stderr.read_to_end(&mut diagnostic),
-    )
-    .await;
-    match result {
-        Err(Error::Connection | Error::Timeout) if !received_hello => {
-            let classified = ssh_failure(&diagnostic);
-            if matches!(classified, Error::Connection) {
-                result
-            } else {
-                Err(classified)
-            }
-        }
-        _ => result,
-    }
+    .map_err(|_| Error::Timeout)?
 }
-pub async fn catalog(endpoint: &impl ControlTarget) -> Result<AppCatalog, Error> {
+pub async fn catalog(endpoint: &Target) -> Result<AppCatalog, Error> {
     let value = request(endpoint, json!({"type":"app.list","version":1}), "app.list").await?;
     let mut apps: Vec<AppInfo> =
         serde_json::from_value(value["apps"].clone()).map_err(|_| Error::Protocol)?;
@@ -599,7 +304,7 @@ fn validate_icon(icon: Option<&str>) -> Result<(), Error> {
     }
     Ok(())
 }
-pub async fn desktop_windows(endpoint: &impl ControlTarget) -> Result<DesktopWindows, Error> {
+pub async fn desktop_windows(endpoint: &Target) -> Result<DesktopWindows, Error> {
     let value = request(
         endpoint,
         json!({"type":"window.list","version":1}),
@@ -628,7 +333,7 @@ pub async fn desktop_windows(endpoint: &impl ControlTarget) -> Result<DesktopWin
             .map(remote_error_message),
     })
 }
-pub async fn sessions(endpoint: &impl ControlTarget) -> Result<Vec<SessionInfo>, Error> {
+pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
     let value = request(
         endpoint,
         json!({"type":"session.list","version":1}),
@@ -650,7 +355,7 @@ pub async fn sessions(endpoint: &impl ControlTarget) -> Result<Vec<SessionInfo>,
     Ok(sessions)
 }
 pub async fn launch_native(
-    endpoint: &impl ControlTarget,
+    endpoint: &Target,
     app_id: &str,
     request_id: &str,
     scale_factor: u8,
@@ -700,38 +405,6 @@ fn parse_started(value: Value) -> Result<Started, Error> {
 mod tests {
     use super::*;
     #[test]
-    fn reverse_routes_have_dedicated_ownership_without_changing_shared_logins() {
-        let endpoint = Endpoint {
-            host: "ubuntu".into(),
-            user: "alice".into(),
-            port: 22,
-        };
-        let args = reverse_args(
-            &endpoint,
-            true,
-            "/home/alice/peers/p123.sock",
-            "/Users/alice/Application Support/node.sock",
-        )
-        .unwrap();
-        assert_eq!(
-            &args[args.iter().position(|v| v == "-S").unwrap() + 1],
-            "none"
-        );
-        assert!(args.contains(&"-oControlMaster=no".into()));
-        assert!(!args
-            .iter()
-            .any(|v| v == "-oControlMaster=auto" || v == "-oClearAllForwardings=yes"));
-        assert_eq!(args.last().unwrap(), ".local/bin/remoteapp-agent peer-hold");
-        for remote in [
-            "relative.sock",
-            "/tmp/../a.sock",
-            "/tmp/a;id.sock",
-            "/tmp/line\n.sock",
-        ] {
-            assert!(reverse_args(&endpoint, true, remote, "/Users/alice/node.sock").is_err());
-        }
-    }
-    #[test]
     fn accepts_bounded_png_icons_and_rejects_active_or_oversized_data() {
         let mut header = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
         header.extend_from_slice(&64u32.to_be_bytes());
@@ -756,112 +429,10 @@ mod tests {
         assert!(Error::Timeout.retry_same_request());
         assert!(Error::Connection.retry_same_request());
     }
-    fn endpoint() -> Endpoint {
-        Endpoint {
-            host: "192.168.1.20".into(),
-            user: "alice".into(),
-            port: 22,
-        }
-    }
-    #[test]
-    fn refuses_injection() {
-        for host in [
-            "-oProxyCommand=evil",
-            "a;id",
-            "a\nb",
-            "$(id)",
-            "a b",
-            "a@b",
-            "a..b",
-            "[::1]",
-        ] {
-            let mut e = endpoint();
-            e.host = host.into();
-            assert!(e.validate().is_err(), "{host}");
-        }
-    }
     #[test]
     fn refuses_bad_ids() {
         for id in ["", "-x", "app;id", "app\n", "$(id)", "a/b"] {
             assert!(validate_id(id).is_err());
-        }
-    }
-    #[test]
-    fn fixes_remote_command() {
-        let args = endpoint().ssh_args().unwrap();
-        assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
-        assert!(args.contains(&"-oStrictHostKeyChecking=yes".into()));
-        assert!(args.contains(&"-oServerAliveInterval=10".into()));
-        assert!(args.contains(&"-oServerAliveCountMax=2".into()));
-        assert!(args.contains(&"/dev/null".into()));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-S", "~/.ssh/lan-remoteapp-%C"]));
-    }
-    #[test]
-    fn saved_password_uses_one_ssh_prompt_and_an_independent_reusable_connection() {
-        let args = endpoint().ssh_args_with_password(true).unwrap();
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-S", "~/.ssh/lra-pw-%C"]));
-        for option in [
-            "-oBatchMode=no",
-            "-oNumberOfPasswordPrompts=1",
-            "-oControlMaster=auto",
-            "-oControlPersist=10m",
-            "-oStrictHostKeyChecking=yes",
-            "-oForwardAgent=no",
-            "-oForwardX11=no",
-        ] {
-            assert!(args.iter().any(|argument| argument == option));
-        }
-        assert!(!args
-            .iter()
-            .any(|argument| argument == "-i" || argument == "-oBatchMode=yes"));
-        assert_eq!(args.last().unwrap(), REMOTE_COMMAND);
-        // OpenSSH binds a temporary path with a 17-byte random suffix before
-        // installing the final socket. macOS sockaddr_un has 104 bytes total.
-        let control = &args.windows(2).find(|pair| pair[0] == "-S").unwrap()[1];
-        let example = control
-            .replacen('~', "/Users/chenzhirong", 1)
-            .replace("%C", &"a".repeat(40));
-        assert!(example.len() + 17 < 104);
-    }
-    #[test]
-    fn distinguishes_expired_login_network_and_agent_without_stderr_leaks() {
-        for (stderr, kind) in [
-            (
-                "alice@host: Permission denied (publickey,password). PRIVATE",
-                "authentication_required",
-            ),
-            (
-                "Permission denied (password). PRIVATE",
-                "authentication_required",
-            ),
-            (
-                "Too many authentication failures PRIVATE",
-                "authentication_required",
-            ),
-            ("Host key verification failed. PRIVATE", "host_verification"),
-            (
-                "REMOTE HOST IDENTIFICATION HAS CHANGED PRIVATE",
-                "host_verification",
-            ),
-            (
-                "remoteapp-agent: agent unavailable; start user service PRIVATE",
-                "agent_unavailable",
-            ),
-            ("Connection timed out PRIVATE", "connection"),
-            (
-                "mux_client_read_packet: read header failed: Broken pipe PRIVATE",
-                "connection",
-            ),
-            ("Permission denied while opening PRIVATE file", "connection"),
-        ] {
-            let error = ssh_failure(stderr.as_bytes());
-            assert_eq!(error.kind(), kind);
-            assert!(!error.to_string().contains("PRIVATE"));
-            assert!(error.retry_same_request());
         }
     }
     #[tokio::test]
@@ -917,7 +488,7 @@ mod unified_transport_tests {
                 .unwrap();
         });
         assert!(
-            matches!(catalog(&Target::Native(path)).await, Err(Error::Remote(code)) if code == "sharing_disabled")
+            matches!(catalog(&Target { socket: path }).await, Err(Error::Remote(code)) if code == "sharing_disabled")
         );
         server.await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();

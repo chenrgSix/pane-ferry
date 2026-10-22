@@ -20,10 +20,7 @@ from wire import STATE,private,save
 import clipboard
 from windowhost import Gtk,Gdk,GLib,Gst,GdkPixbuf,Viewer,check_sps
 
-private(STATE/'peers')
-peer=str(uuid.uuid4());generation=uuid.uuid4().hex
-path=STATE/'peers'/('p'+generation+'.sock')
-save(STATE/'peers'/(peer+'.json'),dict(version=1,device_id=peer,name='fixture',generation=generation,socket=str(path),transport='ssh-reverse'))
+path=Path(temporary.name)/'publisher.sock'
 pipeline=Gst.parse_launch('videotestsrc num-buffers=1 ! video/x-raw,format=I420,width=640,height=480,framerate=30/1 ! openh264enc ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=out sync=false')
 pipeline.set_state(Gst.State.PLAYING)
 sample=pipeline.get_by_name('out').emit('try-pull-sample',5*Gst.SECOND)
@@ -52,28 +49,27 @@ def serve():
         except OSError:pass
         finally:wire.close();sock.close()
 threading.Thread(target=serve,daemon=True).start()
-if '--native' in sys.argv:
-    binary=root/'target/debug/remoteapp-network'
-    def manage(directory,**body):
-        with socket.socket(socket.AF_UNIX) as client:
-            client.settimeout(10);client.connect(str(directory/'control.sock'))
-            client.sendall(json.dumps(body).encode()+b'\n')
-            result=json.loads(client.makefile('rb').readline())
-            assert 'error' not in result,result
-            return result
-    directories=[STATE/'network',Path(temporary.name)/'publisher-network']
-    for directory in directories:
-        network_processes.append(subprocess.Popen([str(binary),'serve','--state',str(directory),'--publisher',str(path),'--listen','127.0.0.1:0'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
-    for directory in directories:
-        deadline=time.monotonic()+10
-        while not (directory/'control.sock').exists():
-            assert time.monotonic()<deadline;time.sleep(.02)
-    remote=manage(directories[1],op='status')
-    manage(directories[0],op='pair',invitation=manage(directories[1],op='invite')['invitation'],address=remote['listen'])
-    peer='quic:'+remote['device_id']
-    deadline=time.monotonic()+5
-    while not (directories[0]/('r-'+remote['device_id']+'.sock')).exists():
+binary=root/'target/debug/remoteapp-network'
+def manage(directory,**body):
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(10);client.connect(str(directory/'control.sock'))
+        client.sendall(json.dumps(body).encode()+b'\n')
+        result=json.loads(client.makefile('rb').readline())
+        assert 'error' not in result,result
+        return result
+directories=[STATE/'network',Path(temporary.name)/'publisher-network']
+for directory in directories:
+    network_processes.append(subprocess.Popen([str(binary),'serve','--state',str(directory),'--publisher',str(path),'--listen','127.0.0.1:0'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+for directory in directories:
+    deadline=time.monotonic()+10
+    while not (directory/'control.sock').exists():
         assert time.monotonic()<deadline;time.sleep(.02)
+remote=manage(directories[1],op='status')
+manage(directories[0],op='pair',invitation=manage(directories[1],op='invite')['invitation'],address=remote['listen'])
+peer='quic:'+remote['device_id']
+deadline=time.monotonic()+5
+while not (directories[0]/('r-'+remote['device_id']+'.sock')).exists():
+    assert time.monotonic()<deadline;time.sleep(.02)
 app=Gtk.Application(application_id='dev.lra.ReceiverFixture');app.register(None)
 viewer=Viewer(app,peer,'fixture',session_id='fixture')
 def until(predicate,timeout=8):
@@ -119,7 +115,7 @@ try:
     assert len([e for e in events if e['type']=='input.text.commit'])==1,'input replayed after reconnect'
     assert not any(e['type']=='app.launch' for e in events),'resume relaunched app'
     viewer.close();until(lambda:viewer.closed.is_set())
-    print(('Native QUIC: ' if '--native' in sys.argv else 'Compatibility socket: ')+'PASS: real GTK image, H.264 decode and SPS bounds, controller IM commit, keys/pointer, text/image/file clipboard, same-session automatic reconnect without replay')
+    print('Native QUIC: '+'PASS: real GTK image, H.264 decode and SPS bounds, controller IM commit, keys/pointer, text/image/file clipboard, same-session automatic reconnect without replay')
 finally:
     viewer.close();stop.set();listener.close()
     for sock in connections:

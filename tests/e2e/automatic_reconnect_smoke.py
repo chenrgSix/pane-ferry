@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual AppDelegate/SSHTransport with a private subprocess fixture, no user SSH.
+"""Actual AppDelegate/RWPTransport with a private subprocess fixture, no network or user state.
 
 The fixture terminates one transport then accepts a new one. Check automatic
 resume, unchanged NSWindow, stream sequence reset and dropped offline input.
@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-auto-resume-') as directory:
     marker = '\n// WINDOWHOST_ENTRYPOINT\n'
     assert text.count(marker) == 1
     types.write_text(text.split(marker)[0])
-    fixture = scratch/'fake-ssh'
+    fixture = scratch/'fake-bridge'
     fixture.write_text('''#!/usr/bin/env python3
 import json, pathlib, select, sys
 root=pathlib.Path(__file__).parent

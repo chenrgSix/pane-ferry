@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// FileHandle.read(upToCount:) may wait to fill its buffer on a pipe. A single
-/// POSIX read returns as soon as SSH has any bytes, including a short hello.
+/// POSIX read returns as soon as QUIC bridge has any bytes, including a short hello.
 func readPipeChunk(from handle: FileHandle, maximumCount: Int = 65_536) throws -> Data {
     precondition(maximumCount > 0)
     var data = Data(count: maximumCount)
