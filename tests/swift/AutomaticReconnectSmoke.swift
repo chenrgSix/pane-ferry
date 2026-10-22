@@ -100,7 +100,12 @@ struct AutomaticReconnectSmoke {
         app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":4, "state":"pending"], image:nil))
         precondition(original.window.subtitle.contains("Ubuntu") && original.window.subtitle.contains("授权"))
         original.mediaMode = "H.264"; original.updateSubtitle()
-        precondition(original.window.subtitle == app.desktopInputNotice, "frame metadata hid the consent instructions")
+        precondition(original.window.subtitle.contains(app.desktopInputNotice!), "frame metadata hid the consent instructions")
+        if let pixels = original.surface.image {
+            precondition(original.window.subtitle.contains("接收 \(pixels.width) × \(pixels.height) 像素"), "subtitle must report decoded pixels")
+        } else {
+            precondition(original.window.subtitle.contains("等待画面"), "metadata alone must not claim received pixels")
+        }
         app.receive(Incoming(object:["type":"error", "code":"desktop_authorization_pending"], image:nil))
         precondition(app.connected && !app.recovering, "pending permission interrupted the transport")
         app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":5, "state":"ready"], image:nil))
