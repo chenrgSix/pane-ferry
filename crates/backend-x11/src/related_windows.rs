@@ -92,7 +92,7 @@ struct Interaction {
 #[derive(Default)]
 struct Registry {
     claims: HashMap<(u16, u32), u64>,
-    input: HashMap<(u16, u32, u64), Interaction>,
+    input: HashMap<(u16, u32, u64, u64), Interaction>,
 }
 fn registry() -> &'static Mutex<Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
@@ -157,7 +157,7 @@ impl Scope {
             .input
             .retain(|_, input| input.at.elapsed() < Duration::from_secs(5));
         registry.input.insert(
-            (self.display, self.root.pid, self.root.started),
+            (self.display, self.root.pid, self.root.started, self.token),
             Interaction {
                 scope: self.token,
                 window,
@@ -199,11 +199,20 @@ impl Scope {
                 }
             }
         }
-        let input = registry
+        let recent: Vec<_> = registry
             .input
-            .get(&(self.display, self.root.pid, self.root.started))
-            .copied()
-            .filter(|i| i.scope == self.token && i.at.elapsed() < Duration::from_secs(5));
+            .iter()
+            .filter(|((display, pid, started, _), input)| {
+                (*display, *pid, *started) == (self.display, self.root.pid, self.root.started)
+                    && input.at.elapsed() < Duration::from_secs(5)
+            })
+            .map(|(_, input)| *input)
+            .collect();
+        // Without an explicit OS parent, simultaneous input from two sessions
+        // is ambiguous. Do not guess that the last device caused the popup.
+        let input = (recent.len() == 1)
+            .then(|| recent[0])
+            .filter(|i| i.scope == self.token);
         // Iterate to admit nested explicit dialogs after their parent. A changed
         // XID or process is never silently rebound to an existing member.
         for _ in 0..16 {
@@ -304,7 +313,7 @@ mod tests {
         assert!(Scope::new(61001, root.pid, root.id, &[root]).is_ok());
     }
     #[test]
-    fn last_interaction_cannot_take_an_existing_or_other_scopes_window() {
+    fn ambiguous_interactions_cannot_take_existing_or_new_windows() {
         let alpha = window(11, None);
         let beta = window(12, None);
         let preview = window(13, None);
@@ -317,8 +326,12 @@ mod tests {
         assert!(!a.contains(preview.id, preview.pid));
         assert!(b.contains(preview.id, preview.pid));
         a.record_input(alpha.id);
-        a.update(&[alpha, beta, preview]);
+        let ambiguous = window(14, None);
+        a.update(&[alpha, beta, preview, ambiguous]);
+        b.update(&[alpha, beta, preview, ambiguous]);
         assert!(!a.contains(preview.id, preview.pid));
+        assert!(!a.contains(ambiguous.id, ambiguous.pid));
+        assert!(!b.contains(ambiguous.id, ambiguous.pid));
     }
     #[test]
     fn kernel_identity_rejects_reuse_and_clipboard_delegation_outside_scope() {

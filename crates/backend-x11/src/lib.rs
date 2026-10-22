@@ -323,9 +323,13 @@ impl Backend {
             None
         };
         let ids = self.window_ids()?;
-        if self.window_scope.is_some() {
-            let candidates = self.window_candidates(&ids);
-            self.window_scope.as_mut().unwrap().update(&candidates);
+        let candidates = if self.window_scope.is_some() {
+            self.window_candidates(&ids)
+        } else {
+            Vec::new()
+        };
+        if let Some(scope) = &mut self.window_scope {
+            scope.update(&candidates);
         }
         // Unmapping/withdrawing a window is not destruction. Keep known XIDs
         // until the server confirms they no longer exist, including cached menus.
