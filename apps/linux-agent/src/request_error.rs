@@ -4,6 +4,8 @@ pub fn code(message: &str) -> &'static str {
         "sharing disabled" => "sharing_disabled",
         "desktop_locked" => "desktop_locked",
         "resolution_limited" => "resolution_limited",
+        "display_scale_requires_restart" => "display_scale_requires_restart",
+        "display_settings_unavailable" => "display_settings_unavailable",
         "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
         "wayland_bridge_failed" => "wayland_bridge_failed",
         "wayland_bridge_outdated" => "wayland_bridge_outdated",

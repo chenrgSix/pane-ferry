@@ -225,6 +225,21 @@ impl Backend {
         self.scale_factor = scale;
         Ok(())
     }
+    pub fn viewport(&mut self, id: u32, width: u32, height: u32, scale: u8) -> Result<()> {
+        let (w, h) = paneferry_protocol::viewport_pixels(width, height, scale)?;
+        if !self.windows.contains_key(&id) {
+            bail!("unknown window")
+        }
+        // No reliable per-window DPI control exists on a shared X display.
+        // Reject before enlarging its 1x layout or modifying global settings.
+        if self.process_id.is_some() || self.existing_display.is_some() {
+            bail!("display_scale_requires_restart")
+        }
+        if scale != self.scale_factor {
+            self.configure_private_scale(scale)?;
+        }
+        self.configure(id, w, h)
+    }
     fn atom(&self, n: &str) -> u32 {
         self.atoms[n]
     }
@@ -453,7 +468,11 @@ impl Backend {
             };
             if let Some(old) = self.windows.get(&id) {
                 w.geometry_revision = old.geometry_revision
-                    + u64::from(old.width != w.width || old.height != w.height);
+                    + u64::from(
+                        old.width != w.width
+                            || old.height != w.height
+                            || old.scale_factor != w.scale_factor,
+                    );
             }
             out.push(w);
         }

@@ -14,6 +14,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var rendering: RenderGeometry
     var mediaMode: String?
     var scaleMode = "unknown"
+    var viewportEnabled = false
+    private var viewportBlocked = false
+    private(set) var requestedScale: Int?
     var resolutionNotice: String? { didSet { updateSubtitle() } }
     var inputNotice: String? { didSet { updateSubtitle() } }
     var fixedPixels: (width: Int, height: Int)?
@@ -56,6 +59,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         let frame = surface.image
         var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
         if let target = requestedPixels {
+            if let density = requestedScale {
+                parts.append("布局目标 \(target.width / density) × \(target.height / density) · 请求 \(density)×")
+            }
             let matched = frame?.width == target.width && frame?.height == target.height
             if !matched {
                 parts.append("目标 \(target.width) × \(target.height)")
@@ -73,6 +79,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         case "source": parts.append("沿用应用缩放")
         case "requested": parts.append("启动缩放请求 \(rendering.scale * 100)% · 未确认")
         case "verified": parts.append("应用缩放 \(rendering.scale * 100)%")
+        case "compositor": parts.append("窗口像素密度 \(rendering.scale)×")
+        case "display": parts.append("会话显示密度 \(rendering.scale)× · 应用遵循情况未确认")
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
@@ -123,18 +131,37 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     func windowDidChangeBackingProperties(_ notification: Notification) { windowDidResize(notification) }
     private func sendResize() {
         resizeTimer?.invalidate(); resizeTimer = nil
-        guard !applyingRemote, remoteVisible, !popup else { return }
-        guard let pixels = fixedPixels ?? rendering.pixels(for: surface.bounds.size, backingScale: window.backingScaleFactor) else { return }
+        guard !applyingRemote, remoteVisible, !popup, !viewportBlocked else { return }
+        guard var pixels = fixedPixels ?? rendering.pixels(for: surface.bounds.size, backingScale: window.backingScaleFactor) else { return }
+        let density = window.backingScaleFactor >= 1.5 ? 2 : 1
+        if viewportEnabled {
+            // Integral logical sizes avoid a half-pixel client layout at 2x.
+            pixels = (max(density, pixels.width / density * density), max(density, pixels.height / density * density))
+            requestedScale = density
+        }
         requestedPixels = pixels
         resolutionNotice = nil
         resolutionTimer?.invalidate(); resolutionDelayed = false
         updateSubtitle()
-        if pixels.width == surface.remoteWidth && pixels.height == surface.remoteHeight { return }
-        transmit(["type": "window.configure", "window_id": id, "width": pixels.width, "height": pixels.height])
+        if pixels.width == surface.remoteWidth && pixels.height == surface.remoteHeight &&
+            (!viewportEnabled || rendering.scale == density) { return }
+        if viewportEnabled {
+            transmit(["type": "window.viewport", "window_id": id, "logical_width": pixels.width / density,
+                      "logical_height": pixels.height / density, "scale_factor": density])
+        } else {
+            transmit(["type": "window.configure", "window_id": id, "width": pixels.width, "height": pixels.height])
+        }
         let timer = Timer(timeInterval: 1.5, repeats: false) { [weak self] _ in
             self?.resolutionDelayed = true; self?.updateSubtitle()
         }
         resolutionTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    func requireScaleRestart() {
+        viewportBlocked = true
+        resizeTimer?.invalidate(); resizeTimer = nil
+        resolutionTimer?.invalidate(); resolutionTimer = nil
+        requestedPixels = nil; requestedScale = nil; resolutionDelayed = false
+        resolutionNotice = "原窗口保留；高清适配需保存工作后重开此应用，尚未执行"
     }
     func useAutomaticResolution() {
         fixedPixels = nil

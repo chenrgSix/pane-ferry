@@ -209,7 +209,7 @@ try:
                 verify(env,im_app.pid,im_state,Bridge,wait,'text-input')
                 wait(lambda:monitor_layout()==baseline_monitors)
                 before=state.read_text()
-                started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False)
+                started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False,scale_factor=2)
                 assert app.poll() is None and json.loads(state.read_text())['text']=='preserved fixture contents'
                 snap=peer.request('session.resume','session.snapshot',session_id=started['session_id'])
                 window=snap['windows'][0]['window_id'];frame=peer.until('frame')
@@ -231,6 +231,20 @@ try:
                     assert json.loads(other_state.read_text())['scale']==1, 'another native application stays on its original output'
                     assert all(monitor_layout()[key]==value for key,value in baseline_monitors.items())
                     sizes.append((frame['width'],frame['height']))
+                for logical_width,logical_height,scale in [(1470,802,2),(1000,700,1),(1470,802,2)]:
+                    peer.send(type='window.viewport',window_id=window,logical_width=logical_width,logical_height=logical_height,scale_factor=scale)
+                    deadline=time.monotonic()+15
+                    while time.monotonic()<deadline:
+                        frame=peer.until('frame')
+                        if (frame['width'],frame['height'])==(logical_width*scale,logical_height*scale):break
+                    assert (frame['width'],frame['height'])==(logical_width*scale,logical_height*scale)
+                    wait(lambda:json.loads(state.read_text())['scale']==scale)
+                    actual=json.loads(state.read_text())
+                    # GNOME frame includes GTK's decoration; logical client
+                    # remains stable when density changes at the same viewport.
+                    assert actual['text']=='preserved fixture contents' and app.poll() is None
+                    assert json.loads(other_state.read_text())['scale']==1
+                    print('PASS: native logical viewport',logical_width,logical_height,'density',scale,'source pixels',frame['width'],frame['height'],flush=True)
                 error=peer.request('window.configure','error',window_id=window,width=1200,height=3000)
                 assert error['code']=='resolution_limited',error
                 cut=peer.request('clipboard.cut','error',window_id=window,request_id='safe-cut')
@@ -302,6 +316,13 @@ try:
                             if (pixels['width'],pixels['height'])==(2800,1500):break
                         assert (pixels['width'],pixels['height'])==(2800,1500),pixels.keys()
                         assert struct.unpack('>II',base64.b64decode(pixels['png'])[16:24])==(2800,1500)
+                        before=json.loads(xstate.read_text())
+                        denied=other.request('window.viewport','error',window_id=target['xwindow'],logical_width=1470,logical_height=802,scale_factor=2)
+                        assert denied['code']=='display_scale_requires_restart',denied
+                        time.sleep(.2)
+                        assert json.loads(xstate.read_text())==before, 'shared Xwayland DPI rejection must not resize or alter the original application'
+                        assert xapp.poll() is None and json.loads(other_state.read_text())['scale']==1
+                        print('PASS: shared Xwayland requires explicit app restart for DPI migration; original geometry, process/content and other windows preserved')
                         print('PASS: publisher Xwayland takeover and compositor resize produce actual 2940x1660 and 2800x1500 XComposite PNG frames')
                     finally:other.close()
                 print('NOT TESTED: real Firefox, real desktop input authorization, binary clipboard or multi-monitor scale changes')

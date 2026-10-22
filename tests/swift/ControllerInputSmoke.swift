@@ -120,6 +120,19 @@ struct ControllerInputSmoke {
         precondition(host.window.subtitle.contains("接收 1920 × 720") && host.window.subtitle.contains("沿用应用缩放"))
         precondition(!host.window.subtitle.contains("100%"), "existing process scale is not measured by the protocol default")
         precondition(host.window.subtitle.contains("目标"), "a resize request must not be reported as received pixels")
+        host.viewportEnabled = true
+        host.fixedPixels = nil
+        host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        let negotiated = resizeMessages.last!
+        let density = host.window.backingScaleFactor >= 1.5 ? 2 : 1
+        precondition(negotiated["type"] as? String == "window.viewport" && negotiated["scale_factor"] as? Int == density)
+        precondition((negotiated["logical_width"] as? Int)! * density == host.requestedPixels!.width)
+        host.requireScaleRestart()
+        let blockedCount = resizeMessages.count
+        host.window.setContentSize(NSSize(width: 1470, height: 802))
+        host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        precondition(resizeMessages.count == blockedCount && host.window.subtitle.contains("尚未执行"),
+                     "unsupported shared-display DPI must not fall back to resizing its 1x layout or restart the app")
         host.window.performClose(nil)
         precondition(disconnects == 1 && !resizeMessages.contains { $0["type"] as? String == "window.close.request" },
                      "the controller close button disconnects without closing the remote application")

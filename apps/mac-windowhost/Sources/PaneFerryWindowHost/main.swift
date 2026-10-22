@@ -487,6 +487,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if code == "display_scale_requires_restart" {
+                if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
+                   let host = windows[UInt32(number)] { host.requireScaleRestart() }
+                statusItem?.button?.title = "PaneFerry · 原窗口保留，高清适配待重开应用"
+                return
+            }
+            if code == "display_settings_unavailable" {
+                statusItem?.button?.title = "PaneFerry · 显示密度设置不可用"
+                return
+            }
             if code == "resolution_limited" {
                 if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
                    let host = windows[UInt32(number)] {
@@ -664,6 +674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.controllerCutEnabled = capabilities.contains("clipboard.cut")
         host.revision = rev
         host.scaleMode = object["scale_mode"] as? String ?? "unknown"
+        host.viewportEnabled = capabilities.contains("display.viewport")
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
         let visible = object["visible"] as? Bool ?? true

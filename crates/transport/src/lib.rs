@@ -88,6 +88,8 @@ pub fn remote_error_message(code: &str) -> String {
         "wayland_bridge_outdated" => "Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。".into(),
         "wayland_capture_unavailable" => "Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer 组件。".into(),
         "resolution_limited" => "请求尺寸超出当前 Wayland 窗口采集范围。请缩小窗口或选择较低分辨率；原应用和桌面缩放保持不变。".into(),
+        "display_scale_requires_restart" => "原窗口保留；高清适配需保存工作后重开此应用，尚未执行。".into(),
+        "display_settings_unavailable" => "会话显示密度设置不可用；原桌面设置未修改。".into(),
         "wayland_binary_clipboard_unavailable" => "当前 Wayland 窗口仅支持文字剪贴板。".into(),
         "wayland_cut_unavailable" => "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。".into(),
         "wayland_text_unavailable" => "当前输入框不支持直接输入，请使用粘贴；输入未自动重试。".into(),
