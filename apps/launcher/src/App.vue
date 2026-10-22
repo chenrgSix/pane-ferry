@@ -400,7 +400,7 @@ onUnmounted(() => {
           {{!localNode.permissions.screen_recording ? "需要录屏权限。" : ""}} {{!localNode.permissions.accessibility ? "需要辅助功能权限。" : ""}}
           <button :disabled="localBusy" @click="requestPermissions">允许共享所需权限</button>
           <button :disabled="localBusy" @click="showLocalComponent">显示共享组件</button>
-          <br />授权仍不生效时，可点“显示共享组件”，将访达选中的程序加入对应的系统权限列表。
+          <br />系统列表已开启仍不生效时，点“显示共享组件”，移除权限列表中的旧条目，再添加访达选中的当前程序。
         </p>
         <p v-for="route in localNode?.routes || []" :key="route.endpoint" class="hint">{{JSON.parse(route.endpoint).host}} · {{route.state}}</p>
         <p v-if="localWarning" class="alert error">{{localWarning}}</p>
