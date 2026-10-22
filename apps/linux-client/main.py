@@ -73,8 +73,8 @@ class Manager(Gtk.Application):
         if '--peer' in args and '--session' in args:
             try:
                 peer = args[args.index('--peer')+1]; session = args[args.index('--session')+1]
-                assert peer.startswith("quic:")
-                uuid.UUID(peer[5:])
+                if not peer.startswith("quic:") or str(uuid.UUID(peer[5:])) != peer[5:]:
+                    return 1
                 if not session or len(session)>100 or not all(c.isalnum() or c in '-_' for c in session):
                     return 1
                 name = next((p['name'] for p in peers() if p['connection_id']==peer), 'Mac')

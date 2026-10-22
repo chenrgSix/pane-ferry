@@ -70,6 +70,16 @@ peer='quic:'+remote['device_id']
 deadline=time.monotonic()+5
 while not (directories[0]/('r-'+remote['device_id']+'.sock')).exists():
     assert time.monotonic()<deadline;time.sleep(.02)
+from main import Manager
+from types import SimpleNamespace
+opened=[]
+manager=SimpleNamespace(activate=lambda *_:None,open_viewer=lambda *a,**kw:opened.append((a,kw)))
+for invalid in [peer[5:], 'legacy:'+peer[5:], 'quic:invalid', peer.upper()]:
+    command=SimpleNamespace(get_arguments=lambda value=invalid:['lan-remoteapp','--peer',value,'--session','fixture'])
+    assert Manager.command_line(manager,None,command)==1
+assert not opened
+command=SimpleNamespace(get_arguments=lambda:['lan-remoteapp','--peer',peer,'--session','fixture'])
+assert Manager.command_line(manager,None,command)==0 and opened[0][0][0]==peer
 app=Gtk.Application(application_id='dev.lra.ReceiverFixture');app.register(None)
 viewer=Viewer(app,peer,'fixture',session_id='fixture')
 def until(predicate,timeout=8):
