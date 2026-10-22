@@ -612,6 +612,12 @@ fn launch(
         application_args.extend(["-xrm", r"*VT100*translations: #override \n Ctrl Shift <Key>C: copy-selection(CLIPBOARD) \n Ctrl Shift <Key>V: insert-selection(CLIPBOARD)"]);
     }
     application_args.extend(app.argv.iter().map(String::as_str));
+    let scale_argument = discovered
+        .as_ref()
+        .and_then(|app| app.scale_argument(scale_factor));
+    if let Some(argument) = &scale_argument {
+        application_args.push(argument);
+    }
     let mut command = Command::new("dbus-run-session");
     command.arg("--");
     if let Some(snap) = discovered.as_ref().and_then(|app| app.snap.as_ref()) {
