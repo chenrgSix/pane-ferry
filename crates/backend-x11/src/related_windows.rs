@@ -177,6 +177,28 @@ impl Scope {
                 }
             }
         }
+        for _ in 0..16 {
+            let orphaned: Vec<_> = self
+                .members
+                .iter()
+                .filter_map(|(id, member)| {
+                    member
+                        .parent
+                        .filter(|parent| !self.members.contains_key(parent))
+                        .map(|_| *id)
+                })
+                .collect();
+            if orphaned.is_empty() {
+                break;
+            }
+            for id in orphaned {
+                self.members.remove(&id);
+                self.retired.insert(id);
+                if registry.claims.get(&(self.display, id)) == Some(&self.token) {
+                    registry.claims.remove(&(self.display, id));
+                }
+            }
+        }
         let input = registry
             .input
             .get(&(self.display, self.root.pid, self.root.started))
@@ -250,5 +272,66 @@ impl Drop for Scope {
         let mut registry = registry().lock().unwrap();
         registry.claims.retain(|_, owner| *owner != self.token);
         registry.input.retain(|_, input| input.scope != self.token);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    fn window(id: u32, parent: Option<u32>) -> Candidate {
+        Candidate {
+            id,
+            pid: std::process::id(),
+            parent,
+            visible: true,
+        }
+    }
+    #[test]
+    fn vanished_parents_retire_descendants_and_never_rebind_reused_ids() {
+        let root = window(1, None);
+        let mut scope = Scope::new(61001, root.pid, root.id, &[root]).unwrap();
+        let child = window(2, Some(1));
+        let grandchild = window(3, Some(2));
+        scope.update(&[grandchild, child, root]);
+        assert!(scope.contains(3, root.pid));
+        scope.update(&[root, grandchild]);
+        assert!(!scope.contains(2, root.pid));
+        assert!(!scope.contains(3, root.pid));
+        scope.update(&[root, child, grandchild]);
+        assert!(!scope.contains(2, root.pid));
+        assert!(!scope.contains(3, root.pid));
+        drop(scope);
+        assert!(Scope::new(61001, root.pid, root.id, &[root]).is_ok());
+    }
+    #[test]
+    fn last_interaction_cannot_take_an_existing_or_other_scopes_window() {
+        let alpha = window(11, None);
+        let beta = window(12, None);
+        let preview = window(13, None);
+        let mut a = Scope::new(61002, alpha.pid, alpha.id, &[alpha, beta]).unwrap();
+        let mut b = Scope::new(61002, beta.pid, beta.id, &[alpha, beta]).unwrap();
+        b.record_input(beta.id);
+        a.update(&[alpha, beta, preview]);
+        b.update(&[alpha, beta, preview]);
+        assert!(!a.contains(beta.id, beta.pid));
+        assert!(!a.contains(preview.id, preview.pid));
+        assert!(b.contains(preview.id, preview.pid));
+        a.record_input(alpha.id);
+        a.update(&[alpha, beta, preview]);
+        assert!(!a.contains(preview.id, preview.pid));
+    }
+    #[test]
+    fn kernel_identity_rejects_reuse_and_clipboard_delegation_outside_scope() {
+        let (identity, parent) = Identity::read(std::process::id()).unwrap();
+        let mut reused = identity.clone();
+        reused.started += 1;
+        assert!(identity.current());
+        assert!(!reused.current());
+        assert!(!reused.descendant_of(&identity));
+        assert!(!identity.descendant_of(&reused));
+        let root = window(21, None);
+        let scope = Scope::new(61003, root.pid, root.id, &[root]).unwrap();
+        assert_eq!(scope.clipboard_pid(root.id, root.pid), Some(root.pid));
+        assert_eq!(scope.clipboard_pid(root.id, parent), None);
     }
 }
