@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Opt-in real SSH/X11 test. Starts and closes only its own approved xterm."""
+"""Opt-in real SSH or QUIC/X11 test; starts only its own approved xterm.
+
+With --native-socket, RWP uses QUIC exclusively. SSH remains an out-of-band
+test oracle for marker files and the test window's X11 state.
+"""
 import argparse
 import base64
 import json
 import os
+from pathlib import Path
 import selectors
 import shlex
 import struct
@@ -16,6 +21,8 @@ parser.add_argument("--host", required=True)
 parser.add_argument("--user", required=True)
 parser.add_argument("--port", type=int, default=22)
 parser.add_argument("--control-path")
+parser.add_argument("--native-socket", type=Path)
+parser.add_argument("--network", type=Path, default=Path(__file__).resolve().parents[2] / "target/debug/remoteapp-network")
 parser.add_argument("--reconnects", type=int, default=3)
 parser.add_argument("--detached-seconds", type=float, default=1)
 args = parser.parse_args()
@@ -29,7 +36,9 @@ ssh += ["--", args.host]
 
 class Peer:
     def __init__(self):
-        self.process = subprocess.Popen(ssh + [".local/bin/remoteapp-agent bridge"],
+        command = ([str(args.network.resolve()), "bridge", "--socket", str(args.native_socket.resolve())]
+                   if args.native_socket else ssh + [".local/bin/remoteapp-agent bridge"])
+        self.process = subprocess.Popen(command,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL)
         self.selector = selectors.DefaultSelector()
@@ -217,7 +226,7 @@ try:
     peer.send(type="session.list")
     assert not any(s["session_id"] == session for s in peer.until(lambda e: e["type"] == "session.list")["sessions"])
     session = None
-    print(json.dumps({"result": "PASS", "checks": ["real SSH/X11 PNG", "idempotent launch",
+    print(json.dumps({"result": "PASS", "transport": "quic" if args.native_socket else "ssh", "checks": ["real X11 PNG", "idempotent launch",
           "exclusive controller", "remote keyboard/pointer input", "held input release", "resize", "hide/remap",
           "session discovery", "close/exited"], "reconnects": args.reconnects,
           "detached_seconds_each": args.detached_seconds}))

@@ -15,6 +15,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 parser.add_argument('--export', type=Path)
+parser.add_argument('--network', type=Path, help='route RWP through two isolated native QUIC nodes')
 args = parser.parse_args()
 records = []
 with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
@@ -32,6 +33,14 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
     agent = subprocess.Popen([str(args.agent.resolve()), 'serve'], env=env,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     path = home / '.local/state/lan-remoteapp/agent.sock'
+    networks = []
+    def manage(directory, **body):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(20); client.connect(str(directory / 'control.sock'))
+            client.sendall(json.dumps(body).encode() + b'\n')
+            result = json.loads(client.makefile('rb').readline(131073))
+            assert 'error' not in result, result
+            return result
     class Peer:
         def __init__(self):
             self.socket = socket.socket(socket.AF_UNIX)
@@ -71,6 +80,24 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
         while not path.exists():
             assert time.monotonic() < deadline
             time.sleep(.02)
+        if args.network:
+            directories = [home / 'receiver', home / 'publisher']
+            for directory in directories:
+                networks.append(subprocess.Popen([str(args.network.resolve()), 'serve', '--state', str(directory),
+                    '--publisher', str(path), '--listen', '127.0.0.1:0'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            for directory in directories:
+                deadline = time.monotonic() + 10
+                while not (directory / 'control.sock').exists():
+                    assert time.monotonic() < deadline
+                    time.sleep(.02)
+            remote = manage(directories[1], op='status')
+            manage(directories[0], op='pair', invitation=manage(directories[1], op='invite')['invitation'], address=remote['listen'])
+            path = directories[0] / ('r-' + remote['device_id'] + '.sock')
+            deadline = time.monotonic() + 5
+            while not path.exists():
+                assert time.monotonic() < deadline
+                time.sleep(.02)
         peer = Peer()
         try:
             peer.send(type='app.launch', app_id='video', request_id='video', backend='native')
@@ -126,8 +153,10 @@ with tempfile.TemporaryDirectory(prefix='remoteapp-video-') as temporary:
             static_resumed.close()
         if args.export:
             args.export.write_text(json.dumps(records))
-        print(json.dumps(dict(result='PASS', codec='h264', samples=len(records),
+        print(json.dumps(dict(result='PASS', transport='quic' if args.network else 'socket', codec='h264', samples=len(records),
             median_wire_bytes=round(statistics.median(len(json.dumps(sample)) for sample in samples)),
             checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle reconnect snapshot'])))
     finally:
+        for process in networks:
+            process.terminate(); process.wait(timeout=5)
         agent.terminate(); agent.wait(timeout=10)

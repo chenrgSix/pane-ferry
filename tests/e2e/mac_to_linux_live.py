@@ -13,13 +13,20 @@ import uuid
 root=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(root/'apps/linux-client'))
 from wire import request
+import wire
 import clipboard
 from windowhost import Gtk,Gdk,Viewer
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--peer',required=True)
+parser.add_argument('--state',type=Path,help='isolated receiver state directory (contains network/ for QUIC)')
 parser.add_argument('--capture-only',action='store_true',help='verify real video/reconnect without sending input')
-args=parser.parse_args();uuid.UUID(args.peer)
+parser.add_argument('--hold-seconds',type=float,default=0,help='keep capture ready while an independent forward-link test runs')
+args=parser.parse_args();uuid.UUID(args.peer.removeprefix('quic:'))
+if not 0 <= args.hold_seconds <= 120 or (args.hold_seconds and not args.capture_only):
+    parser.error('--hold-seconds requires --capture-only and must be between 0 and 120')
+if args.state:
+    wire.STATE=args.state.resolve()
 deadline=time.monotonic()+30
 while True:
     try:
@@ -73,6 +80,12 @@ try:
     first=(viewer.width,viewer.height)
     print('Real H.264 first frame:',first,'startup_seconds:',round(time.monotonic()-started,3),flush=True)
     if args.capture_only:
+        epoch=viewer.epoch
+        deadline=time.monotonic()+args.hold_seconds
+        while time.monotonic()<deadline:
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+            assert viewer.ready and viewer.epoch==epoch,'capture disconnected during parallel-link check'
+            time.sleep(.01)
         reconnect_and_detach()
         print('PASS: actual Mac SCK/H264 -> Ubuntu GTK; new decoded frame after same-session reconnect; detach preserves Mac app; no input sent')
         sys.exit(0)
