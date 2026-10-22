@@ -7,7 +7,8 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
 state = Path(sys.argv[1])
 x11 = '--x11' in sys.argv
-app = Gtk.Application(application_id='io.paneferry.X11Fixture' if x11 else 'io.paneferry.WaylandFixture')
+app = Gtk.Application(application_id='io.paneferry.X11Fixture' if x11 else
+                      ('io.paneferry.OtherFixture' if '--other' in sys.argv else 'io.paneferry.WaylandFixture'))
 
 def activate(app):
     win = Gtk.ApplicationWindow(application=app, title='PaneFerry Wayland fixture')

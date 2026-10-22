@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--agent', required=True, type=Path)
@@ -56,6 +57,15 @@ def wait(fn, seconds=20):
         if result: return result
         time.sleep(.1)
     raise AssertionError('fixture startup timed out')
+
+def monitor_layout():
+    import gi
+    gi.require_version('Gio', '2.0')
+    from gi.repository import Gio
+    state = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync('org.gnome.Mutter.DisplayConfig',
+        '/org/gnome/Mutter/DisplayConfig', 'org.gnome.Mutter.DisplayConfig', 'GetCurrentState',
+        None, None, Gio.DBusCallFlags.NO_AUTO_START, 3000, None).unpack()
+    return {spec[0]: tuple(logical[:5]) for logical in state[2] for spec in logical[5]}
 
 class Peer:
     def __init__(self, path):
@@ -154,6 +164,8 @@ try:
                 one,two=Bridge(env),Bridge(env)
                 try:
                     info=next(w for w in one.call(op='list')['result'] if w['pid']==app.pid)
+                    baseline_monitors=monitor_layout()
+                    original_geometry=tuple(info[k] for k in ('x','y','width','height','scale'))
                     assert one.call(op='acquire',id=info['id'],pid=app.pid+1)['error']=='window_unavailable'
                     assert 'result' in one.call(op='acquire',id=info['id'],pid=app.pid)
                     assert two.call(op='acquire',id=info['id'],pid=app.pid)['error']=='session_controlled'
@@ -162,6 +174,32 @@ try:
                     assert 'result' in one.call(op='set_text',window_id=info['window_id'],text='\n'*8192)
                 finally:
                     one.close();two.close()
+                wait(lambda: monitor_layout()==baseline_monitors)
+                wait(lambda:json.loads(state.read_text())['scale']==1)
+                released=Bridge(env)
+                try:
+                    restored=next(w for w in released.call(op='list')['result'] if w['pid']==app.pid)
+                    assert tuple(restored[k] for k in ('x','y','width','height','scale'))==original_geometry,restored
+                finally:released.close()
+                other_state=t/'other-state.json'
+                other_app=start(['/usr/bin/python3',str(fixture),str(other_state),'--other'],dict(env,GDK_BACKEND='wayland'),log)
+                wait(other_state.exists)
+                one,two=Bridge(env),Bridge(env)
+                try:
+                    inventory=one.call(op='list')['result']
+                    originals=[next(w for w in inventory if w['pid']==pid) for pid in (app.pid,other_app.pid)]
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        replies=list(pool.map(lambda pair: pair[0].call(op='acquire',id=pair[1]['id'],pid=pair[1]['pid']),zip((one,two),originals)))
+                    assert all('result' in reply for reply in replies),replies
+                    layout=monitor_layout()
+                    assert all(layout[key]==value for key,value in baseline_monitors.items()),layout
+                    assert len(layout)==len(baseline_monitors)+2,layout
+                    assert one.call(op='resize',window_id=originals[1]['window_id'],width=800,height=500)['error']=='window_unavailable'
+                    assert two.call(op='resize',window_id=originals[0]['window_id'],width=800,height=500)['error']=='window_unavailable'
+                finally:one.close();two.close()
+                wait(lambda:monitor_layout()==baseline_monitors)
+                wait(lambda:json.loads(state.read_text())['scale']==json.loads(other_state.read_text())['scale']==1)
+                print('PASS: concurrent output ownership, cross-window denial, physical layout preservation and release cleanup')
                 before=state.read_text()
                 started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False)
                 assert app.poll() is None and json.loads(state.read_text())['text']=='preserved fixture contents'
@@ -171,7 +209,7 @@ try:
                 print('Initial capture:',frame['width'],frame['height'],flush=True)
                 assert struct.unpack('>II',base64.b64decode(frame['png'])[16:24])==(frame['width'],frame['height'])
                 sizes=[]
-                for width,height in [(1200,700),(800,500)]:
+                for width,height in [(1200,700),(2940,1604),(2940,1846),(800,500)]:
                     peer.send(type='window.configure',window_id=window,width=width,height=height)
                     print('Requested:',width,height,flush=True)
                     until=time.monotonic()+15
@@ -180,8 +218,12 @@ try:
                         print('Received:',frame['width'],frame['height'],flush=True)
                         if (frame['width'],frame['height'])==(width,height):break
                     assert (frame['width'],frame['height'])==(width,height),frame.keys()
+                    assert struct.unpack('>II',base64.b64decode(frame['png'])[16:24])==(width,height)
+                    assert json.loads(state.read_text())['scale']==2, 'client must redraw at output density, not upscale its screenshot'
+                    assert json.loads(other_state.read_text())['scale']==1, 'another native application stays on its original output'
+                    assert all(monitor_layout()[key]==value for key,value in baseline_monitors.items())
                     sizes.append((frame['width'],frame['height']))
-                error=peer.request('window.configure','error',window_id=window,width=2940,height=1660)
+                error=peer.request('window.configure','error',window_id=window,width=1200,height=3000)
                 assert error['code']=='resolution_limited',error
                 cut=peer.request('clipboard.cut','error',window_id=window,request_id='safe-cut')
                 assert cut['code']=='wayland_cut_unavailable',cut
@@ -189,7 +231,10 @@ try:
                 denied=peer.request('input.key','error',window_id=window,keysym=97,pressed=True)
                 assert denied['code'] in ('desktop_authorization_pending','desktop_input_unavailable','desktop_authorization_denied'),denied
                 assert json.loads(state.read_text())['text']=='preserved fixture contents'
-                peer.close();time.sleep(.3);peer=Peer(sock)
+                peer.close()
+                wait(lambda:monitor_layout()==baseline_monitors)
+                wait(lambda:json.loads(state.read_text())['scale']==1)
+                peer=Peer(sock)
                 video=peer.request('video.enable','video.ready',codec='h264');assert video['codec']=='h264'
                 reused=peer.request('app.launch','session.started',app_id=app_id,request_id='reuse-original',backend='native',attach=False)
                 assert reused['session_id']==started['session_id']
@@ -203,7 +248,7 @@ try:
                 assert encoded.get('codec')=='h264' and encoded['key_frame'],encoded.keys()
                 assert base64.b64decode(encoded['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
                 print('PASS: cropped native PipeWire pixels enter the H.264 encoder at 960x540')
-                print('PASS: native Wayland inventory, existing application reuse, original PipeWire pixels, resize, oversized request rejection, reconnect and preserved process/content',sizes)
+                print('PASS: native Wayland inventory, original application scale=2, Retina PipeWire pixels, resize, oversized request rejection, reconnect and preserved process/content',sizes)
                 if a.with_xwayland:
                     # Discover only this private compositor's Xwayland. Never
                     # guess :0 or read the real graphical login's authority.
@@ -212,6 +257,7 @@ try:
                     xstate=t/'x11-state.json'
                     xapp=start(['/usr/bin/python3',str(fixture),str(xstate),'--x11'],dict(env,DISPLAY=match[1],XAUTHORITY=str(xauth),GDK_BACKEND='x11'),log)
                     wait(xstate.exists)
+                    wait(lambda:json.loads(xstate.read_text())['scale']==1)
                     geometry=Bridge(env)
                     try:
                         target=wait(lambda:next((w for w in geometry.call(op='list')['result'] if w['pid']==xapp.pid),None))
@@ -224,8 +270,9 @@ try:
                         assert 'result' in point,point
                         xy=point['result']
                         assert 0<=xy['x']<1600 and 0<=xy['y']<900,point
-                        origin=wait(lambda:json.loads(xstate.read_text())['origin'] if json.loads(xstate.read_text())['origin'][-2]<0 else None)
-                        assert abs(origin[-2]+2890-xy['x'])<=1 and abs(origin[-1]+1600-xy['y'])<=1,(origin,xy)
+                        actual=next(w for w in geometry.call(op='scope',window_id=target['window_id'])['result'] if w['pid']==xapp.pid)
+                        assert abs(actual['client_x']+2890*actual['client_width']/2940-xy['x'])<=1,(actual,xy)
+                        assert abs(actual['client_y']+1600*actual['client_height']/1660-xy['y'])<=1,(actual,xy)
                         assert json.loads(xstate.read_text())['text']=='preserved fixture contents'
                         print('PASS: Xwayland 2940x1660 client resize beyond 1600x900 monitor; scoped pointer pans to reachable exact content coordinates',xy)
                     finally:geometry.close()

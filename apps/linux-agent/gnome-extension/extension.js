@@ -6,6 +6,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {VirtualOutput, delay} from './virtualOutput.js';
 
 // No Eval, shell commands, desktop scaling or whole-monitor capture. Leases
 // belong to the unique D-Bus sender, and die when that helper disconnects.
@@ -13,20 +14,70 @@ const XML = `<node><interface name="io.paneferry.Windows1"><method name="Call"><
 export default class PaneFerry extends Extension {
     enable() {
         this.leases = new Map();
+        this.idleTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            const now = GLib.get_monotonic_time();
+            for (const lease of this.leases.values()) {
+                // GNOME may place a newly opened unrelated application on the
+                // focused window's monitor. Keep private outputs scoped to their
+                // root/transients, returning such arrivals to the source monitor.
+                if (lease.output?.connector && !lease.opening) {
+                    const allowed = this.scope(lease.root);
+                    for (const window of this.windows()) {
+                        if (lease.output.contains(window) && !allowed.includes(window)) lease.output.rehome(window);
+                    }
+                }
+                if (lease.output && !lease.opening && now - lease.lastUse > 3000000) {
+                    const output = lease.output;
+                    lease.output = null;
+                    lease.suspending = output.close();
+                }
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
         this.object = Gio.DBusExportedObject.wrapJSObject(XML, this);
         this.object.export(Gio.DBus.session, '/io/paneferry/Windows');
         this.name = Gio.bus_own_name_on_connection(Gio.DBus.session, 'io.paneferry.Windows', Gio.BusNameOwnerFlags.NONE, null, null);
         this.ownerSignal = Gio.DBus.session.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged', '/org/freedesktop/DBus', null, Gio.DBusSignalFlags.NONE,
             (_c, _s, _p, _i, _n, params) => {
                 const [name, , owner] = params.deep_unpack();
-                if (!owner) for (const [token, lease] of this.leases) if (lease.owner === name) this.leases.delete(token);
+                if (!owner) for (const [token, lease] of this.leases) if (lease.owner === name) this.release(token);
             });
     }
     disable() {
+        if (this.idleTimer) GLib.source_remove(this.idleTimer);
+        this.idleTimer = 0;
         if (this.ownerSignal) Gio.DBus.session.signal_unsubscribe(this.ownerSignal);
         if (this.name) Gio.bus_unown_name(this.name);
-        this.object?.unexport(); this.leases?.clear();
+        this.object?.unexport();
+        for (const token of this.leases?.keys() ?? []) this.release(token);
         this.object = null; this.ownerSignal = 0; this.name = 0;
+    }
+    release(token) {
+        const lease = this.leases.get(token);
+        this.leases.delete(token);
+        if (lease) lease.cancelled = true;
+        if (lease?.unmanaged) lease.root.disconnect(lease.unmanaged);
+        lease?.output?.close();
+    }
+    async ensureOutput(lease) {
+        lease.lastUse = GLib.get_monotonic_time();
+        if (lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND) return;
+        if (lease.suspending) { await lease.suspending; lease.suspending = null; }
+        if (lease.cancelled) throw new Error('window_unavailable');
+        if (lease.opening) { await lease.opening; return; }
+        if (lease.output) return;
+        if ([...this.leases.values()].filter(l => l.output).length >= 4) throw new Error('session_limit');
+        for (const other of this.leases.values()) {
+            if (other !== lease && other.output?.contains(lease.root)) {
+                other.output.rehome(lease.root);
+                await delay(25);
+            }
+        }
+        lease.output = new VirtualOutput(lease.root);
+        lease.opening = lease.output.open(lease.scale);
+        try { await lease.opening; }
+        catch (error) { lease.output = null; throw error; }
+        finally { lease.opening = null; lease.lastUse = GLib.get_monotonic_time(); }
     }
     windows() {
         return global.get_window_actors().map(actor => actor.meta_window)
@@ -35,6 +86,7 @@ export default class PaneFerry extends Extension {
     describe(w) {
         const frame = w.get_frame_rect();
         const buffer = w.get_buffer_rect();
+        const client = w.get_client_content_rect();
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
@@ -43,6 +95,7 @@ export default class PaneFerry extends Extension {
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
             xwindow: w.get_client_type() === Meta.WindowClientType.X11 ? w.xwindow : null,
             x: frame.x, y: frame.y, width: frame.width, height: frame.height,
+            client_x: client.x, client_y: client.y, client_width: client.width, client_height: client.height,
             buffer_x: buffer.x, buffer_y: buffer.y, buffer_width: buffer.width, buffer_height: buffer.height,
             max_width: monitor.width - (buffer.width - frame.width), max_height: monitor.height - (buffer.height - frame.height),
             parent_id: parent?.get_stable_sequence() ?? null, minimized: w.minimized,
@@ -73,13 +126,21 @@ export default class PaneFerry extends Extension {
                 if ([...this.leases.values()].some(l => this.scope(l.root).some(w => selected.includes(w)))) throw new Error('session_controlled');
                 if (this.leases.size >= 16) throw new Error('session_limit');
                 const token = GLib.uuid_string_random();
-                this.leases.set(token, {owner, root}); result = {token, window: this.describe(root)};
+                const lease = {owner, root, output: null, scale: r.scale ?? 2};
+                this.leases.set(token, lease);
+                lease.unmanaged = root.connect('unmanaged', () => this.release(token));
+                try { await this.ensureOutput(lease); }
+                catch (error) { this.release(token); throw error; }
+                if (this.leases.get(token) !== lease) throw new Error('window_unavailable');
+                result = {token, window: this.describe(root)};
             } else {
                 const lease = this.leases.get(r.token);
                 if (!lease || lease.owner !== owner) throw new Error('window_unavailable');
-                if (r.op === 'release') { this.leases.delete(r.token); result = {}; }
+                if (r.op === 'release') { this.release(r.token); result = {}; }
                 else {
                     if (!this.windows().includes(lease.root)) throw new Error('window_unavailable');
+                    await this.ensureOutput(lease);
+                    if (this.leases.get(r.token) !== lease) throw new Error('window_unavailable');
                     const scope = this.scope(lease.root);
                     const w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
                         : scope.find(window => window.get_stable_sequence() === r.window_id);
