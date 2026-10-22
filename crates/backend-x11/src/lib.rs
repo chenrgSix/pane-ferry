@@ -19,6 +19,7 @@ mod controller_copy;
 mod controller_text;
 mod damage;
 mod inventory;
+mod related_windows;
 mod shared_capture;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
@@ -40,6 +41,8 @@ pub struct Backend {
     pressed: RefCell<HashSet<(u8, bool)>>,
     process_id: Option<u32>,
     root_window: Option<u32>,
+    existing_display: Option<u16>,
+    window_scope: Option<related_windows::Scope>,
     text_transfer: Option<TextTransfer>,
     copy_transfer: Option<CopyTransfer>,
     scale_factor: u8,
@@ -91,7 +94,9 @@ impl Backend {
     pub fn connect_existing(display: u16, authority: &Path, process_id: u32) -> Result<Self> {
         let conn = authenticated_connection(display, authority)?;
         conn.composite_query_version(0, 4)?.reply()?;
-        Self::from_connection(conn, 0, Some(process_id))
+        let mut backend = Self::from_connection(conn, 0, Some(process_id))?;
+        backend.existing_display = Some(display);
+        Ok(backend)
     }
     /// Restrict an explicitly selected existing window, including its dialogs.
     pub fn restrict_to_window(&mut self, window: u32) -> Result<()> {
@@ -99,6 +104,13 @@ impl Backend {
             bail!("unknown window")
         }
         let attributes = self.conn.get_window_attributes(window)?.reply()?;
+        let ids = self.window_ids()?;
+        self.window_scope = Some(related_windows::Scope::new(
+            self.existing_display.context("missing desktop")?,
+            self.process_id.context("missing process")?,
+            window,
+            &self.window_candidates(&ids),
+        )?);
         self.root_window = Some(window);
         if attributes.map_state != MapState::VIEWABLE {
             self.conn.map_window(window)?.check()?;
@@ -162,6 +174,8 @@ impl Backend {
             pressed: RefCell::new(HashSet::new()),
             process_id,
             root_window: None,
+            existing_display: None,
+            window_scope: None,
             text_transfer: None,
             copy_transfer: None,
             scale_factor: 1,
@@ -185,6 +199,9 @@ impl Backend {
             .reply()?)
     }
     fn belongs_to_process(&self, mut id: u32) -> bool {
+        if let Some(scope) = &self.window_scope {
+            return self.client_pid(id).is_ok_and(|pid| scope.contains(id, pid));
+        }
         if !self.matches_process(id) {
             return false;
         }
@@ -242,6 +259,59 @@ impl Backend {
         }
         false
     }
+    fn window_ids(&self) -> Result<Vec<u32>> {
+        let mut ids: Vec<_> = self
+            .prop(self.root, "_NET_CLIENT_LIST", AtomEnum::WINDOW)?
+            .value32()
+            .into_iter()
+            .flatten()
+            .take(512)
+            .collect();
+        ids.extend(self.windows.keys().copied());
+        for id in self
+            .conn
+            .query_tree(self.root)?
+            .reply()?
+            .children
+            .into_iter()
+            .take(512)
+        {
+            if self
+                .conn
+                .get_window_attributes(id)
+                .ok()
+                .and_then(|r| r.reply().ok())
+                .is_some_and(|a| a.override_redirect)
+            {
+                ids.push(id);
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        Ok(ids)
+    }
+    fn window_candidates(&self, ids: &[u32]) -> Vec<related_windows::Candidate> {
+        ids.iter()
+            .filter_map(|&id| {
+                let attributes = self.conn.get_window_attributes(id).ok()?.reply().ok()?;
+                let pid = self.client_pid(id).ok()?;
+                let parent = self
+                    .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
+                    .ok()
+                    .and_then(|p| p.value32().and_then(|mut v| v.next()))
+                    .filter(|p| *p != self.root && *p != id);
+                Some(related_windows::Candidate {
+                    id,
+                    pid,
+                    parent,
+                    visible: attributes.map_state == MapState::VIEWABLE,
+                })
+            })
+            .collect()
+    }
+    pub fn includes_window(&self, id: u32) -> bool {
+        self.windows.contains_key(&id) && self.belongs_to_process(id)
+    }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
         let wm = self
             .prop(self.root, "_NET_SUPPORTING_WM_CHECK", AtomEnum::WINDOW)
@@ -252,24 +322,13 @@ impl Backend {
         } else {
             None
         };
-        let clients = self
-            .prop(self.root, "_NET_CLIENT_LIST", AtomEnum::WINDOW)?
-            .value32()
-            .map(|x| x.collect::<Vec<_>>())
-            .unwrap_or_default();
-        let mut ids = clients;
+        let ids = self.window_ids()?;
+        if self.window_scope.is_some() {
+            let candidates = self.window_candidates(&ids);
+            self.window_scope.as_mut().unwrap().update(&candidates);
+        }
         // Unmapping/withdrawing a window is not destruction. Keep known XIDs
         // until the server confirms they no longer exist, including cached menus.
-        ids.extend(self.windows.keys().copied());
-        for id in self.conn.query_tree(self.root)?.reply()?.children {
-            if let Ok(a) = self.conn.get_window_attributes(id)?.reply() {
-                if a.override_redirect {
-                    ids.push(id)
-                }
-            }
-        }
-        ids.sort_unstable();
-        ids.dedup();
         let mut out = Vec::new();
         for id in ids {
             if !self.belongs_to_process(id) {
@@ -323,10 +382,15 @@ impl Backend {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "Linux Application".into());
             let parent_id = self
-                .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
-                .ok()
-                .and_then(|p| p.value32().and_then(|mut v| v.next()))
-                .filter(|id| self.belongs_to_process(*id));
+                .window_scope
+                .as_ref()
+                .and_then(|s| s.parent(id))
+                .or_else(|| {
+                    self.prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
+                        .ok()
+                        .and_then(|p| p.value32().and_then(|mut v| v.next()))
+                        .filter(|id| self.belongs_to_process(*id))
+                });
             let mut w = Window {
                 window_id: id,
                 parent_id,
@@ -598,6 +662,9 @@ impl Backend {
         }
         if button != 0 && pressed {
             self.focus_for_input(id)?;
+            if let Some(scope) = &self.window_scope {
+                scope.record_input(id);
+            }
         }
         let point = self
             .conn
@@ -652,6 +719,9 @@ impl Backend {
         }
         if pressed {
             self.focus_for_input(id)?;
+            if let Some(scope) = &self.window_scope {
+                scope.record_input(id);
+            }
         }
         let setup = self.conn.setup();
         let min = setup.min_keycode;

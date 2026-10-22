@@ -105,6 +105,16 @@ impl Backend {
     pub(super) fn application_pid(&self, window: u32) -> Result<u32> {
         // Electron can create the visible window from its GPU process while
         // clipboard helpers belong to the main process named by _NET_WM_PID.
+        if let Some(scope) = &self.window_scope {
+            self.known(window)?;
+            return self
+                .prop(window, "_NET_WM_PID", AtomEnum::CARDINAL)
+                .ok()
+                .and_then(|p| p.value32().and_then(|mut v| v.next()))
+                .and_then(|pid| scope.clipboard_pid(window, pid))
+                .map(Ok)
+                .unwrap_or_else(|| self.client_pid(window));
+        }
         if let Some(pid) = self.process_id {
             return Ok(pid);
         }

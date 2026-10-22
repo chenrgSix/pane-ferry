@@ -627,8 +627,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if justCreated, visible, object["role"] as? String == "toplevel" {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
-        if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max) { parents[id] = UInt32(parent) }
-        else { parents.removeValue(forKey: id); host.window.parent?.removeChildWindow(host.window) }
+        if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }
+        else { parents.removeValue(forKey: id); host.relatedWindow = false; host.window.parent?.removeChildWindow(host.window) }
     }
     func attachParents() {
         for (id, parentID) in parents where id != parentID {

@@ -374,6 +374,16 @@ fn launch(
         }
         for session in st.sessions.values() {
             let s = session.lock().unwrap();
+            if s.display == existing.display
+                && s.root_window != root_window
+                && root_window.is_some_and(|window| {
+                    s.backend
+                        .as_ref()
+                        .is_some_and(|backend| backend.includes_window(window))
+                })
+            {
+                bail!("session already controlled")
+            }
             if s.existing.as_ref() == Some(&identity)
                 && s.display == existing.display
                 && (s.root_window == root_window
@@ -893,10 +903,13 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .map(|target| {
                                 let existing_session = st.sessions.values().find_map(|session| {
                                     let session = session.lock().unwrap();
-                                    (session.existing.as_ref() == Some(&target.identity)
-                                        && session.display == target.desktop.display
-                                        && (session.root_window.is_none()
-                                            || session.root_window == Some(target.window_id)))
+                                    (session.display == target.desktop.display
+                                        && (session.backend.as_ref().is_some_and(|backend| {
+                                            backend.includes_window(target.window_id)
+                                        }) || session.existing.as_ref()
+                                            == Some(&target.identity)
+                                            && (session.root_window.is_none()
+                                                || session.root_window == Some(target.window_id))))
                                     .then_some((session.id.clone(), session.controller))
                                 });
                                 target.public(

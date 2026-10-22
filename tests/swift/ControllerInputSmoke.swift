@@ -105,6 +105,14 @@ struct ControllerInputSmoke {
         precondition(disconnects == 1, "repeated close does not start a second detach")
         host.closeLocally()
         precondition(disconnects == 1, "remote window destruction only closes the local mirror")
+        let child = HostedWindow(id: 8, width: 480, height: 320, revision: 1, scale: 1, popup: false, disconnect: { disconnects += 1 }) { resizeMessages.append($0) }
+        child.relatedWindow = true
+        child.window.performClose(nil)
+        precondition(disconnects == 1 && resizeMessages.last?["type"] as? String == "window.close.request"
+            && resizeMessages.last?["window_id"] as? UInt32 == 8, "closing a preview requests only its remote window close")
+        let childCloseCount = resizeMessages.count
+        child.closeLocally()
+        precondition(disconnects == 1 && resizeMessages.count == childCloseCount, "server destruction must not echo a child close")
         print("PASS: controller-only preedit/commit, on-demand paste/copy, input bounds, correlated clipboard replies without touching the system clipboard")
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")

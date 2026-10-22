@@ -9,6 +9,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var applyingRemote = false
     var remoteVisible = false
     var allowClose = false
+    var relatedWindow = false
     var resizeTimer: Timer?
     var rendering: RenderGeometry
     var mediaMode: String?
@@ -53,6 +54,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose { return true }
+        if relatedWindow {
+            resizeTimer?.invalidate(); resizeTimer = nil
+            surface.releaseInput()
+            transmit(["type":"window.close.request", "window_id":id])
+            return false
+        }
         if !disconnectRequested {
             disconnectRequested = true
             resizeTimer?.invalidate(); resizeTimer = nil

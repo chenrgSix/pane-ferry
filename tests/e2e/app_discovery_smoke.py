@@ -149,8 +149,8 @@ try:
         peer.close()
         # Select Alpha. Beta has the same PID, but must never enter its session.
         selected = Peer(sock)
-        selected.request('app.launch', 'session.started', app_id=windows['DiscoveryAlpha']['id'],
-                         request_id='take-alpha', backend='native')
+        alpha_session = selected.request('app.launch', 'session.started', app_id=windows['DiscoveryAlpha']['id'],
+                                        request_id='take-alpha', backend='native')['session_id']
         frame = selected.until('frame')
         allowed = {before['DiscoveryAlpha']['id'], before['DiscoveryDialog']['id']}
         assert frame['window_id'] in allowed
@@ -168,6 +168,51 @@ try:
         replacement = '控制端主动粘贴🙂'
         selected.send(type='clipboard.paste', window_id=alpha, text=replacement)
         wait(lambda: json.loads(state.read_text())['DiscoveryAlpha']['text'] == replacement, 'selected-window explicit paste')
+        # A second controller owns Beta. Both scopes see the same processes,
+        # but the unparented helper belongs only to the last interacting scope.
+        beta = Peer(sock)
+        beta_session = beta.request('app.launch', 'session.started', app_id=windows['DiscoveryBeta']['id'],
+                                    request_id='take-beta', backend='native')['session_id']
+        beta.until('frame')
+        selected.send(type='input.key', window_id=alpha, keysym=0xffbf, pressed=True)
+        selected.send(type='input.key', window_id=alpha, keysym=0xffbf, pressed=False)
+        child_state = state.with_suffix('.child.json')
+        preview = wait(lambda: json.loads(child_state.read_text())['DiscoveryPreview'] if child_state.exists() else None,
+                       'real child-process preview appeared')['id']
+        created = selected.until('window.created')
+        while created['window_id'] != preview:
+            created = selected.until('window.created')
+        assert created['parent_id'] == alpha and created['role'] == 'dialog', created
+        selected.send(type='input.text.commit', window_id=preview, text='跨进程预览🙂')
+        wait(lambda: json.loads(child_state.read_text())['DiscoveryPreview']['text'] == '跨进程预览🙂', 'child text delivery')
+        beta.send(type='input.key', window_id=preview, keysym=ord('x'), pressed=True)
+        assert beta.until('error')['code'] == 'window_unavailable', 'another session gained preview input'
+        # An unrelated process forges both hints; the XRes PID and OS ancestry
+        # must still prevent capture and input. This is on the private Xvfb only.
+        spoof_state = root/'spoof.json'
+        start([sys.executable, str(Path(__file__).with_name('discovery_fixture.py')), str(spoof_state), '--child'], env)
+        spoof = wait(lambda: json.loads(spoof_state.read_text())['DiscoveryPreview'] if spoof_state.exists() else None, 'foreign process window')['id']
+        for prop, fmt, value in (('WM_TRANSIENT_FOR', '32x', hex(alpha)), ('_NET_WM_PID', '32c', str(fixture.pid))):
+            subprocess.run(['xprop', '-id', str(spoof), '-f', prop, fmt, '-set', prop, value], env=env, check=True)
+        selected.send(type='input.key', window_id=spoof, keysym=ord('x'), pressed=True)
+        assert selected.until('error')['code'] == 'window_unavailable', 'forged properties bypassed process identity'
+        inventory = Peer(sock)
+        listed_preview = next(w for w in inventory.request('window.list')['windows'] if w['window_id'] == preview)
+        assert listed_preview['session_id'] == alpha_session and listed_preview['controlled'], listed_preview
+        inventory.close()
+        # Resuming keeps the accepted child even without a fresh input event.
+        selected.close()
+        time.sleep(.3)
+        selected = Peer(sock)
+        snapshot = selected.request('session.resume', 'session.snapshot', session_id=alpha_session)
+        assert {w['window_id'] for w in snapshot['windows']} == allowed | {preview}, snapshot
+        selected.send(type='window.close.request', window_id=preview)
+        destroyed = selected.until('window.destroyed')
+        assert destroyed['window_id'] == preview, destroyed
+        wait(lambda: not child_state.exists(), 'child close')
+        selected.send(type='input.text.commit', window_id=alpha, text='主窗口仍可用')
+        wait(lambda: json.loads(state.read_text())['DiscoveryAlpha']['text'].endswith('主窗口仍可用'), 'parent survives child close')
+        beta.close()
         selected.send(type='window.close.request', window_id=before['DiscoveryAlpha']['id'])
         selected.until('session.exited')
         assert fixture.poll() is None and 'DiscoveryBeta' in json.loads(state.read_text())
@@ -183,7 +228,7 @@ try:
         wait(terminal_input.exists, 'owned xterm accepted controller text')
         assert terminal_input.read_text().strip() == '终端输入中文🙂'
         sessions = Peer(sock)
-        assert len(sessions.request('session.list')['sessions']) == 1
+        assert {s['session_id'] for s in sessions.request('session.list')['sessions']} == {beta_session, started['session_id']}
         # Private RemoteApp desktops must not appear as original desktop windows.
         assert all(w['title'] != 'Discovered-only' for w in sessions.request('window.list')['windows'])
         sessions.close()
@@ -192,6 +237,7 @@ try:
         assert fixture.poll() is None, 'Agent killed an existing process'
         print('PASS: real localized desktop discovery, theme/SVG PNG icons, XDG overrides/Hidden/NoDisplay/TryExec, live refresh, discovered launch')
         print('PASS: read-only window inventory, stable IDs, same-PID window scope with dialogs, unrelated input rejection, scoped Unicode and explicit copy/paste, target close and existing-process survival')
+        print('PASS: real unparented child-process preview discovery/input/close, reconnect membership and simultaneous session isolation')
 finally:
     for process in reversed(children):
         if process.poll() is None:
