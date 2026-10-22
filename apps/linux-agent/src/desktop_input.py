@@ -137,7 +137,9 @@ class Eis:
         while event := self.lib.ei_get_event(self.context):
             try:
                 kind = self.lib.ei_event_get_type(event)
-                if self.can_sync and self.waiting_ping and self.lib.ei_event_pong_get_ping(event) == self.waiting_ping:
+                # libei's typed getter is only valid for EI_EVENT_PONG (90).
+                # Modifier notifications can arrive while a ping is pending.
+                if kind == 90 and self.can_sync and self.waiting_ping and self.lib.ei_event_pong_get_ping(event) == self.waiting_ping:
                     self.pong = True
                 device = self.lib.ei_event_get_device(event)
                 if kind == 2:  # DISCONNECT
