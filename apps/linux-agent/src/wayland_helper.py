@@ -19,7 +19,8 @@ def call(bus, path, interface, method, args=None, timeout=2000):
 
 def bridge(request):
     try:
-        answer = json.loads(call(BUS, PATH, IFACE, 'Call', GLib.Variant('(s)', (json.dumps(request, ensure_ascii=False),)))[0])
+        answer = json.loads(call(BUS, PATH, IFACE, 'Call', GLib.Variant('(s)', (json.dumps(request, ensure_ascii=False),)),
+                                 timeout=10000 if request.get('op') == 'commit_text' else 2000)[0])
     except GLib.Error:
         raise ValueError('wayland_bridge_unavailable') from None
     if 'error' in answer:

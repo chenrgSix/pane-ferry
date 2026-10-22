@@ -32,6 +32,11 @@ struct ClipboardOrderingSmoke {
         set("copied locally later")
         reply("late", "older remote reply", 3)
         precondition(board.string(forType:.string) == "copied locally later", "a late remote reply cannot overwrite a newer local clipboard change")
+        app.receive(Incoming(object:["type":"error", "code":"wayland_text_unavailable", "window_id":42], image:nil))
+        precondition(app.connected && host.inputNotice?.contains("粘贴") == true)
+        precondition(board.string(forType:.string) == "copied locally later", "unsupported text cannot alter the clipboard or disconnect")
+        app.send(["type":"input.pointer", "window_id":UInt32(42), "button":1, "pressed":true])
+        precondition(host.inputNotice == nil, "selecting a different input field clears the contextual notice")
         host.closeLocally(); app.clipboardTimer?.invalidate()
         print("PASS: actual AppDelegate cut→paste ordering, unsolicited response rejection, failed-copy paste cancellation and newer local clipboard preservation")
     }

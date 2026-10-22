@@ -104,3 +104,15 @@ GNOME 50 的 `RecordWindow` 在创建流时固定其主显示器的缓冲区大�
 创建操作串行化，防止并发设备认领彼此的输出；租约消失、原窗口关闭、扩展停用会释放输出并恢复原几何。旧 Agent 保留会话后不销毁窗口后端，因此桥接层在三秒没有租约操作后撤回输出，把原窗口送回来源显示器；重连重新准备输出。应用进程和内容始终保留。该改进在独立 GNOME 中通过：实际 PNG 2940×1604/2940×1846，GTK 自身报告 scale=2，另一原生窗口 scale=1，物理显示器布局保持，两个并发租约隔离、越权拒绝、释放/空闲回收/重连、后续 H.264 960×540，以及 Xwayland 大窗口与坐标换算回归。混合 DPI 下 Xwayland 的协议像素与合成器坐标可能不同，验收使用实际客户区换算，不再假设二者单位相同。
 
 上述为隔离验证，真实 Firefox 的部署与验收记录另行补充；原来记录的 1868×1028 上限属于升级前窗口流。
+
+## 通用 Wayland 连续输入（后续改进）
+
+旧实现把每次 `input.text.commit` 都转换为“改写剪贴板、等待 16ms、Ctrl+V”。隔离 GTK 输入框把读取剪贴板推迟 150ms 后，`about:newtab-0123456789` 可稳定出现漏字/重复；下一次提交会先覆盖上一次尚未读取的内容。此证据确认通用实现存在竞争，但不能据此断言此前真实 Firefox 自动化冒号缺失只有这一个原因。
+
+新的提交路径通过 GNOME 的 Wayland text-input 接口直接传递控制端已完成组合的 UTF-8 文本；不使用剪贴板，不按应用名选择逻辑。主动粘贴保留原来的独立命令。快捷键仍使用经过 Portal 授权的 EIS 通道：文本提交前用 libei 的 ping/pong 确认此前事件已进入合成器，再等待 Clutter stage 完成本轮事件处理；提交后等待 text-input 的 done 事件发出。只等待 GLib idle 的中间版本在“全选后立刻输入”中仍有先后颠倒，已由该同步流程修复，没有添加固定逐字延时。
+
+没有 text-input 焦点的输入框会在修改内容前明确拒绝，并提示主动粘贴整段文字；不会伪造 Unicode 按键，也不会静默退回旧的逐字粘贴。libei 同步需要 1.4 及以上版本，断开、暂停或同步超时均拒绝继续发送且不自动重试。X11 独立会话沿用原有输入队列，当前飞书的运行实例未切换实现。
+
+窗口桥报告接口版本 2。新 Agent 遇到仍在内存中的旧扩展会提示保存工作后重新登录，不把新服务配旧扩展当成输入成功。GNOME 50 的模块导入在 Shell 生命周期内缓存，禁用/启用不能加载修改后的模块；因此本轮先构建和隔离验证，不能为了激活而结束当前 Firefox、飞书或旧 Agent。
+
+依据：[libei 同步语义](https://libinput.pages.freedesktop.org/libei/api/group__libei.html)、[Mutter EIS 输入线程同步](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/backends/meta-eis.c)、[text-input 提交与 done](https://raw.githubusercontent.com/GNOME/mutter/50.1/src/wayland/meta-wayland-text-input.c)、[GNOME 扩展模块生命周期](https://raw.githubusercontent.com/GNOME/gnome-shell/50.1/js/ui/extensionSystem.js)。最终门禁和未激活范围见验证记录；隔离输入框通过不等同于真实 Firefox 已验收。

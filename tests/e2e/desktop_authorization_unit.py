@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 source = Path(__file__).resolve().parents[2] / 'apps/linux-agent/src/desktop_input.py'
 spec = importlib.util.spec_from_file_location('desktop_input', source)
@@ -14,6 +15,30 @@ spec.loader.exec_module(module)
 
 
 class AuthorizationTests(unittest.TestCase):
+    def test_sync_pong_disconnect_timeout_and_cleanup(self):
+        class Native:
+            def __init__(self): self.events = []
+            def ei_new_ping(self, context): return 7
+            def ei_ping(self, ping): self.events.append(('ping',ping))
+            def ei_ping_unref(self, ping): self.events.append(('unref',ping))
+        for outcome in ('ready','timeout','disconnected','paused'):
+            with self.subTest(outcome=outcome):
+                eis = module.Eis.__new__(module.Eis)
+                eis.lib, eis.context, eis.can_sync = Native(), 1, True
+                eis.disconnected = False
+                eis.ready = lambda: outcome != 'paused'
+                def dispatch():
+                    eis.pong = outcome != 'timeout'
+                    eis.disconnected = outcome == 'disconnected'
+                eis.dispatch = dispatch
+                with patch.object(module.time,'monotonic',side_effect=[0,2]):
+                    if outcome == 'ready': eis.sync()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError,'desktop_input_unavailable'):
+                            eis.sync()
+                self.assertIsNone(eis.waiting_ping)
+                self.assertEqual(eis.lib.events,[('ping',7),('unref',7)])
+
     def test_token_rotation_permissions_and_corrupt_state(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

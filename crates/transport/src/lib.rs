@@ -85,10 +85,12 @@ pub fn remote_error_message(code: &str) -> String {
         "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
         "wayland_bridge_unavailable" => "应用正在 Wayland 桌面运行。请在 Ubuntu 启用窗渡 GNOME 扩展，再刷新运行窗口；不会另建浏览器配置。".into(),
         "wayland_bridge_failed" => "Wayland 窗口接口暂不可用，请检查 Ubuntu 的窗渡 GNOME 扩展。".into(),
+        "wayland_bridge_outdated" => "Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。".into(),
         "wayland_capture_unavailable" => "Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer 组件。".into(),
         "resolution_limited" => "请求尺寸超出当前 Wayland 窗口采集范围。请缩小窗口或选择较低分辨率；原应用和桌面缩放保持不变。".into(),
         "wayland_binary_clipboard_unavailable" => "当前 Wayland 窗口仅支持文字剪贴板。".into(),
         "wayland_cut_unavailable" => "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。".into(),
+        "wayland_text_unavailable" => "当前输入框不支持直接输入，请使用粘贴；输入未自动重试。".into(),
         "application_multiple_windows" => "该应用已有多个窗口，请从“运行中的窗口”选择要连接的窗口。".into(),
         "application_start_failed" => "应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新运行窗口；没有可连接窗口时检查应用兼容性。".into(),
         "application_window_pending" => "应用尚未产生窗口，会话已保留。可稍后刷新运行状态或重试，不会重复启动。".into(),
@@ -149,6 +151,7 @@ impl Error {
                     | "application_multiple_windows"
                     | "application_start_failed"
                     | "wayland_bridge_unavailable"
+                    | "wayland_bridge_outdated"
                     | "wayland_capture_unavailable"
                     | "session_expired"
                     | "session_exited"

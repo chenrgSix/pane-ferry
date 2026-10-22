@@ -170,6 +170,12 @@ impl DesktopInput for Lease {
     fn release_all(&self) {
         let _ = self.call(json!({"type":"release","owner":self.owner}), false);
     }
+    fn sync(&self) -> Result<()> {
+        if self.call(json!({"type":"sync"}), false)? != "ready" {
+            bail!("desktop_input_unavailable")
+        }
+        Ok(())
+    }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -237,6 +243,7 @@ mod tests {
     fn disconnect_cleanup_does_not_start_or_authorize_a_helper() {
         let manager = Manager::new(PathBuf::from("/unused-fixture"));
         let lease = manager.lease();
+        assert!(lease.sync().is_err());
         lease.release_all();
         drop(lease);
         assert!(manager.0.broker.lock().unwrap().is_none());

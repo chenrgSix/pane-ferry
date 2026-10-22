@@ -31,6 +31,9 @@ pub trait WindowBackend: Send {
     fn text_pending(&self) -> bool;
     fn cancel_text(&mut self);
     fn commit_text(&mut self, window: u32, text: String) -> Result<()>;
+    fn paste_text(&mut self, window: u32, text: String) -> Result<()> {
+        self.commit_text(window, text)
+    }
     fn paste_bundle(&mut self, window: u32, transfer: &str) -> Result<()>;
     fn pump_text(&mut self) -> Result<()>;
 }

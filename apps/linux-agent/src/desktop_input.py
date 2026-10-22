@@ -9,9 +9,11 @@ import json
 import os
 from pathlib import Path
 import secrets
+import select
 import stat
 import sys
 import tempfile
+import time
 
 APP_ID = 'io.lanremoteapp.Agent'
 PORTAL = 'org.freedesktop.portal.Desktop'
@@ -99,6 +101,17 @@ class Eis:
         for name, (result, arguments) in signatures.items():
             function = getattr(self.lib, name)
             function.restype, function.argtypes = result, arguments
+        # libei 1.4+: a compositor round trip, not a guessed sleep. Keep older
+        # systems' existing key/pointer support; only synchronized text needs it.
+        sync_signatures = {'ei_new_ping': (ptr, [ptr]), 'ei_ping': (None, [ptr]),
+            'ei_ping_unref': (ptr, [ptr]), 'ei_event_pong_get_ping': (ptr, [ptr])}
+        self.can_sync = all(hasattr(self.lib, name) for name in sync_signatures)
+        if self.can_sync:
+            for name, (result, arguments) in sync_signatures.items():
+                function = getattr(self.lib, name)
+                function.restype, function.argtypes = result, arguments
+        self.waiting_ping = None
+        self.pong = False
         # The final zero is the varargs sentinel (promoted capability enums).
         self.lib.ei_seat_bind_capabilities.restype = None
         self.lib.ei_seat_bind_capabilities.argtypes = [ptr]
@@ -124,6 +137,8 @@ class Eis:
         while event := self.lib.ei_get_event(self.context):
             try:
                 kind = self.lib.ei_event_get_type(event)
+                if self.can_sync and self.waiting_ping and self.lib.ei_event_pong_get_ping(event) == self.waiting_ping:
+                    self.pong = True
                 device = self.lib.ei_event_get_device(event)
                 if kind == 2:  # DISCONNECT
                     self.disconnected = True
@@ -151,6 +166,31 @@ class Eis:
                     self.flush_releases(device)
             finally:
                 self.lib.ei_event_unref(event)
+
+    def sync(self):
+        if not self.can_sync or self.disconnected:
+            raise RuntimeError('desktop_input_unavailable')
+        ping = self.lib.ei_new_ping(self.context)
+        if not ping:
+            raise RuntimeError('desktop_input_unavailable')
+        self.waiting_ping, self.pong = ping, False
+        try:
+            self.lib.ei_ping(ping)
+            deadline = time.monotonic() + 1
+            while True:
+                self.dispatch()
+                # A disconnect can synthesize a pong; it is never success.
+                if self.disconnected or not self.ready():
+                    raise RuntimeError('desktop_input_unavailable')
+                if self.pong:
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError('desktop_input_unavailable')
+                select.select([self.fd], [], [], remaining)
+        finally:
+            self.waiting_ping = None
+            self.lib.ei_ping_unref(ping)
 
     def device(self, capability, point=None):
         for device in self.active:
@@ -427,7 +467,17 @@ class Portal:
                 raise RuntimeError({'pending': 'desktop_authorization_pending',
                     'denied': 'desktop_authorization_denied', 'paused': 'desktop_input_paused'}
                     .get(self.status, 'desktop_input_unavailable'))
-            self.eis.send(request)
+            if kind == 'sync':
+                try:
+                    self.eis.sync()
+                except RuntimeError:
+                    if self.eis.disconnected:
+                        self.fail('unavailable')
+                    elif not self.eis.ready():
+                        self.status = 'paused'
+                    raise
+            else:
+                self.eis.send(request)
         return {'status': self.status}
 
 
@@ -457,7 +507,7 @@ def main():
                 try:
                     request = json.loads(line)
                     kind = request['type']
-                    if kind not in ('ensure', 'status', 'release', 'pointer', 'key'):
+                    if kind not in ('ensure', 'status', 'release', 'pointer', 'key', 'sync'):
                         raise ValueError('invalid command')
                     if kind in ('release', 'pointer', 'key'):
                         if type(request['owner']) is not int or not 0 < request['owner'] < 2**64:

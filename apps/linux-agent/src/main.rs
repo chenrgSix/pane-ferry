@@ -1010,8 +1010,10 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         };
         if let Some(req) = req {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
-            let configure_window = match &req {
-                Request::Configure { window_id, .. } => Some(*window_id),
+            let request_window = match &req {
+                Request::Configure { window_id, .. } | Request::Text { window_id, .. } => {
+                    Some(*window_id)
+                }
                 _ => None,
             };
             let result: Result<()> = (|| {
@@ -1273,10 +1275,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 keysym,
                                 pressed,
                             } => b.key(window_id, keysym, pressed)?,
-                            Request::Text { window_id, text }
-                            | Request::Paste { window_id, text } => {
-                                b.commit_text(window_id, text)?
-                            }
+                            Request::Text { window_id, text } => b.commit_text(window_id, text)?,
+                            Request::Paste { window_id, text } => b.paste_text(window_id, text)?,
                             Request::Copy {
                                 window_id,
                                 request_id,
@@ -1312,7 +1312,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 let code = request_error::code(&message);
                 send(
                     &mut out,
-                    json!({"type":"error","code":code,"message":message,"window_id":configure_window}),
+                    json!({"type":"error","code":code,"message":message,"window_id":request_window}),
                     &sid,
                 )?;
             }

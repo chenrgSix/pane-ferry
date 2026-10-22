@@ -438,6 +438,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard connected else { return }
         let type = message["type"] as? String ?? ""
         if recovering && !["video.enable", "session.resume", "app.launch"].contains(type) { return }
+        if type == "input.pointer", message["pressed"] as? Bool == true, (message["button"] as? Int ?? 0) > 0,
+           let window = message["window_id"] as? UInt32 {
+            windows[window]?.inputNotice = desktopInputNotice
+        }
         if clipboardBusy && type != "session.detach" {
             if type == "input.pointer", message["button"] as? Int == 0,
                clipboardDeferred.last?["type"] as? String == type, clipboardDeferred.last?["button"] as? Int == 0,
@@ -497,6 +501,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 alert(code == "wayland_cut_unavailable" ? "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。" : "当前 Wayland 窗口仅支持文字剪贴板。")
                 return
             }
+            if code == "wayland_bridge_outdated" {
+                stopRecovery(); alert("Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。"); return
+            }
             if ["wayland_bridge_unavailable", "wayland_bridge_failed", "wayland_capture_unavailable", "desktop_locked"].contains(code) {
                 stopRecovery(); alert(code == "desktop_locked" ? "远端桌面已锁定，请解锁后重新连接。" : "Wayland 窗口连接未就绪。请确认 Ubuntu 已启用窗渡 GNOME 扩展，且 PipeWire 组件正常。")
                 return
@@ -516,6 +523,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if code == "session_controlled", recovering { connectionLost(); return }
             if ["session_expired", "session_exited"].contains(code) {
                 stopRecovery(); statusItem?.button?.title = "PaneFerry · 会话已结束"; return
+            }
+            if code == "wayland_text_unavailable" {
+                // Missing text-input focus is a capability limit, not a lost
+                // connection. Never open one blocking alert per typed character.
+                if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
+                   let host = windows[UInt32(number)] {
+                    host.inputNotice = "当前输入框不支持直接输入，请使用粘贴"
+                }
+                statusItem?.button?.title = "PaneFerry · 请使用粘贴输入"; NSSound.beep(); return
             }
             if ["controller_text_failed", "clipboard_copy_failed", "clipboard_cut_failed", "clipboard_cut_unavailable"].contains(code) {
                 statusItem?.button?.title = "PaneFerry · 输入或剪贴板失败"

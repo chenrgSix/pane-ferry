@@ -18,6 +18,8 @@ use std::{
 
 #[derive(Clone, Deserialize)]
 pub struct Info {
+    #[serde(default)]
+    pub bridge_version: u32,
     pub id: String,
     pub window_id: u32,
     pub pid: u32,
@@ -129,6 +131,7 @@ impl Rpc {
                     "resolution_limited" => "resolution_limited",
                     "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
                     "wayland_capture_unavailable" => "wayland_capture_unavailable",
+                    "wayland_text_unavailable" => "wayland_text_unavailable",
                     _ => "wayland_bridge_failed",
                 }
             )
@@ -195,6 +198,11 @@ impl Backend {
         input: Arc<dyn DesktopInput>,
         desktop: &crate::discovery::Desktop,
     ) -> Result<Self> {
+        // GNOME caches loaded extension modules until the next login. An
+        // upgraded Agent must not silently use the old text/capture contract.
+        if target.info.bridge_version < 2 {
+            bail!("wayland_bridge_outdated")
+        }
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
             bail!("approved existing process unavailable")
         }
@@ -512,6 +520,19 @@ impl WindowBackend for Backend {
         Ok(())
     }
     fn commit_text(&mut self, window: u32, text: String) -> Result<()> {
+        paneferry_protocol::validate_text(&text)?;
+        self.known(window)?;
+        self.ready()?;
+        // EIS and compositor text use different channels. Wait for earlier
+        // keys/clicks (e.g. Ctrl+L/Ctrl+A) before committing on the Wayland socket.
+        self.input.sync()?;
+        self.focus(window)?;
+        self.rpc
+            .borrow_mut()
+            .call(json!({"op":"commit_text","window_id":window,"text":text}))?;
+        Ok(())
+    }
+    fn paste_text(&mut self, window: u32, text: String) -> Result<()> {
         paneferry_protocol::validate_text(&text)?;
         self.known(window)?;
         self.ready()?;

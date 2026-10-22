@@ -7,6 +7,7 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {VirtualOutput, delay} from './virtualOutput.js';
+import {TextInput} from './textInput.js';
 
 // No Eval, shell commands, desktop scaling or whole-monitor capture. Leases
 // belong to the unique D-Bus sender, and die when that helper disconnects.
@@ -14,6 +15,7 @@ const XML = `<node><interface name="io.paneferry.Windows1"><method name="Call"><
 export default class PaneFerry extends Extension {
     enable() {
         this.leases = new Map();
+        this.textInput = new TextInput();
         this.idleTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
             const now = GLib.get_monotonic_time();
             for (const lease of this.leases.values()) {
@@ -46,6 +48,7 @@ export default class PaneFerry extends Extension {
     disable() {
         if (this.idleTimer) GLib.source_remove(this.idleTimer);
         this.idleTimer = 0;
+        this.textInput?.destroy();
         if (this.ownerSignal) Gio.DBus.session.signal_unsubscribe(this.ownerSignal);
         if (this.name) Gio.bus_unown_name(this.name);
         this.object?.unexport();
@@ -90,7 +93,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 2, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
             xwindow: w.get_client_type() === Meta.WindowClientType.X11 ? w.xwindow : null,
@@ -188,7 +191,12 @@ export default class PaneFerry extends Extension {
                             result = {x: Math.round(x), y: Math.round(y)};
                         } else if (r.op === 'focus') { Main.activateWindow(w); result = {}; }
                         else if (r.op === 'close') { w.delete(global.get_current_time()); result = {}; }
-                        else if (r.op === 'set_text') {
+                        else if (r.op === 'commit_text') {
+                            if (typeof r.text !== 'string' || !r.text || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');
+                            const method = await this.textInput.commit(w, r.text, () => this.leases.get(r.token) === lease &&
+                                !Main.sessionMode.isLocked && this.scope(lease.root).includes(w));
+                            result = {method};
+                        } else if (r.op === 'set_text') {
                             if (typeof r.text !== 'string' || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');
                             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, r.text); result = {};
                         } else if (r.op === 'get_text') {
@@ -209,7 +217,7 @@ export default class PaneFerry extends Extension {
             }
             invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result})]));
         } catch (error) {
-            const allowed = ['desktop_locked', 'window_unavailable', 'session_controlled', 'session_limit', 'invalid_request', 'invalid_dimensions', 'invalid_text', 'clipboard_copy_failed', 'resolution_limited'];
+            const allowed = ['desktop_locked', 'window_unavailable', 'session_controlled', 'session_limit', 'invalid_request', 'invalid_dimensions', 'invalid_text', 'clipboard_copy_failed', 'resolution_limited', 'wayland_text_unavailable'];
             if (!allowed.includes(error.message)) console.error(`PaneFerry compositor API: ${error.message}
 ${error.stack}`);
             invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({error: allowed.includes(error.message) ? error.message : 'wayland_bridge_failed'})]));

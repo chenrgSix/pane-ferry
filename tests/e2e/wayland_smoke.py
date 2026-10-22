@@ -132,7 +132,7 @@ try:
             wait(lambda:Path(f'/tmp/.X11-unix/X{display}').exists())
             shell=start(['gnome-shell','--headless','--wayland',*(['--no-x11'] if not a.with_xwayland else []),'--wayland-display',wayland,'--virtual-monitor','1600x900'],env,log)
             wait(lambda:(runtime/wayland).exists())
-            app=start(['/usr/bin/python3',str(fixture),str(state)],dict(env,GDK_BACKEND='wayland'),log)
+            app=start(['/usr/bin/python3',str(fixture),str(state),'--delayed-paste'],dict(env,GDK_BACKEND='wayland'),log)
             try:
                 wait(state.exists, seconds=60)
             except Exception:
@@ -200,6 +200,14 @@ try:
                 wait(lambda:monitor_layout()==baseline_monitors)
                 wait(lambda:json.loads(state.read_text())['scale']==json.loads(other_state.read_text())['scale']==1)
                 print('PASS: concurrent output ownership, cross-window denial, physical layout preservation and release cleanup')
+                from wayland_text_test import verify
+                verify(env,app.pid,state,Bridge,wait,None,delayed_paste=True)
+                wait(lambda:monitor_layout()==baseline_monitors)
+                im_state=t/'im-state.json'
+                im_app=start(['/usr/bin/python3',str(fixture),str(im_state),'--im'],dict(env,GDK_BACKEND='wayland',GTK_IM_MODULE='wayland'),log)
+                wait(im_state.exists)
+                verify(env,im_app.pid,im_state,Bridge,wait,'text-input')
+                wait(lambda:monitor_layout()==baseline_monitors)
                 before=state.read_text()
                 started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False)
                 assert app.poll() is None and json.loads(state.read_text())['text']=='preserved fixture contents'
@@ -230,6 +238,9 @@ try:
                 assert json.loads(state.read_text())['text']=='preserved fixture contents'
                 denied=peer.request('input.key','error',window_id=window,keysym=97,pressed=True)
                 assert denied['code'] in ('desktop_authorization_pending','desktop_input_unavailable','desktop_authorization_denied'),denied
+                for kind in ('input.text.commit','clipboard.paste'):
+                    denied=peer.request(kind,'error',window_id=window,text='must not bypass portal')
+                    assert denied['code'] in ('desktop_authorization_pending','desktop_input_unavailable','desktop_authorization_denied'),denied
                 assert json.loads(state.read_text())['text']=='preserved fixture contents'
                 peer.close()
                 wait(lambda:monitor_layout()==baseline_monitors)

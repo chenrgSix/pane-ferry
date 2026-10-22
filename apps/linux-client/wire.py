@@ -119,10 +119,12 @@ def request(peer_id, kind, expected=None, local=False, **fields):
 MESSAGES = {
     'wayland_bridge_unavailable': '请在 Ubuntu 启用窗渡 GNOME 扩展，再刷新运行窗口；不会另建浏览器配置。',
     'wayland_bridge_failed': 'Wayland 窗口接口暂不可用，请检查窗渡 GNOME 扩展。',
+    'wayland_bridge_outdated': 'Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。',
     'wayland_capture_unavailable': 'Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer。',
     'resolution_limited': '请求尺寸超出 Wayland 采集范围，请缩小窗口或选择较低分辨率。',
     'wayland_binary_clipboard_unavailable': '当前 Wayland 窗口仅支持文字剪贴板。',
     'wayland_cut_unavailable': '当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。',
+    'wayland_text_unavailable': '当前输入框不支持直接输入，请使用粘贴；输入未自动重试。',
     'network_operation_failed': '配对操作未完成，请检查设备地址、邀请有效期和设备身份。',
     'network_unavailable': '直接连接组件未就绪，请检查 UDP 42424 端口。',
     'sharing_disabled': '对方已停止共享，应用仍在原设备运行。',

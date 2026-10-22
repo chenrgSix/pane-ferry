@@ -32,6 +32,7 @@ pub trait DesktopInput: Send + Sync {
     fn status(&self) -> &'static str;
     fn pointer(&self, x: i32, y: i32, button: u8, pressed: bool) -> Result<()>;
     fn key(&self, code: u8, pressed: bool) -> Result<()>;
+    fn sync(&self) -> Result<()>;
     fn release_all(&self);
 }
 /// Optional compositor geometry for an already approved Xwayland window.
