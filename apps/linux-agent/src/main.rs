@@ -28,6 +28,7 @@ static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 mod desktop_input;
 mod discovery;
 mod input_queue;
+mod launch_policy;
 mod output;
 mod request_error;
 mod session_bus;
@@ -131,17 +132,34 @@ impl Drop for Session {
         }
     }
 }
+struct LaunchRequest {
+    session_id: String,
+    app_id: String,
+    scale_factor: u8,
+}
 struct State {
     device_id: String,
     sharing: bool,
     sessions: HashMap<String, Arc<Mutex<Session>>>,
-    requests: HashMap<String, String>,
+    requests: HashMap<String, LaunchRequest>,
     apps: Vec<App>,
     desktop_apps: Vec<discovery::DesktopApp>,
     desktop: Option<discovery::Desktop>,
     running: HashMap<String, discovery::RunningWindow>,
     runtime: PathBuf,
     desktop_input: desktop_input::Manager,
+}
+impl State {
+    fn remember_launch(&mut self, request: &str, app: &str, scale: u8, session: &str) {
+        self.requests.insert(
+            request.into(),
+            LaunchRequest {
+                session_id: session.into(),
+                app_id: app.into(),
+                scale_factor: scale,
+            },
+        );
+    }
 }
 fn home() -> Result<PathBuf> {
     Ok(PathBuf::from(
@@ -329,13 +347,17 @@ fn launch(
     if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
     }
-    if let Some(sid) = st.requests.get(req) {
-        let s = st.sessions.get(sid).context("session expired")?.clone();
+    if let Some(request) = st.requests.get(req) {
+        if request.app_id != app_id || request.scale_factor != scale_factor {
+            bail!("request id conflict")
+        }
+        let s = st
+            .sessions
+            .get(&request.session_id)
+            .context("session expired")?
+            .clone();
         {
             let mut s = s.lock().unwrap();
-            if s.app_id != app_id || s.existing.is_none() && s.scale_factor != scale_factor {
-                bail!("request id conflict")
-            }
             if s.has_exited()? {
                 bail!("session exited; use a new request id to start again")
             }
@@ -350,6 +372,22 @@ fn launch(
     if st.requests.len() >= 4096 {
         bail!("request history limit reached; restart after saving work")
     }
+    // App tiles continue existing work, including detached independent sessions.
+    // Requests are scoped to this publisher; no name-based cross-device matching.
+    if let Some(session) = launch_policy::unique(
+        st.sessions
+            .values()
+            .filter(|session| session.lock().unwrap().app_id == app_id)
+            .cloned(),
+    )? {
+        let s = session.lock().unwrap();
+        if s.controller {
+            bail!("session already controlled")
+        }
+        st.remember_launch(req, app_id, scale_factor, &s.id);
+        drop(s);
+        return Ok(session);
+    }
     if app_id.starts_with("desktop-") && !st.desktop_apps.iter().any(|a| a.id == app_id) {
         st.desktop_apps = discovery::applications()?;
     }
@@ -359,8 +397,29 @@ fn launch(
         .find(|a| a.id == app_id)
         .map(|app| app.resolve())
         .transpose()?;
-    let root_window = st.running.get(app_id).map(|target| target.window_id);
-    let app = if let Some(target) = st.running.get(app_id) {
+    let target_id = if discovered.is_some() {
+        let sources = discovery::desktops(&st.desktop, &st.apps);
+        let excluded = st
+            .sessions
+            .values()
+            .filter_map(|session| {
+                let s = session.lock().unwrap();
+                s.existing.is_none().then_some(s.display)
+            })
+            .collect::<Vec<_>>();
+        st.running = discovery::running(&sources, &st.desktop_apps, &excluded)?.0;
+        launch_policy::unique(
+            st.running
+                .values()
+                .filter(|target| target.app_id.as_deref() == Some(app_id))
+                .map(|target| target.id.clone()),
+        )?
+    } else {
+        Some(app_id.to_owned())
+    };
+    let target = target_id.as_ref().and_then(|id| st.running.get(id));
+    let root_window = target.map(|target| target.window_id);
+    let app = if let Some(target) = target {
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
             bail!("approved existing process unavailable")
         }
@@ -380,7 +439,7 @@ fn launch(
         if root_window.is_none() && identity.executable != fs::canonicalize(&app.executable)? {
             bail!("existing process does not match approved executable")
         }
-        for session in st.sessions.values() {
+        for session in st.sessions.values().cloned().collect::<Vec<_>>() {
             let s = session.lock().unwrap();
             if s.display == existing.display
                 && s.root_window != root_window
@@ -401,10 +460,10 @@ fn launch(
                 if s.root_window != root_window {
                     bail!("session already controlled")
                 }
-                if s.app_id != app_id {
-                    bail!("existing process already registered under another app")
+                if s.controller {
+                    bail!("session already controlled")
                 }
-                st.requests.insert(req.into(), s.id.clone());
+                st.remember_launch(req, app_id, scale_factor, &s.id);
                 return Ok(session.clone());
             }
         }
@@ -450,7 +509,7 @@ fn launch(
             private_authority: None,
             secrets_bus: None,
         }));
-        st.requests.insert(req.into(), id.clone());
+        st.remember_launch(req, app_id, scale_factor, &id);
         st.sessions.insert(id, session.clone());
         return Ok(session);
     }
@@ -626,9 +685,39 @@ fn launch(
             .context("application start failed")?,
     );
     let session = Arc::new(Mutex::new(s));
-    st.requests.insert(req.into(), id.clone());
+    st.remember_launch(req, app_id, scale_factor, &id);
     st.sessions.insert(id, session.clone());
     Ok(session)
+}
+
+fn wait_for_window(session: &Arc<Mutex<Session>>) -> Result<()> {
+    let started = Instant::now();
+    loop {
+        {
+            let mut s = session.lock().unwrap();
+            if s.controller {
+                bail!("session already controlled")
+            }
+            if s.has_exited()? {
+                bail!("application exited before creating a window")
+            }
+            if s.backend
+                .as_mut()
+                .context("native backend unavailable")?
+                .scan()?
+                .iter()
+                .any(|window| window.visible)
+            {
+                return Ok(());
+            }
+        }
+        // Preserve the session and request key: a slow application may still
+        // finish starting. Retrying must not spawn or kill another process.
+        if started.elapsed() >= Duration::from_secs(10) {
+            bail!("application window pending")
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 struct Lease(Arc<Mutex<Session>>);
 impl Drop for Lease {
@@ -971,6 +1060,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &request_id,
                             scale_factor,
                         )?;
+                        wait_for_window(&session)?;
                         // A launcher only prepares a session. It must not race the
                         // WindowHost for the exclusive controller lease.
                         let new = if attach {
@@ -1173,6 +1263,58 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn app_reuses_detached_session_and_remembers_original_request_parameters() {
+        let child = Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let session = Arc::new(Mutex::new(Session {
+            id: "existing-session".into(),
+            app_id: "test-app".into(),
+            display: 101,
+            scale_factor: 1,
+            backend: None,
+            children: vec![child],
+            controller: false,
+            exited: false,
+            existing: None,
+            root_window: None,
+            private_authority: None,
+            secrets_bus: None,
+        }));
+        let mut st = State {
+            device_id: "test-device".into(),
+            sharing: true,
+            sessions: HashMap::from([("existing-session".into(), session.clone())]),
+            requests: HashMap::new(),
+            apps: vec![],
+            desktop_apps: vec![],
+            desktop: None,
+            running: HashMap::new(),
+            runtime: PathBuf::from("/unused"),
+            desktop_input: desktop_input::Manager::new(PathBuf::from("/unused")),
+        };
+        assert!(Arc::ptr_eq(
+            &launch(&mut st, "test-app", "request", 2).unwrap(),
+            &session
+        ));
+        assert!(Arc::ptr_eq(
+            &launch(&mut st, "test-app", "request", 2).unwrap(),
+            &session
+        ));
+        assert_eq!(
+            session.lock().unwrap().scale_factor,
+            1,
+            "reuse must not change application scale"
+        );
+        assert!(launch(&mut st, "other-app", "request", 2).is_err());
+        assert!(launch(&mut st, "test-app", "request", 1).is_err());
+        session.lock().unwrap().controller = true;
+        assert!(launch(&mut st, "test-app", "another-request", 2).is_err());
+        assert_eq!(st.sessions.len(), 1);
+    }
     #[test]
     fn id_entropy() {
         assert_eq!(random_id().unwrap().len(), 32);

@@ -212,6 +212,7 @@ pub fn desktops(explicit: &Option<Desktop>, configured: &[App]) -> Vec<Desktop> 
 
 pub struct RunningWindow {
     pub id: String,
+    pub app_id: Option<String>,
     pub desktop: Desktop,
     pub identity: ProcessIdentity,
     pub window_id: u32,
@@ -238,7 +239,7 @@ impl RunningWindow {
         }
     }
     pub fn public(&self, controlled: bool, session_id: Option<String>) -> Value {
-        json!({"id":self.id,"window_id":self.window_id,"name":self.name,"title":self.title,
+        json!({"id":self.id,"app_id":self.app_id,"window_id":self.window_id,"name":self.name,"title":self.title,
             "icon_png":self.icon_png,"minimized":self.minimized,"controlled":controlled,"session_id":session_id})
     }
 }
@@ -314,6 +315,7 @@ pub fn running(
             });
             let value = RunningWindow {
                 id: id.clone(),
+                app_id: matching.map(|app| app.id.clone()),
                 desktop: desktop.clone(),
                 identity,
                 window_id: window.window_id,

@@ -279,10 +279,7 @@ async fn launch_app(
         message: if app_id.starts_with("window-") {
             "现有窗口客户端已启动，原应用的内容和登录状态保留。".into()
         } else {
-            format!(
-                "原生窗口已启动；分辨率随本机窗口调整，界面缩放 {}%。",
-                session.scale_factor * 100
-            )
+            "已连接应用窗口；已有会话保留原内容，实际分辨率与缩放状态见窗口标题。".into()
         },
     })
 }

@@ -224,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var transport = RWPTransport()
     var makeTransport: () -> RWPTransport = { RWPTransport() }
     var windows: [UInt32: HostedWindow] = [:]
+    var receivedWindow = false
     var parents: [UInt32: UInt32] = [:]
     var removed = Set<UInt32>()
     var session: String?
@@ -573,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "session.exited" {
             stopRecovery()
             for host in windows.values { host.closeLocally() }; windows.removeAll()
+            if !receivedWindow { alert("应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新启动器的运行窗口列表后连接已有窗口。") }
             statusItem?.button?.title = "PaneFerry · 应用已退出"; return
         }
         guard let number = unsignedInteger(object["window_id"]), number <= UInt64(UInt32.max) else { return }
@@ -608,6 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let justCreated = windows[id] == nil
         if justCreated {
             guard create, windows.count < 64 else { return }
+            receivedWindow = true
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             windows[id] = host

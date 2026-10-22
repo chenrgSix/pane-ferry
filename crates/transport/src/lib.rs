@@ -31,6 +31,8 @@ pub struct AppCatalog {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DesktopWindowInfo {
     pub id: String,
+    #[serde(default)]
+    pub app_id: Option<String>,
     pub window_id: u32,
     pub name: String,
     pub title: String,
@@ -81,6 +83,9 @@ pub fn remote_error_message(code: &str) -> String {
         "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
         "accessibility_required" => "请在 Mac 允许 窗渡 PaneFerry 的辅助功能权限。".into(),
         "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
+        "application_multiple_windows" => "该应用已有多个窗口，请从“运行中的窗口”选择要连接的窗口。".into(),
+        "application_start_failed" => "应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新运行窗口；没有可连接窗口时检查应用兼容性。".into(),
+        "application_window_pending" => "应用尚未产生窗口，会话已保留。可稍后刷新运行状态或重试，不会重复启动。".into(),
         "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
         "existing_window_unavailable" => {
@@ -135,6 +140,8 @@ impl Error {
                 "existing_process_unavailable"
                     | "existing_process_mismatch"
                     | "existing_window_unavailable"
+                    | "application_multiple_windows"
+                    | "application_start_failed"
                     | "session_expired"
                     | "session_exited"
                     | "request_id_conflict"
@@ -322,6 +329,9 @@ pub async fn desktop_windows(endpoint: &Target) -> Result<DesktopWindows, Error>
     }
     for window in &windows {
         validate_id(&window.id)?;
+        if let Some(app) = &window.app_id {
+            validate_id(app)?;
+        }
         if let Some(session) = &window.session_id {
             validate_id(session)?;
         }

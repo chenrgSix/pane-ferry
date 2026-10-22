@@ -231,13 +231,35 @@ try:
         assert {s['session_id'] for s in sessions.request('session.list')['sessions']} == {beta_session, started['session_id']}
         # Private PaneFerry desktops must not appear as original desktop windows.
         assert all(w['title'] != 'Discovered-only' for w in sessions.request('window.list')['windows'])
-        sessions.close()
+        busy = sessions.request('app.launch', 'error', app_id=app['id'], request_id='busy-app', backend='native', attach=False)
+        assert busy['code'] == 'session_controlled', busy
         launch.close()
+        time.sleep(.2)
+        reused = sessions.request('app.launch', 'session.started', app_id=app['id'], request_id='reuse-app', backend='native', attach=False, scale_factor=2)
+        assert reused['session_id'] == started['session_id'] and reused['scale_factor'] == 1
+        replay = sessions.request('app.launch', 'session.started', app_id=app['id'], request_id='reuse-app', backend='native', attach=False, scale_factor=2)
+        assert replay['session_id'] == started['session_id']
+        # Exit success is not window startup success (single-instance forwarding
+        # behaves this way). A slow application keeps one retryable session.
+        for name, command in [('exits', '/usr/bin/true'), ('pending', '/usr/bin/sleep 30')]:
+            (user_data/'applications'/f'{name}.desktop').write_text(
+                f'[Desktop Entry]\nType=Application\nName={name}\nExec={command}\n')
+        catalog = sessions.request('app.list')['apps']
+        exits = next(a['id'] for a in catalog if a['name'] == 'exits')
+        pending = next(a['id'] for a in catalog if a['name'] == 'pending')
+        failed = sessions.request('app.launch', 'error', app_id=exits, request_id='exits-test', backend='native', attach=False)
+        assert failed['code'] == 'application_start_failed', failed
+        waiting = sessions.request('app.launch', 'error', app_id=pending, request_id='pending-test', backend='native', attach=False)
+        assert waiting['code'] == 'application_window_pending', waiting
+        preserved = [s for s in sessions.request('session.list')['sessions'] if s['app_id'] == pending]
+        assert len(preserved) == 1
+        sessions.close()
         agent.terminate(); agent.wait(timeout=10)
         assert fixture.poll() is None, 'Agent killed an existing process'
         print('PASS: real localized desktop discovery, theme/SVG PNG icons, XDG overrides/Hidden/NoDisplay/TryExec, live refresh, discovered launch')
         print('PASS: read-only window inventory, stable IDs, same-PID window scope with dialogs, unrelated input rejection, scoped Unicode and explicit copy/paste, target close and existing-process survival')
         print('PASS: real unparented child-process preview discovery/input/close, reconnect membership and simultaneous session isolation')
+        print('PASS: app launch reuses detached session across scale preferences, rejects occupied session, detects early exit and preserves delayed startup')
 finally:
     for process in reversed(children):
         if process.poll() is None:
