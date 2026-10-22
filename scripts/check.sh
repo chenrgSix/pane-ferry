@@ -27,6 +27,7 @@ else
   python3 tests/e2e/node_routes_smoke.py --agent target/debug/remoteapp-agent
   if command -v xvfb-run >/dev/null; then
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
+    xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py --native
   fi
   echo 'SKIP: Swift/AppKit 需要 macOS SDK，当前平台未编译。'
 fi
