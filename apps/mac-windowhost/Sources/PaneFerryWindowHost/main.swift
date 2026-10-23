@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import ImageIO
 import Network
 
 // RWP/1 developer preview. Rendering is CoreGraphics/NSView, not Metal.
@@ -17,13 +16,12 @@ struct Options {
     let app: String?
     let session: String?
     var iconFromStdin = false
-    var quality: DisplayQuality? = nil
     let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--quality"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper"]
         while i < args.count {
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
@@ -46,9 +44,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        let quality = values["--quality"].flatMap(DisplayQuality.init(rawValue:))
-        guard values["--quality"] == nil || quality != nil else { throw HostError.message("画质参数必须是 png 或 h264") }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, quality: quality, native: native)
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -147,38 +143,24 @@ final class RWPTransport {
                         guard let w = object["width"] as? Int, let h = object["height"] as? Int,
                               w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels
                         else { throw HostError.message("无效或过大的视频尺寸") }
-                        if object["codec"] as? String == "h264" {
-                            guard let id = unsignedInteger(object["window_id"]), id <= UInt32.max,
+                        guard object["codec"] as? String == "h264",
+                              let id = unsignedInteger(object["window_id"]), id <= UInt32.max,
                                   let stream = unsignedInteger(object["stream_id"]), stream > 0,
                                   let ew = object["encoded_width"] as? Int, let eh = object["encoded_height"] as? Int,
                                   let encoded = object["data"] as? String, let data = Data(base64Encoded: encoded),
                                   data.count <= 12 * 1024 * 1024 else { throw HostError.message("无效 H.264 帧") }
-                            let windowID = UInt32(id)
-                            guard videoPixels.filter({ $0.key != windowID }).values.reduce(0, +) + w * h <= 16_000_000 else {
-                                throw HostError.message("视频解码像素总量超限")
-                            }
-                            videoPixels[windowID] = w * h
-                            if videoDecoders[windowID] == nil {
-                                guard videoDecoders.count < 64 else { throw HostError.message("视频窗口数量超限") }
-                                videoDecoders[windowID] = H264Decoder()
-                            }
-                            image = try videoDecoders[windowID]?.decode(data, streamID: stream, width: w, height: h, encodedWidth: ew, encodedHeight: eh)
-                        } else {
-                            guard object["codec"] == nil,
-                              let encoded = object["png"] as? String,
-                              let png = Data(base64Encoded: encoded), png.count <= 12 * 1024 * 1024,
-                              png.starts(with: [137,80,78,71,13,10,26,10]),
-                              let source = CGImageSourceCreateWithData(png as CFData, nil),
-                              CGImageSourceGetCount(source) == 1,
-                              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                              (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue == w,
-                              (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue == h,
-                              let decoded = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-                        else { throw HostError.message("无效或过大的 PNG 帧") }
-                        image = decoded
+                        let windowID = UInt32(id)
+                        guard videoPixels.filter({ $0.key != windowID }).values.reduce(0, +) + w * h <= 16_000_000 else {
+                            throw HostError.message("视频解码像素总量超限")
                         }
+                        videoPixels[windowID] = w * h
+                        if videoDecoders[windowID] == nil {
+                            guard videoDecoders.count < 64 else { throw HostError.message("视频窗口数量超限") }
+                            videoDecoders[windowID] = H264Decoder()
+                        }
+                        image = try videoDecoders[windowID]?.decode(data, streamID: stream, width: w, height: h, encodedWidth: ew, encodedHeight: eh)
                     }
-                    var lightweight = object; lightweight.removeValue(forKey: "png"); lightweight.removeValue(forKey: "data")
+                    var lightweight = object; lightweight.removeValue(forKey: "data")
                     try enqueue(Incoming(object: lightweight, image: image))
                 }
                 guard buffer.count <= maximumLine else { throw HostError.message("协议消息未终止或过大") }
@@ -221,8 +203,6 @@ final class RWPTransport {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
-    let qualitySettings: DisplayQualitySettings
-    private(set) var displayQuality: DisplayQuality
     let applicationName = Bundle.main.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String
         ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "窗渡 PaneFerry"
     let applicationIcon: NSImage?
@@ -258,10 +238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var clipboardTimer: Timer?
     var clipboardChangeCount = 0
     var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(native: options.native) }
-    init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil,
-         qualitySettings: DisplayQualitySettings = DisplayQualitySettings()) {
-        self.options = options; self.qualitySettings = qualitySettings
-        self.displayQuality = options.quality ?? qualitySettings.selected
+    init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
+        self.options = options
         self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -282,13 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         editMenu.addItem(withTitle: "从控制端粘贴", action: #selector(SurfaceView.paste(_:)), keyEquivalent: "v")
         let displayItem = NSMenuItem(); mainMenu.addItem(displayItem)
         let displayMenu = NSMenu(title: "显示"); displayItem.submenu = displayMenu
-        for quality in DisplayQuality.allCases {
-            let item = displayMenu.addItem(withTitle: quality.title, action: #selector(selectDisplayQuality(_:)), keyEquivalent: "")
-            item.representedObject = quality.rawValue
-        }
-        let qualityHint = NSMenuItem(title: "切换会短暂重连，保留远端应用；记住为新连接默认", action: nil, keyEquivalent: "")
-        qualityHint.isEnabled = false; displayMenu.addItem(qualityHint)
-        displayMenu.addItem(.separator())
         displayMenu.addItem(withTitle: "自动适应窗口", action: #selector(automaticResolution), keyEquivalent: "0")
         displayMenu.addItem(withTitle: "适应可用屏幕", action: #selector(fitScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
@@ -311,21 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的画面等比显示。显示菜单可选择 PNG 无损或 H.264 视频，画质切换不改变窗口大小或应用缩放。PNG 保留源图细节、占用更多带宽，不会增加源图分辨率。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
-    }
-    @objc func selectDisplayQuality(_ item: NSMenuItem) {
-        guard let value = item.representedObject as? String, let quality = DisplayQuality(rawValue: value) else { return }
-        changeDisplayQuality(to: quality)
-    }
-    func changeDisplayQuality(to quality: DisplayQuality) {
-        guard quality != displayQuality, !stopping, !clipboardBusy, session != nil || options.session != nil else { return }
-        displayQuality = quality; qualitySettings.selected = quality
-        // Video negotiation precedes attachment. Reuse the existing reconnect
-        // path and session ID, retaining the local viewport without relaunching or closing the application.
-        reconnectTimer?.invalidate(); reconnectTimer = nil; reconnectAttempt = 0
-        connectionLost()
-        for host in windows.values { host.window.subtitle = "正在切换为\(quality.title)，远端应用保持运行…" }
-        statusItem?.button?.title = "PaneFerry · 正在切换画质"
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示，最高 60 fps。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -333,12 +290,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func actualPixels() { activeHost()?.showActualPixels() }
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(selectDisplayQuality(_:)) {
-            menuItem.state = menuItem.representedObject as? String == displayQuality.rawValue ? .on : .off
-            // Keep this available during recovery, so a bandwidth-constrained
-            // PNG connection can be changed without losing the remote session.
-            return !stopping && !clipboardBusy && (session != nil || options.session != nil)
-        }
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
             return activeHost() != nil
@@ -505,11 +456,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "hello" {
             guard !ready else { return }; ready = true
             capabilities = Set(object["capabilities"] as? [String] ?? [])
-            if displayQuality == .smooth && capabilities.contains("native.h264") {
-                var request: [String: Any] = ["type":"video.enable", "codec":"h264"]
-                if capabilities.contains("native.h264-refinement") { request["refine_static"] = true }
-                send(request)
+            guard capabilities.contains("native.h264") else {
+                stopRecovery(); alert("远端不支持 H.264 视频，无法连接该窗口。")
+                return
             }
+            send(["type":"video.enable", "codec":"h264"])
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
@@ -663,11 +614,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !removed.contains(id), let host = windows[id], let image = incoming.image,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
-            let video = object["codec"] as? String == "h264"
-            let mode = video ? "H.264 视频" : (object["refinement"] as? Bool == true ? "PNG 无损刷新" :
-                (displayQuality == .clarity ? "PNG 无损 · 清晰优先" : "PNG 无损 · 视频回退"))
-            host.present(image, mediaMode: mode)
-            statusItem?.button?.title = "PaneFerry · " + mode
+            host.present(image, mediaMode: "H.264 视频")
+            statusItem?.button?.title = "PaneFerry · H.264 视频"
         default: break
         }
     }

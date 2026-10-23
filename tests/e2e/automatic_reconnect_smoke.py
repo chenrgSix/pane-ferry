@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-auto-resume-') as directory:
     types.write_text(text.split(marker)[0])
     fixture = scratch/'fake-bridge'
     fixture.write_text('''#!/usr/bin/env python3
-import json, pathlib, select, sys
+import json, os, pathlib, select, sys
 root=pathlib.Path(__file__).parent
 count=root/'connections'
 n=int(count.read_text())+1 if count.exists() else 1
@@ -27,19 +27,25 @@ count.write_text(str(n))
 def emit(**value):
     print(json.dumps(dict(value, version=1)), flush=True)
 with (root/'requests').open('a', buffering=1) as log:
-    while not (n==1 and (root/'cut').exists()):
-        if not select.select([sys.stdin],[],[],.02)[0]: continue
-        line=sys.stdin.readline()
-        if not line: break
-        item=json.loads(line); log.write(json.dumps(item)+'\\n')
-        if item['type']=='hello': emit(type='hello', capabilities=['input.text.commit'])
-        if item['type']=='session.resume':
-            emit(type='session.snapshot', session_id='retained', seq=100 if n==1 else 1,
-                 windows=[dict(window_id=42, title='Automatic reconnect fixture', width=640, height=480,
-                               geometry_revision=n, scale_factor=1, visible=True, role='toplevel')])
-            emit(type='input.authorization', session_id='retained', seq=101 if n==1 else 2, state='pending')
-            emit(type='input.authorization', session_id='retained', seq=102 if n==1 else 3, state='ready')
-        if item['type']=='session.detach': break
+    pending=b''; detach=False
+    while not detach and not (n==1 and (root/'cut').exists()):
+        if select.select([0],[],[],.02)[0]:
+            chunk=os.read(0,65536)
+            if not chunk: break
+            pending+=chunk
+        while b'\\n' in pending:
+            line,pending=pending.split(b'\\n',1)
+            if not line: continue
+            item=json.loads(line); log.write(json.dumps(item)+'\\n')
+            if item['type']=='hello': emit(type='hello', capabilities=['input.text.commit','native.h264'])
+            if item['type']=='video.enable': emit(type='video.ready', codec='h264')
+            if item['type']=='session.resume':
+                emit(type='session.snapshot', session_id='retained', seq=100 if n==1 else 1,
+                     windows=[dict(window_id=42, title='Automatic reconnect fixture', width=640, height=480,
+                                   geometry_revision=n, scale_factor=1, visible=True, role='toplevel')])
+                emit(type='input.authorization', session_id='retained', seq=101 if n==1 else 2, state='pending')
+                emit(type='input.authorization', session_id='retained', seq=102 if n==1 else 3, state='ready')
+            if item['type']=='session.detach': detach=True; break
 sys.exit(255 if n==1 else 0)
 ''')
     fixture.chmod(0o700)
@@ -47,4 +53,9 @@ sys.exit(255 if n==1 else 0)
     files = [str(path) for path in source.glob('*.swift') if path.name != 'main.swift']
     subprocess.run(['swiftc', '-module-cache-path', str(scratch/'modules'), *files, str(types),
                     str(root/'tests/swift/AutomaticReconnectSmoke.swift'), '-o', str(binary)], check=True, timeout=120)
-    subprocess.run([str(binary), str(scratch)], check=True, timeout=25)
+    result = subprocess.run([str(binary), str(scratch)], capture_output=True, text=True, timeout=25)
+    if result.returncode:
+        print(result.stdout, result.stderr[-4000:], flush=True)
+        print((scratch/'requests').read_text()[-4000:] if (scratch/'requests').exists() else 'no requests', flush=True)
+    assert result.returncode == 0, result.returncode
+    print(result.stdout, end='')

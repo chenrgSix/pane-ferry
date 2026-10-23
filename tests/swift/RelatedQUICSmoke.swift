@@ -4,7 +4,6 @@ import AppKit
     static func main() throws {
         _ = NSApplication.shared
         var options=try Options.parse(Array(CommandLine.arguments.dropFirst()))
-        options.quality = .smooth // This fixture explicitly verifies H.264.
         let board=NSPasteboard.withUniqueName();defer { board.releaseGlobally() }
         let app=AppDelegate(options:options,clipboard:board)
         defer {

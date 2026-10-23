@@ -2,24 +2,23 @@
 
 下文定义RWP/1 本机业务接口。原生 QUIC 通过 RWN/2 多可靠流承载相同业务语义、二进制视频及控制水位，见[统一传输指南](native-transport.md)。
 
-私有本机 Unix socket 与本机桥接的 stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级，当前不称 protobuf 实现）。客户端请求行最大 64 KiB，服务端事件行最大 16 MiB，PNG base64 全帧，宽高 1..4096，总像素 <= 8M；采样最短间隔 33ms，静止帧去重。所有请求与响应都必须包含 version:1，其他版本拒绝。每个消息 type 为以下字符串，version:1，服务端事件带 session_id、seq；窗口事件带 window_id（u32）与 geometry_revision（u64）。跨机传输只允许已配对的 QUIC 设备，不接受远端 shell 命令。
+私有本机 Unix socket 与本机桥接的 stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级，当前不称 protobuf 实现）。客户端请求行最大 64 KiB，服务端事件行最大 16 MiB，H.264 base64 视频帧，宽高 1..4096，总像素 <= 8M；采样最短间隔约 16.7ms，静止帧去重。所有请求与响应都必须包含 version:1，其他版本拒绝。每个消息 type 为以下字符串，version:1，服务端事件带 session_id、seq；窗口事件带 window_id（u32）与 geometry_revision（u64）。跨机传输只允许已配对的 QUIC 设备，不接受远端 shell 命令。
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
-支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。未协商的连接继续使用 PNG，旧 hello 不变。协商只影响本连接，不能指定客户端编码程序、采集进程或任意编码参数。
-支持静止画面无损刷新时另声明 `native.h264-refinement`；客户端确认同时支持 PNG 后，可在 `video.enable` 添加 `refine_static:true`，缺省 false。每个窗口最后一次变化约 250ms 后，发布器发送同一原始像素、同一几何版本的 PNG 帧并标记 `refinement:true`，只发送一次。下一次变化仍沿用原 H.264 流，接收端保留解码器参考帧。隐藏、几何变化、销毁、重连和缓存预算淘汰会取消待发刷新；超过消息预算的 PNG 不发送。只支持 H.264 的接收端不请求此能力，原有路径保持不变。
+支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。没有 H.264 能力时客户端拒绝附着；没有 PNG 窗口帧、静止 PNG 补帧或编码失败回退。协商只影响本连接，不能指定客户端编码程序、采集进程或任意编码参数。
 客户端 app.list，服务端 app.list {apps:[{id,name,description,unavailable_reason?:null|string}]}。unavailable_reason 是现有窗口绑定已失效等稳定错误码，由客户端映射为提示；缺失或 null 表示未发现不可用原因，不保证后续启动必定成功。
 新版 app.list 从 GIO 每次发现已安装桌面应用，并追加自定义入口。响应另有 discovery_supported:true、discovery_error:null|code；每项有 source:"desktop"|"custom" 和 icon_png:null|base64。图标仅为受限 PNG，应用图标最多 12KiB / 96px；控制端检查格式头、尺寸和长度。客户端不接收可执行路径或 argv；旧 Agent 没有 discovery_supported 时，新启动器明确提示需要更新。自动应用最多 512 个，自定义配置最多 256 个，控制响应行仍限制 16MiB。
 客户端 window.list，服务端 window.list {windows:[{id,app_id:null|string,window_id,name,title,icon_png,minimized,controlled,session_id:null|string}],unavailable_reason:null|code}。最多 128 个当前用户的 X11/XWayland 窗口及已启用 GNOME 桥接的原生 Wayland 窗口。app_id 是核验后的目录关联，不用标题猜测。只读查询不得截屏、改变焦点/尺寸或发送输入；单个窗口图标不超过 16KiB / 128px。自己的独立虚拟桌面和已接收的远程窗口不重复发布。
 接管从 window.list 返回的 id 仍使用 app.launch，不允许客户端传 PID、显示号、认证文件或任意 XID 作为接入目标。服务端注册并复核 XRes 客户 PID、同 UID、进程启动时间、可执行身份和选中窗口，仅该主窗口及关联弹窗进入会话。同 PID 的其他主窗口不属于这个会话。session_id 非空时从远程会话区重连，避免重复接管。
 客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口沿用原应用缩放，不在重连时改变。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
-客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled}]}，只返回尚未退出的会话，不抢占控制权。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
+客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled,window_count?:number|null}]}，只返回尚未退出的会话，不抢占控制权。window_count 为当前可见窗口数；0 表示进程虽仍在运行但没有可列出的窗口，null 表示暂时无法确认。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
 
 display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，不表示 X11 采集。白名单配置 existing 时，app.launch 接入经批准的现有进程窗口，不新建应用；协议和 native 后端值保持不变。重复请求复用该进程会话。PID、Xauthority 等接入参数不属于客户端协议，进程退出或身份变化后不得继续输入或捕获。
 窗口事件 window.created/window.metadata {window_id,parent_id:null|u32,title,role:"toplevel"|"dialog"|"popup",x,y,width,height,geometry_revision,visible:bool}；visible 缺失时按 true 兼容旧端。隐藏/重新映射同一 XID 只更新 visible，保留身份和几何版本，隐藏时暂停帧，重新显示时重发当前帧；真正销毁才发送 window.destroyed {window_id}。
 
-`parent_id` 表示发布端核验后接纳的会话内关联关系，可跨进程；不能由控制端提交任意 PID 或窗口扩大范围。快照包含该会话全部窗口。接收端按设备 UUID、会话与窗口分发画面和输入；关联窗口的原生关闭按钮发送该窗口的 `window.close.request`，主窗口原生关闭仍表示断开。窗口级错误可附带 `window_id`，剪贴板失败只取消对应窗口的等待；旧端没有窗口编号时取消本连接尚未完成的复制，避免无限等待。
+`parent_id` 表示发布端核验后接纳的会话内关联关系，可跨进程；不能由控制端提交任意 PID 或窗口扩大范围。快照包含该会话全部窗口。接收端按设备 UUID、会话与窗口分发画面和输入；本机窗口的关闭按钮向对应远端窗口发送 `window.close.request`。从应用菜单选择“断开并退出”才只断开控制。窗口级错误可附带 `window_id`，剪贴板失败只取消对应窗口的等待；旧端没有窗口编号时取消本连接尚未完成的复制，避免无限等待。
 
 窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。frame {window_id,geometry_revision,width,height,png:base64}。
 视频帧使用同一 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height，省略 png。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize 和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。编码失败回退帧有 png 和 video_error:"encoder_failed"，没有 codec 字段。
@@ -40,12 +39,12 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 需要桌面密钥服务兼容策略的应用，在本地总线或受限代理不可用时返回 `desktop_secrets_unavailable`。这是启动前的明确拒绝，不保留新会话。该策略由发布端本地目录决定，客户端不能提交总线地址、代理规则或修改启动策略。
 
-视频/PNG 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔 33ms，实际帧率受编码、网络及控制端限制；已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
+H.264 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔约 16.7ms，目标上限 60 fps，实际帧率受编码、网络及控制端限制；已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
 
 Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/lan-remoteapp/apps.json 自定义入口。Exec 字段由发布器解析、启动前重新确认对应桌面入口；自定义配置只接受固定绝对 executable + argv 数组。客户端不能传 executable 或命令字符串。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。网络组件通过本机私有 socket 访问发布器，不执行远端 shell 命令。完整行为见 [应用与窗口发现](application-discovery.md)。
 
 窗口元数据可附加 `scale_mode`：`source` 表示沿用已有应用缩放，`requested` 表示只设置了启动缩放偏好，缺省表示未报告。`scale_factor` 仍用于兼容的窗口初始尺寸换算，不能单独证明应用实际 DPI；接收端依据成功解码的帧尺寸显示实际像素。
 
-GNOME 50 原生 Wayland 使用合成器窗口身份、同 UID/进程启动时间及独占租约；接入仍使用服务端生成的 app_id。只采集选定主窗口和明确 transient 关联窗口，PipeWire 原图按 crop 元数据去除 padding/阴影后进入同一 PNG/H.264 输出。输入仍经共享 RemoteDesktop Portal 授权。原生路径当前只支持主动文本复制/粘贴；二进制剪贴板和剪切分别返回 `wayland_binary_clipboard_unavailable`、`wayland_cut_unavailable`，拒绝发生在删除内容前。
+GNOME 50 原生 Wayland 使用合成器窗口身份、同 UID/进程启动时间及独占租约；接入仍使用服务端生成的 app_id。只采集选定主窗口和明确 transient 关联窗口，PipeWire 原图按 crop 元数据去除 padding/阴影后进入同一 H.264 输出。输入仍经共享 RemoteDesktop Portal 授权。原生路径当前只支持主动文本复制/粘贴；二进制剪贴板和剪切分别返回 `wayland_binary_clipboard_unavailable`、`wayland_cut_unavailable`，拒绝发生在删除内容前。
 
 `resolution_limited` 带 window_id 时只拒绝该窗口的尺寸请求，连接和当前画面继续保留；未带窗口号时表示现有原窗口超出采集范围，需要先缩小。`wayland_bridge_unavailable` / `wayland_bridge_failed` / `wayland_capture_unavailable` / `desktop_locked` 中止本次控制连接并明确提示，保留原进程与会话，不自动创建替代浏览器配置。限制与实测记录见[像素、缩放与 Wayland](window-resolution.md)。

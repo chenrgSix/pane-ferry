@@ -62,12 +62,18 @@ struct AutomaticReconnectSmoke {
             app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
             for host in app.windows.values { host.closeLocally() }
         }
+        var waitIndex = 0
         func until(_ condition: () -> Bool) {
+            waitIndex += 1
             let deadline = Date().addingTimeInterval(8)
             while !condition(), Date() < deadline {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.01)); app.pump()
             }
-            precondition(condition(), "automatic reconnect did not reach expected state")
+            if !condition() {
+                print("state wait=\(waitIndex) connected=\(app.connected) ready=\(app.ready) recovering=\(app.recovering) windows=\(app.windows.count) seq=\(app.lastSequence) transportAlive=\(app.transport.alive)")
+                fflush(stdout)
+            }
+            precondition(condition(), "automatic reconnect wait \(waitIndex) did not reach expected state")
         }
         app.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification))
         precondition(NSApp.mainMenu?.items.first?.title == app.applicationName)
@@ -136,7 +142,7 @@ struct AutomaticReconnectSmoke {
         // session is known, even --app startup resumes instead of relaunching.
         let launch = AppDelegate(options:Options(app:"fixture-app", session:nil, native:options.native), clipboard:board)
         var sent:[[String:Any]]=[]; launch.wireSink = { sent.append($0) }
-        let hello = Incoming(object:["type":"hello", "capabilities":["display.scale"]], image:nil)
+        let hello = Incoming(object:["type":"hello", "capabilities":["display.scale", "native.h264"]], image:nil)
         launch.receive(hello); launch.ready = false; launch.recovering = true; launch.receive(hello)
         let ids = sent.filter { $0["type"] as? String == "app.launch" }.compactMap { $0["request_id"] as? String }
         precondition(ids.count == 2 && ids[0] == ids[1])

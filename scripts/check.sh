@@ -21,7 +21,7 @@ if [[ $(uname -s) == Darwin ]]; then
   python3 tests/e2e/controller_input_smoke.py
   python3 tests/e2e/clipboard_ordering_smoke.py
   python3 tests/e2e/automatic_reconnect_smoke.py
-  python3 tests/e2e/display_quality_smoke.py
+  python3 tests/e2e/h264_only_smoke.py
   python3 tests/e2e/native_transport_smoke.py
 else
   cargo build -p paneferry-agent

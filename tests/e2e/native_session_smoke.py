@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import selectors
 import shlex
-import struct
 import subprocess
 import time
 import uuid
@@ -44,7 +43,10 @@ class Peer:
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
         self.buffer = bytearray()
         self.send(type="hello")
-        assert self.read()["type"] == "hello"
+        hello = self.read()
+        assert hello["type"] == "hello" and "native.h264" in hello["capabilities"]
+        self.send(type="video.enable", codec="h264")
+        assert self.read()["type"] == "video.ready"
 
     def send(self, **message):
         self.process.stdin.write(json.dumps({**message, "version": 1}).encode() + b"\n")
@@ -114,10 +116,12 @@ x.XCloseDisplay(d)
     remote("python3 -c " + shlex.quote(script))
 
 
-def assert_png(frame):
-    png = base64.b64decode(frame["png"], validate=True)
-    assert png.startswith(b"\x89PNG\r\n\x1a\n")
-    assert struct.unpack(">II", png[16:24]) == (frame["width"], frame["height"])
+def assert_h264(frame):
+    assert frame["codec"] == "h264" and "png" not in frame
+    assert frame["stream_id"] > 0
+    assert frame["encoded_width"] == frame["width"] + frame["width"] % 2
+    assert frame["encoded_height"] == frame["height"] + frame["height"] % 2
+    assert base64.b64decode(frame["data"], validate=True)
 
 
 def input_state(display, window_id):
@@ -153,7 +157,7 @@ try:
     peer.send(type="session.resume", session_id=session)
     peer.until(lambda e: e["type"] == "session.snapshot")
     frame = peer.until(lambda e: e["type"] == "frame")
-    assert_png(frame)
+    assert_h264(frame)
     window_id = frame["window_id"]
 
     retry = Peer()
@@ -196,7 +200,7 @@ try:
     shown = peer.until(lambda e: e["type"] == "window.metadata" and
                        e.get("window_id") == window_id and e.get("visible", True))
     assert shown["geometry_revision"] >= geometry["geometry_revision"]
-    assert_png(peer.until(lambda e: e["type"] == "frame" and e["window_id"] == window_id))
+    assert_h264(peer.until(lambda e: e["type"] == "frame" and e["window_id"] == window_id))
 
     for connection_index in range(args.reconnects):
         if connection_index == 0:
@@ -217,7 +221,7 @@ try:
         peer.send(type="session.resume", session_id=session)
         snapshot = peer.until(lambda e: e["type"] == "session.snapshot")
         assert any(w["window_id"] == window_id for w in snapshot["windows"])
-        assert_png(peer.until(lambda e: e["type"] == "frame" and e["window_id"] == window_id))
+        assert_h264(peer.until(lambda e: e["type"] == "frame" and e["window_id"] == window_id))
         remote("test -f " + shlex.quote(marker))
 
     peer.send(type="window.close.request", window_id=window_id)

@@ -295,17 +295,18 @@ pub struct Packet {
 }
 
 fn pipeline(width: u32, height: u32) -> String {
-    let bitrate = (width * height * 3).clamp(2_000_000, 24_000_000);
+    // Double the rate budget with 60 fps so bits per frame do not regress.
+    let bitrate = (width * height * 6).clamp(4_000_000, 48_000_000);
     let padding = if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         format!("! videobox right=-{} bottom=-{} ", width % 2, height % 2)
     } else {
         String::new()
     };
-    // Retain sequence/30 timestamps via a metadata-only identity element, rather
+    // Retain sequence/60 timestamps via a metadata-only identity element, rather
     // than changing rate-control timing to variable wall-clock capture intervals.
-    let raw_rate = width * height * 4 * 30;
+    let raw_rate = width * height * 4 * 60;
     format!("appsrc name=source is-live=true format=time block=true max-buffers=1 \
-        caps=video/x-raw,format=BGRx,width={width},height={height},framerate=30/1 \
+        caps=video/x-raw,format=BGRx,width={width},height={height},framerate=60/1 \
         ! identity datarate={raw_rate} signal-handoffs=false \
         {padding}! videoconvert ! video/x-raw,format=I420 \
         ! openh264enc usage-type=screen complexity=low rate-control=bitrate \

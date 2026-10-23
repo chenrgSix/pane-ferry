@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Isolated RWP publisher used only by native_transport_smoke.py."""
-import base64
-import struct
-import zlib
 import json
 import os
 from pathlib import Path
@@ -16,10 +13,6 @@ n=int(count.read_text())+1 if count.exists() else 1
 count.write_text(str(n))
 pending=b''
 video=False
-def png():
-    def chunk(kind,data):return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
-    raw=(b'\x00'+bytes([255,0,0])*640)*480
-    return base64.b64encode(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>2I5B',640,480,8,2,0,0,0))+chunk(b'sRGB',bytes([0]))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')).decode()
 def emit(**value):
     print(json.dumps(dict(value,version=1)),flush=True)
 with (root/'requests').open('a',buffering=1) as log:
@@ -42,9 +35,10 @@ with (root/'requests').open('a',buffering=1) as log:
                     geometry_revision=n,scale_factor=1,visible=True,role='toplevel')])
             emit(type='input.authorization',session_id='retained',seq=101 if n==1 else 2,state='pending')
             emit(type='input.authorization',session_id='retained',seq=102 if n==1 else 3,state='ready')
-            frames=json.loads((root/'video.json').read_text())['frames'] if video else [png()]
+            assert video, 'H.264 negotiation is required before attaching'
+            frames=json.loads((root/'video.json').read_text())['frames']
             for index,frame in enumerate(frames):
-                fields=dict(codec='h264',data=frame,stream_id=n,key_frame=index==0,encoded_width=640,encoded_height=480) if video else dict(png=frame)
+                fields=dict(codec='h264',data=frame,stream_id=n,key_frame=index==0,encoded_width=640,encoded_height=480)
                 emit(type='frame',session_id='retained',seq=104+index,window_id=42,geometry_revision=n,
                     width=640,height=480,**fields)
                 time.sleep(.02)

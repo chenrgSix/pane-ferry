@@ -25,6 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 mod backend;
 mod desktop_input;
 mod discovery;
@@ -896,7 +897,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     let mut capabilities = vec![
         "catalog",
-        "native.png",
         "display.scale",
         "input.pointer",
         "input.key",
@@ -915,7 +915,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     ];
     if video::available() {
         capabilities.push("native.h264");
-        capabilities.push("native.h264-refinement");
     }
     send(
         &mut out,
@@ -996,9 +995,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         } else if pending_request.is_some() {
             pending_request.take()
         } else {
-            let scan_delay = Duration::from_millis(33).saturating_sub(last_scan.elapsed());
+            let scan_delay = FRAME_INTERVAL.saturating_sub(last_scan.elapsed());
             let frame_delay = if capture_pending {
-                Duration::from_millis(33).saturating_sub(last_capture.elapsed())
+                FRAME_INTERVAL.saturating_sub(last_capture.elapsed())
             } else {
                 Duration::MAX
             };
@@ -1041,17 +1040,14 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
-                    Request::EnableVideo {
-                        codec: _,
-                        refine_static,
-                    } => {
+                    Request::EnableVideo { codec: _ } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")
                         }
                         if !video::available() {
                             bail!("video encoder unavailable")
                         }
-                        out.enable_video(refine_static)?;
+                        out.enable_video()?;
                         send(&mut out, json!({"type":"video.ready", "codec":"h264"}), "")?;
                     }
                     Request::Sessions {} => {
@@ -1317,8 +1313,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )?;
             }
         }
-        if last_scan.elapsed() < Duration::from_millis(33)
-            && !(capture_pending && last_capture.elapsed() >= Duration::from_millis(33))
+        if last_scan.elapsed() < FRAME_INTERVAL
+            && !(capture_pending && last_capture.elapsed() >= FRAME_INTERVAL)
         {
             continue;
         }
@@ -1388,7 +1384,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         continue;
                     }
                     // Metadata-only scans must not postpone the first repaint
-                    // after idle. Failed attempts still retain the 30fps bound.
+                    // after idle. Failed attempts still retain the 60fps bound.
                     last_capture = last_scan;
                     if let Ok(image) = b.capture(w) {
                         out.frame(w, image, &sid)?;

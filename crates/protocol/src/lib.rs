@@ -25,11 +25,7 @@ pub enum Request {
     #[serde(rename = "hello")]
     Hello { version: u32 },
     #[serde(rename = "video.enable")]
-    EnableVideo {
-        codec: VideoCodec,
-        #[serde(default)]
-        refine_static: bool,
-    },
+    EnableVideo { codec: VideoCodec },
     #[serde(rename = "app.list")]
     List {},
     #[serde(rename = "window.list")]
@@ -234,23 +230,13 @@ mod tests {
         assert!(matches!(
             parse_request(br#"{"type":"video.enable","version":1,"codec":"h264"}"#).unwrap(),
             Request::EnableVideo {
-                codec: VideoCodec::H264,
-                refine_static: false,
-            }
-        ));
-        assert!(matches!(
-            parse_request(
-                br#"{"type":"video.enable","version":1,"codec":"h264","refine_static":true}"#
-            )
-            .unwrap(),
-            Request::EnableVideo {
-                refine_static: true,
-                ..
+                codec: VideoCodec::H264
             }
         ));
         for request in [
             r#"{"type":"video.enable","version":1,"codec":"x264;id"}"#,
             r#"{"type":"video.enable","version":1,"codec":"h264","command":"id"}"#,
+            r#"{"type":"video.enable","version":1,"codec":"h264","refine_static":true}"#,
         ] {
             assert!(parse_request(request.as_bytes()).is_err());
         }
