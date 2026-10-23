@@ -26,6 +26,7 @@ p.add_argument('--agent', required=True, type=Path)
 p.add_argument('--private-bus', action='store_true')
 p.add_argument('--with-xwayland', action='store_true')
 p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
+p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
@@ -38,6 +39,7 @@ if not a.private_bus:
         # No activation of the user's calendar, keyring, document portal or IM.
         raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
             *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
+            *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])]))
 root = Path(__file__).resolve().parents[2]
 children = []
@@ -154,6 +156,10 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.window_lifecycle_only:
+                    from window_lifecycle_test import verify
+                    verify(env, app, state, fixture, t, log, start, wait, Bridge, monitor_layout, shell)
+                    raise SystemExit(0)
                 if a.logical_size_only:
                     from logical_window_size_test import verify
                     verify(peer, sock, env, state, app, fixture, t, log, start, wait, Peer, Bridge, monitor_layout, a.with_xwayland)
