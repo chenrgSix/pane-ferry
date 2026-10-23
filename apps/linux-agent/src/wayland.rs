@@ -1,6 +1,11 @@
 //! Existing GNOME/Wayland windows. The compositor owns window identity and
 //! geometry; PipeWire supplies original pixels and the shared portal supplies input.
-use crate::{backend::WindowBackend, process_identity, video::PipeWireCapture, ProcessIdentity};
+use crate::{
+    backend::WindowBackend,
+    process_identity,
+    video::{FrameWake, PipeWireCapture},
+    ProcessIdentity,
+};
 use anyhow::{bail, Context, Result};
 use paneferry_backend_x11::{Backend as X11, CapturedImage, CopiedText, DesktopInput};
 use paneferry_protocol::{read_line_limit, Window};
@@ -190,6 +195,8 @@ pub struct Backend {
     windows: HashMap<u32, Window>,
     infos: HashMap<u32, Info>,
     streams: RefCell<HashMap<u32, Stream>>,
+    frame_wake: Arc<FrameWake>,
+    pending_pull: bool,
     copied: Option<(u32, String, Instant)>,
 }
 impl Backend {
@@ -219,6 +226,8 @@ impl Backend {
             windows: HashMap::new(),
             infos: HashMap::new(),
             streams: RefCell::new(HashMap::new()),
+            frame_wake: Arc::new(FrameWake::new()?),
+            pending_pull: false,
             copied: None,
         })
     }
@@ -227,6 +236,38 @@ impl Backend {
     }
     fn known(&self, id: u32) -> Result<&Info> {
         self.infos.get(&id).context("unknown window")
+    }
+    fn pull_frames(&mut self) -> Result<()> {
+        let mut streams = self.streams.borrow_mut();
+        for (id, info) in &self.infos {
+            let Some(stream) = streams.get_mut(id) else {
+                continue;
+            };
+            let pixels = |value: u32| (f64::from(value) * info.scale).round() as u32;
+            if let Some(image) = stream.capture.pull(
+                [
+                    pixels((info.x - info.buffer_x) as u32),
+                    pixels((info.y - info.buffer_y) as u32),
+                    pixels(info.width),
+                    pixels(info.height),
+                ],
+                (pixels(info.buffer_width), pixels(info.buffer_height)),
+            )? {
+                if let Some(window) = self.windows.get_mut(id) {
+                    if window.width != image.width || window.height != image.height {
+                        window.width = image.width;
+                        window.height = image.height;
+                        window.geometry_revision += 1;
+                    }
+                }
+                stream.image = Some(image);
+                stream.dirty = true;
+            }
+            if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
+                bail!("wayland_capture_unavailable")
+            }
+        }
+        Ok(())
     }
     fn ready(&self) -> Result<()> {
         match self.input.status() {
@@ -272,7 +313,7 @@ impl WindowBackend for Backend {
         }
     }
     fn event_fd(&self) -> std::os::fd::RawFd {
-        -1
+        self.frame_wake.event_fd()
     }
     fn existing_window_exists(&self, id: u32) -> bool {
         if process_identity(self.target.identity.pid).ok().as_ref() != Some(&self.target.identity) {
@@ -337,7 +378,7 @@ impl WindowBackend for Backend {
                         .context("wayland_capture_unavailable")?,
                 )?;
                 entry.insert(Stream {
-                    capture: PipeWireCapture::new(node)?,
+                    capture: PipeWireCapture::new(node, self.frame_wake.clone())?,
                     image: None,
                     dirty: true,
                     started: Instant::now(),
@@ -348,21 +389,6 @@ impl WindowBackend for Backend {
                 bail!("resolution_limited")
             }
             let pixels = |value: u32| (f64::from(value) * info.scale).round() as u32;
-            if let Some(image) = stream.capture.pull(
-                [
-                    pixels((info.x - info.buffer_x) as u32),
-                    pixels((info.y - info.buffer_y) as u32),
-                    pixels(info.width),
-                    pixels(info.height),
-                ],
-                (pixels(info.buffer_width), pixels(info.buffer_height)),
-            )? {
-                stream.image = Some(image);
-                stream.dirty = true;
-            }
-            if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
-                bail!("wayland_capture_unavailable")
-            }
             let (width, height) = stream
                 .image
                 .as_ref()
@@ -407,19 +433,36 @@ impl WindowBackend for Backend {
         }
         self.infos = current;
         self.windows = windows;
+        let needs_initial_frame = streams.values().any(|stream| stream.image.is_none());
+        drop(streams);
+        if needs_initial_frame {
+            self.pull_frames()?;
+        }
         Ok(self.windows.values().cloned().collect())
     }
-    fn pump_capture_events(&self) -> Result<()> {
+    fn pump_capture_events(&mut self, frame_due: bool) -> Result<()> {
+        self.pending_pull |= self.frame_wake.drain();
+        if frame_due && self.pending_pull {
+            self.pending_pull = false;
+            self.pull_frames()?;
+        }
         Ok(())
     }
     fn capture_pending(&self) -> bool {
-        true
+        self.pending_pull
+            || self
+                .streams
+                .borrow()
+                .values()
+                .any(|stream| stream.dirty && stream.image.is_some())
     }
     fn capture_needed(&self, id: u32) -> bool {
-        self.streams
-            .borrow()
-            .get(&id)
-            .is_some_and(|s| s.dirty && s.image.is_some())
+        self.pending_pull
+            || self
+                .streams
+                .borrow()
+                .get(&id)
+                .is_some_and(|s| s.dirty && s.image.is_some())
     }
     fn capture(&self, window: &Window) -> Result<CapturedImage> {
         let mut streams = self.streams.borrow_mut();

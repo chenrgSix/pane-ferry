@@ -25,7 +25,41 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
-const SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
+const ACTIVE_SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
+const IDLE_SCAN_INTERVAL: Duration = Duration::from_millis(100);
+
+fn scan_interval(attached: bool, has_windows: bool, recent_window_action: bool) -> Duration {
+    if !attached {
+        Duration::from_secs(1)
+    } else if !has_windows || recent_window_action {
+        ACTIVE_SCAN_INTERVAL
+    } else {
+        IDLE_SCAN_INTERVAL
+    }
+}
+
+fn triggers_fast_scan(request: &Request) -> bool {
+    matches!(
+        request,
+        Request::Configure { .. }
+            | Request::Focus { .. }
+            | Request::Close { .. }
+            | Request::Pointer {
+                button: 1..=u8::MAX,
+                pressed: true,
+                ..
+            }
+            | Request::Key { pressed: true, .. }
+    )
+}
+
+fn visible_capture_pending(backend: &dyn backend::WindowBackend) -> bool {
+    backend.capture_pending()
+        && backend
+            .windows()
+            .values()
+            .any(|window| window.visible && backend.capture_needed(window.window_id))
+}
 mod backend;
 mod desktop;
 mod desktop_input;
@@ -1024,6 +1058,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
     let mut last_scan = last_capture;
+    let mut last_window_action = last_capture;
     let mut lease: Option<Lease> = None;
     let mut input_status = None;
     let mut exit_notified = false;
@@ -1039,7 +1074,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             break;
         }
         let mut text_pending = false;
-        let mut x11_fd = None;
+        let mut capture_fd = None;
         let mut capture_pending = false;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
@@ -1072,9 +1107,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         Ok(None) => {}
                     }
                     text_pending = b.text_pending();
-                    b.pump_capture_events()?;
-                    x11_fd = Some(b.event_fd());
-                    capture_pending = b.capture_pending();
+                    b.pump_capture_events(last_capture.elapsed() >= out.frame_interval())?;
+                    capture_fd = Some(b.event_fd());
+                    capture_pending = visible_capture_pending(b.as_ref());
                 }
             }
         }
@@ -1082,7 +1117,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let req = if text_pending {
             // Wake as soon as selection data arrives; retain a bounded timeout
             // for deadlines and shutdown instead of sleeping between each round trip.
-            if let Some(fd) = x11_fd {
+            if let Some(fd) = capture_fd {
                 let mut event = libc::pollfd {
                     fd,
                     events: libc::POLLIN,
@@ -1097,15 +1132,18 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             pending_request.take()
         } else {
             let frame_interval = out.frame_interval();
-            let scan_delay = SCAN_INTERVAL
-                .min(frame_interval)
-                .saturating_sub(last_scan.elapsed());
+            let scan_delay = scan_interval(
+                lease.is_some(),
+                !known.is_empty(),
+                last_window_action.elapsed() < Duration::from_millis(500),
+            )
+            .saturating_sub(last_scan.elapsed());
             let frame_delay = if capture_pending {
                 frame_interval.saturating_sub(last_capture.elapsed())
             } else {
                 Duration::MAX
             };
-            match input_queue::receive(&rx, &mut wake, x11_fd, scan_delay.min(frame_delay)) {
+            match input_queue::receive(&rx, &mut wake, capture_fd, scan_delay.min(frame_delay)) {
                 Ok(r) => Some(r),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
                 Err(_) => break,
@@ -1113,6 +1151,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         };
         if let Some(req) = req {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
+            if triggers_fast_scan(&req) {
+                last_window_action = Instant::now();
+            }
             let request_window = match &req {
                 Request::Configure { window_id, .. } | Request::Text { window_id, .. } => {
                     Some(*window_id)
@@ -1497,13 +1538,31 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             }
         }
         let frame_interval = out.frame_interval();
-        if last_scan.elapsed() < SCAN_INTERVAL.min(frame_interval)
-            && !(capture_pending && last_capture.elapsed() >= frame_interval)
-        {
+        if capture_pending && last_capture.elapsed() >= frame_interval {
+            // A frame may have arrived while poll waited for the frame deadline.
+            // Pull the newest sample now; otherwise capture() can resend the
+            // previous image and delay the new frame by another interval.
+            if let Some(l) = &lease {
+                let mut s = l.0.lock().unwrap();
+                if let Some(b) = s.backend.as_mut() {
+                    b.pump_capture_events(true)?;
+                    capture_pending = visible_capture_pending(b.as_ref());
+                }
+            }
+        }
+        let scan_due = last_scan.elapsed()
+            >= scan_interval(
+                lease.is_some(),
+                !known.is_empty(),
+                last_window_action.elapsed() < Duration::from_millis(500),
+            );
+        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
+        if !scan_due && !capture_due {
             continue;
         }
-        let capture_due = last_capture.elapsed() >= frame_interval;
-        last_scan = Instant::now();
+        if scan_due {
+            last_scan = Instant::now();
+        }
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
@@ -1532,15 +1591,19 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                 }
-                let windows = match b.scan() {
-                    Ok(windows) => windows,
-                    Err(error) => {
-                        let code = request_error::code(&error.to_string());
-                        send(&mut out, json!({"type":"error","code":code}), &sid)?;
-                        // End only this controller connection. The original
-                        // application and retained session remain available.
-                        break;
+                let windows = if scan_due {
+                    match b.scan() {
+                        Ok(windows) => windows,
+                        Err(error) => {
+                            let code = request_error::code(&error.to_string());
+                            send(&mut out, json!({"type":"error","code":code}), &sid)?;
+                            // End only this controller connection. The original
+                            // application and retained session remain available.
+                            break;
+                        }
                     }
+                } else {
+                    b.windows().values().cloned().collect()
                 };
                 for id in known.keys().filter(|id| !b.windows().contains_key(id)) {
                     send(
@@ -1583,7 +1646,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     }
                     // Metadata-only scans must not postpone the first repaint
                     // after idle. Failed attempts still retain the adaptive cap.
-                    last_capture = last_scan;
+                    last_capture = Instant::now();
                     if let Ok(image) = b.capture(w) {
                         out.frame(w, image, &sid)?;
                     }
@@ -1597,6 +1660,27 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_scans_slow_only_after_a_window_is_ready_and_input_is_idle() {
+        assert_eq!(scan_interval(false, false, false), Duration::from_secs(1));
+        assert_eq!(scan_interval(true, false, false), ACTIVE_SCAN_INTERVAL);
+        assert_eq!(scan_interval(true, true, true), ACTIVE_SCAN_INTERVAL);
+        assert_eq!(scan_interval(true, true, false), IDLE_SCAN_INTERVAL);
+        assert!(triggers_fast_scan(&Request::Pointer {
+            window_id: 1,
+            x: 10,
+            y: 10,
+            button: 1,
+            pressed: true,
+        }));
+        assert!(!triggers_fast_scan(&Request::Pointer {
+            window_id: 1,
+            x: 10,
+            y: 10,
+            button: 0,
+            pressed: false,
+        }));
+    }
     #[test]
     fn app_reuses_detached_session_and_remembers_original_request_parameters() {
         let child = Command::new("sleep")

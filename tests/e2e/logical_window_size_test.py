@@ -1,7 +1,6 @@
 """Contract check used inside wayland_smoke's private compositor only."""
 import base64
 import json
-import struct
 import time
 
 
@@ -44,7 +43,8 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
                         if (frame['width'], frame['height']) == pixels:
                             break
                     assert (frame['width'], frame['height']) == pixels, (kind, pixels, frame.keys())
-                    assert struct.unpack('>II', base64.b64decode(frame['png'])[16:24]) == pixels
+                    assert frame['codec'] == 'h264' and base64.b64decode(frame['data']).startswith((b'\0\0\0\1', b'\0\0\1'))
+                    assert (frame['encoded_width'], frame['encoded_height']) == (pixels[0] + pixels[0] % 2, pixels[1] + pixels[1] % 2)
                     actual = next(w for w in bridge.call(op='list')['result'] if w['pid'] == process.pid)
                     if actual['native']:
                         assert (actual['width'], actual['height']) == (width, height), actual
@@ -71,7 +71,7 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
                 remote.request('session.resume', 'session.snapshot', session_id=started['session_id'])
                 remote.until('frame')
                 assert process.poll() is None and json.loads(record.read_text())['text'] == original_text
-                print('PASS:', kind, 'logical resize, actual PNG dimensions, unchanged source scale, same process/content/session on reconnect', flush=True)
+                print('PASS:', kind, 'logical resize, actual H.264 dimensions, unchanged source scale, same process/content/session on reconnect', flush=True)
             finally:
                 remote.close()
         wait(lambda: monitor_layout() == original_layout)

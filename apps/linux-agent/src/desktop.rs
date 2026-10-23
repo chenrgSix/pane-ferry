@@ -1,6 +1,10 @@
 //! A physical GNOME monitor is a separate, detachable session. It never owns
 //! application processes, window geometry, or the desktop's display settings.
-use crate::{backend::WindowBackend, discovery, video::PipeWireCapture};
+use crate::{
+    backend::WindowBackend,
+    discovery,
+    video::{FrameWake, PipeWireCapture},
+};
 use anyhow::{bail, Context, Result};
 use paneferry_backend_x11::{Backend as X11, CapturedImage, CopiedText, DesktopInput};
 use paneferry_protocol::{read_line_limit, Window};
@@ -147,6 +151,8 @@ pub struct Backend {
     keymap: X11,
     windows: HashMap<u32, Window>,
     stream: RefCell<Option<Stream>>,
+    frame_wake: Arc<FrameWake>,
+    pending_pull: bool,
     active: Cell<bool>,
     last_monitor_check: Instant,
     copied: Option<(String, Instant)>,
@@ -184,6 +190,8 @@ impl Backend {
             keymap,
             windows,
             stream: RefCell::new(None),
+            frame_wake: Arc::new(FrameWake::new()?),
+            pending_pull: false,
             active: Cell::new(false),
             last_monitor_check: Instant::now(),
             copied: None,
@@ -192,6 +200,25 @@ impl Backend {
     fn known(&self, id: u32) -> Result<()> {
         if id != WINDOW_ID {
             bail!("unknown window")
+        }
+        Ok(())
+    }
+    fn pull_frame(&mut self) -> Result<()> {
+        let Some(stream) = self.stream.get_mut().as_mut() else {
+            return Ok(());
+        };
+        if let Some(image) = stream.capture.pull_monitor()? {
+            let window = self.windows.get_mut(&WINDOW_ID).unwrap();
+            if window.width != image.width || window.height != image.height {
+                window.width = image.width;
+                window.height = image.height;
+                window.geometry_revision += 1;
+            }
+            stream.image = Some(image);
+            stream.dirty = true;
+        }
+        if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
+            bail!("desktop_capture_unavailable")
         }
         Ok(())
     }
@@ -238,7 +265,7 @@ impl WindowBackend for Backend {
         }
     }
     fn event_fd(&self) -> std::os::fd::RawFd {
-        -1
+        self.frame_wake.event_fd()
     }
     fn existing_window_exists(&self, id: u32) -> bool {
         id == WINDOW_ID
@@ -261,7 +288,7 @@ impl WindowBackend for Backend {
                     .context("desktop_capture_unavailable")?,
             )?;
             self.stream.replace(Some(Stream {
-                capture: PipeWireCapture::new(node)?,
+                capture: PipeWireCapture::new(node, self.frame_wake.clone())?,
                 image: None,
                 dirty: true,
                 started: Instant::now(),
@@ -277,35 +304,40 @@ impl WindowBackend for Backend {
                 .context("desktop_monitor_unavailable")?;
             self.last_monitor_check = Instant::now();
         }
-        let stream = self.stream.get_mut().as_mut().unwrap();
-        if let Some(image) = stream.capture.pull_monitor()? {
-            let window = self.windows.get_mut(&WINDOW_ID).unwrap();
-            if window.width != image.width || window.height != image.height {
-                window.width = image.width;
-                window.height = image.height;
-                window.geometry_revision += 1;
-            }
-            stream.image = Some(image);
-            stream.dirty = true;
-        }
-        if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
-            bail!("desktop_capture_unavailable")
+        if self
+            .stream
+            .get_mut()
+            .as_ref()
+            .is_some_and(|stream| stream.image.is_none())
+        {
+            self.pull_frame()?;
         }
         Ok(self.windows.values().cloned().collect())
     }
-    fn pump_capture_events(&self) -> Result<()> {
+    fn pump_capture_events(&mut self, frame_due: bool) -> Result<()> {
+        self.pending_pull |= self.frame_wake.drain();
+        if frame_due && self.pending_pull {
+            self.pending_pull = false;
+            self.pull_frame()?;
+        }
         Ok(())
     }
     fn capture_pending(&self) -> bool {
-        self.active.get()
-    }
-    fn capture_needed(&self, id: u32) -> bool {
-        id == WINDOW_ID
-            && self
+        self.pending_pull
+            || self
                 .stream
                 .borrow()
                 .as_ref()
-                .is_some_and(|s| s.dirty && s.image.is_some())
+                .is_some_and(|stream| stream.dirty && stream.image.is_some())
+    }
+    fn capture_needed(&self, id: u32) -> bool {
+        id == WINDOW_ID
+            && (self.pending_pull
+                || self
+                    .stream
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| s.dirty && s.image.is_some()))
     }
     fn capture(&self, window: &Window) -> Result<CapturedImage> {
         self.known(window.window_id)?;

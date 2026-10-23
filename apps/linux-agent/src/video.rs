@@ -4,8 +4,10 @@ use paneferry_backend_x11::CapturedImage;
 use std::{
     borrow::Cow,
     ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
+    io::{Read, Write},
+    os::{fd::AsRawFd, unix::net::UnixStream},
     ptr,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 type Object = *mut c_void;
@@ -19,7 +21,7 @@ const STATE_PLAYING: c_int = 4;
 // layout assumptions. Libraries intentionally stay loaded for process-global
 // plugin state and destroy callbacks running on GStreamer streaming threads.
 macro_rules! runtime_api {
-    ($core:ident, $app:ident, $glib:ident, $video:ident; $($field:ident: $signature:ty => ($library:ident, $symbol:expr)),+ $(,)?) => {
+    ($core:ident, $app:ident, $glib:ident, $video:ident, $gobject:ident; $($field:ident: $signature:ty => ($library:ident, $symbol:expr)),+ $(,)?) => {
         struct Api { $($field: $signature),+ }
         impl Api {
             fn load() -> Result<Self> {
@@ -33,6 +35,7 @@ macro_rules! runtime_api {
                     let $app = library(c"libgstapp-1.0.so.0")?;
                     let $glib = library(c"libglib-2.0.so.0")?;
                     let $video = library(c"libgstvideo-1.0.so.0")?;
+                    let $gobject = library(c"libgobject-2.0.so.0")?;
                     Ok(Self { $($field: {
                         let address = libc::dlsym($library, $symbol.as_ptr());
                         if address.is_null() { bail!("GStreamer API unavailable") }
@@ -44,7 +47,7 @@ macro_rules! runtime_api {
     };
 }
 runtime_api! {
-    core, app, glib, video;
+    core, app, glib, video, gobject;
     init: unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char, *mut Object) -> c_int => (core, c"gst_init_check"),
     factory: unsafe extern "C" fn(*const c_char) -> Object => (core, c"gst_element_factory_find"),
     parse: unsafe extern "C" fn(*const c_char, *mut Object) -> Object => (core, c"gst_parse_launch"),
@@ -65,6 +68,8 @@ runtime_api! {
     crop_type: unsafe extern "C" fn() -> usize => (video, c"gst_video_crop_meta_api_get_type"),
     meta: unsafe extern "C" fn(Object, usize) -> *const VideoCropMeta => (core, c"gst_buffer_get_meta"),
     flags: unsafe extern "C" fn(Object) -> c_uint => (core, c"gst_buffer_get_flags"),
+    signal_connect: unsafe extern "C" fn(Object, *const c_char, unsafe extern "C" fn(), Object, Option<unsafe extern "C" fn(Object, Object)>, c_uint) -> libc::c_ulong => (gobject, c"g_signal_connect_data"),
+    signal_disconnect: unsafe extern "C" fn(Object, libc::c_ulong) -> () => (gobject, c"g_signal_handler_disconnect"),
 }
 impl Api {
     fn initialize(&self) -> Result<()> {
@@ -130,14 +135,60 @@ pub struct PipeWireCapture {
     api: &'static Api,
     pipeline: Object,
     sink: Object,
+    signal: libc::c_ulong,
+}
+/// All streams in one session share a single pollable wake. The appsink
+/// callback only marks readiness; pixel copies stay on the controller thread.
+pub struct FrameWake {
+    reader: UnixStream,
+    writer: Mutex<(UnixStream, bool)>,
+}
+impl FrameWake {
+    pub fn new() -> Result<Self> {
+        let (reader, writer) = UnixStream::pair()?;
+        reader.set_nonblocking(true)?;
+        writer.set_nonblocking(true)?;
+        Ok(Self {
+            reader,
+            writer: Mutex::new((writer, false)),
+        })
+    }
+    pub fn event_fd(&self) -> std::os::fd::RawFd {
+        self.reader.as_raw_fd()
+    }
+    fn notify(&self) {
+        let mut state = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.1 && state.0.write(&[1]).is_ok() {
+            state.1 = true;
+        }
+    }
+    pub fn drain(&self) -> bool {
+        let mut state = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        let pending = state.1;
+        let mut bytes = [0; 64];
+        while matches!((&self.reader).read(&mut bytes), Ok(n) if n > 0) {}
+        state.1 = false;
+        pending
+    }
+}
+unsafe extern "C" fn sample_ready(_sink: Object, data: Object) -> c_int {
+    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };
+    wake.notify();
+    0 // GST_FLOW_OK
+}
+unsafe extern "C" fn release_wake(data: Object, _closure: Object) {
+    drop(unsafe { Box::from_raw(data.cast::<Arc<FrameWake>>()) });
 }
 // GStreamer objects are thread-safe. The session mutex serializes pull/drop;
 // the streaming thread is stopped before the final references are released.
 unsafe impl Send for PipeWireCapture {}
 impl PipeWireCapture {
-    pub fn new(node: u32) -> Result<Self> {
+    pub fn new(node: u32, wake: Arc<FrameWake>) -> Result<Self> {
+        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true"))?;
+        Self::from_description(&description, wake)
+    }
+    fn from_description(description: &CStr, wake: Arc<FrameWake>) -> Result<Self> {
         let api = api().context("wayland_capture_unavailable")?;
-        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false"))?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         if !error.is_null() {
@@ -157,8 +208,35 @@ impl PipeWireCapture {
             api,
             pipeline,
             sink,
+            signal: 0,
         };
-        if sink.is_null() || unsafe { (api.state)(pipeline, STATE_PLAYING) } == 0 {
+        if sink.is_null() {
+            bail!("wayland_capture_unavailable")
+        }
+        let data = Box::into_raw(Box::new(wake)).cast();
+        let callback = unsafe {
+            std::mem::transmute::<
+                unsafe extern "C" fn(Object, Object) -> c_int,
+                unsafe extern "C" fn(),
+            >(sample_ready)
+        };
+        let signal = unsafe {
+            (api.signal_connect)(
+                sink,
+                c"new-sample".as_ptr(),
+                callback,
+                data,
+                Some(release_wake),
+                0,
+            )
+        };
+        if signal == 0 {
+            unsafe { release_wake(data, ptr::null_mut()) };
+            bail!("wayland_capture_unavailable")
+        }
+        let mut capture = capture;
+        capture.signal = signal;
+        if unsafe { (api.state)(pipeline, STATE_PLAYING) } == 0 {
             bail!("wayland_capture_unavailable")
         }
         Ok(capture)
@@ -271,6 +349,9 @@ impl Drop for PipeWireCapture {
         unsafe {
             (self.api.state)(self.pipeline, STATE_NULL);
             if !self.sink.is_null() {
+                if self.signal != 0 {
+                    (self.api.signal_disconnect)(self.sink, self.signal);
+                }
                 (self.api.unref)(self.sink);
             }
             (self.api.unref)(self.pipeline);
@@ -461,8 +542,67 @@ mod tests {
         io::{Read, Write},
         os::{fd::OwnedFd, unix::net::UnixStream},
         process::{Command, Stdio},
+        thread,
         time::Duration,
     };
+
+    #[test]
+    fn frame_wake_coalesces_and_rearms_without_losing_concurrent_notifications() {
+        let wake = Arc::new(FrameWake::new().unwrap());
+        let ready = |wake: &FrameWake| {
+            let mut fd = libc::pollfd {
+                fd: wake.event_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            (unsafe { libc::poll(&mut fd, 1, 0) }) > 0
+        };
+        assert!(!ready(&wake));
+        for _ in 0..100 {
+            wake.notify();
+        }
+        assert!(ready(&wake));
+        wake.drain();
+        assert!(!ready(&wake));
+        let other = wake.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let producer = thread::spawn(move || {
+            for _ in 0..1_000 {
+                other.notify();
+            }
+            rx.recv().unwrap();
+            other.notify();
+        });
+        for _ in 0..50 {
+            wake.drain();
+        }
+        tx.send(()).unwrap();
+        producer.join().unwrap();
+        assert!(ready(&wake));
+        wake.drain();
+        assert!(!ready(&wake));
+        wake.notify();
+        assert!(ready(&wake));
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer videotestsrc; run explicitly on Ubuntu"]
+    fn appsink_new_sample_wakes_poll_without_periodic_frame_scans() {
+        let wake = Arc::new(FrameWake::new().unwrap());
+        let description = c"videotestsrc is-live=true ! video/x-raw,format=BGRx,width=64,height=48,framerate=30/1 ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true";
+        let capture = PipeWireCapture::from_description(description, wake.clone()).unwrap();
+        let mut event = libc::pollfd {
+            fd: wake.event_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut event, 1, 1000) }, 1);
+        wake.drain();
+        let image = capture.pull_monitor().unwrap().unwrap();
+        assert_eq!((image.width, image.height), (64, 48));
+        drop(capture);
+        wake.drain();
+    }
 
     #[test]
     fn ninety_fps_timestamps_fit_identity_datarate_at_maximum_resolution() {

@@ -13,7 +13,6 @@ import re
 import shutil
 import signal
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -86,6 +85,7 @@ class Peer:
     def __init__(self, path):
         self.sock = socket.socket(socket.AF_UNIX); self.sock.settimeout(20); self.sock.connect(str(path)); self.file = self.sock.makefile('rwb')
         self.send(type='hello'); self.until('hello')
+        self.send(type='video.enable', codec='h264'); self.until('video.ready')
     def send(self, **kw):
         self.file.write(json.dumps(dict(kw, version=1)).encode()+b'\n');self.file.flush()
     def until(self, kind):
@@ -244,7 +244,7 @@ try:
                 window=snap['windows'][0]['window_id'];frame=peer.until('frame')
                 assert frame['window_id']==window
                 print('Initial capture:',frame['width'],frame['height'],flush=True)
-                assert struct.unpack('>II',base64.b64decode(frame['png'])[16:24])==(frame['width'],frame['height'])
+                assert frame['codec']=='h264' and base64.b64decode(frame['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
                 sizes=[]
                 for width,height in [(1200,700),(2940,1604),(2940,1846),(800,500)]:
                     peer.send(type='window.configure',window_id=window,width=width,height=height)
@@ -255,7 +255,7 @@ try:
                         print('Received:',frame['width'],frame['height'],flush=True)
                         if (frame['width'],frame['height'])==(width,height):break
                     assert (frame['width'],frame['height'])==(width,height),frame.keys()
-                    assert struct.unpack('>II',base64.b64decode(frame['png'])[16:24])==(width,height)
+                    assert frame['codec']=='h264' and frame['encoded_width'] in (width,width+1) and frame['encoded_height'] in (height,height+1)
                     assert json.loads(state.read_text())['scale']==2, 'client must redraw at output density, not upscale its screenshot'
                     assert json.loads(other_state.read_text())['scale']==1, 'another native application stays on its original output'
                     assert all(monitor_layout()[key]==value for key,value in baseline_monitors.items())
@@ -275,7 +275,6 @@ try:
                 wait(lambda:monitor_layout()==baseline_monitors)
                 wait(lambda:json.loads(state.read_text())['scale']==1)
                 peer=Peer(sock)
-                video=peer.request('video.enable','video.ready',codec='h264');assert video['codec']=='h264'
                 reused=peer.request('app.launch','session.started',app_id=app_id,request_id='reuse-original',backend='native',attach=False)
                 assert reused['session_id']==started['session_id']
                 snap=peer.request('session.resume','session.snapshot',session_id=started['session_id']);peer.until('frame')
@@ -323,14 +322,14 @@ try:
                         other.request('session.resume','session.snapshot',session_id=xsession['session_id'])
                         pixels=other.until('frame')
                         assert (pixels['width'],pixels['height'])==(2940,1660),pixels.keys()
-                        assert struct.unpack('>II',base64.b64decode(pixels['png'])[16:24])==(2940,1660)
+                        assert pixels['codec']=='h264' and base64.b64decode(pixels['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
                         other.send(type='window.configure',window_id=target['xwindow'],width=2800,height=1500)
                         deadline=time.monotonic()+15
                         while time.monotonic()<deadline:
                             pixels=other.until('frame')
                             if (pixels['width'],pixels['height'])==(2800,1500):break
                         assert (pixels['width'],pixels['height'])==(2800,1500),pixels.keys()
-                        assert struct.unpack('>II',base64.b64decode(pixels['png'])[16:24])==(2800,1500)
+                        assert pixels['codec']=='h264' and pixels['encoded_width']==2800 and pixels['encoded_height']==1500
                         print('PASS: publisher Xwayland takeover and compositor resize produce actual 2940x1660 and 2800x1500 XComposite PNG frames')
                     finally:other.close()
                 print('NOT TESTED: real Firefox, real desktop input authorization, binary clipboard or multi-monitor scale changes')

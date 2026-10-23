@@ -16,8 +16,14 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 parser.add_argument('--export', type=Path)
 parser.add_argument('--network', type=Path, help='route RWP through two isolated native QUIC nodes')
+parser.add_argument('--profile-idle-seconds', type=float, default=0,
+                    help='sample Agent CPU while a static window is attached')
 args = parser.parse_args()
 records = []
+def cpu_ticks(pid):
+    # /proc stat fields 14 and 15 are process user/system CPU ticks.
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+    return int(fields[11]) + int(fields[12])
 with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
     home = Path(temporary)
     config = home / '.config/lan-remoteapp'
@@ -140,6 +146,11 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             static.until('window.created', lambda event: event['title'] == 'PaneFerryLatencyFixture')
             static_first = frame(static, connection=2)
             assert static_first['key_frame']
+            idle_cpu_ms = None
+            if args.profile_idle_seconds:
+                ticks = cpu_ticks(agent.pid)
+                time.sleep(args.profile_idle_seconds)
+                idle_cpu_ms = round((cpu_ticks(agent.pid) - ticks) * 1000 / os.sysconf('SC_CLK_TCK'), 1)
             static.send(type='input.key', window_id=static_first['window_id'], keysym=ord('z'), pressed=True)
             static.send(type='input.key', window_id=static_first['window_id'], keysym=ord('z'), pressed=False)
             moving = frame(static, connection=2)
@@ -166,6 +177,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             args.export.write_text(json.dumps(records))
         print(json.dumps(dict(result='PASS', transport='quic' if args.network else 'socket', codec='h264', samples=len(records),
             median_wire_bytes=round(statistics.median(len(json.dumps(sample)) for sample in samples)),
+            idle_cpu_ms=idle_cpu_ms, idle_seconds=args.profile_idle_seconds,
             checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle H.264 P-frame', 'idle reconnect snapshot', 'close removes session from inventory'])))
     finally:
         for process in networks:
