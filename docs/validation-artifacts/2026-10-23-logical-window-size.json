@@ -1,0 +1,367 @@
+{
+  "date": "2026-10-23",
+  "source_commit": "249a02e1b2d68068f88038605d00428ed84f4cd6",
+  "policy": {
+    "automatic_size": "Mac content points multiplied by existing source scale to encode window.configure physical pixels; never Mac backing density",
+    "new_launch_default_scale": 1,
+    "dpi_switch_requests": false,
+    "display": "aspect-fit actual decoded frame; bars reject input; coordinates map through image rect; stale frames suppress new clicks and allow held-button release"
+  },
+  "verification": {
+    "project_check": {
+      "exit": 0,
+      "rust_passed": 49,
+      "rust_ignored": 5,
+      "frontend_passed": 24,
+      "scope": "local/isolated AppKit, input, reconnect, video and two QUIC nodes"
+    },
+    "launcher_tests": {
+      "passed": 5,
+      "clippy": "all-targets -D warnings passed",
+      "format": "passed"
+    },
+    "ubuntu_isolated": {
+      "ubuntu-live": {
+        "exit": 0,
+        "rows": [
+          {
+            "backend": "Wayland",
+            "logical": [
+              1470,
+              802
+            ],
+            "received": [
+              1470,
+              802
+            ],
+            "source_scale": 1,
+            "pid": 1242357,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              900,
+              600
+            ],
+            "received": [
+              900,
+              600
+            ],
+            "source_scale": 1,
+            "pid": 1242357,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              1470,
+              900
+            ],
+            "received": [
+              1470,
+              900
+            ],
+            "source_scale": 1,
+            "pid": 1242357,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              700,
+              500
+            ],
+            "received": [
+              700,
+              500
+            ],
+            "source_scale": 1,
+            "pid": 1242357,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              1470,
+              802
+            ],
+            "received": [
+              1470,
+              802
+            ],
+            "source_scale": 1,
+            "pid": 1243240,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              900,
+              600
+            ],
+            "received": [
+              900,
+              600
+            ],
+            "source_scale": 1,
+            "pid": 1243240,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              1470,
+              900
+            ],
+            "received": [
+              1470,
+              900
+            ],
+            "source_scale": 1,
+            "pid": 1243240,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              700,
+              500
+            ],
+            "received": [
+              700,
+              500
+            ],
+            "source_scale": 1,
+            "pid": 1243240,
+            "preserved": true
+          }
+        ],
+        "setup": "installed Agent and copy of installed bridge v4",
+        "untouched": "private home, D-Bus, GNOME and application fixtures; no real desktop or profiles"
+      },
+      "ubuntu-old": {
+        "exit": 0,
+        "rows": [
+          {
+            "backend": "Wayland",
+            "logical": [
+              1470,
+              802
+            ],
+            "received": [
+              2940,
+              1604
+            ],
+            "source_scale": 2,
+            "pid": 1246540,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              900,
+              600
+            ],
+            "received": [
+              1800,
+              1200
+            ],
+            "source_scale": 2,
+            "pid": 1246540,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              1470,
+              900
+            ],
+            "received": [
+              2940,
+              1800
+            ],
+            "source_scale": 2,
+            "pid": 1246540,
+            "preserved": true
+          },
+          {
+            "backend": "Wayland",
+            "logical": [
+              700,
+              500
+            ],
+            "received": [
+              1400,
+              1000
+            ],
+            "source_scale": 2,
+            "pid": 1246540,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              1470,
+              802
+            ],
+            "received": [
+              1470,
+              802
+            ],
+            "source_scale": 1,
+            "pid": 1247411,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              900,
+              600
+            ],
+            "received": [
+              900,
+              600
+            ],
+            "source_scale": 1,
+            "pid": 1247411,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              1470,
+              900
+            ],
+            "received": [
+              1470,
+              900
+            ],
+            "source_scale": 1,
+            "pid": 1247411,
+            "preserved": true
+          },
+          {
+            "backend": "Xwayland",
+            "logical": [
+              700,
+              500
+            ],
+            "received": [
+              700,
+              500
+            ],
+            "source_scale": 1,
+            "pid": 1247411,
+            "preserved": true
+          }
+        ],
+        "setup": "pre-activation Agent backup and current source bridge v2",
+        "untouched": "private home, D-Bus, GNOME and application fixtures; no real desktop or profiles"
+      }
+    },
+    "packaged_host": "shipped release entry and per-app-style named bundle both stayed alive with QUIC/H.264; window.configure 1470x802 on current Mac",
+    "appkit": "source scale 1 and 2; logical 1470x802; resize tracking; aspect ratio; corners/center; letterbox denial; drag release and stale frames; source-scale conversion; reconnect same session/window",
+    "signing": "ad-hoc --verify --deep --strict passed; not notarized"
+  },
+  "activation": {
+    "stage": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/logical-size-20261023/窗渡 PaneFerry.app",
+    "active": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "backup": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/logical-size-20261023/previous/窗渡 PaneFerry.app",
+    "old": {
+      "Contents/MacOS/paneferry-launcher": "9bda3a33129411da261b416734e1a2dc8c27e1683f7b17922841f1a48726232e",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "f6ac4c97215161a402aa865f2fd41cf7729948dc2061f22e8ffd133534269c18",
+      "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+    },
+    "new": {
+      "Contents/MacOS/paneferry-launcher": "ce29a4c577427cf0bf263db811a57ad61a37829591ba320e99322059702fa1fb",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "75b208c2e51f8700dd8f805af4bd3231787a4e78f7456c66e706464356d08528",
+      "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+    },
+    "installed": {
+      "Contents/MacOS/paneferry-launcher": "ce29a4c577427cf0bf263db811a57ad61a37829591ba320e99322059702fa1fb",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "75b208c2e51f8700dd8f805af4bd3231787a4e78f7456c66e706464356d08528",
+      "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+    },
+    "source_commit": "249a02e1b2d68068f88038605d00428ed84f4cd6",
+    "terminated_launchers": [
+      37972
+    ],
+    "quic_readonly_after": [
+      {
+        "type": "hello",
+        "count": 0,
+        "error": null
+      },
+      {
+        "type": "app.list",
+        "count": 52,
+        "error": null
+      },
+      {
+        "type": "window.list",
+        "count": 10,
+        "error": null
+      },
+      {
+        "type": "session.list",
+        "count": 4,
+        "error": null
+      }
+    ],
+    "mac_retained_processes": {
+      "node": 15189,
+      "network": 37982
+    },
+    "active_launcher_pid": 49414
+  },
+  "ubuntu_preserved": {
+    "processes": {
+      "52713": {
+        "name": "rustdesk",
+        "start": "3765602"
+      },
+      "995120": {
+        "name": "paneferry-netwo",
+        "start": "34479807"
+      },
+      "998690": {
+        "name": "gnome-shell",
+        "start": "34481110"
+      },
+      "1002994": {
+        "name": "ChatGPT",
+        "start": "34482010"
+      },
+      "1007878": {
+        "name": "paneferry-agent",
+        "start": "34486424"
+      },
+      "1034686": {
+        "name": "feishu",
+        "start": "34535598"
+      },
+      "2900526": {
+        "name": "easytier-gui",
+        "start": "29782254"
+      }
+    },
+    "agent_sha256": "da9c08de334a5f7ee6e0a8448f052ea989889e777f4220c051720c49fcd78e21",
+    "unchanged": true
+  },
+  "limits": [
+    "Did not interact with running ChatGPT, Feishu, Firefox or their profiles; real application visual acceptance and long-term stability are not established by fixtures.",
+    "Source scale uses the existing protocol integer 1/2 metadata; no new fractional-scale negotiation or live application DPI changes.",
+    "Received source pixels may be magnified on Retina; this does not create native Retina detail.",
+    "Earlier Ubuntu rollback remains deferred. Installed Agent and GNOME bridge stay at the already-running versions; this change requires no Ubuntu restart.",
+    "No Portal-authorized pointer injection in Ubuntu fixtures: AppKit mapping and aspect fit were verified separately; real-user click acceptance remains outstanding.",
+    "No physical multi-monitor, OS fullscreen transition or reverse Mac-publisher visual acceptance in this run; existing reconnect and multi-device QUIC isolation tests passed."
+  ],
+  "log_archive": {
+    "file": "docs/validation-artifacts/2026-10-23-logical-window-size-logs.json.gz",
+    "sha256": "1cf52d1149260689d065557e1d1346a0f606e9f48af8e3d81d2f99ce8e65891d"
+  }
+}
