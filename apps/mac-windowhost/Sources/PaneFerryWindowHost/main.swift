@@ -296,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n原生 AppKit 窗口 + PNG。分辨率可随窗口调整或指定像素宽高，界面缩放独立设置为 100%/200%；原桌面窗口沿用其已配置的缩放。输入法在控制端组合，剪贴板只由主动操作触发。Metal 尚未实现。")
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的画面等比显示。新应用默认使用 100% 启动缩放。也可手动指定远端像素宽高。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -313,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func setResolution() {
         guard let host = activeHost() else { return }
         let dialog = NSAlert(); dialog.messageText = "设置远端窗口分辨率"
-        dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复随窗口请求分辨率；远端未达到目标时等比显示。上限 4096×2160、800 万像素。"
+        dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复跟随本机逻辑大小，保留应用现有缩放。上限 4096×2160、800 万像素。"
         let width = NSTextField(string: String(host.surface.remoteWidth)), height = NSTextField(string: String(host.surface.remoteHeight))
         let fields = NSStackView(views: [NSTextField(labelWithString: "宽"), width, NSTextField(labelWithString: "高"), height])
         fields.orientation = .horizontal; fields.spacing = 8; fields.frame = NSRect(x: 0, y: 0, width: 360, height: 28)
@@ -478,7 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
-                if capabilities.contains("display.scale") { launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1 }
+                if capabilities.contains("display.scale") { launch["scale_factor"] = 1 }
                 send(launch)
             }
             return

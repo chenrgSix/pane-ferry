@@ -517,14 +517,14 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
-          <div class="setting-row scale-setting"><div><label for="render-scale">界面缩放</label><p class="hint">对新会话生效，已有会话保留原来的缩放。</p></div>
+          <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">仅对新启动的应用生效，实际效果取决于应用支持。已有窗口和会话保留原来的缩放。</p></div>
             <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
-              <option value="auto">自动 · 跟随本机像素密度</option>
+              <option value="auto">默认 · 100%</option>
               <option value="1">100%</option>
-              <option value="2">200% · Retina</option>
+              <option value="2">200%</option>
             </select>
           </div>
-          <div class="setting-row"><div><h3>窗口分辨率</h3><p class="hint">随本机窗口的实际像素尺寸调整。可在应用窗口的“显示”菜单中适应屏幕，或输入像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
+          <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">远端窗口跟随本机内容区的逻辑宽高，保留应用现有缩放，画面等比显示。可在应用窗口的“显示”菜单中适应屏幕，或指定远端像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
         </section>
         <section class="panel">
           <div class="section-title"><h2>输入与剪贴板</h2></div>

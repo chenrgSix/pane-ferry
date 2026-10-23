@@ -25,6 +25,8 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--agent', required=True, type=Path)
 p.add_argument('--private-bus', action='store_true')
 p.add_argument('--with-xwayland', action='store_true')
+p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
+p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
     p.error('Run from the graphical login or via systemd-run --user --collect --wait --pipe; a headless GNOME launched in an SSH login may not render.')
@@ -34,7 +36,9 @@ if not a.private_bus:
         conf.write_text('''<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
 <policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>''')
         # No activation of the user's calendar, keyring, document portal or IM.
-        raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus', *(['--with-xwayland'] if a.with_xwayland else [])]))
+        raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
+            *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
+            *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])]))
 root = Path(__file__).resolve().parents[2]
 children = []
 
@@ -107,7 +111,7 @@ try:
         # screen-cast nodes use the logged-in user's PipeWire service.
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
-        shutil.copytree(root/'apps/linux-agent/gnome-extension',ext)
+        shutil.copytree(a.extension_dir or root/'apps/linux-agent/gnome-extension',ext)
         (data/'gnome-shell/update-check-50').touch()
         applications=data/'applications';applications.mkdir()
         state=t/'state.json';fixture=root/'tests/e2e/wayland_fixture.py'
@@ -150,6 +154,10 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.logical_size_only:
+                    from logical_window_size_test import verify
+                    verify(peer, sock, env, state, app, fixture, t, log, start, wait, Peer, Bridge, monitor_layout, a.with_xwayland)
+                    raise SystemExit(0)
                 detail=subprocess.run(['gdbus','call','--timeout','3','--session','--dest','org.gnome.Shell','--object-path','/org/gnome/Shell',
                     '--method','org.gnome.Shell.Extensions.GetExtensionInfo','paneferry@local'],env=env,capture_output=True,text=True)
                 print('Extension:',detail.stdout,detail.stderr,flush=True)

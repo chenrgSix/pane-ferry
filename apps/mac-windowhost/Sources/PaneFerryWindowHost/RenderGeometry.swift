@@ -1,6 +1,8 @@
 import Foundation
 
-/// Wire dimensions are physical pixels; AppKit window dimensions are points.
+/// The wire uses source pixels; AppKit uses logical points. Preserve the
+/// source's existing scale when converting between them, never the Mac's
+/// backing density. Resizing must not request a change of application DPI.
 struct RenderGeometry {
     let scale: Int
     init?(scale: Int) {
@@ -10,10 +12,9 @@ struct RenderGeometry {
     func points(width: Int, height: Int) -> CGSize {
         CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))
     }
-    func pixels(for points: CGSize, backingScale: CGFloat? = nil) -> (width: Int, height: Int)? {
+    func pixels(forLogicalSize points: CGSize) -> (width: Int, height: Int)? {
         guard points.width.isFinite, points.height.isFinite, points.width > 0, points.height > 0 else { return nil }
-        let density = backingScale ?? CGFloat(scale)
-        guard density.isFinite, density > 0 else { return nil }
+        let density = CGFloat(scale)
         let width = max(64, (points.width * density).rounded())
         let height = max(48, (points.height * density).rounded())
         guard width.isFinite, height.isFinite else { return nil }

@@ -40,6 +40,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.makeFirstResponder(surface)
     }
     func applyRemoteGeometry(width: Int, height: Int, rendering: RenderGeometry) {
+        let scaleChanged = self.rendering.scale != rendering.scale
         self.rendering = rendering
         surface.remoteWidth = width; surface.remoteHeight = height
         // Replies can describe an earlier resize. The controller owns the
@@ -51,10 +52,16 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         }
         surface.needsDisplay = true
         updateSubtitle()
+        // A source can move to another monitor. Keep the local logical size
+        // and convert it using the newly reported source density only.
+        if scaleChanged && fixedPixels == nil { windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
     }
     func updateSubtitle() {
         let frame = surface.image
         var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
+        if fixedPixels == nil {
+            parts.append("本机 \(Int(surface.bounds.width.rounded())) × \(Int(surface.bounds.height.rounded())) 点 · 等比显示")
+        }
         if let target = requestedPixels {
             let matched = frame?.width == target.width && frame?.height == target.height
             if !matched {
@@ -63,9 +70,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
             } else {
                 resolutionTimer?.invalidate(); resolutionTimer = nil; resolutionDelayed = false
             }
-            let physical = surface.bounds.size
-            if fixedPixels == nil && (target.width < Int((physical.width * window.backingScaleFactor).rounded()) ||
-                                      target.height < Int((physical.height * window.backingScaleFactor).rounded())) {
+            let logical = surface.bounds.size
+            if fixedPixels == nil && (target.width < Int((logical.width * CGFloat(rendering.scale)).rounded()) ||
+                                      target.height < Int((logical.height * CGFloat(rendering.scale)).rounded())) {
                 parts.append("已达像素预算")
             }
         }
@@ -124,7 +131,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     private func sendResize() {
         resizeTimer?.invalidate(); resizeTimer = nil
         guard !applyingRemote, remoteVisible, !popup else { return }
-        guard let pixels = fixedPixels ?? rendering.pixels(for: surface.bounds.size, backingScale: window.backingScaleFactor) else { return }
+        guard let pixels = fixedPixels ?? rendering.pixels(forLogicalSize: surface.bounds.size) else { return }
         requestedPixels = pixels
         resolutionNotice = nil
         resolutionTimer?.invalidate(); resolutionDelayed = false

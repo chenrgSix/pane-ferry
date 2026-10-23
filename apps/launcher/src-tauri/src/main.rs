@@ -245,18 +245,9 @@ async fn launch_app(
                 retry_same_request: false,
             }
         })?;
-    let scale = render_scale.unwrap_or_else(|| {
-        if app
-            .get_webview_window("main")
-            .and_then(|window| window.scale_factor().ok())
-            .unwrap_or(1.0)
-            >= 1.5
-        {
-            2
-        } else {
-            1
-        }
-    });
+    // Follow logical window size; local Retina density must not change the
+    // remote application's startup DPI. Existing sessions retain their scale.
+    let scale = render_scale.unwrap_or(1);
     let session = transport::launch_native(
         &network::target(&app, &endpoint)?,
         &app_id,

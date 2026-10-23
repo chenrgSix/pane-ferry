@@ -136,10 +136,12 @@ struct AutomaticReconnectSmoke {
         // session is known, even --app startup resumes instead of relaunching.
         let launch = AppDelegate(options:Options(app:"fixture-app", session:nil, native:options.native), clipboard:board)
         var sent:[[String:Any]]=[]; launch.wireSink = { sent.append($0) }
-        let hello = Incoming(object:["type":"hello", "capabilities":[]], image:nil)
+        let hello = Incoming(object:["type":"hello", "capabilities":["display.scale"]], image:nil)
         launch.receive(hello); launch.ready = false; launch.recovering = true; launch.receive(hello)
         let ids = sent.filter { $0["type"] as? String == "app.launch" }.compactMap { $0["request_id"] as? String }
         precondition(ids.count == 2 && ids[0] == ids[1])
+        precondition(sent.filter { $0["type"] as? String == "app.launch" }.allSatisfy { $0["scale_factor"] as? Int == 1 },
+                     "new launches never inherit local Retina density")
         launch.session = "known"; launch.ready = false; launch.receive(hello)
         precondition(sent.last?["type"] as? String == "session.resume" && sent.last?["session_id"] as? String == "known")
         launch.stopRecovery()

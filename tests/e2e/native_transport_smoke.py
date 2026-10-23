@@ -5,6 +5,7 @@ Only isolated publishers, test files and unique pasteboards are used. No SSH,
 installed service, desktop contents or saved device identity is changed.
 """
 from pathlib import Path
+import argparse
 import json
 import os
 import socket
@@ -12,6 +13,10 @@ import subprocess
 import tempfile
 import threading
 import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--packaged-host', type=Path, help='verify a built executable against isolated QUIC nodes instead of compiling Swift fixtures')
+args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
 source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
@@ -79,6 +84,28 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         deadline=time.monotonic()+5
         while not (states[0]/('r-'+b['device_id']+'.sock')).exists():
             assert time.monotonic()<deadline;time.sleep(.02)
+        if args.packaged_host:
+            # Exercise the shipped entry point as well as compiled type tests:
+            # startup, snapshot, decoding and resize must not exit immediately.
+            host=subprocess.Popen([str(args.packaged_host.resolve()), '--native-peer', b['device_id'],
+                '--native-state', str(states[0]), '--native-helper', str(binary), '--session', 'retained'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            children.append(host)
+            deadline=time.monotonic()+10
+            configured=[]
+            while time.monotonic()<deadline:
+                assert host.poll() is None, ('packaged host exited', host.returncode, host.stderr.read())
+                if (scratch/'requests').exists():
+                    configured=[json.loads(line) for line in (scratch/'requests').read_text().splitlines()
+                                if json.loads(line).get('type')=='window.configure']
+                if configured:break
+                time.sleep(.05)
+            assert configured, 'packaged host never configured its received window'
+            time.sleep(3)
+            assert host.poll() is None, ('packaged host exited after capture', host.stderr.read())
+            print('PASS: packaged WindowHost stays alive through real QUIC/H.264 and requests logical viewport', configured[-1])
+            host.terminate();host.wait(timeout=5)
+            raise SystemExit(0)
         types=scratch/'WindowHostTypes.swift'
         types.write_text((source/'main.swift').read_text().split('\n// WINDOWHOST_ENTRYPOINT\n')[0])
         test=scratch/'NativeSmoke.swift'

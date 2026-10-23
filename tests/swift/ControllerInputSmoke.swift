@@ -6,6 +6,7 @@ struct ControllerInputSmoke {
         _ = NSApplication.shared
         verifyShortcutRelease()
         verifyCut()
+        verifyLogicalViewport()
         try! verifyClipboardBundles()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
@@ -44,14 +45,14 @@ struct ControllerInputSmoke {
         let retina = RenderGeometry(scale: 2)!
         let size = retina.points(width: 2000, height: 1400)
         precondition(size == CGSize(width: 1000, height: 700))
-        let pixels = retina.pixels(for: size)!
+        let pixels = retina.pixels(forLogicalSize: size)!
         precondition(pixels.width == 2000 && pixels.height == 1400, "Retina uses physical pixels without changing point size")
-        let maximum = retina.pixels(for: CGSize(width: 10_000, height: 10_000))!
+        let maximum = retina.pixels(forLogicalSize: CGSize(width: 10_000, height: 10_000))!
         precondition(maximum.width <= 4096 && maximum.height <= 2160 && maximum.width * maximum.height <= 8_000_000)
-        precondition(retina.pixels(for: CGSize(width: CGFloat.infinity, height: 100)) == nil)
-        let screenPixels = RenderGeometry(scale: 1)!.pixels(for: CGSize(width: 1000, height: 700), backingScale: 2)!
-        precondition(screenPixels.width == 2000 && screenPixels.height == 1400, "automatic resolution follows the local screen density independently of UI scale")
-        let wide = retina.pixels(for: CGSize(width: 3000, height: 1000))!
+        precondition(retina.pixels(forLogicalSize: CGSize(width: CGFloat.infinity, height: 100)) == nil)
+        let screenPixels = RenderGeometry(scale: 1)!.pixels(forLogicalSize: CGSize(width: 1000, height: 700))!
+        precondition(screenPixels.width == 1000 && screenPixels.height == 700, "automatic size follows logical points at the existing source density")
+        let wide = retina.pixels(forLogicalSize: CGSize(width: 3000, height: 1000))!
         precondition(abs(Double(wide.width) / Double(wide.height) - 3) < 0.003, "frame limits preserve the local window aspect ratio")
         precondition(RenderGeometry(scale: 3) == nil)
         let fit = RenderGeometry.imageRect(in: CGRect(x: 0, y: 0, width: 1200, height: 800), width: 1920, height: 720)
@@ -84,12 +85,12 @@ struct ControllerInputSmoke {
         while resizeMessages.isEmpty && Date() < deadline {
             RunLoop.current.run(mode: .eventTracking, before: deadline)
         }
-        let expected = retina.pixels(for: viewport, backingScale: host.window.backingScaleFactor)!
+        let expected = RenderGeometry(scale: 1)!.pixels(forLogicalSize: viewport)!
         precondition(resizeMessages.last?["width"] as? Int == expected.width && resizeMessages.last?["height"] as? Int == expected.height,
                      "resolution updates run during AppKit event tracking, without waiting for the drag to end")
         host.window.setContentSize(NSSize(width: 700, height: 500))
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
-        let smaller = retina.pixels(for: host.surface.bounds.size, backingScale: host.window.backingScaleFactor)!
+        let smaller = RenderGeometry(scale: 1)!.pixels(forLogicalSize: host.surface.bounds.size)!
         precondition(resizeMessages.last?["width"] as? Int == smaller.width && resizeMessages.last?["height"] as? Int == smaller.height)
         host.fixedPixels = (2560, 1664)
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
@@ -139,6 +140,73 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close disconnects once without a remote close request; remote destruction stays local")
+    }
+
+    private static func verifyLogicalViewport() {
+        // Exercise the production AppKit path at both source densities. The
+        // same rule covers native Wayland, Xwayland/X11 and a Mac publisher.
+        for scale in [1, 2] {
+            var sent: [[String: Any]] = []
+            let host = HostedWindow(id: 77, width: 640 * scale, height: 480 * scale,
+                                    revision: 1, scale: scale, popup: false, disconnect: {}) { sent.append($0) }
+            defer { host.closeLocally() }
+            host.remoteVisible = true
+            host.window.setContentSize(CGSize(width: 1470, height: 802))
+            host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+            precondition(sent.last?["width"] as? Int == 1470 * scale && sent.last?["height"] as? Int == 802 * scale,
+                         "logical size must be identical at source 1x and 2x; do not impose Mac backing density")
+            precondition(!sent.contains { $0["type"] as? String == "window.viewport" || $0["scale_factor"] != nil },
+                         "resizing must not request a DPI change")
+            func frame(_ width: Int, _ height: Int) -> CGImage {
+                CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!.makeImage()!
+            }
+            host.applyRemoteGeometry(width: 1470 * scale, height: 802 * scale, rendering: RenderGeometry(scale: scale)!)
+            host.present(frame(1470 * scale, 802 * scale), mediaMode: "PNG")
+            precondition(!host.window.subtitle.contains("已达像素预算"), "1x on Retina is intentional, not budget reduction")
+            precondition(host.window.subtitle.contains("本机 1470 × 802 点"))
+            // Resize the viewport before the remote repaint: the old image
+            // must keep its ratio and the letterbox offset must enter mapping.
+            host.window.setContentSize(CGSize(width: 900, height: 900))
+            let surface = host.surface, rect = surface.imageRect
+            precondition(abs(rect.width / rect.height - 1470.0 / 802) < 0.0001 && rect.minY > 0)
+            func event(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: surface.convert(point, to: nil), modifierFlags: [],
+                                  timestamp: 0, windowNumber: host.window.windowNumber, context: nil,
+                                  eventNumber: 1, clickCount: 1, pressure: 1)!
+            }
+            for fraction in [0.001, 0.25, 0.5, 0.999] {
+                let point = CGPoint(x: rect.minX + rect.width * fraction, y: rect.minY + rect.height * fraction)
+                surface.mouseDown(with: event(.leftMouseDown, point))
+                precondition(abs((sent.last?["x"] as! Int) - Int(Double(1470 * scale) * fraction)) <= 1)
+                precondition(abs((sent.last?["y"] as! Int) - Int(Double(802 * scale) * fraction)) <= 1)
+                surface.mouseUp(with: event(.leftMouseUp, point))
+            }
+            let beforeBar = sent.count
+            surface.mouseDown(with: event(.leftMouseDown, CGPoint(x: 20, y: 1)))
+            precondition(sent.count == beforeBar, "letterbox bars do not reach remote windows")
+            // A drag that leaves the image must release at the image edge.
+            surface.mouseDown(with: event(.leftMouseDown, CGPoint(x: rect.midX, y: rect.midY)))
+            surface.mouseUp(with: event(.leftMouseUp, CGPoint(x: 1000, y: 1000)))
+            precondition(sent.last?["pressed"] as? Bool == false && sent.last?["x"] as? Int == 1470 * scale - 1
+                         && sent.last?["y"] as? Int == 802 * scale - 1)
+            // Metadata arriving before pixels must not send clicks into a
+            // different layout, but must release already-held mouse buttons.
+            surface.mouseDown(with: event(.leftMouseDown, CGPoint(x: rect.midX, y: rect.midY)))
+            host.applyRemoteGeometry(width: 600 * scale, height: 400 * scale, rendering: RenderGeometry(scale: scale)!)
+            surface.mouseUp(with: event(.leftMouseUp, CGPoint(x: rect.midX, y: rect.midY)))
+            precondition(sent.last?["pressed"] as? Bool == false && (sent.last?["x"] as! Int) < 600 * scale
+                         && (sent.last?["y"] as! Int) < 400 * scale)
+            let beforeStale = sent.count
+            surface.mouseDown(with: event(.leftMouseDown, CGPoint(x: rect.midX, y: rect.midY)))
+            precondition(sent.count == beforeStale)
+            host.windowDidChangeBackingProperties(Notification(name: NSWindow.didChangeBackingPropertiesNotification))
+            host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+            precondition(sent.last?["width"] as? Int == 900 * scale && sent.last?["height"] as? Int == 900 * scale,
+                         "moving between Mac backing densities does not alter remote UI scale")
+        }
+        print("PASS: logical 1470x802 at source 1x/2x, equal aspect ratios, corner/center input, letterbox rejection and drag release during repaint")
     }
 
     private static func verifyShortcutRelease() {
