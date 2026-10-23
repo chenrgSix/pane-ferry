@@ -1,0 +1,179 @@
+{
+  "feature_commits": [
+    "d100138",
+    "8b7a418",
+    "c0dd248"
+  ],
+  "default": "H.264; PNG opt-in",
+  "comparison": {
+    "h264": {
+      "hardware_decode": true,
+      "runs": [
+        {
+          "decode_ms_per_frame": 3.414953466077956,
+          "offscreen_draw_ms_per_frame": 22.960024998368073,
+          "p95_processing_ms": 27.18354167882353,
+          "processing_fps_ceiling": 37.91472290102602
+        },
+        {
+          "decode_ms_per_frame": 3.4015000031407303,
+          "offscreen_draw_ms_per_frame": 22.82973680800448,
+          "p95_processing_ms": 26.90891665406525,
+          "processing_fps_ceiling": 38.12248759750119
+        },
+        {
+          "decode_ms_per_frame": 3.39527361599418,
+          "offscreen_draw_ms_per_frame": 22.794756943282362,
+          "p95_processing_ms": 27.141041646245867,
+          "processing_fps_ceiling": 38.18246785686925
+        }
+      ]
+    },
+    "h264_RGB_mean_absolute_error_0_255": 0.843788487963764,
+    "png": {
+      "hardware_decode": false,
+      "runs": [
+        {
+          "decode_ms_per_frame": 4.332588889519684,
+          "offscreen_draw_ms_per_frame": 26.910555553816568,
+          "p95_processing_ms": 32.520083361305296,
+          "processing_fps_ceiling": 32.007021630413604
+        },
+        {
+          "decode_ms_per_frame": 4.212680553124907,
+          "offscreen_draw_ms_per_frame": 26.660518752760254,
+          "p95_processing_ms": 31.734125048387796,
+          "processing_fps_ceiling": 32.39055305192735
+        },
+        {
+          "decode_ms_per_frame": 4.156780555301036,
+          "offscreen_draw_ms_per_frame": 26.380686110739287,
+          "p95_processing_ms": 30.790875025559217,
+          "processing_fps_ceiling": 32.74665874992394
+        }
+      ]
+    },
+    "png_RGB_mean_absolute_error_0_255": 0,
+    "scope": "offline Mac receiver; no Ubuntu, application session or network modified",
+    "width": 1470,
+    "height": 802,
+    "frames": 60,
+    "runs": 3,
+    "draw_backing_scale": 2,
+    "source": "synthetic text/controls with one animated marker; same source images for both modes",
+    "encoder": "FFmpeg libx264 veryfast, yuv420p; not Ubuntu OpenH264",
+    "ffmpeg_version": "ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "macos": "27.0.1",
+    "cpu": "Apple M4",
+    "encoder_command": [
+      "/opt/homebrew/bin/ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-framerate",
+      "30",
+      "-i",
+      "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/png-quality-20261023/comparison/frame-%03d.png",
+      "-frames:v",
+      "60",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-tune",
+      "zerolatency",
+      "-pix_fmt",
+      "yuv420p",
+      "-b:v",
+      "3536820",
+      "-maxrate",
+      "7073640",
+      "-bufsize",
+      "7073640",
+      "-x264-params",
+      "bframes=0:keyint=60:scenecut=0:aud=1:qpmax=28",
+      "-f",
+      "h264",
+      "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/png-quality-20261023/comparison/sample.h264"
+    ],
+    "payloads": {
+      "png": {
+        "encoded_bytes": 14055054,
+        "base64_bytes": 18740144,
+        "estimated_base64_MB_s_at_30fps": 9.370072
+      },
+      "h264": {
+        "encoded_bytes": 343308,
+        "base64_bytes": 457820,
+        "estimated_base64_MB_s_at_30fps": 0.22891
+      }
+    },
+    "limitations": [
+      "No actual Ubuntu encoder or network measurement",
+      "No real Feishu/ChatGPT visual acceptance",
+      "Processing FPS is an offline ceiling, not presented/network FPS",
+      "PNG does not add Retina source detail"
+    ]
+  },
+  "activation": {
+    "before": {
+      "15189": "15189 Thu Oct 22 17:45:36 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode",
+      "37982": "37982 Fri Oct 23 10:47:12 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/Resources/paneferry-network",
+      "49414": "49414 Fri Oct 23 11:25:42 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/MacOS/paneferry-launcher"
+    },
+    "after": {
+      "15189": "15189 Thu Oct 22 17:45:36 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode",
+      "37982": "37982 Fri Oct 23 10:47:12 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/Resources/paneferry-network",
+      "49414": "49414 Fri Oct 23 11:25:42 2026     /Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app/Contents/MacOS/paneferry-launcher"
+    },
+    "installed": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "running_inode_backup": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/png-quality-20261023/running-before/窗渡 PaneFerry.app",
+    "verified_signature": true,
+    "ubuntu_actions": [],
+    "current_windowhosts_restarted": false,
+    "default": "h264",
+    "png": "opt-in",
+    "final_feature_commit": "c0dd248022fbb4c6feeb8a4fc511c67546a124e3"
+  },
+  "components": {
+    "launcher": {
+      "before": "ce29a4c577427cf0bf263db811a57ad61a37829591ba320e99322059702fa1fb",
+      "staged": "9b3b5a4903e721d7663335e7b267dfc6322e8837691573ce0a3c9f2af76e3186",
+      "installed": "9b3b5a4903e721d7663335e7b267dfc6322e8837691573ce0a3c9f2af76e3186"
+    },
+    "network": {
+      "before": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "staged": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+      "installed": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002"
+    },
+    "node": {
+      "before": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+      "staged": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+      "installed": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+    },
+    "host": {
+      "before": "75b208c2e51f8700dd8f805af4bd3231787a4e78f7456c66e706464356d08528",
+      "staged": "eac8f1e5643710a305cd836154ee27cf7a71d568433e5c839b84e0e473a504bf",
+      "installed": "eac8f1e5643710a305cd836154ee27cf7a71d568433e5c839b84e0e473a504bf"
+    }
+  },
+  "validation": {
+    "project_gate": "scripts/check.sh exit 0 before default-only correction; Rust 49 passed / 5 ignored, frontend 24 passed, AppKit and real local QUIC tests passed",
+    "final_correction": "display_quality_smoke and Swift release rebuild passed; default remains H264, saved selection still respected",
+    "packaged": "Both PNG and H264 signed entry points passed local QUIC startup; final signed installed binary H264 check recorded separately",
+    "geometry": "HostedWindow.swift, SurfaceView.swift and RenderGeometry.swift unchanged",
+    "ubuntu": "No remote connection, service action, desktop restart/logout, bridge activation or application action in this task",
+    "limits": [
+      "Not real Ubuntu OpenH264 or network performance",
+      "No real Feishu or ChatGPT visual acceptance",
+      "No added source resolution or Retina detail",
+      "No physical multi-device concurrency test"
+    ],
+    "final_installed_packaged": "PASS: signed final installed H264 host through two local QUIC nodes; 1470x802 viewport; no user device accessed"
+  },
+  "test_development_notes": [
+    "Initial color assertion used AppKit color conversion; corrected to test decoded RGB components directly. No product decoder changed.",
+    "Initial real QUIC assertion expected publisher sequence numbers; router rewrites them. Corrected to verify revision and actual PNG presentation."
+  ]
+}

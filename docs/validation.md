@@ -490,3 +490,14 @@ Ubuntu Agent1007878、网络995120、GNOME998690、飞书1034686、ChatGPT100299
 修复 **尚未激活到正式桌面**。已保存到 `/home/chenrg/.local/state/lan-remoteapp/upgrades/window-lifecycle-20261023-1154/`，同时保留原扩展副本；manifest确认只有virtualOutput.js变化。正式安装文件仍未覆盖，扩展保持停用。GNOME缓存已导入模块，同一桌面里禁用再启用不能证明新源码生效；遵守保留当前任务的要求，本轮没有注销或重启电脑。原先的Ubuntu整套回滚仍未完成，不能借本补丁悄悄切换Agent。
 
 清晰度改进暂缓；此次没有声称解决1×源在Retina上的细节不足，也没有把隔离回归当成真实应用或长期稳定性验收。事故证据、校验和、边界见[结构化记录](validation-artifacts/2026-10-23-window-lifecycle-crash.json)，测试输出见[压缩日志](validation-artifacts/2026-10-23-window-lifecycle-logs.json.gz)。原始core和应用私密内容没有复制进仓库。
+
+
+## 2026-10-23：Mac 可选 PNG 清晰对照，H.264 保持默认
+
+用户要求只改 Mac、增加统一 PNG 模式并对比清晰度和流畅度，保持窗口大小、比例、鼠标映射，禁止操作 Ubuntu 桌面或启用窗口桥。`d100138` 增加显示菜单和原会话重连切换；`8b7a418` 增加完全离线的接收端对比工具。用户随后质疑 PNG 的必要性，`c0dd248` 恢复 H.264 默认，PNG 仅作可选对照。产品改动仅限 Mac 的 main.swift 和 DisplayQuality.swift，没有应用名称分支，也没有修改 HostedWindow、SurfaceView、RenderGeometry 或 Linux 组件。
+
+完整 scripts/check.sh 通过（Rust 49通过/5忽略、前端24通过、Swift/AppKit、两个隔离 QUIC 节点、视频和二进制剪贴板）；最终默认值修正后重新运行画质回归和 release 构建通过。PNG→H.264→PNG 保留同一 session、NSWindow、关联窗口、固定/自动模式及鼠标中心坐标；模拟断线后保持选择，无 H.264 能力时回退 PNG，剪贴板忙时禁用切换。真实本机 QUIC 测试也核对 H.264→PNG 的原会话接续和 PNG 原始像素，没有 app.launch。打包 PNG/H.264 入口保持运行并请求 1470×802。
+
+Mac 已安装最终 H.264 默认版本。原 Node15189、网络37982、启动器49414 的 PID和启动时间保持；网络与 Node文件SHA不变。只用目录交换更新包，旧映射文件保留在 dist/png-quality-20261023/running-before/，没有原地重写正在执行的文件。签名深度/严格检查通过；启动器代码未重新编译，重新封印使签名元数据改变。原包、新包、校验和、安装记录在 dist/png-quality-20261023/。
+
+本轮没有访问 Ubuntu、重启/注销任何桌面、启用窗口桥、修改账号配置或操作真实应用。此前窗口桥停用和 Ubuntu 回滚暂缓的状态保持，不能以本地回归替代真实飞书、GPT 或 Firefox验收。PNG只是避免视频压缩损失，不能增加源图细节。[对比表、复现方法与限制](png-quality-comparison.md)，[结构化记录](validation-artifacts/2026-10-23-png-quality.json)。
