@@ -510,3 +510,11 @@ Mac 已安装最终 H.264 默认版本。原 Node15189、网络37982、启动器
 Ubuntu 使用正在安装的 Agent 二进制和先前暂存、已修复失效窗口清理的 v4 桥**复制件**，在私有 D-Bus、GNOME、Xvfb 和 GTK 小窗口中运行，限制 4 GiB 内存、200% CPU、130 秒。明确请求 Wayland 1× 时，900×700 逻辑窗口收到真实 900×700 PNG；请求 Wayland 2× 时，GTK 报告 2×，相同逻辑窗口收到真实 1800×1400 PNG，GTK 子控件重新分配为 900 逻辑宽。Xwayland 两次均为 1×、900×700 PNG，子控件也按 900 逻辑宽重排。两端夹具的进程、内容和会话在重连后保留，私有虚拟输出清理完成。
 
 GNOME 正式桌面 PID1309605、Agent1007878、ChatGPT1314034 的启动时间保持；`paneferry@local` 前后均为 INACTIVE，只剩正式一个 GNOME Shell。没有注销、重启、切换真实应用或账号。本结果表明逻辑尺寸重排已经成立，Wayland 明确请求 2× 时能产生真实 2× 源像素；它不能证明当前默认 1× 连接或 Xwayland 已有 Retina 清晰度。H.264 实机清晰度、用户飞书/GPT/Firefox 和 Portal 输入仍未验收。[结构化试验记录](validation-artifacts/2026-10-23-900x700-probe.json)。
+
+## 2026-10-23：真实应用的独立 GNOME 重绘试验
+
+在私有 D-Bus、HOME、配置和无头 GNOME 中，以 `gnome-text-editor --standalone` 打开临时文本；没有启动或读取用户现有应用。首次请求 900×700 逻辑尺寸时，未修补的桥虽然报告 1800×1400 PNG，画面右下仍为黑色，20 秒内未自行更新；重复同尺寸及等待 1 秒均无效。仅将逻辑尺寸暂调 1 像素再回到目标尺寸，真实应用即完整重绘。`8f66679` 将这一步限定在 Wayland 窗口首次使用某个私有输出时执行，按窗口跟踪，不改变 Xwayland 路径，也不触碰全局桌面缩放。
+
+当前源码构建的 Agent 与桥在隔离会话中通过：900×700 点收到完整 1800×1400 像素，随后 850×650 点收到完整 1700×1300；同一编辑器 PID 保持，右下像素均为白色，输出释放后虚拟显示器清理完成。当前 Ubuntu 已安装的 v4 Agent 搭配同样修复的 v4 桥复制件也分别通过 1×/2×：900×700 点收到 900×700/1800×1400，后续缩放亦完整。[未修补首帧](validation-artifacts/2026-10-23-editor-2x-partial-before.png)、修补后 [1×](validation-artifacts/2026-10-23-editor-1x.png) 和 [2×](validation-artifacts/2026-10-23-editor-2x.png) 画面均保存在仓库；[结构化记录](validation-artifacts/2026-10-23-real-app-redraw.json) 包含运行条件与校验和。原有 Wayland/Xwayland 逻辑尺寸回归和完整 `scripts/check.sh` 通过。
+
+Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启动；Chrome 155 在该无头会话里于窗口创建前 SIGSEGV。这两项未进入 PaneFerry 采集，不能据此判断真实 Firefox、飞书或 ChatGPT 的画质。1×/2× 图片是原始 PNG 源像素，不是 Mac 端 H.264 显示验收；现有 Mac 启动仍默认请求 1×，现有 Xwayland 窗口仍是 1×。修复仅提交源码，未部署到正式 Ubuntu；正式 GNOME1309605、Agent1007878、ChatGPT1314034 保持，窗口桥仍为 INACTIVE，没有注销或重启。
