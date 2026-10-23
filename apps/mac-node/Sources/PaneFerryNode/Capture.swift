@@ -10,19 +10,21 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private let queue = DispatchQueue(label: "paneferry.encode", qos: .userInteractive)
     private let rawLock = NSLock()
     private var newest: CVPixelBuffer?, scheduled = false, stopped = false, reportedFailure = false
+    private var lastCaptureAt: TimeInterval = 0
     private var encoder: VTCompressionSession?
     private var encodedSize = CGSize.zero
+    private var encoderCap = 0
     private var frameNumber: Int64 = 0
     private var streamID = UInt64.random(in: 1...UInt64.max)
-    let wire: Wire, session: String, windowID: UInt32
+    let wire: Wire, session: String, windowID: UInt32, rate: VideoRateController
     let token: UUID
     private let failed: () -> Void
     private let metadataLock = NSLock()
     private var revision: UInt64
     private var width: Int, height: Int
-    init(wire: Wire, session: String, windowID: UInt32, width: Int, height: Int, revision: UInt64, token: UUID, failed: @escaping () -> Void) {
+    init(wire: Wire, session: String, windowID: UInt32, width: Int, height: Int, revision: UInt64, token: UUID, rate: VideoRateController, failed: @escaping () -> Void) {
         self.wire=wire; self.session=session; self.windowID=windowID; self.width=width; self.height=height; self.revision=revision
-        self.token=token; self.failed=failed
+        self.token=token; self.rate=rate; self.failed=failed
     }
     func start(_ window: SCWindow) async throws {
         let configuration = config()
@@ -35,7 +37,7 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private func config() -> SCStreamConfiguration {
         metadataLock.lock(); let w=width, h=height; metadataLock.unlock()
         let result=SCStreamConfiguration(); result.width=w+w%2; result.height=h+h%2
-        result.minimumFrameInterval=CMTime(value: 1, timescale: 30)
+        result.minimumFrameInterval=CMTime(value: 1, timescale: Int32(rate.desiredFPS()))
         result.queueDepth=3; result.pixelFormat=kCVPixelFormatType_32BGRA
         result.showsCursor=false; result.capturesAudio=false
         if #available(macOS 14.0, *) { result.ignoreShadowsSingleWindow=true }
@@ -45,6 +47,7 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         metadataLock.withLock { self.width=width; self.height=height; self.revision=revision }
         try await stream?.updateConfiguration(config())
     }
+    func updateRate() async throws { try await stream?.updateConfiguration(config()) }
     func stop() {
         rawLock.lock(); stopped=true; newest=nil; rawLock.unlock()
         if let stream=stream { Task { try? await stream.stopCapture() } }; stream=nil
@@ -63,6 +66,9 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
               attachments.first?[.status] as? Int == SCFrameStatus.complete.rawValue else { return }
         rawLock.lock()
         guard !stopped else { rawLock.unlock(); return }
+        let now=ProcessInfo.processInfo.systemUptime
+        if lastCaptureAt > 0 && now-lastCaptureAt < rate.interval(now:now)*0.9 { rawLock.unlock(); return }
+        lastCaptureAt=now
         newest=image
         let schedule = !scheduled; scheduled=true; rawLock.unlock()
         if schedule { queue.async { [self] in drain() } }
@@ -78,7 +84,8 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let w=CVPixelBufferGetWidth(image), h=CVPixelBufferGetHeight(image)
         metadataLock.lock(); let width=width, height=height, revision=revision; metadataLock.unlock()
         guard w == width+width%2, h == height+height%2, dimensions(width,height) else { return }
-        if encodedSize != CGSize(width:w,height:h) || encoder == nil {
+        let cap=rate.maximum()
+        if encodedSize != CGSize(width:w,height:h) || encoder == nil || encoderCap != cap {
             if let encoder=encoder { VTCompressionSessionInvalidate(encoder) }; encoder=nil
             streamID=UInt64.random(in:1...UInt64.max); frameNumber=0
             let result=VTCompressionSessionCreate(allocator:nil,width:Int32(w),height:Int32(h),codecType:kCMVideoCodecType_H264,
@@ -91,21 +98,22 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             for (key,value) in [(kVTCompressionPropertyKey_RealTime,kCFBooleanTrue as Any),
                                 (kVTCompressionPropertyKey_AllowFrameReordering,kCFBooleanFalse as Any),
                                 (kVTCompressionPropertyKey_ProfileLevel,kVTProfileLevel_H264_Main_AutoLevel as Any),
-                                (kVTCompressionPropertyKey_AverageBitRate,NSNumber(value:min(24_000_000,max(2_000_000,w*h*3))) as Any),
-                                (kVTCompressionPropertyKey_MaxKeyFrameInterval,NSNumber(value:60) as Any),
-                                (kVTCompressionPropertyKey_ExpectedFrameRate,NSNumber(value:30) as Any)] {
+                                (kVTCompressionPropertyKey_AverageBitRate,NSNumber(value:min(48_000_000,max(4_000_000,w*h*6*cap/60))) as Any),
+                                (kVTCompressionPropertyKey_MaxKeyFrameInterval,NSNumber(value:cap) as Any),
+                                (kVTCompressionPropertyKey_ExpectedFrameRate,NSNumber(value:cap) as Any)] {
                 VTSessionSetProperty(encoder,key:key,value:value as CFTypeRef)
             }
             guard VTCompressionSessionPrepareToEncodeFrames(encoder) == noErr else { reportFailure(); return }
             encodedSize=CGSize(width:w,height:h)
+            encoderCap=cap
         }
         // Metadata is embedded with the frame's submission, never read from a
         // later resize in the asynchronous encoder callback.
         let info=FrameInfo(width:width,height:height,revision:revision,stream:streamID)
         pendingInfo=info
         if let encoder=encoder {
-            VTCompressionSessionEncodeFrame(encoder,imageBuffer:image,presentationTimeStamp:CMTime(value:frameNumber,timescale:30),
-                duration:CMTime(value:1,timescale:30),frameProperties:frameNumber == 0 ? [kVTEncodeFrameOptionKey_ForceKeyFrame:true] as CFDictionary : nil,
+            VTCompressionSessionEncodeFrame(encoder,imageBuffer:image,presentationTimeStamp:CMTime(value:frameNumber,timescale:Int32(cap)),
+                duration:CMTime(value:1,timescale:Int32(cap)),frameProperties:frameNumber == 0 ? [kVTEncodeFrameOptionKey_ForceKeyFrame:true] as CFDictionary : nil,
                 sourceFrameRefcon:nil,infoFlagsOut:nil)
             VTCompressionSessionCompleteFrames(encoder,untilPresentationTimeStamp:.invalid)
         }
@@ -140,8 +148,10 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         guard offset==length else { reportFailure();return }
         // Stop and destruction must precede any future frame for this member.
         rawLock.lock(); defer { rawLock.unlock() }; guard !stopped else { return }
-        wire.send(["type":"frame","window_id":windowID,"geometry_revision":info.revision,"codec":"h264",
+        var frame: [String:Any] = ["type":"frame","window_id":windowID,"geometry_revision":info.revision,"codec":"h264",
             "width":info.width,"height":info.height,"encoded_width":info.width+info.width%2,"encoded_height":info.height+info.height%2,
-            "stream_id":info.stream,"key_frame":keyframe,"data":result.base64EncodedString()],session:session)
+            "stream_id":info.stream,"key_frame":keyframe,"data":result.base64EncodedString()]
+        if let id=rate.sent() { frame["frame_id"]=id }
+        wire.send(frame,session:session)
     }
 }

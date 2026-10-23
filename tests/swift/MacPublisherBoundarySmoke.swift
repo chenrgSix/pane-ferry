@@ -32,6 +32,19 @@ import Darwin
         let scrollEvent=windowScrollEvent(windowID:42,frame:frame,location:point,flags:[],vertical:3,horizontal:0)!
         let scroll=NSEvent(cgEvent:scrollEvent)!
         precondition(scroll.windowNumber==42 && scroll.scrollingDeltaY==3 && getLocation(scrollEvent)==point)
+        let rate=VideoRateController()
+        rate.configure(cap:90,feedback:true,now:0)
+        precondition(rate.maximum()==90 && rate.desiredFPS(now:0)==90)
+        let firstFrame=rate.sent(now:0.1)!
+        precondition(!rate.acknowledge(firstFrame,now:0.15))
+        let slowFrame=rate.sent(now:0.2)!
+        precondition(!rate.acknowledge(slowFrame,now:0.5))
+        let slowerFrame=rate.sent(now:0.55)!
+        precondition(rate.acknowledge(slowerFrame,now:0.9) && rate.desiredFPS(now:0.9)==67)
+        _=rate.sent(now:1.0)
+        precondition(rate.desiredFPS(now:2.1)==33, "feedback stall must reduce capture rate")
+        rate.configure(cap:60,feedback:false,now:3)
+        precondition(rate.sent(now:3.1)==nil && rate.desiredFPS(now:3.1)==60)
         print("PASS: Mac publisher exclusion, identifiers, frame and image budgets")
     }
 }

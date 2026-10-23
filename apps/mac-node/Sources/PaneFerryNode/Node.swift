@@ -2,8 +2,24 @@ import AppKit
 import ScreenCaptureKit
 import Darwin
 
+private func validVideoRate(_ value: Any?) -> Int? {
+    guard let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let rate=Int(number.stringValue),(1...90).contains(rate) else { return nil }
+    return rate
+}
+private func validFrameID(_ value: Any?) -> UInt64? {
+    guard let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let id=UInt64(number.stringValue),id>0 else { return nil }
+    return id
+}
+private func validFeedbackFlag(_ value: Any?) -> Bool? {
+    guard let number=value as? NSNumber,CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+    return number.boolValue
+}
+
 final class Client {
     let id=UUID(),wire:Wire,local:Bool
+    let rate=VideoRateController()
     var session:PublishedSession?,captures=[UInt32:WindowCapture](),video=false,attaching=false
     init(_ wire:Wire,local:Bool) { self.wire=wire;self.local=local }
     func detach() { for capture in captures.values { capture.stop() };captures.removeAll();if let session=session,session.controller==id { session.release();session.controller=nil };session=nil }
@@ -40,7 +56,7 @@ final class Client {
                 DispatchQueue.global().async {
                     do {
                         guard let hello=try wire.read(),hello["type"] as? String == "hello",hello.count==2 else { throw NodeError.invalid_request }
-                        wire.send(["type":"hello","capabilities":["native.h264","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"]])
+                        wire.send(["type":"hello","capabilities":["native.h264","video.qos","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"]])
                         while let request=try wire.read() {
                             let finished=DispatchSemaphore(value:0)
                             Task { @MainActor in
@@ -117,7 +133,7 @@ final class Client {
     func startCapture(_ member:PublishedWindow,_ session:PublishedSession,_ client:Client) async throws {
         let id=member.target.window.windowID,token=UUID()
         guard client.captures[id] == nil else { return }
-        let capture=WindowCapture(wire:client.wire,session:session.id,windowID:id,width:member.width,height:member.height,revision:member.revision,token:token) { [weak self,weak client] in
+        let capture=WindowCapture(wire:client.wire,session:session.id,windowID:id,width:member.width,height:member.height,revision:member.revision,token:token,rate:client.rate) { [weak self,weak client] in
             Task { @MainActor in
                 guard let self=self,let client=client,client.captures[id]?.token==token else { return }
                 self.captureFailed(id,session,client)
@@ -167,7 +183,8 @@ final class Client {
         // treated as input or executable/path arguments.
         let schemas:[String:Set<String>] = [
             "node.info":[],"permissions.request":[],"sharing.set":["enabled"],"app.list":[],"window.list":[],"session.list":[],
-            "video.enable":["codec"],"app.launch":["app_id","request_id","backend","attach","scale_factor"],"session.resume":["session_id"],"session.detach":[],
+            "video.enable":["codec","max_fps","feedback"],"video.configure":["max_fps"],"video.feedback":["frame_id"],
+            "app.launch":["app_id","request_id","backend","attach","scale_factor"],"session.resume":["session_id"],"session.detach":[],
             "window.focus":["window_id"],"window.close.request":["window_id"],"window.configure":["window_id","width","height"],
             "input.pointer":["window_id","x","y","button","pressed"],"input.key.logical":["window_id","key","pressed"],
             "input.text.commit":["window_id","text"],"clipboard.paste":["window_id","text"],"clipboard.copy":["window_id","request_id"],
@@ -201,7 +218,20 @@ final class Client {
             client.wire.send(["type":"session.list","sessions":sessions])
         case "video.enable":
             guard client.session==nil,request["codec"] as? String == "h264" else { throw NodeError.invalid_request }
-            client.video=true;client.wire.send(["type":"video.ready","codec":"h264"])
+            let rate = request["max_fps"] == nil ? 60 : validVideoRate(request["max_fps"])
+            let feedback = request["feedback"] == nil ? false : validFeedbackFlag(request["feedback"])
+            guard let rate,let feedback else { throw NodeError.invalid_request }
+            client.rate.configure(cap:rate,feedback:feedback)
+            client.video=true;client.wire.send(["type":"video.ready","codec":"h264","max_fps":rate])
+        case "video.configure":
+            guard client.video,let rate=validVideoRate(request["max_fps"]) else { throw NodeError.invalid_request }
+            client.rate.configure(cap:rate)
+            for capture in client.captures.values { try? await capture.updateRate() }
+        case "video.feedback":
+            guard client.video,let frame=validFrameID(request["frame_id"]) else { throw NodeError.invalid_request }
+            if let session=client.session,owns(session,client),client.rate.acknowledge(frame) {
+                for capture in client.captures.values { try? await capture.updateRate() }
+            }
         case "app.launch":
             guard let app=request["app_id"] as? String,let id=request["request_id"] as? String,request["backend"] as? String == "native" else { throw NodeError.invalid_request }
             let session=try await publisher.launch(app,id)

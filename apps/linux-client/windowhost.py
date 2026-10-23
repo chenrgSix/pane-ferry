@@ -77,6 +77,7 @@ class Video:
             raise ValueError('video_decoder_unavailable')
         self.receive = receive
         self.stream = None; self.size = None
+        self.frame_ids = {}; self.frame_ids_lock = threading.Lock(); self.next_pts = 0
         self.pipeline = Gst.parse_launch('appsrc name=source is-live=true format=time block=true max-buffers=4 '
             'caps=video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! ' + decoder +
             ' ! videoconvert ! video/x-raw,format=RGB ! appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true')
@@ -98,11 +99,22 @@ class Video:
             # Flush the previous GOP and discard queued decoded images on resize.
             self.pipeline.set_state(Gst.State.READY)
             self.pipeline.set_state(Gst.State.PLAYING)
+            with self.frame_ids_lock: self.frame_ids.clear(); self.next_pts = 0
             self.stream = event['stream_id']
         elif event.get('key_frame'):
             check_sps(data, width + width % 2, height + height % 2)
         self.size = width, height
+        frame_id = event.get('frame_id')
+        if frame_id is not None and (type(frame_id) is not int or not 0 < frame_id < 2**64):
+            raise ValueError('invalid_video')
         buffer = Gst.Buffer.new_wrapped(data)
+        with self.frame_ids_lock:
+            self.next_pts += Gst.SECOND // 90
+            buffer.pts = self.next_pts
+            buffer.duration = Gst.SECOND // 90
+            if frame_id is not None:
+                if len(self.frame_ids) == 128: self.frame_ids.pop(next(iter(self.frame_ids)))
+                self.frame_ids[buffer.pts] = frame_id
         if self.source.emit('push-buffer', buffer) != Gst.FlowReturn.OK:
             raise ValueError('video_decoder_failed')
 
@@ -120,7 +132,10 @@ class Video:
         if len(raw) < stride * height:
             return Gst.FlowReturn.ERROR
         pixels = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(raw), GdkPixbuf.Colorspace.RGB, False, 8, width, height, stride)
-        self.receive(pixels.new_subpixbuf(0, 0, w, h))
+        # appsink may drop decoded pictures. Match the submitted PTS instead of
+        # acknowledging the wrong frame after a drop.
+        with self.frame_ids_lock: frame_id = self.frame_ids.pop(buffer.pts, None)
+        self.receive(pixels.new_subpixbuf(0, 0, w, h), frame_id)
         return Gst.FlowReturn.OK
 
     def close(self):
@@ -141,6 +156,11 @@ class Viewer:
         self.window_id = None; self.revision = 0; self.width = 0; self.height = 0
         self.pressed = set(); self.videos = {}; self.wire = None
         self.display_lock = threading.Lock(); self.pending_image = None; self.display_scheduled = False
+        self.presented_frame_id = None
+        if owner is None:
+            self.max_fps = 60; self.qos_supported = False
+            self.pending_feedback = None; self.feedback_timer = None; self.last_feedback_at = 0
+            self.last_feedback_id = 0
         self.copy_request = None; self.waiting_paste = False; self.resize_timer = None
         self.last_requested = None; self.epoch = 0
         self.window = Gtk.ApplicationWindow(application=application, title=name + ' · 连接中')
@@ -149,7 +169,15 @@ class Viewer:
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.notice = Gtk.Label(label='正在连接 ' + name)
         self.view = Gtk.DrawingArea(); self.view.set_can_focus(True)
-        self.box.pack_start(self.notice, False, False, 0); self.box.pack_start(self.view, True, True, 0)
+        self.box.pack_start(self.notice, False, False, 0)
+        self.rate_selector = None
+        if owner is None:
+            self.rate_selector = Gtk.ComboBoxText()
+            self.rate_selector.append('60', '60 fps（默认）'); self.rate_selector.append('90', '90 fps')
+            self.rate_selector.set_active_id('60'); self.rate_selector.set_sensitive(False)
+            self.rate_selector.connect('changed', self.rate_changed)
+            self.box.pack_start(self.rate_selector, False, False, 0)
+        self.box.pack_start(self.view, True, True, 0)
         self.window.add(self.box)
         self.pixels = None; self.preedit = ''; self.anchor = (30, 30)
         self.im = Gtk.IMMulticontext(); self.im.set_use_preedit(True)
@@ -182,17 +210,19 @@ class Viewer:
         if self.pixels:
             context.save(); context.scale(allocation.width / self.pixels.get_width(), allocation.height / self.pixels.get_height())
             Gdk.cairo_set_source_pixbuf(context, self.pixels, 0, 0); context.paint(); context.restore()
+            if self.presented_frame_id is not None:
+                self.owner.feedback(self.presented_frame_id); self.presented_frame_id = None
         if self.preedit:
             x, y = self.anchor
             context.set_source_rgb(1, 1, 1); context.rectangle(x, y, min(300, len(self.preedit)*20+20), 28); context.fill()
             context.set_source_rgb(0, 0, 0); context.move_to(x+5, y+20); context.set_font_size(18); context.show_text(self.preedit)
         return False
 
-    def image(self, pixels, epoch, revision, token):
+    def image(self, pixels, epoch, revision, token, frame_id=None):
         if epoch != self.owner.epoch or revision != self.revision or token is not self.frame_token or self.closed.is_set():
             return
         with self.display_lock:
-            self.pending_image = (pixels, epoch, revision, token)
+            self.pending_image = (pixels, epoch, revision, token, frame_id)
             if self.display_scheduled:
                 return
             self.display_scheduled = True
@@ -202,14 +232,39 @@ class Viewer:
         with self.display_lock:
             pending = self.pending_image; self.pending_image = None; self.display_scheduled = False
         if not self.closed.is_set() and pending:
-            pixels, epoch, revision, token = pending
+            pixels, epoch, revision, token, frame_id = pending
             if epoch == self.owner.epoch and revision == self.revision and token is self.frame_token:
-                self.pixels = pixels; self.view.queue_draw()
+                self.pixels = pixels; self.presented_frame_id = frame_id; self.view.queue_draw()
         return False
 
     def status(self, text):
         if not self.destroyed:
             self.notice.set_text(text)
+        return False
+
+    def rate_changed(self, selector):
+        if not self.qos_supported or self.closed.is_set(): return
+        rate = int(selector.get_active_id() or 60)
+        if rate == self.max_fps: return
+        self.max_fps = rate
+        try: self.outbound.put_nowait((self.epoch, dict(type='video.configure', max_fps=rate)))
+        except queue.Full: self.status('帧率切换未发送，请稍后重选')
+
+    def feedback(self, frame_id):
+        if not self.qos_supported or self.closed.is_set() or frame_id <= self.last_feedback_id: return
+        self.pending_feedback = max(frame_id, self.pending_feedback or 0)
+        if self.feedback_timer is None:
+            remaining = max(1, int((.05 - (time.monotonic() - self.last_feedback_at)) * 1000))
+            self.feedback_timer = GLib.timeout_add(remaining, self.flush_feedback)
+
+    def flush_feedback(self):
+        self.feedback_timer = None
+        frame_id = self.pending_feedback; self.pending_feedback = None
+        if frame_id is not None and self.qos_supported and not self.closed.is_set():
+            try:
+                self.outbound.put_nowait((self.epoch, dict(type='video.feedback', frame_id=frame_id)))
+                self.last_feedback_id = frame_id; self.last_feedback_at = time.monotonic()
+            except queue.Full: pass
         return False
 
     def send(self, **value):
@@ -296,8 +351,14 @@ class Viewer:
             self.members[wid].window.set_transient_for(parent.window if parent else None)
 
     def invalidate(self, text):
+        self.qos_supported = False
+        if self.rate_selector: self.rate_selector.set_sensitive(False)
+        if self.feedback_timer is not None:
+            GLib.source_remove(self.feedback_timer); self.feedback_timer = None
+        self.pending_feedback = None; self.last_feedback_id = 0
         for viewer in list(self.members.values()) or [self]:
             viewer.ready = False; viewer.frame_token = None; viewer.last_requested = None
+            viewer.presented_frame_id = None
             viewer.pressed.clear(); viewer.cancel_copy(); viewer.status(text)
             with viewer.display_lock: viewer.pending_image = None
         return False
@@ -406,7 +467,12 @@ class Viewer:
                 wire = Wire(self.peer_id); self.wire = wire
                 if 'input.key.logical' not in wire.capabilities or 'native.h264' not in wire.capabilities:
                     raise ValueError('protocol_error')
-                wire.send(type='video.enable', codec='h264'); wire.until('video.ready')
+                self.qos_supported = 'video.qos' in wire.capabilities
+                if self.qos_supported:
+                    wire.send(type='video.enable', codec='h264', max_fps=self.max_fps, feedback=True)
+                else:
+                    wire.send(type='video.enable', codec='h264')
+                wire.until('video.ready')
                 if not self.session_id:
                     wire.send(type='app.launch', app_id=self.app_id, request_id=self.request_id, backend='native', attach=False)
                     self.session_id = wire.until('session.started')['session_id']
@@ -417,12 +483,14 @@ class Viewer:
                 catalog = self.validate_windows(snapshot['windows'])
                 if retired.intersection(catalog): raise ValueError('protocol_error')
                 self.on_ui(self.apply_members, catalog, epoch)
+                self.on_ui(self.rate_selector.set_sensitive, self.qos_supported)
                 attempt = 0
                 def send_loop(wire=wire, sender_stop=sender_stop):
                     while not sender_stop.is_set() and not self.closed.is_set():
                         try: queued_epoch, value = self.outbound.get(timeout=.2)
                         except queue.Empty: continue
-                        if queued_epoch != epoch or value['window_id'] not in catalog: continue
+                        if queued_epoch != epoch: continue
+                        if value['type'] not in ('video.configure', 'video.feedback') and value.get('window_id') not in catalog: continue
                         try: wire.send(**value)
                         except (OSError, ValueError):
                             try: wire.socket.shutdown(2)
@@ -448,7 +516,7 @@ class Viewer:
                             if video: video.close()
                             viewer = self.members[wid]; token = object()
                             self.on_ui(setattr, viewer, 'frame_token', token)
-                            video = self.videos[wid] = Video(lambda pixels, viewer=viewer, epoch=epoch, revision=revision, token=token: viewer.image(pixels, epoch, revision, token))
+                            video = self.videos[wid] = Video(lambda pixels, frame_id, viewer=viewer, epoch=epoch, revision=revision, token=token: viewer.image(pixels, epoch, revision, token, frame_id))
                             video.stamp = stamp
                         video.push(event)
                     elif kind in ('window.created', 'window.metadata'):
