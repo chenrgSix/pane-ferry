@@ -18,7 +18,7 @@
 display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，不表示 X11 采集。白名单配置 existing 时，app.launch 接入经批准的现有进程窗口，不新建应用；协议和 native 后端值保持不变。重复请求复用该进程会话。PID、Xauthority 等接入参数不属于客户端协议，进程退出或身份变化后不得继续输入或捕获。
 窗口事件 window.created/window.metadata {window_id,parent_id:null|u32,title,role:"toplevel"|"dialog"|"popup",x,y,width,height,geometry_revision,visible:bool}；visible 缺失时按 true 兼容旧端。隐藏/重新映射同一 XID 只更新 visible，保留身份和几何版本，隐藏时暂停帧，重新显示时重发当前帧；真正销毁才发送 window.destroyed {window_id}。
 
-`parent_id` 表示发布端核验后接纳的会话内关联关系，可跨进程；不能由控制端提交任意 PID 或窗口扩大范围。快照包含该会话全部窗口。接收端按设备 UUID、会话与窗口分发画面和输入；本机窗口的关闭按钮向对应远端窗口发送 `window.close.request`。从应用菜单选择“断开并退出”才只断开控制。窗口级错误可附带 `window_id`，剪贴板失败只取消对应窗口的等待；旧端没有窗口编号时取消本连接尚未完成的复制，避免无限等待。
+`parent_id` 表示发布端核验后接纳的会话内关联关系，可跨进程；不能由控制端提交任意 PID 或窗口扩大范围。快照包含该会话全部窗口。接收端按设备 UUID、会话与窗口分发画面和输入；Mac 本机窗口的红色关闭按钮执行 `session.detach` 并退出宿主，保留远端应用与会话。窗口级错误可附带 `window_id`，剪贴板失败只取消对应窗口的等待；旧端没有窗口编号时取消本连接尚未完成的复制，避免无限等待。
 
 窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。
 视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。

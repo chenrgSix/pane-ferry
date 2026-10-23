@@ -122,24 +122,26 @@ struct ControllerInputSmoke {
         precondition(host.window.subtitle.contains("接收 1920 × 720") && host.window.subtitle.contains("沿用应用缩放"))
         precondition(!host.window.subtitle.contains("100%"), "existing process scale is not measured by the protocol default")
         precondition(host.window.subtitle.contains("目标"), "a resize request must not be reported as received pixels")
+        let beforeClose = resizeMessages.count
         host.window.performClose(nil)
-        precondition(disconnects == 0 && resizeMessages.last?["type"] as? String == "window.close.request"
-            && resizeMessages.last?["window_id"] as? UInt32 == 7,
-            "the controller close button requests a real remote window close")
+        host.window.performClose(nil)
+        precondition(disconnects == 1 && resizeMessages.count == beforeClose,
+            "the controller close button must detach once without closing the remote application")
         host.closeLocally()
-        precondition(disconnects == 0, "remote window destruction only closes the local mirror")
+        precondition(disconnects == 1, "remote window destruction only closes the local mirror")
         let child = HostedWindow(id: 8, width: 480, height: 320, revision: 1, scale: 1, popup: false, disconnect: { disconnects += 1 }) { resizeMessages.append($0) }
         child.relatedWindow = true
+        let beforeChildClose = resizeMessages.count
         child.window.performClose(nil)
-        precondition(disconnects == 0 && resizeMessages.last?["type"] as? String == "window.close.request"
-            && resizeMessages.last?["window_id"] as? UInt32 == 8, "closing a preview requests only its remote window close")
+        precondition(disconnects == 2 && resizeMessages.count == beforeChildClose,
+            "closing a local related window must preserve its remote application")
         let childCloseCount = resizeMessages.count
         child.closeLocally()
-        precondition(disconnects == 0 && resizeMessages.count == childCloseCount, "server destruction must not echo a child close")
+        precondition(disconnects == 2 && resizeMessages.count == childCloseCount, "server destruction must not echo a child close")
         print("PASS: controller-only preedit/commit, on-demand paste/copy, input bounds, correlated clipboard replies without touching the system clipboard")
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
-        print("PASS: controller close requests the remote window close; remote destruction stays local")
+        print("PASS: controller close detaches once; remote destruction stays local")
     }
 
     private static func verifyRealtimeHover() {

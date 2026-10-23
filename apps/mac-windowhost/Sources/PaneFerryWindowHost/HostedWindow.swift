@@ -9,6 +9,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var applyingRemote = false
     var remoteVisible = false
     var allowClose = false
+    private var closeRequested = false
     var relatedWindow = false
     var resizeTimer: Timer?
     var rendering: RenderGeometry
@@ -107,15 +108,13 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose { return true }
-        if relatedWindow {
-            resizeTimer?.invalidate(); resizeTimer = nil
-            surface.releaseInput()
-            transmit(["type":"window.close.request", "window_id":id])
-            return false
-        }
+        guard !closeRequested else { return false }
+        closeRequested = true
         resizeTimer?.invalidate(); resizeTimer = nil
         surface.releaseInput()
-        transmit(["type":"window.close.request", "window_id":id])
+        // A native close only detaches this controller. The user can still
+        // close the source application from inside its own window.
+        disconnect()
         return false
     }
     func windowDidBecomeKey(_ notification: Notification) {
