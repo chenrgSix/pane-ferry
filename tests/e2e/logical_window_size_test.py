@@ -5,7 +5,8 @@ import struct
 import time
 
 
-def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer, Bridge, monitor_layout, with_xwayland):
+def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer, Bridge, monitor_layout,
+           with_xwayland, wayland_scale=1):
     bridge = Bridge(env)
     original_layout = monitor_layout()
     original_text = json.loads(state.read_text())['text']
@@ -23,14 +24,16 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
                 identity = info['window_id'] if info['native'] else info['xwindow']
                 target = next(w for w in remote.request('window.list')['windows'] if w['window_id'] == identity)
                 started = remote.request('app.launch', 'session.started', app_id=target['id'],
-                                         request_id='logical-'+kind, backend='native', attach=False, scale_factor=1)
+                                         request_id='logical-'+kind, backend='native', attach=False,
+                                         scale_factor=wayland_scale if kind == 'Wayland' else 1)
                 snap = remote.request('session.resume', 'session.snapshot', session_id=started['session_id'])
                 window = next(w for w in snap['windows'] if w['window_id'] == identity)
                 scale = window['scale_factor']
                 assert scale in (1, 2), window
                 remote.until('frame')
                 source_scale = json.loads(record.read_text())['scale']
-                for width, height in [(1470, 802), (900, 600), (1470, 900), (700, 500)]:
+                assert source_scale == (wayland_scale if kind == 'Wayland' else 1), (kind, source_scale)
+                for width, height in [(1470, 802), (900, 700), (900, 600), (1470, 900), (700, 500)]:
                     # This is the Mac receiver's wire contract: logical size
                     # times existing SOURCE scale, without a viewport/DPI op.
                     pixels = (width * scale, height * scale)
@@ -49,8 +52,17 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
                         wait(lambda: (json.loads(record.read_text())['width'], json.loads(record.read_text())['height']) == (width, height))
                     assert json.loads(record.read_text())['scale'] == source_scale
                     assert json.loads(record.read_text())['text'] == original_text and process.poll() is None
+                    if (width, height) == (900, 700):
+                        # The GTK child is allocated after the source window
+                        # resize, proving the application laid out new content.
+                        def entry_after_reflow():
+                            allocated = json.loads(record.read_text())['entry_width']
+                            return allocated if width * .6 < allocated <= width else None
+                        allocation = wait(entry_after_reflow)
+                        assert allocation <= width, (kind, width, allocation)
                     print(json.dumps(dict(backend=kind, logical=[width, height], received=list(pixels),
-                                          source_scale=source_scale, pid=process.pid, preserved=True)), flush=True)
+                                          source_scale=source_scale, entry_width=json.loads(record.read_text())['entry_width'],
+                                          pid=process.pid, preserved=True)), flush=True)
                 remote.close()
                 remote = Peer(sock)
                 resumed = remote.request('app.launch', 'session.started', app_id=target['id'],

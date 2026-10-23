@@ -32,6 +32,7 @@ def activate(app):
         temporary = state.with_suffix('.tmp')
         temporary.write_text(json.dumps({'width': size.width, 'height': size.height,
                                     'scale': win.get_scale_factor(), 'text': entry.get_text(),
+                                    'entry_width': entry.get_allocated_width(),
                                     'activated': activated,
                                     'selection': list(entry.get_selection_bounds()),
                                     'origin': list(win.get_window().get_origin())}))

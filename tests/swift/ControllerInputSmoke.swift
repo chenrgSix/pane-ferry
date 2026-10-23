@@ -205,8 +205,19 @@ struct ControllerInputSmoke {
             host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
             precondition(sent.last?["width"] as? Int == 900 * scale && sent.last?["height"] as? Int == 900 * scale,
                          "moving between Mac backing densities does not alter remote UI scale")
+            // The user's 900 × 700-point example must request source pixels
+            // at the existing scale and keep pointer mapping on the new frame.
+            host.window.setContentSize(CGSize(width: 900, height: 700))
+            host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+            precondition(sent.last?["width"] as? Int == 900 * scale && sent.last?["height"] as? Int == 700 * scale)
+            host.applyRemoteGeometry(width: 900 * scale, height: 700 * scale, rendering: RenderGeometry(scale: scale)!)
+            host.present(frame(900 * scale, 700 * scale), mediaMode: "H.264")
+            let center = CGPoint(x: host.surface.imageRect.midX, y: host.surface.imageRect.midY)
+            surface.mouseDown(with: event(.leftMouseDown, center))
+            precondition(sent.last?["x"] as? Int == 450 * scale && sent.last?["y"] as? Int == 350 * scale)
+            surface.mouseUp(with: event(.leftMouseUp, center))
         }
-        print("PASS: logical 1470x802 at source 1x/2x, equal aspect ratios, corner/center input, letterbox rejection and drag release during repaint")
+        print("PASS: logical 1470x802 and 900x700 at source 1x/2x, equal aspect ratios, corner/center input, letterbox rejection and drag release during repaint")
     }
 
     private static func verifyShortcutRelease() {
