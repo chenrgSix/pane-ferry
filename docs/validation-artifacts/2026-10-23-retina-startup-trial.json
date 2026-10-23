@@ -25,6 +25,14 @@
     "input": "Typed test text through the Mac host, then selected and deleted it; the editor title returned to an empty new document",
     "cleanup": "Closed the test Mac host and stopped only the test editor and its private Xvfb; the original ChatGPT and Agent processes remained alive"
   },
+  "launcher_trial": {
+    "bundle": "apps/launcher/src-tauri/target/retina-preview/窗渡 PaneFerry.app",
+    "bundle_codesign": "ad-hoc signed; codesign --verify --deep --strict passed",
+    "selected_setting": "200% (the user's existing saved preference was preserved)",
+    "action": "Clicked Text Editor in the rebuilt launcher's installed-app catalog",
+    "result": "A new named Mac WindowHost and independent Ubuntu Text Editor session opened over the existing paired QUIC connection; the Mac window received 2940x1630 H.264 pixels into 1470x815 points",
+    "existing_sessions": "The pre-existing Mac ChatGPT and Cockpit Tools hosts, Mac Node and network service, Ubuntu Agent, and original Ubuntu ChatGPT process remained running and connected; original ChatGPT still received its 1470x809 1x source"
+  },
   "separate_chatgpt_probe": {
     "profile": "temporary isolated HOME and profile; original account/profile untouched",
     "chromium_device_pixel_ratio": 2,
