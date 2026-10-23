@@ -43,6 +43,22 @@ struct H264OnlySmoke {
         adaptive.lastVideoFeedback = ProcessInfo.processInfo.systemUptime - 0.1
         adaptive.pump()
         precondition(adaptiveSent.last?["frame_id"] as? UInt64 == 42, "the final still frame must be acknowledged")
-        print("PASS: H.264-only legacy negotiation, automatic display/publisher frame limits, and idle-frame feedback")
+        let context = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let image = context.makeImage()!
+        let host = HostedWindow(id: 9, width: 4, height: 4, revision: 1, scale: 1, popup: false,
+                                disconnect: {}, transmit: { _ in })
+        for _ in 0..<5 {
+            host.present(image, mediaMode: "H.264 视频")
+            Thread.sleep(forTimeInterval: 0.11)
+        }
+        precondition(host.window.subtitle.contains("fps"), "active frames should show a receive rate")
+        adaptive.windows[host.id] = host
+        Thread.sleep(forTimeInterval: 2.1)
+        adaptive.pump()
+        precondition(host.window.subtitle.contains("近 2 秒未收到新画面"), "an idle source must not retain an old fps")
+        adaptive.windows.removeValue(forKey: host.id)
+        host.closeLocally()
+        print("PASS: H.264 negotiation, automatic frame limits, idle feedback, and current receive-rate display")
     }
 }

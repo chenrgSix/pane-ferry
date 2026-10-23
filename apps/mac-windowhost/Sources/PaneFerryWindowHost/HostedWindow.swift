@@ -24,6 +24,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     private var resolutionTimer: Timer?
     private var resolutionDelayed = false
     private var recentFrames: [TimeInterval] = []
+    private var hasReceivedFrame = false
     var transmit: ([String: Any]) -> Void
     private let disconnect: () -> Void
 
@@ -60,6 +61,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if scaleChanged && fixedPixels == nil { windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
     }
     func updateSubtitle() {
+        let now = ProcessInfo.processInfo.systemUptime
+        recentFrames.removeAll { now - $0 > 2 }
         let frame = surface.image
         var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
         if fixedPixels == nil {
@@ -88,9 +91,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
-        if recentFrames.count >= 5, let first = recentFrames.first, let last = recentFrames.last,
-           last - first >= 0.4 {
-            parts.append("最近收到约 \(Int((Double(recentFrames.count - 1) / (last - first)).rounded())) fps")
+        if hasReceivedFrame {
+            if recentFrames.isEmpty {
+                parts.append("近 2 秒未收到新画面")
+            } else if recentFrames.count >= 5, let first = recentFrames.first, now - first >= 0.4 {
+                parts.append("近 2 秒收到约 \(Int((Double(recentFrames.count - 1) / (now - first)).rounded())) fps")
+            }
         }
         if let frame = frame {
             let rect = surface.imageRect
@@ -104,9 +110,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func present(_ image: CGImage, mediaMode: String) {
         surface.image = image; self.mediaMode = mediaMode
-        let now = ProcessInfo.processInfo.systemUptime
-        recentFrames.append(now)
-        recentFrames.removeAll { now - $0 > 2 }
+        hasReceivedFrame = true
+        recentFrames.append(ProcessInfo.processInfo.systemUptime)
         updateSubtitle()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {

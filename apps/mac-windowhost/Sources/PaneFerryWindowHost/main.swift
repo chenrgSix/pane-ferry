@@ -243,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var displayHz = 60
     var publisherMaxVideoFPS = maximumVideoFPS
     var lastVideoFeedback: TimeInterval = 0
+    var lastFrameRateRefresh: TimeInterval = 0
     var pendingVideoFeedbackID: UInt64?
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
@@ -375,6 +376,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 lastVideoFeedback = now
                 send(["type": "video.feedback", "frame_id": id])
             }
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastFrameRateRefresh >= 1 {
+            lastFrameRateRefresh = now
+            for host in windows.values { host.updateSubtitle() }
         }
     }
     func startConnection() {
