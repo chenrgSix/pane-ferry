@@ -486,3 +486,14 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 无损切换结论：**不要求整机重启，但当前程序不能保证所有旧会话无损交给新版。** Agent 与飞书处于同一服务组（实际 `KillMode=control-group`）；Agent 的 Session 析构也会结束自有进程。另起实例不会继承内存会话表与控制权；仅改 KillMode 或替换 socket 不足以保留原 session ID。GNOME 同 URI 模块也有缓存。版本化扩展与保留旧服务可作为后续方案，但必须增加统一路由和会话交接后验证。本轮未强行并行接管、未替换实际入口、未重启/注销，也未更改账号资料。
 
 最终保留三个原 session ID，EasyTier、GNOME、Firefox、ChatGPT、Agent、飞书的 PID 与内核启动时间不变，原 Mac 包哈希不变。新包为 `dist/input-order-20261023/窗渡 PaneFerry.app` 与 Ubuntu `/home/chenrg/.local/state/lan-remoteapp/upgrades/input-order-20261023/paneferry-linux`，均仅暂存。最新输入桥版本为 4；新 Agent 会拒绝旧桥，避免声称旧代码已包含确认修复。证据、包哈希和未验收项见[JSON](validation-artifacts/2026-10-23-input-order.json)，完整夹具日志已归档于同名压缩记录，并保存在新 Mac 包同级 `validation/`。
+
+
+## 2026-10-23：用户暂停任务后的实际激活
+
+用户明确要求立即切换，并确认可以通过 RustDesk 操作原账号登录界面。本次已将 `575ef46` 产物安装到 Mac 活动应用与 Ubuntu 实际路径，重启 Agent 和网络组件；经 Ubuntu 桌面注销及原账号重新登录，`paneferry@local` 实际窗口列表报告 `bridge_version=4`。没有重启整机，没有改用其他桌面、改全局缩放或重建账号目录。本节覆盖前文“仅暂存”的部署状态，不改变前次回归的结论和边界。
+
+核对活动 Mac 的四个组件 SHA-256 与已测包一致，ad-hoc 深度/严格签名检查通过；Ubuntu 运行中的 Agent、网络可执行文件与已测 release 包一致，安装的五个扩展文件与源码一致。Mac → Ubuntu 真实 QUIC 的握手、52 项应用目录、窗口列表与会话列表正常。反向 QUIC 握手和会话列表正常；Mac 本机共享当前关闭，反向应用目录明确返回 `sharing_disabled`，没有擅自开启，也不算完整双向应用验收。
+
+Agent 重启结束原独立飞书及旧内存会话；桌面注销结束旧桌面进程，重新登录后 ChatGPT 窗口已重新出现。没有复制、删除或改写账号目录，没有读取账号或标签页内容；不能把资料目录未改写成原进程、旧 session ID 或任务状态无损。EasyTier PID 2900526 与 RustDesk PID 52713 始终未变。Mac/Ubuntu 旧文件均有回退备份。
+
+本次只验实际部署、桥版本、配对保留和只读协议，未将其当作真实 Firefox/ChatGPT 的输入、Retina 或账号验收。自动恢复的桌面 ChatGPT 仍是共享 Xwayland 1× 窗口；产品升级不会自动改变其 DPI，要使用独立 2× 显示仍需重新打开应用，不能只重连或拉伸画面。来源、运行组件哈希、实际检查及备份位置见[激活记录](validation-artifacts/2026-10-23-input-order-activation.json)。
