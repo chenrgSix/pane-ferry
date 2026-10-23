@@ -11,3 +11,9 @@ cargo build --manifest-path ../../Cargo.toml --release -p paneferry-network
 install -m 755 ../../target/release/paneferry-network src-tauri/resources/paneferry-network
 npm ci
 npm run tauri -- build
+bundle="src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app"
+# Tauri may leave the launcher executable linker-signed without sealing the
+# containing bundle. Seal all embedded helpers before this development build is
+# installed; an unsealed bundle fails macOS strict verification.
+codesign --force --deep --sign - "$bundle"
+codesign --verify --deep --strict "$bundle"
