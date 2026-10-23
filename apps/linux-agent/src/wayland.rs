@@ -680,10 +680,18 @@ pub fn native_process_running(app: &crate::discovery::DesktopApp) -> bool {
 /// uses the compositor, bound to the same approved XID/PID/start-time identity.
 pub struct X11Geometry {
     rpc: RefCell<Rpc>,
-    compositor_id: String,
     identity: ProcessIdentity,
 }
 impl X11Geometry {
+    fn compositor_id<'a>(windows: &'a Value, pid: u32, xid: u32) -> Option<&'a str> {
+        windows.as_array()?.iter().find_map(|window| {
+            (window["xwindow"] == xid && window["pid"] == pid)
+                .then(|| window["id"].as_str())
+                .flatten()
+                .filter(|id| id.parse::<u64>().is_ok())
+        })
+    }
+
     pub fn connect(
         pid: u32,
         xid: u32,
@@ -693,22 +701,13 @@ impl X11Geometry {
             Ok(value) => value,
             Err(_) => return Ok(None), // Other desktops retain their EWMH path.
         };
-        let Some(target) = values.as_array().and_then(|values| {
-            values
-                .iter()
-                .find(|w| w["xwindow"] == xid && w["pid"] == pid)
-        }) else {
+        let Some(compositor_id) = Self::compositor_id(&values, pid, xid) else {
             return Ok(None);
         };
-        let compositor_id = target["id"]
-            .as_str()
-            .context("wayland_bridge_failed")?
-            .to_owned();
         let identity = process_identity(pid)?;
         rpc.call(json!({"op":"acquire","id":compositor_id,"pid":pid}))?;
         Ok(Some(Box::new(Self {
             rpc: RefCell::new(rpc),
-            compositor_id,
             identity,
         })))
     }
@@ -722,8 +721,17 @@ impl X11Geometry {
             .is_err_and(|e| e.to_string() == "unknown window")
         {
             let mut rpc = Rpc::new()?;
-            rpc.call(json!({"op":"acquire","id":self.compositor_id,"pid":self.identity.pid}))?;
+            // Mutter replaces its window ID when an Xwayland window is
+            // unmapped and shown again, even when its XID and process survive.
+            // A released lease cannot be reacquired using the original ID.
+            let windows = rpc.call(json!({"op":"list"}))?;
+            let compositor_id =
+                Self::compositor_id(&windows, self.identity.pid, xid).context("unknown window")?;
+            rpc.call(json!({"op":"acquire","id":compositor_id,"pid":self.identity.pid}))?;
             result = rpc.call(json!({"op":"scope"}));
+            if process_identity(self.identity.pid).ok().as_ref() != Some(&self.identity) {
+                bail!("approved existing process unavailable")
+            }
             self.rpc.replace(rpc);
         }
         Ok(result?
@@ -764,6 +772,20 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reacquire_uses_current_compositor_id_for_the_same_process_and_xid() {
+        let windows = json!([
+            {"id":"987", "pid":123, "xwindow":42},
+            {"id":"654", "pid":124, "xwindow":43}
+        ]);
+        assert_eq!(X11Geometry::compositor_id(&windows, 123, 42), Some("987"));
+        assert_eq!(X11Geometry::compositor_id(&windows, 124, 42), None);
+        assert_eq!(X11Geometry::compositor_id(&windows, 123, 43), None);
+        assert_eq!(
+            X11Geometry::compositor_id(&json!([{"id":"bad", "pid":123, "xwindow":42}]), 123, 42),
+            None
+        );
+    }
     #[test]
     fn validates_frame_offsets_without_overflow_or_clipping() {
         let info: Info = serde_json::from_value(json!({
