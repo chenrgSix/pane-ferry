@@ -154,6 +154,10 @@ function retryRuntime() {
   recoveryTimer = setTimeout(() => { recoveryTimer = undefined; onFocus(); }, delay);
 }
 const valid = computed(() => validPeerId(endpoint.value.peerId));
+function startupScale(): 1 | 2 {
+  const density = renderScale.value === "auto" ? window.devicePixelRatio : Number(renderScale.value);
+  return density >= 1.5 ? 2 : 1;
+}
 function save() {
   try {
     storage?.setItem(
@@ -277,7 +281,8 @@ async function launch(app: LaunchTarget) {
   actionConnectionError.value = false;
   notice.value = "";
   const sent = { ...endpoint.value };
-  const key = `${signature()}:${app.id}:native:${renderScale.value}`;
+  const scale = startupScale();
+  const key = `${signature()}:${app.id}:native:${scale}`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
@@ -285,7 +290,7 @@ async function launch(app: LaunchTarget) {
       appId: app.id,
       appName: app.name,
       requestId,
-      renderScale: renderScale.value === "auto" ? null : Number(renderScale.value),
+      renderScale: scale,
       iconPng: app.icon_png ?? null,
     });
     attempts.resolve(key);
@@ -570,9 +575,9 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
-          <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">仅对新启动的应用生效，实际效果取决于应用支持。已有窗口和会话保留原来的缩放。</p></div>
+          <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">自动模式按本机显示器倍率请求 100% 或 200%。仅对新启动的应用生效；已有窗口和会话保留原来的缩放。实际清晰度以收到的画面为准。</p></div>
             <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
-              <option value="auto">默认 · 100%</option>
+              <option value="auto">自动 · 跟随本机显示器</option>
               <option value="1">100%</option>
               <option value="2">200%</option>
             </select>

@@ -42,7 +42,8 @@ function mount(saved, fixtures = {}) {
   const calls = [];
   const listeners = new Map();
   globalThis.localStorage = saved;
-  globalThis.window = { addEventListener: (type, callback) => listeners.set(type, callback), removeEventListener: type => listeners.delete(type) };
+  globalThis.window = { devicePixelRatio: fixtures.devicePixelRatio ?? 1,
+    addEventListener: (type, callback) => listeners.set(type, callback), removeEventListener: type => listeners.delete(type) };
   globalThis.launcherTestInvoke = async (command, args) => {
     calls.push({ command, args });
     if (fixtures[command]) return fixtures[command](args);
@@ -141,6 +142,30 @@ test("launching a cached application forwards its Ubuntu icon without scanning a
     assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
+  } finally { mounted.unmount(); }
+});
+
+test("automatic startup requests the display density and retries each density with its own request ID", async () => {
+  const mounted = mount(storage(), { devicePixelRatio: 2,
+    launch_app: () => { throw { message: "连接中断", retrySameRequest: true }; },
+  });
+  try {
+    await settled(mounted.state);
+    const target = mounted.state.apps[0];
+    await mounted.state.launch(target);
+    const retina = actions(mounted).at(-1).args;
+    assert.equal(retina.renderScale, 2);
+    globalThis.window.devicePixelRatio = 1;
+    await mounted.state.launch(target);
+    const standard = actions(mounted).at(-1).args;
+    assert.equal(standard.renderScale, 1);
+    assert.notEqual(standard.requestId, retina.requestId);
+    globalThis.window.devicePixelRatio = 2;
+    await mounted.state.launch(target);
+    assert.equal(actions(mounted).at(-1).args.requestId, retina.requestId);
+    mounted.state.renderScale = "1";
+    await mounted.state.launch(target);
+    assert.equal(actions(mounted).at(-1).args.requestId, standard.requestId);
   } finally { mounted.unmount(); }
 });
 

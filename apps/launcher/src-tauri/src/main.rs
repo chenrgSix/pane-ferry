@@ -254,8 +254,8 @@ async fn launch_app(
                 retry_same_request: false,
             }
         })?;
-    // Follow logical window size; local Retina density must not change the
-    // remote application's startup DPI. Existing sessions retain their scale.
+    // The UI resolves auto against its current display before assigning the
+    // request ID. Existing sessions retain their source scale on reuse.
     let scale = render_scale.unwrap_or(1);
     let session = transport::launch_native(
         &network::target(&app, &endpoint)?,
@@ -279,7 +279,7 @@ async fn launch_app(
         message: if app_id.starts_with("window-") {
             "现有窗口客户端已启动，原应用的内容和登录状态保留。".into()
         } else {
-            "已连接应用窗口；已有会话保留原内容，实际分辨率与缩放状态见窗口标题。".into()
+            "已连接应用窗口；已有窗口保留原缩放。实际接收像素与放大比例见窗口标题。".into()
         },
     })
 }
