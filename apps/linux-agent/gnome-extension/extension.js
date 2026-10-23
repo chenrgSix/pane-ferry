@@ -114,6 +114,24 @@ export default class PaneFerry extends Extension {
             return false;
         });
     }
+    setClipboardText(text) {
+        if (typeof text !== 'string' || new TextEncoder().encode(text).length > 8192 || text.includes('\0')) throw new Error('invalid_text');
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+        return {};
+    }
+    readClipboardText() {
+        return new Promise((resolve, reject) => {
+            let timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                timer = 0; reject(new Error('clipboard_copy_failed')); return GLib.SOURCE_REMOVE;
+            });
+            St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_c, text) => {
+                if (!timer) return;
+                GLib.source_remove(timer); timer = 0;
+                if (new TextEncoder().encode(text ?? '').length > 8192 || text?.includes('\0')) reject(new Error('invalid_text'));
+                else resolve({text: text ?? ''});
+            });
+        });
+    }
     async CallAsync([encoded], invocation) {
         let result;
         try {
@@ -136,10 +154,27 @@ export default class PaneFerry extends Extension {
                 catch (error) { this.release(token); throw error; }
                 if (this.leases.get(token) !== lease) throw new Error('window_unavailable');
                 result = {token, window: this.describe(root)};
+            } else if (r.op === 'acquire_desktop') {
+                if (this.leases.size >= 16) throw new Error('session_limit');
+                const token = GLib.uuid_string_random();
+                this.leases.set(token, {owner, desktop: true, root: null, output: null});
+                result = {token};
             } else {
                 const lease = this.leases.get(r.token);
                 if (!lease || lease.owner !== owner) throw new Error('window_unavailable');
                 if (r.op === 'release') { this.release(r.token); result = {}; }
+                else if (lease.desktop) {
+                    if (r.op === 'set_text') result = this.setClipboardText(r.text);
+                    else if (r.op === 'get_text') result = await this.readClipboardText();
+                    else if (r.op === 'commit_text') {
+                        if (typeof r.text !== 'string' || !r.text || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');
+                        const focused = global.display.focus_window;
+                        if (!focused || !this.windows().includes(focused)) throw new Error('window_unavailable');
+                        const method = await this.textInput.commit(focused, r.text, () => this.leases.get(r.token) === lease &&
+                            !Main.sessionMode.isLocked && this.windows().includes(focused));
+                        result = {method};
+                    } else throw new Error('invalid_request');
+                }
                 else {
                     if (!this.windows().includes(lease.root)) throw new Error('window_unavailable');
                     await this.ensureOutput(lease);
@@ -214,20 +249,9 @@ export default class PaneFerry extends Extension {
                                 !Main.sessionMode.isLocked && this.scope(lease.root).includes(w));
                             result = {method};
                         } else if (r.op === 'set_text') {
-                            if (typeof r.text !== 'string' || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');
-                            St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, r.text); result = {};
+                            result = this.setClipboardText(r.text);
                         } else if (r.op === 'get_text') {
-                            result = await new Promise((resolve, reject) => {
-                                let timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
-                                    timer = 0; reject(new Error('clipboard_copy_failed')); return GLib.SOURCE_REMOVE;
-                                });
-                                St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_c, text) => {
-                                    if (!timer) return;
-                                    GLib.source_remove(timer); timer = 0;
-                                    if (new TextEncoder().encode(text ?? '').length > 8192 || text?.includes('\0')) reject(new Error('invalid_text'));
-                                    else resolve({text: text ?? ''});
-                                });
-                            });
+                            result = await this.readClipboardText();
                         } else throw new Error('invalid_request');
                     }
                 }

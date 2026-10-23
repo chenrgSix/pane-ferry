@@ -27,6 +27,7 @@ static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 const SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
 mod backend;
+mod desktop;
 mod desktop_input;
 mod discovery;
 mod input_queue;
@@ -51,6 +52,7 @@ struct Session {
     private_authority: Option<PathBuf>,
     secrets_bus: Option<session_bus::SecretsBus>,
     wayland: bool,
+    desktop_monitor: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -147,6 +149,7 @@ struct State {
     sharing: bool,
     sessions: HashMap<String, Arc<Mutex<Session>>>,
     requests: HashMap<String, LaunchRequest>,
+    desktop_requests: HashMap<String, (String, String)>,
     apps: Vec<App>,
     desktop_apps: Vec<discovery::DesktopApp>,
     desktop: Option<discovery::Desktop>,
@@ -289,6 +292,7 @@ fn serve() -> Result<()> {
         sharing: fs::read(dir.join("sharing-enabled")).map_or(true, |bytes| bytes == b"1"),
         sessions: HashMap::new(),
         requests: HashMap::new(),
+        desktop_requests: HashMap::new(),
         apps,
         desktop_apps: vec![],
         desktop,
@@ -344,6 +348,78 @@ fn random_id() -> Result<String> {
     std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
     Ok(b.iter().map(|v| format!("{v:02x}")).collect())
 }
+fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mutex<Session>>> {
+    if !identifier(monitor_id) || !identifier(req) {
+        bail!("invalid desktop request")
+    }
+    if st.requests.contains_key(req) {
+        bail!("request id conflict")
+    }
+    if let Some((remembered_monitor, id)) = st.desktop_requests.get(req) {
+        if remembered_monitor != monitor_id {
+            bail!("request id conflict")
+        }
+        let session = st.sessions.get(id).cloned().context("session expired")?;
+        if session.lock().unwrap().controller {
+            bail!("session already controlled")
+        }
+        return Ok(session);
+    }
+    if st.desktop_requests.len() >= 4096 {
+        bail!("request history limit reached; restart after saving work")
+    }
+    let mut previous = None;
+    for session in st.sessions.values() {
+        let mut current = session.lock().unwrap();
+        if !current.has_exited()? && current.desktop_monitor.as_deref() == Some(monitor_id) {
+            previous = Some(session.clone());
+            break;
+        }
+    }
+    if let Some(session) = previous {
+        let current = session.lock().unwrap();
+        if current.controller {
+            bail!("session already controlled")
+        }
+        st.desktop_requests
+            .insert(req.into(), (monitor_id.into(), current.id.clone()));
+        drop(current);
+        return Ok(session);
+    }
+    if st.sessions.len() >= 16 {
+        bail!("active session limit reached")
+    }
+    let monitor = desktop::monitors()?
+        .into_iter()
+        .find(|m| m.id == monitor_id)
+        .context("desktop_monitor_unavailable")?;
+    let desktop = discovery::desktops(&st.desktop, &[])
+        .into_iter()
+        .next()
+        .context("desktop_input_unavailable")?;
+    let backend = desktop::Backend::connect(monitor, st.desktop_input.lease(), &desktop)?;
+    let id = random_id()?;
+    let session = Arc::new(Mutex::new(Session {
+        id: id.clone(),
+        app_id: format!("screen-{monitor_id}"),
+        display: 0,
+        scale_factor: 1,
+        backend: Some(Box::new(backend)),
+        children: vec![],
+        controller: false,
+        exited: false,
+        existing: None,
+        root_window: None,
+        private_authority: None,
+        secrets_bus: None,
+        wayland: false,
+        desktop_monitor: Some(monitor_id.into()),
+    }));
+    st.desktop_requests
+        .insert(req.into(), (monitor_id.into(), id.clone()));
+    st.sessions.insert(id, session.clone());
+    Ok(session)
+}
 fn launch(
     st: &mut State,
     app_id: &str,
@@ -353,6 +429,9 @@ fn launch(
     paneferry_protocol::validate_scale(scale_factor)?;
     if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
+    }
+    if st.desktop_requests.contains_key(req) {
+        bail!("request id conflict")
     }
     if let Some(request) = st.requests.get(req) {
         if request.app_id != app_id || request.scale_factor != scale_factor {
@@ -384,7 +463,10 @@ fn launch(
     if let Some(session) = launch_policy::unique(
         st.sessions
             .values()
-            .filter(|session| session.lock().unwrap().app_id == app_id)
+            .filter(|session| {
+                let session = session.lock().unwrap();
+                session.desktop_monitor.is_none() && session.app_id == app_id
+            })
             .cloned(),
     )? {
         let s = session.lock().unwrap();
@@ -411,7 +493,7 @@ fn launch(
             .values()
             .filter_map(|session| {
                 let s = session.lock().unwrap();
-                s.existing.is_none().then_some(s.display)
+                (s.existing.is_none() && s.desktop_monitor.is_none()).then_some(s.display)
             })
             .collect::<Vec<_>>();
         st.running = discovery::running(&sources, &st.desktop_apps, &excluded)?.0;
@@ -457,6 +539,9 @@ fn launch(
     {
         for session in st.sessions.values().cloned().collect::<Vec<_>>() {
             let s = session.lock().unwrap();
+            if s.desktop_monitor.is_some() {
+                continue;
+            }
             if s.wayland
                 && s.existing.as_ref() == Some(&target.identity)
                 && s.root_window == Some(target.info.window_id)
@@ -492,6 +577,7 @@ fn launch(
             private_authority: None,
             secrets_bus: None,
             wayland: true,
+            desktop_monitor: None,
         }));
         st.remember_launch(req, app_id, scale_factor, &id);
         st.sessions.insert(id, session.clone());
@@ -598,6 +684,7 @@ fn launch(
             private_authority: None,
             secrets_bus: None,
             wayland: false,
+            desktop_monitor: None,
         }));
         st.remember_launch(req, app_id, scale_factor, &id);
         st.sessions.insert(id, session.clone());
@@ -630,6 +717,7 @@ fn launch(
         private_authority: None,
         secrets_bus: None,
         wayland: false,
+        desktop_monitor: None,
     };
     let disp = format!(":{display}");
     let auth = st.runtime.join("Xauthority");
@@ -849,11 +937,20 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
 fn send(out: &mut output::Output, value: Value, session: &str) -> Result<()> {
     out.message(value, session)
 }
-fn win_value(w: &Window, kind: &str, existing: bool) -> Value {
+fn win_value(w: &Window, kind: &str, existing: bool, desktop: bool) -> Value {
     let mut v = serde_json::to_value(w).unwrap();
     v["type"] = json!(kind);
     // Scale is a launch preference, not a measurement of GTK/Qt/Chromium UI.
-    v["scale_mode"] = json!(if existing { "source" } else { "requested" });
+    v["scale_mode"] = json!(if desktop {
+        "source"
+    } else if existing {
+        "source"
+    } else {
+        "requested"
+    });
+    if desktop {
+        v["surface_type"] = json!("desktop");
+    }
     v
 }
 fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
@@ -911,6 +1008,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "session.list",
         "app.discovery",
         "window.list",
+        "desktop.monitor",
         "node.info",
         "peer.reverse",
     ];
@@ -1085,7 +1183,10 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                         .map(|windows| windows.iter().filter(|w| w.visible).count())
                                 }
                             });
-                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,"controlled":controlled,"window_count":window_count}));
+                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,
+                                "controlled":controlled,"window_count":window_count,
+                                "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"},
+                                "monitor_id":s.desktop_monitor}));
                         }
                         sessions.sort_by(|a, b| {
                             a["session_id"].as_str().cmp(&b["session_id"].as_str())
@@ -1119,6 +1220,23 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
+                    Request::Desktops {} => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
+                        let found = desktop::monitors();
+                        let monitors: Vec<_> = found
+                            .as_ref()
+                            .map(|list| list.iter().map(desktop::Monitor::public).collect())
+                            .unwrap_or_default();
+                        let unavailable_reason = found.err().map(|_| "desktop_monitor_unavailable");
+                        send(
+                            &mut out,
+                            json!({"type":"desktop.list","monitors":monitors,
+                            "unavailable_reason":unavailable_reason}),
+                            "",
+                        )?;
+                    }
                     Request::Windows {} => {
                         if !state.lock().unwrap().sharing {
                             bail!("sharing disabled")
@@ -1130,7 +1248,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .values()
                             .filter_map(|session| {
                                 let session = session.lock().unwrap();
-                                session.existing.is_none().then_some(session.display)
+                                (session.existing.is_none() && session.desktop_monitor.is_none())
+                                    .then_some(session.display)
                             })
                             .collect();
                         let (running, connected) =
@@ -1147,7 +1266,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .map(|target| {
                                 let existing_session = st.sessions.values().find_map(|session| {
                                     let session = session.lock().unwrap();
-                                    (!session.wayland
+                                    (session.desktop_monitor.is_none()
+                                        && !session.wayland
                                         && session.display == target.desktop.display
                                         && (session.backend.as_ref().is_some_and(|backend| {
                                             backend.includes_window(target.window_id)
@@ -1232,6 +1352,26 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         }
                         lease = new;
                     }
+                    Request::StartDesktop {
+                        monitor_id,
+                        request_id,
+                    } => {
+                        if !state.lock().unwrap().sharing {
+                            bail!("sharing disabled")
+                        }
+                        if lease.is_some() {
+                            bail!("detach before starting another session")
+                        }
+                        let session =
+                            start_desktop(&mut state.lock().unwrap(), &monitor_id, &request_id)?;
+                        let s = session.lock().unwrap();
+                        send(
+                            &mut out,
+                            json!({"type":"session.started","backend":"native",
+                            "display":s.display,"scale_factor":1,"mode":"desktop"}),
+                            &s.id,
+                        )?;
+                    }
                     Request::Resume { session_id } => {
                         if !state.lock().unwrap().sharing {
                             bail!("sharing disabled")
@@ -1257,11 +1397,19 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             known = windows.iter().cloned().map(|w| (w.window_id, w)).collect();
                             let values: Vec<_> = windows
                                 .iter()
-                                .map(|w| win_value(w, "window.created", s.existing.is_some()))
+                                .map(|w| {
+                                    win_value(
+                                        w,
+                                        "window.created",
+                                        s.existing.is_some(),
+                                        s.desktop_monitor.is_some(),
+                                    )
+                                })
                                 .collect();
                             send(
                                 &mut out,
-                                json!({"type":"session.snapshot","windows":values}),
+                                json!({"type":"session.snapshot","windows":values,
+                                    "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"}}),
                                 &s.id,
                             )?;
                         }
@@ -1371,6 +1519,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 continue;
             }
             let existing = s.existing.is_some();
+            let desktop_mode = s.desktop_monitor.is_some();
             if let Some(b) = s.backend.as_mut() {
                 let status = b.input_status();
                 if status != input_status {
@@ -1414,6 +1563,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                     "window.created"
                                 },
                                 existing,
+                                desktop_mode,
                             ),
                             &sid,
                         )?;
@@ -1468,12 +1618,14 @@ mod tests {
             private_authority: None,
             secrets_bus: None,
             wayland: false,
+            desktop_monitor: None,
         }));
         let mut st = State {
             device_id: "test-device".into(),
             sharing: true,
             sessions: HashMap::from([("existing-session".into(), session.clone())]),
             requests: HashMap::new(),
+            desktop_requests: HashMap::new(),
             apps: vec![],
             desktop_apps: vec![],
             desktop: None,

@@ -76,6 +76,8 @@ pub struct SessionInfo {
     pub controlled: bool,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub monitor_id: Option<String>,
 }
 #[derive(Debug, Error)]
 pub enum Error {
@@ -98,6 +100,10 @@ pub fn remote_error_message(code: &str) -> String {
         "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
         "accessibility_required" => "请在 Mac 允许 窗渡 PaneFerry 的辅助功能权限。".into(),
         "desktop_locked" => "远端桌面已锁定，解锁后可重新连接。".into(),
+        "desktop_monitor_unavailable" => "远端当前没有可共享的显示器，请确认 Ubuntu 已登录桌面并刷新。".into(),
+        "desktop_capture_unavailable" => "远端桌面画面暂不可用，请检查 GNOME 录屏与 PipeWire；原桌面未被修改。".into(),
+        "desktop_geometry_fixed" => "整桌面模式保持远端显示器原尺寸，只在本机等比显示。".into(),
+        "desktop_close_unavailable" => "整桌面窗口只能断开连接，远端桌面与应用继续运行。".into(),
         "wayland_bridge_unavailable" => "应用正在 Wayland 桌面运行。请在 Ubuntu 启用窗渡 GNOME 扩展，再刷新运行窗口；不会另建浏览器配置。".into(),
         "wayland_bridge_failed" => "Wayland 窗口接口暂不可用，请检查 Ubuntu 的窗渡 GNOME 扩展。".into(),
         "wayland_bridge_outdated" => "Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。".into(),
@@ -427,6 +433,12 @@ pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
             None | Some("app") | Some("desktop")
         ) {
             return Err(Error::Protocol);
+        }
+        if let Some(monitor_id) = &session.monitor_id {
+            validate_id(monitor_id)?;
+            if session.mode.as_deref() != Some("desktop") {
+                return Err(Error::Protocol);
+            }
         }
     }
     Ok(sessions)

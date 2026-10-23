@@ -168,6 +168,14 @@ impl PipeWireCapture {
         frame: [u32; 4],
         expected_buffer: (u32, u32),
     ) -> Result<Option<CapturedImage>> {
+        self.pull_inner(Some((frame, expected_buffer)))
+    }
+    /// A monitor stream has no window crop. Preserve its actual captured pixels;
+    /// the caller updates geometry before publishing a frame after a mode change.
+    pub fn pull_monitor(&self) -> Result<Option<CapturedImage>> {
+        self.pull_inner(None)
+    }
+    fn pull_inner(&self, window: Option<([u32; 4], (u32, u32))>) -> Result<Option<CapturedImage>> {
         let sample = unsafe { (self.api.pull)(self.sink, 0) };
         if sample.is_null() {
             return Ok(None);
@@ -205,31 +213,39 @@ impl PipeWireCapture {
                 bail!("invalid PipeWire stride")
             }
             let crop = unsafe { (self.api.meta)(buffer, (self.api.crop_type)()) };
-            if crop.is_null() {
+            if crop.is_null() && window.is_some() {
                 bail!("wayland_capture_unavailable")
             }
-            let crop = unsafe { &*crop };
+            let (crop_x, crop_y, crop_width, crop_height) = if crop.is_null() {
+                (0, 0, width as u32, height as u32)
+            } else {
+                let crop = unsafe { &*crop };
+                (crop.x, crop.y, crop.width, crop.height)
+            };
             // A window resize and PipeWire frame can arrive in either order.
             // Never label an earlier frame with newer geometry, or include padding.
-            if (crop.width, crop.height) != expected_buffer {
-                return Ok(None);
+            if let Some((_, expected_buffer)) = window {
+                if (crop_width, crop_height) != expected_buffer {
+                    return Ok(None);
+                }
             }
-            let [left, top, frame_width, frame_height] = frame;
+            let [left, top, frame_width, frame_height] =
+                window.map_or([0, 0, crop_width, crop_height], |(frame, _)| frame);
             paneferry_protocol::dimensions(frame_width, frame_height)?;
-            if crop.x > width as u32
-                || crop.y > height as u32
-                || left.saturating_add(frame_width) > crop.width
-                || top.saturating_add(frame_height) > crop.height
-                || crop.x.saturating_add(crop.width) > width as u32
-                || crop.y.saturating_add(crop.height) > height as u32
+            if crop_x > width as u32
+                || crop_y > height as u32
+                || left.saturating_add(frame_width) > crop_width
+                || top.saturating_add(frame_height) > crop_height
+                || crop_x.saturating_add(crop_width) > width as u32
+                || crop_y.saturating_add(crop_height) > height as u32
             {
                 bail!("invalid PipeWire crop")
             }
             let stride = frame_width as usize * 4;
             let mut data = vec![0; stride * frame_height as usize];
             for (row, target) in data.chunks_exact_mut(stride).enumerate() {
-                let offset = ((crop.y + top) as usize + row) * width as usize * 4
-                    + (crop.x + left) as usize * 4;
+                let offset = ((crop_y + top) as usize + row) * width as usize * 4
+                    + (crop_x + left) as usize * 4;
                 if unsafe { (self.api.extract)(buffer, offset, target.as_mut_ptr().cast(), stride) }
                     != stride
                 {

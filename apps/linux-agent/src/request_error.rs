@@ -3,6 +3,10 @@ pub fn code(message: &str) -> &'static str {
     match message {
         "sharing disabled" => "sharing_disabled",
         "desktop_locked" => "desktop_locked",
+        "desktop_monitor_unavailable" => "desktop_monitor_unavailable",
+        "desktop_capture_unavailable" => "desktop_capture_unavailable",
+        "desktop_geometry_fixed" => "desktop_geometry_fixed",
+        "desktop_close_unavailable" => "desktop_close_unavailable",
         "resolution_limited" => "resolution_limited",
         "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
         "wayland_bridge_failed" => "wayland_bridge_failed",
