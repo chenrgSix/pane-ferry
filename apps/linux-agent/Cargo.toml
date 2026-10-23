@@ -12,3 +12,6 @@ paneferry-core = {path="../../crates/core"}
 paneferry-backend-x11 = {path="../../crates/backend-x11"}
 libc = "0.2"
 signal-hook = "0.3"
+
+[dev-dependencies]
+x11rb.workspace = true
