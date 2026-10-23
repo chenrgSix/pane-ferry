@@ -19,6 +19,7 @@ export function connections(
 ): Connection[] {
   const rows = new Map<string, Connection>();
   for (const session of sessions) {
+    if (session.mode === "desktop") continue;
     // An application can remain alive in the tray after its last window closes.
     // Keep it out of the window list until a visible window returns.
     if (session.window_count === 0) continue;

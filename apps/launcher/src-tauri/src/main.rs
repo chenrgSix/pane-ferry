@@ -101,6 +101,15 @@ async fn list_desktop_windows(
         .map_err(RequestFailure::from)
 }
 #[tauri::command]
+async fn list_desktop_monitors(
+    app: tauri::AppHandle,
+    endpoint: Device,
+) -> Result<transport::DesktopMonitors, RequestFailure> {
+    transport::desktop_monitors(&network::target(&app, &endpoint)?)
+        .await
+        .map_err(RequestFailure::from)
+}
+#[tauri::command]
 async fn list_sessions(
     app: tauri::AppHandle,
     endpoint: Device,
@@ -274,6 +283,26 @@ async fn launch_app(
         },
     })
 }
+#[tauri::command]
+async fn start_desktop(
+    app: tauri::AppHandle,
+    endpoint: Device,
+    monitor_id: String,
+    monitor_name: String,
+    request_id: String,
+) -> Result<LaunchResult, LaunchFailure> {
+    endpoint.validate()?;
+    transport::validate_id(&monitor_id)?;
+    transport::validate_id(&request_id)?;
+    let name = format!("Ubuntu 桌面 · {}", monitor_name.chars().take(80).collect::<String>());
+    let path = named_native_host(&app, &endpoint, &format!("screen-{monitor_id}"), Some(&name))
+        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: false })?;
+    let session = transport::start_desktop(&network::target(&app, &endpoint)?, &monitor_id, &request_id).await?;
+    let pid = spawn_host(&app, path, &endpoint, &session.session_id, None)
+        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: true })?;
+    Ok(LaunchResult { session_id: Some(session.session_id), display: Some(session.display), pid,
+        message: "已连接当前登录的桌面；关闭本机窗口只会断开连接。".into() })
+}
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -293,8 +322,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_apps,
             list_desktop_windows,
+            list_desktop_monitors,
             list_sessions,
             launch_app,
+            start_desktop,
             resume_session,
             local_node_info,
             set_local_sharing,

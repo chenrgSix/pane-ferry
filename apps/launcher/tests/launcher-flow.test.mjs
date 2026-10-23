@@ -49,6 +49,7 @@ function mount(saved, fixtures = {}) {
     if (command === "list_apps") return { apps: [app], discovery_error: null };
     if (command === "list_sessions") return [session("remote", "firefox", 228)];
     if (command === "list_desktop_windows") return { windows: [], unavailable_reason: null };
+    if (command === "list_desktop_monitors") return { monitors: [], unavailable_reason: null };
     if (command === "launch_app" || command === "resume_session") return { session_id: args.sessionId || "new", display: "228", pid: 123, message: "客户端已启动" };
     throw new Error(`unexpected command ${command}`);
   };
@@ -140,6 +141,33 @@ test("launching a cached application forwards its Ubuntu icon without scanning a
     assert.equal(actions(mounted).at(-1).args.appName, "Firefox");
     assert.equal(actions(mounted).at(-1).args.iconPng, "Y2FjaGVkLWFwcC1pY29u");
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
+  } finally { mounted.unmount(); }
+});
+
+test("whole desktop connects only the selected monitor and resumes its detached session", async () => {
+  const monitors = [
+    { id: "eDP-1", name: "内置屏幕", width: 2880, height: 1800, primary: true },
+    { id: "HDMI-1", name: "外接屏幕", width: 1920, height: 1080, primary: false },
+  ];
+  let sessions = [];
+  const mounted = mount(storage(), {
+    list_desktop_monitors: () => ({ monitors, unavailable_reason: null }),
+    list_sessions: () => sessions,
+    start_desktop: ({ monitorId }) => {
+      assert.equal(monitorId, "HDMI-1");
+      sessions = [{ ...session("screen-session", "screen-HDMI-1"), mode: "desktop", monitor_id: monitorId, window_count: 1 }];
+      return { session_id: "screen-session", display: "0", pid: 123, message: "已连接桌面" };
+    },
+  });
+  try {
+    await settled(mounted.state);
+    assert.deepEqual(mounted.state.desktopMonitors.map(monitor => monitor.id), ["eDP-1", "HDMI-1"]);
+    await mounted.state.openDesktop(monitors[1]);
+    assert.equal(mounted.calls.filter(call => call.command === "start_desktop").length, 1);
+    assert.equal(mounted.state.runningConnections.length, 0);
+    await mounted.state.openDesktop(monitors[1]);
+    assert.equal(mounted.calls.filter(call => call.command === "start_desktop").length, 1);
+    assert.equal(mounted.calls.filter(call => call.command === "resume_session").at(-1).args.sessionId, "screen-session");
   } finally { mounted.unmount(); }
 });
 

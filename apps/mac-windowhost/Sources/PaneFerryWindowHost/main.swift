@@ -329,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func actualPixels() { activeHost()?.showActualPixels() }
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(setResolution) { return activeHost()?.desktopMode != true }
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
             return activeHost() != nil
@@ -337,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func setResolution() {
         guard let host = activeHost() else { return }
+        if host.desktopMode { return }
         let dialog = NSAlert(); dialog.messageText = "设置远端窗口分辨率"
         dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复跟随本机逻辑大小，保留应用现有缩放。上限 4096×2160、800 万像素。"
         let width = NSTextField(string: String(host.surface.remoteWidth)), height = NSTextField(string: String(host.surface.remoteHeight))
@@ -701,6 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             receivedWindow = true
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
+            host.desktopMode = object["surface_type"] as? String == "desktop"
             windows[id] = host
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
@@ -723,7 +726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             else { host.surface.releaseInput(); host.window.orderOut(nil) }
             refreshVideoFPS()
         }
-        if justCreated, visible, object["role"] as? String == "toplevel" {
+        if justCreated, visible, ["toplevel", "desktop"].contains(object["role"] as? String ?? "") {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
         if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }

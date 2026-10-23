@@ -15,12 +15,16 @@ export type DesktopWindow = LaunchTarget & {
   session_id?: string | null;
 };
 export type DesktopWindows = { windows: DesktopWindow[]; unavailable_reason: string | null };
+export type DesktopMonitor = { id: string; name: string; width: number; height: number; primary: boolean };
+export type DesktopMonitors = { monitors: DesktopMonitor[]; unavailable_reason: string | null };
 export type SessionInfo = {
   session_id: string;
   app_id: string;
   backend: "native";
   display: number;
   controlled: boolean;
+  mode?: "app" | "desktop" | null;
+  monitor_id?: string | null;
   window_count?: number | null;
 };
 

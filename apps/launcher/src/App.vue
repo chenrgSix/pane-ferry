@@ -8,7 +8,7 @@ import { endpointKey, validPeerId } from "./launcher-types";
 import { connections } from "./connections";
 import { isConnectionFailure, requestFailure } from "./request-failure";
 import type { Connection } from "./connections";
-import type { AppCatalog, AppInfo, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
+import type { AppCatalog, AppInfo, DesktopMonitor, DesktopMonitors, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
 import { retireLegacyPreferences } from "./connection-preferences";
 type Result = {
@@ -30,9 +30,11 @@ const currentPage = computed(() => navigation.find(item => item.id === activePag
 const endpoint = ref<Endpoint>({ peerId: "" }),
   apps = ref<AppInfo[]>([]),
   desktopWindows = ref<DesktopWindow[]>([]),
+  desktopMonitors = ref<DesktopMonitor[]>([]),
   discoveryWarning = ref(""),
   windowWarning = ref(""),
   sessionWarning = ref(""),
+  monitorWarning = ref(""),
   search = ref("");
 const busy = ref(false),
   renderScale = ref("auto"),
@@ -129,6 +131,8 @@ const filtered = computed(() =>
 const installed = computed(() => filtered.value.filter(app => app.source === "desktop"));
 const custom = computed(() => filtered.value.filter(app => app.source === "custom"));
 const runningConnections = computed(() => connections(apps.value, desktopWindows.value, sessions.value));
+const desktopSession = (monitor: DesktopMonitor) => sessions.value.find(
+  session => session.mode === "desktop" && session.monitor_id === monitor.id);
 const filteredConnections = computed(() => runningConnections.value.filter(row =>
   `${row.name} ${row.title}`.toLowerCase().includes(search.value.toLowerCase())));
 const signature = () => endpointKey(endpoint.value),
@@ -171,6 +175,7 @@ function restoreCatalog() {
   catalogSavedAt.value = cached?.savedAt ?? null;
   catalogPersisted.value = catalogCache.isPersisted(signature());
   desktopWindows.value = [];
+  desktopMonitors.value = [];
   sessions.value = [];
   runtimeEndpoint.value = "";
   attemptedEndpoint.value = cached ? signature() : "";
@@ -180,6 +185,7 @@ function restoreCatalog() {
   discoveryWarning.value = "";
   windowWarning.value = "";
   sessionWarning.value = "";
+  monitorWarning.value = "";
   error.value = "";
   notice.value = "";
 }
@@ -213,9 +219,10 @@ async function load(refreshApps = false) {
 }
 async function readRuntime(sent = { ...endpoint.value }) {
   const revision = ++runtimeRevision;
-  const [running, desktop] = await Promise.allSettled([
+  const [running, desktop, monitors] = await Promise.allSettled([
     invoke<SessionInfo[]>("list_sessions", { endpoint: sent }),
     invoke<DesktopWindows>("list_desktop_windows", { endpoint: sent }),
+    invoke<DesktopMonitors>("list_desktop_monitors", { endpoint: sent }),
   ]);
   // A focus refresh may overlap a connect/disconnect or a host change.
   if (disposed || signature() !== endpointKey(sent) || revision !== runtimeRevision) return;
@@ -229,6 +236,13 @@ async function readRuntime(sent = { ...endpoint.value }) {
     windowWarning.value = desktop.value.unavailable_reason || "";
     runtimeEndpoint.value = endpointKey(sent);
   } else windowWarning.value = `运行窗口读取失败：${requestFailure(desktop.reason).message}`;
+  if (monitors.status === "fulfilled") {
+    desktopMonitors.value = monitors.value.monitors;
+    monitorWarning.value = monitors.value.unavailable_reason || "";
+  } else {
+    desktopMonitors.value = [];
+    monitorWarning.value = "这台设备暂不支持整桌面模式。";
+  }
   if (running.status === "fulfilled" && desktop.status === "fulfilled") {
     const recovered = recoveryAttempt > 0;
     stopRetry();
@@ -284,6 +298,33 @@ async function launch(app: LaunchTarget) {
       error.value = failure.message + (failure.retrySameRequest
         ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
     }
+  } finally {
+    await readRuntime(sent);
+    busy.value = false;
+  }
+}
+async function openDesktop(monitor: DesktopMonitor) {
+  if (busy.value || !valid.value) return;
+  const previous = desktopSession(monitor);
+  if (previous) {
+    if (!previous.controlled) await resume(previous.session_id, `Ubuntu 桌面 · ${monitor.name}`);
+    return;
+  }
+  busy.value = true;
+  error.value = "";
+  notice.value = "";
+  const sent = { ...endpoint.value };
+  const key = `${signature()}:screen:${monitor.id}`;
+  try {
+    const result = await invoke<Result>("start_desktop", {
+      endpoint: sent, monitorId: monitor.id, monitorName: monitor.name, requestId: attempts.id(key),
+    });
+    attempts.resolve(key);
+    if (signature() === endpointKey(sent)) record(`Ubuntu 桌面 · ${monitor.name}`, result);
+  } catch (e) {
+    const failure = launchFailure(e);
+    if (!failure.retrySameRequest) attempts.resolve(key);
+    if (signature() === endpointKey(sent)) error.value = failure.message;
   } finally {
     await readRuntime(sent);
     busy.value = false;
@@ -399,6 +440,18 @@ onUnmounted(() => {
         </div>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
+        <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
+          <div class="section-title"><h2>整桌面</h2><button :disabled="busy" @click="refresh">刷新显示器</button></div>
+          <p class="hint">连接 Ubuntu 当前已登录的显示器。画面等比显示；关闭 Mac 窗口只会断开，Ubuntu 桌面和应用继续运行。</p>
+          <p v-if="monitorWarning" class="hint" role="status">{{ monitorWarning }}</p>
+          <p v-if="!desktopMonitors.length && !monitorWarning" class="hint">当前没有可连接的显示器。</p>
+          <div v-for="monitor in desktopMonitors" :key="monitor.id" class="desktop-window-row">
+            <div class="app-icon" aria-hidden="true">▣</div>
+            <div class="window-label"><strong>{{ monitor.name }}</strong><p>{{ monitor.width }} × {{ monitor.height }} 像素{{ monitor.primary ? " · 主显示器" : "" }}</p></div>
+            <span class="window-state">{{ desktopSession(monitor)?.controlled ? "已连接" : desktopSession(monitor) ? "可继续" : "当前桌面" }}</span>
+            <button :disabled="busy || desktopSession(monitor)?.controlled" @click="openDesktop(monitor)">{{ desktopSession(monitor)?.controlled ? "已连接" : "连接桌面" }}</button>
+          </div>
+        </section>
         <section class="catalog">
           <div class="section-title">
             <h2>已安装应用 <span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span></h2>
@@ -432,7 +485,7 @@ onUnmounted(() => {
             <h2>运行中的窗口 <span class="count">{{ runningConnections.length }}</span></h2>
             <button :disabled="busy" @click="refresh">刷新运行状态</button>
           </div>
-          <p class="hint">连接已有窗口可继续原来的工作；关闭窗口会向远端应用发出关闭请求。要保留窗口，请从应用菜单选择“断开并退出”。</p>
+          <p class="hint">连接已有窗口可继续原来的工作；关闭 Mac 窗口只会断开，原设备上的应用继续运行。</p>
           <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
           <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
           <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口。" }}</p>
@@ -440,7 +493,7 @@ onUnmounted(() => {
           <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row">
             <AppIcon :icon="row.icon_png" :name="row.name" />
             <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
-            <span class="window-state">{{ row.kind === "desktop" ? "设备桌面" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
+            <span class="window-state">{{ row.kind === "desktop" ? "原设备窗口" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
             <button :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
           </div>
         </section>

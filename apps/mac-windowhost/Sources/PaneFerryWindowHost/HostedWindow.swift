@@ -5,6 +5,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
     let surface = SurfaceView(frame: .zero)
     let popup: Bool
+    var desktopMode = false
     var revision: UInt64
     var applyingRemote = false
     var remoteVisible = false
@@ -64,6 +65,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if fixedPixels == nil {
             parts.append("本机 \(Int(surface.bounds.width.rounded())) × \(Int(surface.bounds.height.rounded())) 点 · 等比显示")
         }
+        if desktopMode { parts.append("远端显示器原始画面") }
         if let target = requestedPixels {
             let matched = frame?.width == target.width && frame?.height == target.height
             if !matched {
@@ -78,7 +80,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
                 parts.append("已达像素预算")
             }
         }
-        switch scaleMode {
+        switch desktopMode ? "desktop" : scaleMode {
+        case "desktop": break
         case "source": parts.append("沿用应用缩放")
         case "requested": parts.append("启动缩放请求 \(rendering.scale * 100)% · 未确认")
         case "verified": parts.append("应用缩放 \(rendering.scale * 100)%")
@@ -123,7 +126,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowDidResignKey(_ notification: Notification) { surface.releaseInput() }
     func windowDidResize(_ notification: Notification) {
-        guard !applyingRemote, remoteVisible, !popup, resizeTimer == nil else { return }
+        guard !desktopMode, !applyingRemote, remoteVisible, !popup, resizeTimer == nil else { return }
         // Common modes keep this running during AppKit's live resize loop.
         // Coalesce to the latest bounds without postponing every update.
         let timer = Timer(timeInterval: 0.10, repeats: false) { [weak self] _ in self?.sendResize() }
@@ -135,7 +138,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     func windowDidChangeScreen(_ notification: Notification) { onScreenChange?() }
     private func sendResize() {
         resizeTimer?.invalidate(); resizeTimer = nil
-        guard !applyingRemote, remoteVisible, !popup else { return }
+        guard !desktopMode, !applyingRemote, remoteVisible, !popup else { return }
         guard let pixels = fixedPixels ?? rendering.pixels(forLogicalSize: surface.bounds.size) else { return }
         requestedPixels = pixels
         resolutionNotice = nil
