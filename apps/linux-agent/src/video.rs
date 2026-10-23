@@ -294,31 +294,41 @@ pub struct Packet {
     pub keyframe: bool,
 }
 
-fn pipeline(width: u32, height: u32) -> String {
-    // Double the rate budget with 60 fps so bits per frame do not regress.
-    let bitrate = (width * height * 6).clamp(4_000_000, 48_000_000);
+fn bitrate(width: u32, height: u32, fps: u8) -> u32 {
+    (u64::from(width) * u64::from(height) * 6 * u64::from(fps) / 60).clamp(4_000_000, 48_000_000)
+        as u32
+}
+fn pipeline(width: u32, height: u32, fps: u8) -> String {
+    let bitrate = bitrate(width, height, fps);
     let padding = if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         format!("! videobox right=-{} bottom=-{} ", width % 2, height % 2)
     } else {
         String::new()
     };
-    // Retain sequence/60 timestamps via a metadata-only identity element, rather
-    // than changing rate-control timing to variable wall-clock capture intervals.
-    let raw_rate = width * height * 4 * 60;
+    // Identity's datarate is a signed 32-bit integer. Timestamp after I420
+    // conversion so even the maximum 8 MP frame at 90 fps fits that property.
+    // Fixed per-frame timestamps keep rate control stable when capture is sparse.
+    let even_width = u64::from(width + width % 2);
+    let even_height = u64::from(height + height % 2);
+    let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
     format!("appsrc name=source is-live=true format=time block=true max-buffers=1 \
-        caps=video/x-raw,format=BGRx,width={width},height={height},framerate=60/1 \
-        ! identity datarate={raw_rate} signal-handoffs=false \
+        caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 \
         {padding}! videoconvert ! video/x-raw,format=I420 \
-        ! openh264enc usage-type=screen complexity=low rate-control=bitrate \
-        bitrate={bitrate} max-bitrate={} gop-size=60 multi-thread=4 enable-frame-skip=false qp-max=28 \
+        ! identity datarate={raw_rate} signal-handoffs=false \
+        ! openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate \
+        bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28 \
         ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au \
         ! appsink name=sink sync=false max-buffers=1 drop=false", bitrate * 2)
 }
 impl Encoder {
     pub fn new(width: u32, height: u32, stream: u64) -> Result<Self> {
+        Self::with_cap(width, height, stream, 60)
+    }
+    pub fn with_cap(width: u32, height: u32, stream: u64, cap_fps: u8) -> Result<Self> {
         paneferry_protocol::dimensions(width, height)?;
+        anyhow::ensure!((1..=90).contains(&cap_fps), "invalid video fps");
         let api = api().context("H.264 components unavailable")?;
-        let description = CString::new(pipeline(width, height))?;
+        let description = CString::new(pipeline(width, height, cap_fps))?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         let mut encoder = Self {
@@ -437,6 +447,14 @@ mod tests {
         process::{Command, Stdio},
         time::Duration,
     };
+
+    #[test]
+    fn ninety_fps_timestamps_fit_identity_datarate_at_maximum_resolution() {
+        let description = pipeline(4000, 2000, 90);
+        assert!(description.contains("framerate=90/1"));
+        assert!(description.contains("datarate=1080000000"));
+        assert!(1_080_000_000 < i32::MAX);
+    }
 
     #[test]
     #[ignore = "requires Linux GStreamer/OpenH264 and Python GI; run explicitly on Ubuntu"]

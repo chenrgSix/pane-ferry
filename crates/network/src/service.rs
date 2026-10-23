@@ -630,9 +630,11 @@ impl Service {
                                 });
                             }
                             let mut packet = Packet::new(value,barrier)?; packet.reserve().await?;
-                            // Encoded frames are never dropped. Overload closes only this
-                            // session, whose existing reconnect obtains a fresh key frame.
-                            media[&window].try_send(packet).map_err(|_|anyhow!("media queue full"))?;
+                            // Keep H.264 dependencies in order. Backpressure the
+                            // producer instead of ending the session when the
+                            // video stream cannot keep up; the agent coalesces
+                            // unencoded frames while this bounded queue waits.
+                            media[&window].send(packet).await.map_err(|_|anyhow!("media stream ended"))?;
                         } else {
                             barrier = barrier.checked_add(1).context("sequence overflow")?;
                             tokio::time::timeout(TIMEOUT,Packet::new(value,barrier)?.write(&mut send)).await??;
@@ -882,6 +884,8 @@ fn allowed_request(value: &Value) -> bool {
                     | "window.list"
                     | "session.list"
                     | "video.enable"
+                    | "video.configure"
+                    | "video.feedback"
                     | "app.launch"
                     | "session.resume"
                     | "session.detach"

@@ -1,4 +1,5 @@
 //! Bounded H.264 output worker: a slow reader must not stall input.
+use crate::video_qos::VideoQos;
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use paneferry_backend_x11::CapturedImage;
@@ -10,13 +11,14 @@ use std::{
     os::unix::net::UnixStream,
     sync::{Arc, Condvar, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
-    EnableVideo,
+    EnableVideo(u8, bool),
+    ConfigureVideo(u8),
     Message(Value, String),
     Frame(Window, Arc<CapturedImage>, String),
 }
@@ -83,17 +85,20 @@ type Shared = Arc<(Mutex<Queue>, Condvar)>;
 pub struct Output {
     queue: Shared,
     socket: UnixStream,
+    qos: Arc<Mutex<VideoQos>>,
 }
 impl Output {
     pub fn new(mut socket: UnixStream) -> Result<Self> {
         socket.set_write_timeout(Some(Duration::from_secs(3)))?;
+        let qos = Arc::new(Mutex::new(VideoQos::new(Instant::now())));
         let output = Self {
             queue: Arc::new((Mutex::new(Queue::default()), Condvar::new())),
             socket: socket.try_clone()?,
+            qos: qos.clone(),
         };
         let shared = output.queue.clone();
         thread::spawn(move || {
-            let _ = write_loop(&mut socket, &shared);
+            let _ = write_loop(&mut socket, &shared, &qos);
             let mut queue = shared.0.lock().unwrap();
             queue.closed = true;
             queue.events.clear();
@@ -118,8 +123,20 @@ impl Output {
             session.into(),
         ))
     }
-    pub fn enable_video(&self) -> Result<()> {
-        self.push(Pending::EnableVideo)
+    pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
+        self.push(Pending::EnableVideo(max_fps, feedback))
+    }
+    pub fn configure_video(&self, max_fps: u8) -> Result<()> {
+        self.push(Pending::ConfigureVideo(max_fps))
+    }
+    pub fn video_feedback(&self, frame_id: u64) {
+        self.qos
+            .lock()
+            .unwrap()
+            .acknowledge(frame_id, Instant::now());
+    }
+    pub fn frame_interval(&self) -> Duration {
+        self.qos.lock().unwrap().interval(Instant::now())
     }
 }
 impl Drop for Output {
@@ -132,7 +149,7 @@ impl Drop for Output {
         let _ = self.socket.shutdown(std::net::Shutdown::Both);
     }
 }
-fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
+fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos>>) -> Result<()> {
     let mut sequence = 0u64;
     let mut frames: HashMap<u32, CachedFrame> = HashMap::new();
     let mut video = false;
@@ -152,10 +169,24 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
             }
         };
         let (mut value, session) = match event {
-            Pending::EnableVideo => {
+            Pending::EnableVideo(max_fps, feedback) => {
                 video = true;
                 frames.clear();
                 encoders.clear();
+                qos.lock()
+                    .unwrap()
+                    .configure(max_fps, feedback, Instant::now());
+                continue;
+            }
+            Pending::ConfigureVideo(max_fps) => {
+                if !video {
+                    bail!("video not enabled")
+                }
+                frames.clear();
+                encoders.clear();
+                let mut state = qos.lock().unwrap();
+                let feedback = state.feedback_enabled();
+                state.configure(max_fps, feedback, Instant::now());
                 continue;
             }
             Pending::Message(value, session) => {
@@ -192,12 +223,20 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 }
                 let mut value = json!({"type":"frame", "window_id":window.window_id, "geometry_revision":window.geometry_revision,
                     "width":window.width, "height":window.height});
+                let cap_fps = {
+                    let state = qos.lock().unwrap();
+                    state.cap()
+                };
                 if encoders.get(&window.window_id).is_none_or(|encoder| {
                     encoder.width != image.width || encoder.height != image.height
                 }) {
                     encoders.remove(&window.window_id);
-                    let encoder =
-                        crate::video::Encoder::new(image.width, image.height, next_stream)?;
+                    let encoder = crate::video::Encoder::with_cap(
+                        image.width,
+                        image.height,
+                        next_stream,
+                        cap_fps,
+                    )?;
                     next_stream += 1;
                     encoders.insert(window.window_id, encoder);
                 }
@@ -209,6 +248,9 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared) -> Result<()> {
                 value["key_frame"] = json!(packet.keyframe);
                 value["encoded_width"] = json!(image.width + image.width % 2);
                 value["encoded_height"] = json!(image.height + image.height % 2);
+                if let Some(id) = qos.lock().unwrap().sent(Instant::now()) {
+                    value["frame_id"] = json!(id);
+                }
                 frames.remove(&window.window_id);
                 if frames
                     .values()
@@ -349,7 +391,7 @@ mod tests {
             data: image.data.clone(),
             ..image
         };
-        output.enable_video().unwrap();
+        output.enable_video(60, false).unwrap();
         output.frame(&window, image, &session).unwrap();
         let video = read();
         assert_eq!(video["codec"], "h264");

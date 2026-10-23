@@ -25,7 +25,7 @@ use std::{
 };
 static STOP: AtomicBool = AtomicBool::new(false);
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
-const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+const SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
 mod backend;
 mod desktop_input;
 mod discovery;
@@ -35,6 +35,7 @@ mod output;
 mod request_error;
 mod session_bus;
 mod video;
+mod video_qos;
 mod wayland;
 struct Session {
     id: String,
@@ -915,6 +916,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     ];
     if video::available() {
         capabilities.push("native.h264");
+        capabilities.push("video.qos");
     }
     send(
         &mut out,
@@ -995,9 +997,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         } else if pending_request.is_some() {
             pending_request.take()
         } else {
-            let scan_delay = FRAME_INTERVAL.saturating_sub(last_scan.elapsed());
+            let frame_interval = out.frame_interval();
+            let scan_delay = SCAN_INTERVAL
+                .min(frame_interval)
+                .saturating_sub(last_scan.elapsed());
             let frame_delay = if capture_pending {
-                FRAME_INTERVAL.saturating_sub(last_capture.elapsed())
+                frame_interval.saturating_sub(last_capture.elapsed())
             } else {
                 Duration::MAX
             };
@@ -1040,16 +1045,26 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
-                    Request::EnableVideo { codec: _ } => {
+                    Request::EnableVideo {
+                        codec: _,
+                        max_fps,
+                        feedback,
+                    } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")
                         }
                         if !video::available() {
                             bail!("video encoder unavailable")
                         }
-                        out.enable_video()?;
-                        send(&mut out, json!({"type":"video.ready", "codec":"h264"}), "")?;
+                        out.enable_video(max_fps, feedback)?;
+                        send(
+                            &mut out,
+                            json!({"type":"video.ready", "codec":"h264", "max_fps":max_fps}),
+                            "",
+                        )?;
                     }
+                    Request::ConfigureVideo { max_fps } => out.configure_video(max_fps)?,
+                    Request::VideoFeedback { frame_id } => out.video_feedback(frame_id),
                     Request::Sessions {} => {
                         let st = state.lock().unwrap();
                         let mut sessions = Vec::new();
@@ -1324,11 +1339,21 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )?;
             }
         }
-        if last_scan.elapsed() < FRAME_INTERVAL
-            && !(capture_pending && last_capture.elapsed() >= FRAME_INTERVAL)
+        // A queued input takes precedence over a new capture, including when
+        // damage events keep the screen continuously dirty.
+        if pending_request.is_none() && last_scan.elapsed() < Duration::from_millis(100) {
+            if let Ok(request) = rx.try_recv() {
+                pending_request = Some(request);
+                continue;
+            }
+        }
+        let frame_interval = out.frame_interval();
+        if last_scan.elapsed() < SCAN_INTERVAL.min(frame_interval)
+            && !(capture_pending && last_capture.elapsed() >= frame_interval)
         {
             continue;
         }
+        let capture_due = last_capture.elapsed() >= frame_interval;
         last_scan = Instant::now();
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
@@ -1374,6 +1399,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         &sid,
                     )?;
                 }
+                let mut defer_capture = false;
                 for w in &windows {
                     let old = known.get(&w.window_id);
                     if old != Some(w) {
@@ -1391,11 +1417,20 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
-                    if !w.visible || !b.capture_needed(w.window_id) {
+                    if defer_capture || !capture_due || !w.visible || !b.capture_needed(w.window_id) {
                         continue;
                     }
+                    if pending_request.is_none()
+                        && last_capture.elapsed() < Duration::from_millis(100)
+                    {
+                        if let Ok(request) = rx.try_recv() {
+                            pending_request = Some(request);
+                            defer_capture = true;
+                            continue;
+                        }
+                    }
                     // Metadata-only scans must not postpone the first repaint
-                    // after idle. Failed attempts still retain the 60fps bound.
+                    // after idle. Failed attempts still retain the adaptive cap.
                     last_capture = last_scan;
                     if let Ok(image) = b.capture(w) {
                         out.frame(w, image, &sid)?;

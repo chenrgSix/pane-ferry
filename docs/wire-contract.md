@@ -2,10 +2,10 @@
 
 下文定义RWP/1 本机业务接口。原生 QUIC 通过 RWN/2 多可靠流承载相同业务语义、二进制视频及控制水位，见[统一传输指南](native-transport.md)。
 
-私有本机 Unix socket 与本机桥接的 stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级，当前不称 protobuf 实现）。客户端请求行最大 64 KiB，服务端事件行最大 16 MiB，H.264 base64 视频帧，宽高 1..4096，总像素 <= 8M；采样最短间隔约 16.7ms，静止帧去重。所有请求与响应都必须包含 version:1，其他版本拒绝。每个消息 type 为以下字符串，version:1，服务端事件带 session_id、seq；窗口事件带 window_id（u32）与 geometry_revision（u64）。跨机传输只允许已配对的 QUIC 设备，不接受远端 shell 命令。
+私有本机 Unix socket 与本机桥接的 stdin/stdout 承载 UTF-8 JSON Lines（Protobuf 留待兼容升级，当前不称 protobuf 实现）。客户端请求行最大 64 KiB，服务端事件行最大 16 MiB，H.264 base64 视频帧，宽高 1..4096，总像素 <= 8M；默认采样上限 60 fps，可选最高 90 fps，静止帧去重。所有请求与响应都必须包含 version:1，其他版本拒绝。每个消息 type 为以下字符串，version:1，服务端事件带 session_id、seq；窗口事件带 window_id（u32）与 geometry_revision（u64）。跨机传输只允许已配对的 QUIC 设备，不接受远端 shell 命令。
 
 客户端第一条：{"type":"hello","version":1}；服务端 hello 包含 capabilities 字符串数组。
-支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。没有 H.264 能力时客户端拒绝附着；没有 PNG 窗口帧、静止 PNG 补帧或编码失败回退。协商只影响本连接，不能指定客户端编码程序、采集进程或任意编码参数。
+支持 H.264 时 hello 声明 native.h264；客户端在 launch/resume 之前发送 video.enable {codec:"h264"}，服务端回 video.ready {codec:"h264"}。没有 H.264 能力时客户端拒绝附着；没有 PNG 窗口帧、静止 PNG 补帧或编码失败回退。支持自适应速率时还声明 video.qos，video.enable 可带 max_fps:1..90（缺省 60）和 feedback:true。控制端成功显示带 frame_id 的帧后发送 video.feedback {frame_id}；video.configure {max_fps:1..90} 可在连接内切换上限，编码流随之重建。旧控制端不发送反馈时保持固定 60 fps 上限。这些设置仅影响该控制连接，不能指定客户端编码程序或采集进程。
 客户端 app.list，服务端 app.list {apps:[{id,name,description,unavailable_reason?:null|string}]}。unavailable_reason 是现有窗口绑定已失效等稳定错误码，由客户端映射为提示；缺失或 null 表示未发现不可用原因，不保证后续启动必定成功。
 新版 app.list 从 GIO 每次发现已安装桌面应用，并追加自定义入口。响应另有 discovery_supported:true、discovery_error:null|code；每项有 source:"desktop"|"custom" 和 icon_png:null|base64。图标仅为受限 PNG，应用图标最多 12KiB / 96px；控制端检查格式头、尺寸和长度。客户端不接收可执行路径或 argv；旧 Agent 没有 discovery_supported 时，新启动器明确提示需要更新。自动应用最多 512 个，自定义配置最多 256 个，控制响应行仍限制 16MiB。
 客户端 window.list，服务端 window.list {windows:[{id,app_id:null|string,window_id,name,title,icon_png,minimized,controlled,session_id:null|string}],unavailable_reason:null|code}。最多 128 个当前用户的 X11/XWayland 窗口及已启用 GNOME 桥接的原生 Wayland 窗口。app_id 是核验后的目录关联，不用标题猜测。只读查询不得截屏、改变焦点/尺寸或发送输入；单个窗口图标不超过 16KiB / 128px。自己的独立虚拟桌面和已接收的远程窗口不重复发布。
@@ -20,12 +20,12 @@ display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，�
 
 `parent_id` 表示发布端核验后接纳的会话内关联关系，可跨进程；不能由控制端提交任意 PID 或窗口扩大范围。快照包含该会话全部窗口。接收端按设备 UUID、会话与窗口分发画面和输入；本机窗口的关闭按钮向对应远端窗口发送 `window.close.request`。从应用菜单选择“断开并退出”才只断开控制。窗口级错误可附带 `window_id`，剪贴板失败只取消对应窗口的等待；旧端没有窗口编号时取消本连接尚未完成的复制，避免无限等待。
 
-窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。frame {window_id,geometry_revision,width,height,png:base64}。
-视频帧使用同一 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height，省略 png。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize 和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。编码失败回退帧有 png 和 video_error:"encoder_failed"，没有 codec 字段。
+窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。
+视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
 Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。
 window.configure 是合法像素尺寸的请求，不是成功确认。宿主默认按内容区 points × backingScaleFactor 计算，并按比例限制到 4096×2160 / 800 万像素预算。自动和手动模式均按成功解码图像的宽高比显示，远端回包不改变本机窗口大小。未匹配时留边，标题区分实际接收、目标、预算限制及等待/拒绝状态；旧画面与新几何不一致时不发送新点击。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
-input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。
+input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。Mac 宿主立即传递有效鼠标移动；仅在本机发送队列尚未写出时，以同一窗口的最新连续移动覆盖旧坐标，点击、滚轮和释放保持顺序。
 input.key {window_id,keysym:u32,pressed:bool}，用于导航、快捷键与非文字按键。控制端输入法预编辑保留在本地；input.text.commit {window_id,text} 只传已经提交的 Unicode，不把物理字母键或输入法切换修饰键发往被控端。
 声明 `input.authorization` 的 Agent，在接入原桌面 Xwayland 后额外发送 `input.authorization {state:"pending"|"ready"|"denied"|"paused"|"unavailable"}`，仍有当前 session_id / seq，只在状态变化时发送。授权属于 Agent 的共享输入会话，不随某个控制端断开而关闭。`desktop_authorization_pending` / `desktop_authorization_denied` / `desktop_input_paused` / `desktop_input_unavailable` 是受限输入错误码；控制端显示本地状态提示，不能为每次输入弹阻塞错误窗，也不能在授权恢复后重放等待期间的输入。恢复 token 不属于协议，不发送给客户端。普通 X11 / 独立 Xvfb 不发送此事件。
 clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy {window_id,request_id} 由主动复制触发；成功返回 clipboard.data {window_id,request_id,text}。控制端只接受仍有效、窗口和请求 ID 相符的复制回包，其他事件不得修改其剪贴板。没有通用 clipboard.read 接口或后台剪贴板同步。
@@ -39,7 +39,7 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 需要桌面密钥服务兼容策略的应用，在本地总线或受限代理不可用时返回 `desktop_secrets_unavailable`。这是启动前的明确拒绝，不保留新会话。该策略由发布端本地目录决定，客户端不能提交总线地址、代理规则或修改启动策略。
 
-H.264 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。采样最短间隔约 16.7ms，目标上限 60 fps，实际帧率受编码、网络及控制端限制；已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
+H.264 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。原始像素去重包含 geometry_revision，隐藏/重现会重发当前帧。反馈模式根据已显示帧的排队延迟在 15 fps 与配置上限之间调节采集节奏；输入请求优先于下一次采集，但连续输入时至少每 100ms 尝试一次扫描。QUIC 控制流优先级高于每窗口视频流，视频队列满时反压而不主动断开会话；实际帧率受编码、网络及控制端限制。已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
 
 Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/lan-remoteapp/apps.json 自定义入口。Exec 字段由发布器解析、启动前重新确认对应桌面入口；自定义配置只接受固定绝对 executable + argv 数组。客户端不能传 executable 或命令字符串。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。网络组件通过本机私有 socket 访问发布器，不执行远端 shell 命令。完整行为见 [应用与窗口发现](application-discovery.md)。
 

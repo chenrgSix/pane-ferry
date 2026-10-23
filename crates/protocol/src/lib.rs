@@ -5,6 +5,8 @@ pub mod clipboard;
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 8_000_000;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
+pub const DEFAULT_VIDEO_FPS: u8 = 60;
+pub const MAX_VIDEO_FPS: u8 = 90;
 #[derive(Debug, Deserialize)]
 pub enum LaunchBackend {
     #[serde(rename = "native")]
@@ -25,7 +27,17 @@ pub enum Request {
     #[serde(rename = "hello")]
     Hello { version: u32 },
     #[serde(rename = "video.enable")]
-    EnableVideo { codec: VideoCodec },
+    EnableVideo {
+        codec: VideoCodec,
+        #[serde(default = "default_video_fps")]
+        max_fps: u8,
+        #[serde(default)]
+        feedback: bool,
+    },
+    #[serde(rename = "video.configure")]
+    ConfigureVideo { max_fps: u8 },
+    #[serde(rename = "video.feedback")]
+    VideoFeedback { frame_id: u64 },
     #[serde(rename = "app.list")]
     List {},
     #[serde(rename = "window.list")]
@@ -91,6 +103,9 @@ pub enum Request {
 fn attach_by_default() -> bool {
     true
 }
+fn default_video_fps() -> u8 {
+    DEFAULT_VIDEO_FPS
+}
 pub fn default_scale() -> u8 {
     1
 }
@@ -113,6 +128,15 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
     let request = serde_json::from_value(v)?;
     if let Request::Launch { scale_factor, .. } = &request {
         validate_scale(*scale_factor)?;
+    }
+    match &request {
+        Request::EnableVideo { max_fps, .. } | Request::ConfigureVideo { max_fps } => {
+            if !(1..=MAX_VIDEO_FPS).contains(max_fps) {
+                bail!("max_fps must be between 1 and 90")
+            }
+        }
+        Request::VideoFeedback { frame_id } if *frame_id == 0 => bail!("invalid frame_id"),
+        _ => {}
     }
     if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
         validate_text(text)?;
@@ -230,9 +254,17 @@ mod tests {
         assert!(matches!(
             parse_request(br#"{"type":"video.enable","version":1,"codec":"h264"}"#).unwrap(),
             Request::EnableVideo {
-                codec: VideoCodec::H264
+                codec: VideoCodec::H264,
+                max_fps: DEFAULT_VIDEO_FPS,
+                feedback: false,
             }
         ));
+        assert!(matches!(
+            parse_request(br#"{"type":"video.enable","version":1,"codec":"h264","max_fps":90,"feedback":true}"#).unwrap(),
+            Request::EnableVideo { max_fps: 90, feedback: true, .. }
+        ));
+        assert!(parse_request(br#"{"type":"video.configure","version":1,"max_fps":91}"#).is_err());
+        assert!(parse_request(br#"{"type":"video.feedback","version":1,"frame_id":0}"#).is_err());
         for request in [
             r#"{"type":"video.enable","version":1,"codec":"x264;id"}"#,
             r#"{"type":"video.enable","version":1,"codec":"h264","command":"id"}"#,

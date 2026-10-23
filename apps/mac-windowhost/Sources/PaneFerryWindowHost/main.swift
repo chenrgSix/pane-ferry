@@ -65,7 +65,7 @@ final class RWPTransport {
     private let output = Pipe()
     private let lock = NSLock()
     private var inbox: [Incoming] = []
-    private var writes: [Data] = []
+    private var writes: [(data: Data, moveWindow: UInt32?)] = []
     private var writing = false
     private var closed = false
     private var failure: TransportFailure?
@@ -176,8 +176,15 @@ final class RWPTransport {
         var line = encoded; line.append(10)
         lock.lock()
         guard !closed else { lock.unlock(); return }
-        guard writes.count < 256 else { lock.unlock(); fail("输入队列已满，连接停止，避免输入失序"); disconnect(); return }
-        writes.append(line)
+        let moveWindow: UInt32? = object["type"] as? String == "input.pointer"
+            && object["button"] as? Int == 0 && object["pressed"] as? Bool == false
+            ? object["window_id"] as? UInt32 : nil
+        if let moveWindow, writes.last?.moveWindow == moveWindow {
+            writes[writes.count - 1] = (line, moveWindow)
+        } else {
+            guard writes.count < 256 else { lock.unlock(); fail("输入队列已满，连接停止，避免输入失序"); disconnect(); return }
+            writes.append((line, moveWindow))
+        }
         if writing { lock.unlock(); return }
         writing = true; lock.unlock()
         writer.async { [weak self] in self?.writeLoop() }
@@ -186,7 +193,7 @@ final class RWPTransport {
         while true {
             lock.lock()
             if closed || writes.isEmpty { writing = false; lock.unlock(); return }
-            let next = writes.removeFirst(); lock.unlock()
+            let next = writes.removeFirst().data; lock.unlock()
             do { try input.fileHandleForWriting.write(contentsOf: next) }
             catch { fail("向远端发送消息失败"); disconnect(); return }
         }
@@ -226,6 +233,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var poll: Timer?
     var statusItem: NSStatusItem?
     var capabilities = Set<String>()
+    var videoFPS = UserDefaults.standard.integer(forKey: "videoMaxFPS") == 90 ? 90 : 60
+    var lastVideoFeedback: TimeInterval = 0
+    var pendingVideoFeedbackID: UInt64?
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
     var desktopInputNotice: String?
@@ -265,10 +275,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
+        let rateItem = NSMenuItem(title: "帧率上限", action: nil, keyEquivalent: "")
+        let rateMenu = NSMenu(title: "帧率上限")
+        let fps60 = rateMenu.addItem(withTitle: "60 fps（默认）", action: #selector(use60FPS), keyEquivalent: "")
+        fps60.target = self
+        let fps90 = rateMenu.addItem(withTitle: "90 fps", action: #selector(use90FPS), keyEquivalent: "")
+        fps90.target = self
+        rateItem.submenu = rateMenu; displayMenu.addItem(rateItem)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         startConnection()
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.pump() }
+        let timer = Timer(timeInterval: 1.0 / 90.0, repeats: true) { [weak self] _ in self?.pump() }
         RunLoop.main.add(timer, forMode: .common); poll = timer
         let monitor = NWPathMonitor(); networkMonitor = monitor
         monitor.pathUpdateHandler = { [weak self] path in
@@ -282,7 +299,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示，最高 60 fps。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示，默认上限 60 fps，可选 90 fps。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
+    }
+    @objc func use60FPS() { setVideoFPS(60) }
+    @objc func use90FPS() { setVideoFPS(90) }
+    func setVideoFPS(_ fps: Int) {
+        guard fps == 60 || fps == 90 else { return }
+        videoFPS = fps
+        UserDefaults.standard.set(fps, forKey: "videoMaxFPS")
+        if ready && capabilities.contains("video.qos") {
+            send(["type": "video.configure", "max_fps": fps])
+        }
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -293,6 +320,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
             return activeHost() != nil
+        }
+        if menuItem.action == #selector(use60FPS) || menuItem.action == #selector(use90FPS) {
+            let fps = capabilities.contains("video.qos") ? videoFPS : 60
+            menuItem.state = fps == (menuItem.action == #selector(use90FPS) ? 90 : 60) ? .on : .off
+            return capabilities.contains("video.qos")
         }
         return true
     }
@@ -327,11 +359,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if error.retryable { connectionLost() }
             else { stopRecovery(); alert(error.message) }
         }
+        if let id = pendingVideoFeedbackID, connected {
+            let now = ProcessInfo.processInfo.systemUptime
+            if lastVideoFeedback == 0 || now - lastVideoFeedback >= 0.05 {
+                pendingVideoFeedbackID = nil
+                lastVideoFeedback = now
+                send(["type": "video.feedback", "frame_id": id])
+            }
+        }
     }
     func startConnection() {
         guard !stopping else { return }
         reconnectTimer?.invalidate(); reconnectTimer = nil
         transport = makeTransport(); connected = true; ready = false; lastSequence = 0; capabilities.removeAll()
+        lastVideoFeedback = 0; pendingVideoFeedbackID = nil
         do {
             try transport.start(options)
             writeWire(["type": "hello"])
@@ -428,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
            let window = message["window_id"] as? UInt32 {
             windows[window]?.inputNotice = desktopInputNotice
         }
-        if clipboardBusy && type != "session.detach" {
+        if clipboardBusy && type != "session.detach" && type != "video.feedback" {
             if type == "input.pointer", message["button"] as? Int == 0,
                clipboardDeferred.last?["type"] as? String == type, clipboardDeferred.last?["button"] as? Int == 0,
                clipboardDeferred.last?["window_id"] as? UInt32 == message["window_id"] as? UInt32 { clipboardDeferred.removeLast() }
@@ -460,7 +501,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 stopRecovery(); alert("远端不支持 H.264 视频，无法连接该窗口。")
                 return
             }
-            send(["type":"video.enable", "codec":"h264"])
+            var enable: [String: Any] = ["type":"video.enable", "codec":"h264"]
+            if capabilities.contains("video.qos") {
+                enable["max_fps"] = videoFPS
+                enable["feedback"] = true
+            }
+            send(enable)
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
@@ -616,6 +662,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.present(image, mediaMode: "H.264 视频")
             statusItem?.button?.title = "PaneFerry · H.264 视频"
+            if capabilities.contains("video.qos"), let frameID = unsignedInteger(object["frame_id"]), frameID > 0 {
+                pendingVideoFeedbackID = frameID
+            }
         default: break
         }
     }
