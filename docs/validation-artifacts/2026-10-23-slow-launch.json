@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-23",
+  "code_commit": "a781e915152ddd3e1c4a424f4b00924e3568bdb0",
+  "cause": {
+    "reported_app": "飞书",
+    "retained_session": "d2f0cdbca53a7e8821592f82f273c9c7",
+    "initial_agent": "1007878",
+    "launch_process_observed": "1024370",
+    "display": 288,
+    "visible_window": {
+      "id": "0x600003",
+      "pixels": [
+        2940,
+        1604
+      ],
+      "map_state": "IsViewable"
+    },
+    "confirmed": "Agent wait_for_window 在10秒后返回 application_window_pending；应用和会话保留，但旧启动器不继续等待也不打开 WindowHost。稍后只读 X11 检查确认窗口已出现。",
+    "limits": "未采集准确首窗耗时，没有以此判断应用内部慢启动的具体耗时来源。"
+  },
+  "fix": {
+    "shared_layer": "paneferry-transport launch_native",
+    "budget_seconds": 90,
+    "retry_delay_seconds": 1,
+    "retry_condition": "仅明确 application_window_pending；相同 Target、请求ID、appID、缩放、attach=false",
+    "no_automatic_retry": [
+      "connection lost",
+      "request timeout",
+      "terminal remote error",
+      "invalid response"
+    ],
+    "interface": "等待期间显示窗口就绪后自动连接；最终失败清除等待提示，保留原错误/幂等规则。"
+  },
+  "verification": {
+    "transport_tests": {
+      "passed": 9,
+      "new_cases": [
+        "两个 pending 后连接原会话；每次完整请求完全相同",
+        "pending 后连接断开、会话退出或已受控均停止，不重放未知结果",
+        "下一次检查会超出预算时返回可安全重试的保留会话结果"
+      ]
+    },
+    "project_check": {
+      "exit": 0,
+      "seconds": 161.53,
+      "rust_passed": 52,
+      "rust_ignored": 5,
+      "frontend_passed": 24,
+      "includes": "Swift/AppKit 重连与输入边界、两个真实隔离 QUIC 节点、H.264与大体积二进制剪贴板"
+    },
+    "clippy": "cargo clippy -p paneferry-transport --all-targets -- -D warnings passed",
+    "release": "npm run tauri -- build --no-bundle passed",
+    "post_activation_quic_readonly": {
+      "hello": {
+        "type": "hello",
+        "count": 0,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "app.list": {
+        "type": "app.list",
+        "count": 52,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "window.list": {
+        "type": "window.list",
+        "count": 8,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "session.list": {
+        "type": "session.list",
+        "count": 1,
+        "discovery_error": null,
+        "unavailable_reason": null
+      }
+    }
+  },
+  "activation": {
+    "commit": "a781e915152ddd3e1c4a424f4b00924e3568bdb0",
+    "active_app": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "launcher_sha256": "ac05ae3c7efd098b6ba214fbb939c1dc9135eb21e0772fa38a38264b428a7e91",
+    "unchanged_components": {
+      "Contents/Resources/paneferry-network": "1a69ff9c837a167b729f1ea0760f4a5f9606b3be4e25c328345c905fa8f4bc6f",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "38ff7b0e197aab711803b10725618f3adbdd08eb020046a41e5acd3bb0d7547a"
+    },
+    "backup": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/slow-launch-20261023/previous-launcher",
+    "signature": "ad-hoc deep/strict verified, not notarized",
+    "scope": "only launcher binary and outer code signature replaced; Ubuntu, Mac publisher, network and active application components not restarted",
+    "packaging_check_note": "The first activation check compared the signed executable to the unsigned build and stopped after replacing the launcher. Corrected check compares active and staged signed executables, verifies deep/strict signature and unchanged helper hashes, then starts the launcher."
+  },
+  "preserved_linux_processes_during_activation": {
+    "1007878": {
+      "name": "paneferry-agent",
+      "started": "34486424"
+    },
+    "995120": {
+      "name": "paneferry-netwo",
+      "started": "34479807"
+    },
+    "998690": {
+      "name": "gnome-shell",
+      "started": "34481110"
+    },
+    "1034686": {
+      "name": "feishu",
+      "started": "34535598"
+    },
+    "1002994": {
+      "name": "ChatGPT",
+      "started": "34482010"
+    },
+    "2900526": {
+      "name": "easytier-gui",
+      "started": "29782254"
+    },
+    "52713": {
+      "name": "rustdesk",
+      "started": "3765602"
+    }
+  },
+  "runtime_notes": [
+    "曾直接接回报错对应的原飞书会话，Agent 确认 controlled=true。",
+    "用户随后确认手动重新打开过飞书。原远程会话结束，新的飞书位于 Ubuntu 桌面 scope，PID1034686；不是本任务强制重启。",
+    "清理了本任务打开、指向失效 session 的 Mac WindowHost PID34430；仅重开启动器，Mac Node15189/网络33229及Ubuntu Agent/网络/GNOME/当前ChatGPT/飞书/EasyTier/RustDesk原进程保留。"
+  ],
+  "limits": [
+    "电脑工具读取 WindowHost 超时；没有把 controlled=true 或构建通过当作画面视觉验收。",
+    "没有重新启动真实飞书制造一次冷启动，也没有操作真实聊天输入、检查账号内容或修改账号目录。",
+    "慢启动自动继续由真实Unix控制流夹具验证；没有把它写成真实飞书完整冷启动验收。",
+    "不改变当前共享 Xwayland 窗口的 DPI 能力边界。"
+  ],
+  "logs": {
+    "paneferry-slow-launch-check-20261023.log": {
+      "bytes": 16751,
+      "sha256": "75d0182a2dc2d5bf83a195c3bd2bc59c6df6d4b622e962516c212cb2a23139f0"
+    },
+    "paneferry-slow-launch-release-20261023.log": {
+      "bytes": 1004,
+      "sha256": "66ed245281a0c2933ef2c45317fbab2f016814621c130f8be95ae9bba1a179b3"
+    }
+  },
+  "log_archive": "docs/validation-artifacts/2026-10-23-slow-launch-logs.json.gz"
+}
