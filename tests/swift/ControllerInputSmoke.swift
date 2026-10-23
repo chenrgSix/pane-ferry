@@ -7,6 +7,7 @@ struct ControllerInputSmoke {
         verifyShortcutRelease()
         verifyCut()
         verifyLogicalViewport()
+        verifyIdleHover()
         try! verifyClipboardBundles()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
@@ -139,6 +140,51 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close requests the remote window close; remote destruction stays local")
+    }
+
+    private static func verifyIdleHover() {
+        let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 1000, height: 500))
+        surface.remoteID = 91
+        surface.remoteWidth = 1000; surface.remoteHeight = 500
+        var sent: [[String: Any]] = []
+        surface.transmit = { sent.append($0) }
+        func event(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: surface.convert(CGPoint(x: x, y: 250), to: nil),
+                               modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                               eventNumber: 1, clickCount: 1, pressure: 1)!
+        }
+        func wait(_ seconds: TimeInterval) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
+
+        surface.mouseMoved(with: event(.mouseMoved, 100))
+        precondition(sent.isEmpty, "an unpressed pointer move is not transmitted immediately")
+        wait(0.11)
+        surface.mouseMoved(with: event(.mouseMoved, 200))
+        wait(0.11)
+        precondition(sent.isEmpty, "a later move resets the 200 ms idle deadline")
+        wait(0.12)
+        precondition(sent.count == 1 && sent[0]["x"] as? Int == 200 && sent[0]["button"] as? Int == 0,
+                     "idle hover sends only the final mapped position")
+
+        surface.mouseMoved(with: event(.mouseMoved, 300))
+        surface.mouseDown(with: event(.leftMouseDown, 400))
+        surface.mouseDragged(with: event(.leftMouseDragged, 500))
+        surface.mouseUp(with: event(.leftMouseUp, 600))
+        precondition(sent.count == 4 && sent[1]["x"] as? Int == 400 && sent[1]["pressed"] as? Bool == true
+                     && sent[2]["x"] as? Int == 500 && sent[2]["button"] as? Int == 0
+                     && sent[3]["x"] as? Int == 600 && sent[3]["pressed"] as? Bool == false,
+                     "click and drag remain immediate and cancel the older hover")
+        wait(0.23)
+        precondition(sent.count == 4, "a canceled hover cannot arrive after a click")
+
+        surface.mouseMoved(with: event(.mouseMoved, 700))
+        surface.mouseExited(with: event(.mouseMoved, 700))
+        wait(0.23)
+        precondition(sent.count == 4, "leaving the window cancels hover")
+        surface.mouseMoved(with: event(.mouseMoved, 800))
+        surface.releaseInput()
+        wait(0.23)
+        precondition(sent.count == 4, "disconnecting or resigning key cancels hover")
+        print("PASS: idle hover coalesces after 200 ms; clicks and drags stay immediate, with no delayed stale events")
     }
 
     private static func verifyLogicalViewport() {

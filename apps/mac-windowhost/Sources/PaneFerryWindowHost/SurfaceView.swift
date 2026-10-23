@@ -7,7 +7,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     var remoteWidth = 1
     var remoteHeight = 1
     var image: CGImage? { didSet { needsDisplay = true } }
-    var transmit: (([String: Any]) -> Void)?
+    var transmit: (([String: Any]) -> Void)? { didSet { if transmit == nil { cancelPendingHover() } } }
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
     var controllerCopyEnabled = true
@@ -23,6 +23,15 @@ final class SurfaceView: NSView, NSTextInputClient {
     private var heldButtons: Set<Int> = []
     private var lastPointer = (x: 0, y: 0)
     private var tracking: NSTrackingArea?
+    private struct PendingHover {
+        let x: Int
+        let y: Int
+        let width: Int
+        let height: Int
+        let rect: CGRect
+    }
+    private var pendingHover: PendingHover?
+    private var hoverTimer: Timer?
     var imageRect: CGRect {
         // Metadata can precede its repaint. Fit the pixels actually on screen,
         // not the new geometry, or a resize would distort the previous frame.
@@ -44,13 +53,35 @@ final class SurfaceView: NSView, NSTextInputClient {
     }
     override func updateTrackingAreas() {
         if let tracking = tracking { removeTrackingArea(tracking) }
-        tracking = NSTrackingArea(rect: .zero, options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect], owner: self, userInfo: nil)
+        tracking = NSTrackingArea(rect: .zero, options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(tracking!); super.updateTrackingAreas()
     }
+    func cancelPendingHover() {
+        hoverTimer?.invalidate(); hoverTimer = nil; pendingHover = nil
+    }
+    private func scheduleHover(x: Int, y: Int, rect: CGRect) {
+        cancelPendingHover()
+        guard transmit != nil else { return }
+        pendingHover = PendingHover(x: x, y: y, width: remoteWidth, height: remoteHeight, rect: rect)
+        let timer = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in self?.sendPendingHover() }
+        hoverTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    private func sendPendingHover() {
+        defer { hoverTimer = nil; pendingHover = nil }
+        guard let hover = pendingHover, heldButtons.isEmpty,
+              hover.width == remoteWidth, hover.height == remoteHeight, hover.rect == imageRect
+        else { return }
+        if let image, image.width != remoteWidth || image.height != remoteHeight { return }
+        transmit?(["type": "input.pointer", "window_id": remoteID,
+                   "x": hover.x, "y": hover.y, "button": 0, "pressed": false])
+    }
     private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {
+        if button > 0 { cancelPendingHover() }
         if let image = image, image.width != remoteWidth || image.height != remoteHeight {
             // Do not click an old layout while the application is repainting.
             // Releases must still arrive so an in-progress drag cannot stick.
+            if button == 0 { cancelPendingHover() }
             if button > 0, !pressed, heldButtons.remove(button) != nil {
                 transmit?(["type": "input.pointer", "window_id": remoteID,
                            "x": min(lastPointer.x, remoteWidth - 1), "y": min(lastPointer.y, remoteHeight - 1),
@@ -60,10 +91,18 @@ final class SurfaceView: NSView, NSTextInputClient {
         }
         let point = convert(event.locationInWindow, from: nil)
         let rect = imageRect
-        if !rect.contains(point) && (button == 0 ? heldButtons.isEmpty : !heldButtons.contains(button)) { return }
+        if !rect.contains(point) && (button == 0 ? heldButtons.isEmpty : !heldButtons.contains(button)) {
+            if button == 0 { cancelPendingHover() }
+            return
+        }
         let x = max(0, min(remoteWidth - 1, Int((point.x - rect.minX) / max(rect.width, 1) * CGFloat(remoteWidth))))
         let y = max(0, min(remoteHeight - 1, Int((point.y - rect.minY) / max(rect.height, 1) * CGFloat(remoteHeight))))
         lastPointer = (x, y)
+        if button == 0 && heldButtons.isEmpty {
+            scheduleHover(x: x, y: y, rect: rect)
+            return
+        }
+        cancelPendingHover()
         if button > 0 { if pressed { heldButtons.insert(button) } else { heldButtons.remove(button) } }
         transmit?(["type": "input.pointer", "window_id": remoteID, "x": x, "y": y, "button": button, "pressed": pressed])
     }
@@ -79,6 +118,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     override func otherMouseDown(with event: NSEvent) { pointer(event, button: 2, pressed: true) }
     override func otherMouseUp(with event: NSEvent) { pointer(event, button: 2, pressed: false) }
     override func mouseMoved(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
+    override func mouseExited(with event: NSEvent) { cancelPendingHover() }
     override func mouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
     override func rightMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
     override func otherMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
@@ -185,6 +225,7 @@ final class SurfaceView: NSView, NSTextInputClient {
         heldModifiers = target
     }
     func releaseInput() {
+        cancelPendingHover()
         for button in heldButtons { transmit?(["type": "input.pointer", "window_id": remoteID, "x": lastPointer.x, "y": lastPointer.y, "button": button, "pressed": false]) }
         heldButtons.removeAll()
         releaseKeyboard()
