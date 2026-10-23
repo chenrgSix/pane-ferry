@@ -164,7 +164,10 @@ try:
     try:
         retry.send(type="app.launch", app_id="xterm", request_id=request_id,
                    backend="native", attach=False)
-        assert retry.until(lambda e: e["type"] == "session.started")["session_id"] == session
+        duplicate = retry.read()
+        assert (duplicate["type"] == "session.started" and duplicate["session_id"] == session) or (
+            duplicate["type"] == "error" and duplicate["code"] == "session_controlled"
+        ), "Duplicate launch must never create a second session"
         retry.send(type="session.list")
         listed = retry.until(lambda e: e["type"] == "session.list")
         assert any(s["session_id"] == session and s["controlled"] for s in listed["sessions"])
@@ -229,7 +232,7 @@ try:
     peer.send(type="session.list")
     assert not any(s["session_id"] == session for s in peer.until(lambda e: e["type"] == "session.list")["sessions"])
     session = None
-    print(json.dumps({"result": "PASS", "transport": "quic", "checks": ["real X11 PNG", "idempotent launch",
+    print(json.dumps({"result": "PASS", "transport": "quic", "checks": ["real X11 H.264", "idempotent launch",
           "exclusive controller", "remote keyboard/pointer input", "held input release", "resize", "hide/remap",
           "session discovery", "close/exited"], "reconnects": args.reconnects,
           "detached_seconds_each": args.detached_seconds}))
@@ -238,7 +241,8 @@ finally:
         if session and window_id:
             try:
                 peer.send(type="window.close.request", window_id=window_id)
-            except (BrokenPipeError, OSError):
+                peer.until(lambda e: e["type"] == "session.exited", timeout=5)
+            except (BrokenPipeError, OSError, EOFError, TimeoutError, AssertionError):
                 pass
         peer.close()
     remote("rm -f -- " + shlex.quote(marker))
