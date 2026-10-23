@@ -1,0 +1,306 @@
+{
+  "date": "2026-10-23",
+  "scope": "private GNOME/Xvfb/Gtk fixture, current installed Ubuntu Agent and staged fixed v4 bridge copy; user desktop bridge remained disabled",
+  "agent_sha256": "da9c08de334a5f7ee6e0a8448f052ea989889e777f4220c051720c49fcd78e21",
+  "test_commit": "87d72fd",
+  "mac": "AppKit 900x700 point content requests 900x700 at source 1x or 1800x1400 at source 2x; center maps to 450x350 or 900x700 remote pixels; controller_input_smoke.py passed",
+  "ubuntu_requested_scale_1": [
+    {
+      "backend": "Wayland",
+      "logical": [
+        1470,
+        802
+      ],
+      "received": [
+        1470,
+        802
+      ],
+      "source_scale": 1,
+      "entry_width": 700,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        900,
+        700
+      ],
+      "received": [
+        900,
+        700
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        900,
+        600
+      ],
+      "received": [
+        900,
+        600
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        1470,
+        900
+      ],
+      "received": [
+        1470,
+        900
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        700,
+        500
+      ],
+      "received": [
+        700,
+        500
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        1470,
+        802
+      ],
+      "received": [
+        1470,
+        802
+      ],
+      "source_scale": 1,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        900,
+        700
+      ],
+      "received": [
+        900,
+        700
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        900,
+        600
+      ],
+      "received": [
+        900,
+        600
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        1470,
+        900
+      ],
+      "received": [
+        1470,
+        900
+      ],
+      "source_scale": 1,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        700,
+        500
+      ],
+      "received": [
+        700,
+        500
+      ],
+      "source_scale": 1,
+      "entry_width": 700,
+      "preserved": true
+    }
+  ],
+  "ubuntu_requested_scale_2": [
+    {
+      "backend": "Wayland",
+      "logical": [
+        1470,
+        802
+      ],
+      "received": [
+        2940,
+        1604
+      ],
+      "source_scale": 2,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        900,
+        700
+      ],
+      "received": [
+        1800,
+        1400
+      ],
+      "source_scale": 2,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        900,
+        600
+      ],
+      "received": [
+        1800,
+        1200
+      ],
+      "source_scale": 2,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        1470,
+        900
+      ],
+      "received": [
+        2940,
+        1800
+      ],
+      "source_scale": 2,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Wayland",
+      "logical": [
+        700,
+        500
+      ],
+      "received": [
+        1400,
+        1000
+      ],
+      "source_scale": 2,
+      "entry_width": 700,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        1470,
+        802
+      ],
+      "received": [
+        1470,
+        802
+      ],
+      "source_scale": 1,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        900,
+        700
+      ],
+      "received": [
+        900,
+        700
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        900,
+        600
+      ],
+      "received": [
+        900,
+        600
+      ],
+      "source_scale": 1,
+      "entry_width": 900,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        1470,
+        900
+      ],
+      "received": [
+        1470,
+        900
+      ],
+      "source_scale": 1,
+      "entry_width": 1470,
+      "preserved": true
+    },
+    {
+      "backend": "Xwayland",
+      "logical": [
+        700,
+        500
+      ],
+      "received": [
+        700,
+        500
+      ],
+      "source_scale": 1,
+      "entry_width": 700,
+      "preserved": true
+    }
+  ],
+  "remote_invariants": {
+    "gnome_shell_pid": 1309605,
+    "agent_pid": 1007878,
+    "chatgpt_pid": 1314034,
+    "bridge": "INACTIVE before and after",
+    "private_gnome_stopped": true,
+    "desktop_restart_or_logout": false
+  },
+  "limitations": [
+    "Gtk fixture only, no real Feishu/GPT/Firefox visual acceptance",
+    "Frames inspected as original PNG with matching dimensions; no real H.264 throughput measurement",
+    "Xwayland remains 1x and cannot produce 2x source detail by window resize alone",
+    "2x Wayland was explicitly requested in the isolated run; current Mac launch defaults to 1x",
+    "No Portal-authorized real desktop pointer test; Mac coordinate mapping checked separately"
+  ]
+}
