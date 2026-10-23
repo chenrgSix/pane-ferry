@@ -1417,7 +1417,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
-                    if defer_capture || !capture_due || !w.visible || !b.capture_needed(w.window_id) {
+                    if defer_capture || !capture_due || !w.visible || !b.capture_needed(w.window_id)
+                    {
                         continue;
                     }
                     if pending_request.is_none()
