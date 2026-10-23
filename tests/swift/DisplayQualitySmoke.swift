@@ -9,9 +9,9 @@ struct DisplayQualitySmoke {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = DisplayQualitySettings(defaults: defaults)
-        precondition(settings.selected == .clarity)
+        precondition(settings.selected == .smooth)
         defaults.set("invalid", forKey: "quality")
-        precondition(settings.selected == .clarity)
+        precondition(settings.selected == .smooth)
         let args = ["--native-peer", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "--native-state", root.path,
                     "--native-helper", root.appendingPathComponent("publisher").path, "--session", "retained"]
         let options = try Options.parse(args)
@@ -21,6 +21,7 @@ struct DisplayQualitySmoke {
         precondition(smoothOptions.quality == .smooth && clarityOptions.quality == .clarity)
         do { _ = try Options.parse(args + ["--quality", "jpeg"]); preconditionFailure("invalid quality accepted") }
         catch HostError.message { }
+        settings.selected = .clarity // Explicit opt-in; preserve H.264 as the product default.
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
         let app = AppDelegate(options: options, clipboard: board, qualitySettings: settings)
         let other = AppDelegate(options: options, clipboard: board, qualitySettings: settings)
@@ -110,7 +111,7 @@ struct DisplayQualitySmoke {
         precondition(sent.filter { $0["type"] as? String == "session.resume" }.allSatisfy { $0["session_id"] as? String == "retained" })
         precondition(!sent.contains { ["app.launch", "window.close.request", "window.viewport"].contains($0["type"] as? String ?? "") })
         precondition(!sent.contains { $0["text"] as? String == "must not replay" })
-        print("PASS: PNG default, actual lossless pixels, PNG→H.264→PNG, original NSWindows/session/related windows and pointer coordinates preserved")
+        print("PASS: H.264 default, optional PNG with actual lossless pixels, PNG→H.264→PNG, original NSWindows/session/related windows and pointer coordinates preserved")
         print("PASS: mode retained on reconnect, H.264 negotiation/refinement only when selected, PNG fallback, isolated shared defaults and clipboard-busy protection")
     }
 }

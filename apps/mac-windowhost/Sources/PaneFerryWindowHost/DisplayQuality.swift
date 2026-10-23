@@ -1,8 +1,8 @@
 import Foundation
 
 enum DisplayQuality: String, CaseIterable {
-    case clarity = "png"
     case smooth = "h264"
+    case clarity = "png"
 
     var title: String {
         switch self {
@@ -20,7 +20,7 @@ struct DisplayQualitySettings {
         self.defaults = defaults
     }
     var selected: DisplayQuality {
-        get { defaults.string(forKey: "quality").flatMap(DisplayQuality.init(rawValue:)) ?? .clarity }
+        get { defaults.string(forKey: "quality").flatMap(DisplayQuality.init(rawValue:)) ?? .smooth }
         nonmutating set { defaults.set(newValue.rawValue, forKey: "quality") }
     }
 }
