@@ -532,3 +532,22 @@ Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启
 | 正式服务保护 | 测试结束后 ChatGPT PID 14785 仍在；`remoteapp-agent.service` 与 `paneferry-network.service` 仍为 active。没有注销、重启、切换正式 Agent 或读取账号内容 |
 
 上述验证证明新私有 X11 应用能收到真实 2× 源像素及稳定逻辑字号；未验证真实 Qt/Electron 应用、Mac 端 H.264 画质、当前桌面的 Wayland/Xwayland 窗口或长期交互。当前正式版本没有部署本改动，不能宣称用户正在看的 ChatGPT 已变清晰。
+
+## 2026-10-24：仅已有窗口接管的画质定位
+
+本轮初始 HEAD `3284dad`、工作区干净。只增加独立诊断和测试，没有修改正常启动、Xvfb、DPI、编码参数、协议、Mac 渲染或输入行为。结论为当前 ChatGPT 的 XWayland 1× 源被 Mac 2× backing 放大，另有可测编码损失；**未实现或部署同尺寸高清修复**。
+
+| 验证 | 实际结果与边界 |
+| --- | --- |
+| 修改前/后全项目门禁 | 两次 `bash scripts/check.sh` 均退出 0；Rust 59 passed / 6 ignored，前端 32 passed；Swift/AppKit、连续 resize、旧帧、键盘/拖拽释放、关闭重连和隔离 QUIC/H.264 均通过 |
+| Ubuntu 实际编码 | 私有仓库 workspace 测试、Agent/example 构建通过；Agent `--include-ignored` 为 25 passed / 0 ignored，包含实际 OpenH264 和源像素不变检查 |
+| 同帧 A/B/C | 当前 ChatGPT 原图 1470×809 → 编码 1470×810 → Mac 解码裁回 1470×809；imageRect 对应 2940×1618 backing pixels，放大 2 倍；独立编码/离屏绘制，不是生产流同步截获 |
+| 已有/新启动对照 | 相同 GTK 文本、逻辑 900×700、字体高度均 19；已有 PID 保留且源 900×700，新 PID 私有显示器源 1800×1400；帧 revision 与窗口元数据一致；错误 PID 和覆盖已有目录均被拒绝 |
+| 新诊断工具自检 | `quality_sample_mac.py --self-test` 覆盖离屏绘制方向、两种 backing density 及留边位置，纠正新增工具的坐标翻转后通过；生产 SurfaceView 未改 |
+| 正常启动回归 | 既有 `hidpi_smoke.py` 通过：私有 96/192 DPI、GTK 逻辑字体 19/19、Xft 终端 604×232/1144×460；与本轮 900×700 对照一起证明正常启动参数和逻辑字号保持 |
+| 静态检查 | example 严格 Clippy、Python 语法、Cargo 格式和 `git diff --check` 通过 |
+| 用户桌面保护 | ChatGPT 14785、GNOME 6098、Agent 1619731、网络 535589 的启动计数保持，服务 active，Agent 二进制 SHA 未变；未部署、注销、重启或改变 VPN |
+
+未操作真实 ChatGPT 的中心/四角输入、拖拽/滚动、连续 resize、弹窗/transient、关闭或重连；没有对应生产交互验收。未重新验证隔离 GNOME 虚拟输出生命周期，本轮没有改动该路径。生产流 geometry_revision、实时编码 cap 和运行二进制精确源码 commit 未知。未测生产带宽/CPU/帧率/延迟，不以编译或离屏结果替代这些项目。
+
+[完整证据和复现步骤](takeover-quality-diagnosis.md)、[结构化尺寸和误差记录](validation-artifacts/2026-10-24-takeover-quality.json)。真实用户画面只保留在本地忽略的私有目录，不提交 Git。

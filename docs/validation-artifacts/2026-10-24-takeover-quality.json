@@ -1,0 +1,517 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "source_commit": "3284dad91c16bd19c7a490875aa04b81110e6c99",
+  "initial_worktree": "clean",
+  "scope": "existing ChatGPT window; no production display, encoder, launch or protocol changes",
+  "live_target": {
+    "pid": 14785,
+    "start_ticks": "5129",
+    "xid": 52428804,
+    "session_id": "d6f3f8007b0d375c1e55396fb1d535e5",
+    "display": ":0",
+    "backend": "xwayland",
+    "compositor_native": false,
+    "compositor_scale": 1,
+    "client_pixels": [
+      1470,
+      809
+    ],
+    "compositor_client_size": [
+      1470,
+      809
+    ],
+    "buffer_size": [
+      1470,
+      809
+    ],
+    "xserver_dpi": [
+      96,
+      96
+    ],
+    "mapped": true
+  },
+  "live_mac": {
+    "host_pid": 54593,
+    "received_pixels": [
+      1470,
+      809
+    ],
+    "content_points": [
+      1470,
+      809
+    ],
+    "reported_enlargement_percent": 200,
+    "actual_screenshot_observed": true,
+    "image_rect_points": [
+      0,
+      0,
+      1470,
+      809
+    ],
+    "image_rect_backing_pixels": [
+      2940,
+      1618
+    ],
+    "backing_density": 2,
+    "geometry_revision": null,
+    "negotiated_fps_cap": null
+  },
+  "versions": {
+    "agent_pid": 1619731,
+    "agent_sha256": "5985628ec389dbcddd4be02cb7ca08085d5cca0beeeb6f4ee442725c111d0a01",
+    "agent_source_commit": "unknown; no build provenance in running protocol",
+    "gnome_pid": 6098,
+    "extension_state": "ACTIVE",
+    "live_bridge_version": 2,
+    "installed_extension_js_sha256": "8ad3e89ea5edc42cbd5959dc7e1f1182275107862caa0a239384c669c11929c6",
+    "workspace_extension_js_sha256": "89cfccee535127dd8a77318544164bd35b08d8a49e8587ef9c4545da46b82cf1",
+    "installed_difference": "missing later desktop clipboard branch; window/virtual-output code matches",
+    "virtual_output_and_text_input_files_match": true,
+    "loaded_js_bytes": "not attested; active bridge version observed, installed files hashed",
+    "mac_executable_sha256": "c207b71b63e1b5e4f054190faa7ff9551bddc36cdf9c73dc3105632d140b22f0",
+    "mac_packaged_and_running_path_files_match": true,
+    "mac_source_commit": "unknown; same bytes as packaged host, not a build provenance assertion"
+  },
+  "same_source_codec_probe": {
+    "backing_density": 2,
+    "content_points": [
+      1470,
+      809
+    ],
+    "encoded_pixels": [
+      1470,
+      810
+    ],
+    "enlargement": [
+      2,
+      2
+    ],
+    "image_rect_backing_pixels": [
+      2940,
+      1618
+    ],
+    "image_rect_points": [
+      0,
+      0,
+      1470,
+      809
+    ],
+    "packets": [
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 79021,
+        "hardware_decode": true,
+        "key_frame": true,
+        "max_fps": 60,
+        "packet": 0,
+        "rgb_mae_0_255": 1.5041161087426318,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 8.271583324563837
+      },
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 5651,
+        "hardware_decode": true,
+        "key_frame": false,
+        "max_fps": 60,
+        "packet": 1,
+        "rgb_mae_0_255": 1.4439396360109762,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 7.853080644286912
+      },
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 6082,
+        "hardware_decode": true,
+        "key_frame": false,
+        "max_fps": 60,
+        "packet": 2,
+        "rgb_mae_0_255": 1.3975763028738484,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 7.482692203439556
+      },
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 87057,
+        "hardware_decode": true,
+        "key_frame": true,
+        "max_fps": 90,
+        "packet": 0,
+        "rgb_mae_0_255": 1.3692599413065598,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 7.330766262632061
+      },
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 2667,
+        "hardware_decode": true,
+        "key_frame": false,
+        "max_fps": 90,
+        "packet": 1,
+        "rgb_mae_0_255": 1.3516653633023048,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 7.1783651745767525
+      },
+      {
+        "decoded_pixels": [
+          1470,
+          809
+        ],
+        "encoded_bytes": 358,
+        "hardware_decode": true,
+        "key_frame": false,
+        "max_fps": 90,
+        "packet": 2,
+        "rgb_mae_0_255": 1.3489319419568404,
+        "source_edge_pixels": 104529,
+        "source_edge_rgb_mae_0_255": 7.172143615647332
+      }
+    ],
+    "scope": "same-source OpenH264 / VideoToolbox and production SurfaceView offscreen draw; not live network or panel timing",
+    "source_pixels": [
+      1470,
+      809
+    ]
+  },
+  "isolated_comparison": [
+    {
+      "origin": "existing",
+      "pid": 1946802,
+      "xid": 2097156,
+      "scale": 1,
+      "width": 900,
+      "height": 700,
+      "font_height": 19.0,
+      "source_pixels": [
+        900,
+        700
+      ],
+      "geometry_revision": 1,
+      "process_preserved": true
+    },
+    {
+      "origin": "new",
+      "pid": 1947721,
+      "xid": 6291460,
+      "scale": 2,
+      "width": 900,
+      "height": 700,
+      "font_height": 19.0,
+      "source_pixels": [
+        1800,
+        1400
+      ],
+      "geometry_revision": 1,
+      "process_preserved": false
+    }
+  ],
+  "comparison_mac": {
+    "existing": {
+      "backing_density": 2,
+      "content_points": [
+        900,
+        700
+      ],
+      "encoded_pixels": [
+        900,
+        700
+      ],
+      "enlargement": [
+        2,
+        2
+      ],
+      "image_rect_backing_pixels": [
+        1800,
+        1400
+      ],
+      "image_rect_points": [
+        0,
+        0,
+        900,
+        700
+      ],
+      "packets": [
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 29385,
+          "hardware_decode": true,
+          "key_frame": true,
+          "max_fps": 60,
+          "packet": 0,
+          "rgb_mae_0_255": 0.5003804232804233,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.194530710835059
+        },
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 481,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 60,
+          "packet": 1,
+          "rgb_mae_0_255": 0.4941111111111111,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.141170155662909
+        },
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 40,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 60,
+          "packet": 2,
+          "rgb_mae_0_255": 0.4938,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.138208342918488
+        },
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 29385,
+          "hardware_decode": true,
+          "key_frame": true,
+          "max_fps": 90,
+          "packet": 0,
+          "rgb_mae_0_255": 0.5003804232804233,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.194530710835059
+        },
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 490,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 90,
+          "packet": 1,
+          "rgb_mae_0_255": 0.49401693121693124,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.140269151138717
+        },
+        {
+          "decoded_pixels": [
+            900,
+            700
+          ],
+          "encoded_bytes": 40,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 90,
+          "packet": 2,
+          "rgb_mae_0_255": 0.4937058201058201,
+          "source_edge_pixels": 34776,
+          "source_edge_rgb_mae_0_255": 7.137307338394295
+        }
+      ],
+      "scope": "same-source OpenH264 / VideoToolbox and production SurfaceView offscreen draw; not live network or panel timing",
+      "source_pixels": [
+        900,
+        700
+      ]
+    },
+    "new": {
+      "backing_density": 2,
+      "content_points": [
+        900,
+        700
+      ],
+      "encoded_pixels": [
+        1800,
+        1400
+      ],
+      "enlargement": [
+        1,
+        1
+      ],
+      "image_rect_backing_pixels": [
+        1800,
+        1400
+      ],
+      "image_rect_points": [
+        0,
+        0,
+        900,
+        700
+      ],
+      "packets": [
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 65695,
+          "hardware_decode": true,
+          "key_frame": true,
+          "max_fps": 60,
+          "packet": 0,
+          "rgb_mae_0_255": 0.3145347883597884,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 6.475246689409779
+        },
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 1738,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 60,
+          "packet": 1,
+          "rgb_mae_0_255": 0.30554867724867724,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 6.301327904332196
+        },
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 2536,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 60,
+          "packet": 2,
+          "rgb_mae_0_255": 0.2981281746031746,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 6.147965958695573
+        },
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 71765,
+          "hardware_decode": true,
+          "key_frame": true,
+          "max_fps": 90,
+          "packet": 0,
+          "rgb_mae_0_255": 0.274496164021164,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 5.785972634899673
+        },
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 2204,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 90,
+          "packet": 1,
+          "rgb_mae_0_255": 0.263284126984127,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 5.575576831370823
+        },
+        {
+          "decoded_pixels": [
+            1800,
+            1400
+          ],
+          "encoded_bytes": 105,
+          "hardware_decode": true,
+          "key_frame": false,
+          "max_fps": 90,
+          "packet": 2,
+          "rgb_mae_0_255": 0.2633665343915344,
+          "source_edge_pixels": 90870,
+          "source_edge_rgb_mae_0_255": 5.57146839807784
+        }
+      ],
+      "scope": "same-source OpenH264 / VideoToolbox and production SurfaceView offscreen draw; not live network or panel timing",
+      "source_pixels": [
+        1800,
+        1400
+      ]
+    }
+  },
+  "artifact_hashes": {
+    "source.png": "97b4361efacf30c61cb52cb578b4138d9288a8ffe837c21f7fb79578c3401fcc",
+    "sample.json": "94ac98d185ebb840f3ee417b9eaa5b31deb05a2870b49bb3b90fe9f835947e59"
+  },
+  "privacy": "Only dimensions, process identity, hashes and aggregate metrics committed. Real application pixels remain in an ignored private local directory.",
+  "limitations": [
+    "Codec probe runs current source Encoder::with_cap with the actual Ubuntu GStreamer/OpenH264 libraries on one read-only snapshot; it is not a tap of the active Agent stream.",
+    "60/90 caps each encode the same snapshot three times. Live cap and geometry_revision remain unknown; no live latency/CPU/bandwidth claim.",
+    "SurfaceView PNG is an offscreen reconstruction; a separate live screenshot and accessibility title were observed, not synchronized to the same wire frame.",
+    "GTK isolated comparison does not establish dynamic high-DPI support in the existing ChatGPT process.",
+    "No product behavior changed and no same-size high-DPI fix is claimed."
+  ],
+  "runtime_after": {
+    "processes": [
+      {
+        "name": "ChatGPT",
+        "pid": 14785,
+        "start_ticks": "5129"
+      },
+      {
+        "name": "gnome-shell",
+        "pid": 6098,
+        "start_ticks": "1234"
+      },
+      {
+        "name": "Agent",
+        "pid": 1619731,
+        "start_ticks": "2673791"
+      },
+      {
+        "name": "network",
+        "pid": 535589,
+        "start_ticks": "962872"
+      }
+    ],
+    "services": [
+      "active",
+      "active"
+    ],
+    "agent_sha256": "5985628ec389dbcddd4be02cb7ca08085d5cca0beeeb6f4ee442725c111d0a01"
+  },
+  "diagnostic_self_test": {
+    "offscreen_orientation": "passed after correcting new offline context transform",
+    "backing_densities": [
+      1,
+      2
+    ],
+    "letterbox_placement": "passed",
+    "product_surface_view_changed": false
+  },
+  "checks": {
+    "mac_baseline": "scripts/check.sh exit 0; Rust 59 passed / 6 ignored; frontend 32 passed",
+    "mac_after": "scripts/check.sh exit 0; same counts and Swift/AppKit/QUIC/H264 checks passed",
+    "linux_agent_include_ignored": "25 passed / 0 ignored",
+    "isolated_comparison": "passed, including wrong PID and overwrite rejection",
+    "hidpi_smoke": "passed",
+    "diagnostic_clippy": "passed with -D warnings",
+    "python_syntax_and_diff_check": "passed"
+  }
+}
