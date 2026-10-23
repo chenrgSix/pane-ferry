@@ -42,6 +42,13 @@ pub enum Request {
     List {},
     #[serde(rename = "window.list")]
     Windows {},
+    #[serde(rename = "desktop.list")]
+    Desktops {},
+    #[serde(rename = "desktop.start")]
+    StartDesktop {
+        monitor_id: String,
+        request_id: String,
+    },
     #[serde(rename = "app.launch")]
     Launch {
         app_id: String,
@@ -128,6 +135,15 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
     let request = serde_json::from_value(v)?;
     if let Request::Launch { scale_factor, .. } = &request {
         validate_scale(*scale_factor)?;
+    }
+    if let Request::StartDesktop {
+        monitor_id,
+        request_id,
+    } = &request
+    {
+        if !identifier(monitor_id) || !identifier(request_id) {
+            bail!("invalid desktop request")
+        }
     }
     match &request {
         Request::EnableVideo { max_fps, .. } | Request::ConfigureVideo { max_fps } => {
@@ -307,6 +323,21 @@ mod tests {
             r#"{"type":"session.resume","version":1,"session_id":"abc123"}"#,
         ] {
             assert!(parse_request(data.as_bytes()).is_ok());
+        }
+    }
+    #[test]
+    fn desktop_requests_are_scoped_and_bounded() {
+        assert!(matches!(
+            parse_request(br#"{"type":"desktop.list","version":1}"#).unwrap(),
+            Request::Desktops {}
+        ));
+        assert!(matches!(parse_request(br#"{"type":"desktop.start","version":1,"monitor_id":"HDMI-A-1","request_id":"r1"}"#).unwrap(), Request::StartDesktop { .. }));
+        for data in [
+            r#"{"type":"desktop.start","version":1,"monitor_id":"../other","request_id":"r1"}"#,
+            r#"{"type":"desktop.start","version":1,"monitor_id":"HDMI-A-1","request_id":"!"}"#,
+            r#"{"type":"desktop.start","version":1,"monitor_id":"HDMI-A-1","request_id":"r1","command":"run"}"#,
+        ] {
+            assert!(parse_request(data.as_bytes()).is_err());
         }
     }
     #[test]

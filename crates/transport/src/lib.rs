@@ -48,6 +48,19 @@ pub struct DesktopWindows {
     pub unavailable_reason: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesktopMonitor {
+    pub id: String,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct DesktopMonitors {
+    pub monitors: Vec<DesktopMonitor>,
+    pub unavailable_reason: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Started {
     pub session_id: String,
     pub backend: String,
@@ -61,6 +74,8 @@ pub struct SessionInfo {
     pub backend: String,
     pub display: u16,
     pub controlled: bool,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 #[derive(Debug, Error)]
 pub enum Error {
@@ -358,6 +373,37 @@ pub async fn desktop_windows(endpoint: &Target) -> Result<DesktopWindows, Error>
             .map(remote_error_message),
     })
 }
+pub async fn desktop_monitors(endpoint: &Target) -> Result<DesktopMonitors, Error> {
+    let value = request(
+        endpoint,
+        json!({"type":"desktop.list","version":1}),
+        "desktop.list",
+    )
+    .await?;
+    let monitors: Vec<DesktopMonitor> =
+        serde_json::from_value(value["monitors"].clone()).map_err(|_| Error::Protocol)?;
+    if monitors.len() > 16 {
+        return Err(Error::Protocol);
+    }
+    for monitor in &monitors {
+        validate_id(&monitor.id)?;
+        if monitor.name.is_empty()
+            || monitor.name.len() > 128
+            || monitor.width == 0
+            || monitor.height == 0
+            || monitor.width > 8192
+            || monitor.height > 8192
+        {
+            return Err(Error::Protocol);
+        }
+    }
+    Ok(DesktopMonitors {
+        monitors,
+        unavailable_reason: value["unavailable_reason"]
+            .as_str()
+            .map(remote_error_message),
+    })
+}
 pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
     let value = request(
         endpoint,
@@ -376,6 +422,12 @@ pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
         if session.backend != "native" {
             return Err(Error::Protocol);
         }
+        if !matches!(
+            session.mode.as_deref(),
+            None | Some("app") | Some("desktop")
+        ) {
+            return Err(Error::Protocol);
+        }
     }
     Ok(sessions)
 }
@@ -391,6 +443,24 @@ pub async fn launch_native(
         return Err(Error::Invalid("清晰度缩放必须为 1 或 2。"));
     }
     let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor}), "session.started").await?;
+    parse_started(value)
+}
+pub async fn start_desktop(
+    endpoint: &Target,
+    monitor_id: &str,
+    request_id: &str,
+) -> Result<Started, Error> {
+    validate_id(monitor_id)?;
+    validate_id(request_id)?;
+    let value = request(
+        endpoint,
+        json!({"type":"desktop.start","version":1,"monitor_id":monitor_id,"request_id":request_id}),
+        "session.started",
+    )
+    .await?;
+    if value["mode"] != "desktop" {
+        return Err(Error::Protocol);
+    }
     parse_started(value)
 }
 fn parse_started(value: Value) -> Result<Started, Error> {
