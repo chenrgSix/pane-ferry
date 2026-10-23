@@ -37,3 +37,11 @@ test("partially refreshed metadata still resumes known sessions and respects con
   assert.equal(multiple.length, 1);
   assert.equal(multiple[0].controlled, true);
 });
+
+test("a live background process without a visible window is absent from running windows", () => {
+  const result = connections([app], [window("desktop-window")], [
+    session("closed", "firefox", { display: 200, window_count: 0 }),
+    session("visible", "firefox", { display: 201, window_count: 1 }),
+  ]);
+  assert.deepEqual(new Set(result.map(row => row.sessionId)), new Set([null, "visible"]));
+});

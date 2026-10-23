@@ -19,6 +19,9 @@ export function connections(
 ): Connection[] {
   const rows = new Map<string, Connection>();
   for (const session of sessions) {
+    // An application can remain alive in the tray after its last window closes.
+    // Keep it out of the window list until a visible window returns.
+    if (session.window_count === 0) continue;
     const window = windows.find(w => w.session_id === session.session_id)
       || windows.find(w => !w.session_id && w.id === session.app_id);
     const app = apps.find(a => a.id === session.app_id);

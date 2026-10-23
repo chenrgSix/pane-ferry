@@ -22,7 +22,6 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     private var resolutionDelayed = false
     var transmit: ([String: Any]) -> Void
     private let disconnect: () -> Void
-    private var disconnectRequested = false
 
     init(id: UInt32, width: Int, height: Int, revision: UInt64, scale: Int, popup: Bool, disconnect: @escaping () -> Void, transmit: @escaping ([String: Any]) -> Void) {
         self.id = id; self.revision = revision; self.popup = popup; self.transmit = transmit
@@ -105,12 +104,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
             transmit(["type":"window.close.request", "window_id":id])
             return false
         }
-        if !disconnectRequested {
-            disconnectRequested = true
-            resizeTimer?.invalidate(); resizeTimer = nil
-            surface.releaseInput()
-            disconnect()
-        }
+        resizeTimer?.invalidate(); resizeTimer = nil
+        surface.releaseInput()
+        transmit(["type":"window.close.request", "window_id":id])
         return false
     }
     func windowDidBecomeKey(_ notification: Notification) {

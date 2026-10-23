@@ -1058,7 +1058,18 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             if s.has_exited()? {
                                 continue;
                             }
-                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,"controlled":s.controller}));
+                            let controlled = s.controller;
+                            let window_count = s.backend.as_mut().and_then(|backend| {
+                                if controlled {
+                                    Some(backend.windows().values().filter(|w| w.visible).count())
+                                } else {
+                                    backend
+                                        .scan()
+                                        .ok()
+                                        .map(|windows| windows.iter().filter(|w| w.visible).count())
+                                }
+                            });
+                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,"controlled":controlled,"window_count":window_count}));
                         }
                         sessions.sort_by(|a, b| {
                             a["session_id"].as_str().cmp(&b["session_id"].as_str())

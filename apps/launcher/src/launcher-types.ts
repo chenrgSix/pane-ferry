@@ -21,6 +21,7 @@ export type SessionInfo = {
   backend: "native";
   display: number;
   controlled: boolean;
+  window_count?: number | null;
 };
 
 export const endpointKey = (endpoint: Endpoint) => JSON.stringify({transport:"quic", deviceId:endpoint.peerId});

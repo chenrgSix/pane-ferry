@@ -103,7 +103,7 @@ struct ControllerInputSmoke {
                                 bytesPerRow: 1920 * 4, space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
         let oldFrame = context.makeImage()!
-        host.present(oldFrame, mediaMode: "PNG 无损刷新")
+        host.present(oldFrame, mediaMode: "H.264 视频")
         host.showActualPixels()
         precondition(abs(host.surface.bounds.width * host.window.backingScaleFactor - 1920) < 1)
         precondition(abs(host.surface.bounds.height * host.window.backingScaleFactor - 720) < 1)
@@ -117,29 +117,28 @@ struct ControllerInputSmoke {
         surface.mouseDown(with: center)
         precondition(messages.count == beforeStale, "stale frame cannot click a different remote layout")
         host.scaleMode = "source"
-        host.present(oldFrame, mediaMode: "PNG 图片")
+        host.present(oldFrame, mediaMode: "H.264 视频")
         precondition(host.window.subtitle.contains("接收 1920 × 720") && host.window.subtitle.contains("沿用应用缩放"))
         precondition(!host.window.subtitle.contains("100%"), "existing process scale is not measured by the protocol default")
         precondition(host.window.subtitle.contains("目标"), "a resize request must not be reported as received pixels")
         host.window.performClose(nil)
-        precondition(disconnects == 1 && !resizeMessages.contains { $0["type"] as? String == "window.close.request" },
-                     "the controller close button disconnects without closing the remote application")
-        host.window.performClose(nil)
-        precondition(disconnects == 1, "repeated close does not start a second detach")
+        precondition(disconnects == 0 && resizeMessages.last?["type"] as? String == "window.close.request"
+            && resizeMessages.last?["window_id"] as? UInt32 == 7,
+            "the controller close button requests a real remote window close")
         host.closeLocally()
-        precondition(disconnects == 1, "remote window destruction only closes the local mirror")
+        precondition(disconnects == 0, "remote window destruction only closes the local mirror")
         let child = HostedWindow(id: 8, width: 480, height: 320, revision: 1, scale: 1, popup: false, disconnect: { disconnects += 1 }) { resizeMessages.append($0) }
         child.relatedWindow = true
         child.window.performClose(nil)
-        precondition(disconnects == 1 && resizeMessages.last?["type"] as? String == "window.close.request"
+        precondition(disconnects == 0 && resizeMessages.last?["type"] as? String == "window.close.request"
             && resizeMessages.last?["window_id"] as? UInt32 == 8, "closing a preview requests only its remote window close")
         let childCloseCount = resizeMessages.count
         child.closeLocally()
-        precondition(disconnects == 1 && resizeMessages.count == childCloseCount, "server destruction must not echo a child close")
+        precondition(disconnects == 0 && resizeMessages.count == childCloseCount, "server destruction must not echo a child close")
         print("PASS: controller-only preedit/commit, on-demand paste/copy, input bounds, correlated clipboard replies without touching the system clipboard")
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
-        print("PASS: controller close disconnects once without a remote close request; remote destruction stays local")
+        print("PASS: controller close requests the remote window close; remote destruction stays local")
     }
 
     private static func verifyLogicalViewport() {

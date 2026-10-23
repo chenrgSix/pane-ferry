@@ -432,7 +432,7 @@ onUnmounted(() => {
             <h2>运行中的窗口 <span class="count">{{ runningConnections.length }}</span></h2>
             <button :disabled="busy" @click="refresh">刷新运行状态</button>
           </div>
-          <p class="hint">连接已有窗口可继续原来的工作；关闭本机窗口只会断开连接。</p>
+          <p class="hint">连接已有窗口可继续原来的工作；关闭窗口会向远端应用发出关闭请求。要保留窗口，请从应用菜单选择“断开并退出”。</p>
           <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
           <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
           <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口。" }}</p>
