@@ -304,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示。帧率按本机显示器与远端能力自动协商，协议最高 90 fps，并随画面反馈调整。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。帧率按本机显示器与远端能力自动协商，协议最高 90 fps，并随画面反馈调整。新应用按本机显示倍率请求 100% 或 200% 启动缩放，实际效果取决于应用。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
     @objc func screenParametersChanged(_ notification: Notification) { refreshVideoFPS() }
     func updateRateMenu() {
@@ -527,7 +527,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
-                if capabilities.contains("display.scale") { launch["scale_factor"] = 1 }
+                if capabilities.contains("display.scale") {
+                    launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1
+                }
                 send(launch)
             }
             return
