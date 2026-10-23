@@ -5,7 +5,7 @@ import json
 import sys
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib, Pango
 
 state = pathlib.Path(sys.argv[1])
 window = Gtk.Window(title='ControllerTextFixture')
@@ -29,7 +29,10 @@ state.write_text('')
 if len(sys.argv) > 2:
     metrics = pathlib.Path(sys.argv[2])
     def dimensions(*_):
-        metrics.write_text(json.dumps(dict(scale=window.get_scale_factor(), width=window.get_allocated_width(), height=window.get_allocated_height())))
+        context = view.get_pango_context()
+        font = context.get_metrics(context.get_font_description(), context.get_language())
+        font_height = round((font.get_ascent() + font.get_descent()) / Pango.SCALE, 2)
+        metrics.write_text(json.dumps(dict(scale=window.get_scale_factor(), width=window.get_allocated_width(), height=window.get_allocated_height(), font_height=font_height)))
         return False
     window.connect('size-allocate', dimensions)
     GLib.idle_add(dimensions)

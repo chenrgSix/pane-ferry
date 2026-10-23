@@ -13,6 +13,7 @@ use x11rb::{
     connection::Connection,
     protocol::{composite::ConnectionExt as _, xproto::*, xtest::ConnectionExt as _},
     rust_connection::{DefaultStream, RustConnection},
+    wrapper::ConnectionExt as _,
 };
 pub mod clipboard_store;
 mod controller_copy;
@@ -206,6 +207,32 @@ impl Backend {
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
         paneferry_protocol::validate_scale(scale)?;
         self.scale_factor = scale;
+        Ok(())
+    }
+    /// Publish logical font DPI only on a newly created private X display.
+    /// Xft-aware applications read this resource when starting; an existing desktop's
+    /// resource database belongs to its user session and must not be changed.
+    pub fn set_private_display_dpi(&self, scale: u8) -> Result<()> {
+        paneferry_protocol::validate_scale(scale)?;
+        if self.existing_display.is_some() {
+            bail!("cannot change an existing desktop's DPI")
+        }
+        let dpi = u16::from(scale) * 96;
+        let resource_manager = self
+            .conn
+            .intern_atom(false, b"RESOURCE_MANAGER")?
+            .reply()?
+            .atom;
+        self.conn
+            .change_property8(
+                PropMode::REPLACE,
+                self.root,
+                resource_manager,
+                AtomEnum::STRING,
+                format!("Xft.dpi:\t{dpi}\n").as_bytes(),
+            )?
+            .check()?;
+        self.conn.flush()?;
         Ok(())
     }
     fn atom(&self, n: &str) -> u32 {

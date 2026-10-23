@@ -2,12 +2,9 @@
 //! Selection delivery follows https://www.x.org/releases/current/doc/xorg-docs/icccm/icccm.html.
 use super::*;
 use std::time::{Duration, Instant};
-use x11rb::{
-    protocol::{
-        res::{ClientIdMask, ClientIdSpec, ConnectionExt as _},
-        Event,
-    },
-    wrapper::ConnectionExt as _,
+use x11rb::protocol::{
+    res::{ClientIdMask, ClientIdSpec, ConnectionExt as _},
+    Event,
 };
 
 pub(super) struct TextTransfer {

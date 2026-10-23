@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Opt-in Linux test: compare actual GTK logical sizes and captured pixels at 1x/2x."""
+"""Opt-in Linux test: verify a new private X11 session's DPI and GTK pixel density."""
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
+import re
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -27,6 +26,16 @@ def wait_for(predicate):
     raise AssertionError('test condition timed out')
 
 
+def x_window_size(name, display_env):
+    result = subprocess.run(['xwininfo', '-name', name], env=display_env,
+                            text=True, capture_output=True)
+    if result.returncode:
+        return None
+    size = tuple(int(re.search(rf'^  {axis}: (\d+)$', result.stdout, re.MULTILINE).group(1))
+                 for axis in ('Width', 'Height'))
+    return size
+
+
 with tempfile.TemporaryDirectory(prefix='paneferry-hidpi-') as directory:
     root = Path(directory)
     config = root / '.config/lan-remoteapp'
@@ -44,7 +53,10 @@ with tempfile.TemporaryDirectory(prefix='paneferry-hidpi-') as directory:
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         path = root / '.local/state/lan-remoteapp/agent.sock'
+        authority = root / '.local/state/lan-remoteapp/Xauthority'
         wait_for(path.exists)
+        logical_font_heights = {}
+        terminal_sizes = {}
         for scale in (1, 2):
             with socket.socket(socket.AF_UNIX) as peer:
                 peer.settimeout(15)
@@ -60,24 +72,35 @@ with tempfile.TemporaryDirectory(prefix='paneferry-hidpi-') as directory:
                         if event['type'] == kind and predicate(event): return event
                 send(type='hello')
                 until('hello')
-                send(type='app.launch', app_id=f'gtk-{scale}', request_id=f'test-{scale}', backend='native', scale_factor=scale)
-                assert until('session.started')['scale_factor'] == scale
-                window = until('window.created', lambda event: event['title'] == 'ControllerTextFixture')
-                assert (window['width'], window['height'], window['scale_factor']) == (600 * scale, 400 * scale, scale), window
-                png = base64.b64decode(until('frame', lambda event: event['window_id'] == window['window_id'])['png'])
-                assert struct.unpack('>II', png[16:24]) == (600 * scale, 400 * scale)
+                send(type='app.launch', app_id=f'gtk-{scale}', request_id=f'test-{scale}', backend='native', attach=False, scale_factor=scale)
+                started = until('session.started')
+                assert started['scale_factor'] == scale
+                display_env = dict(env, DISPLAY=f":{started['display']}", XAUTHORITY=str(authority))
+                display = subprocess.check_output(['xdpyinfo'], env=display_env, text=True)
+                resolution = re.search(r'resolution:\s+(\d+)x(\d+) dots per inch', display)
+                assert resolution and tuple(map(int, resolution.groups())) == (96 * scale, 96 * scale), resolution
+                resources = subprocess.check_output(['xrdb', '-query'], env=display_env, text=True)
+                assert re.search(rf'^Xft\.dpi:\s*{96 * scale}\s*$', resources, re.MULTILINE), resources
                 metrics = root / f'metrics-{scale}'
-                wait_for(lambda: metrics.exists() and json.loads(metrics.read_text()) == dict(scale=scale, width=600, height=400))
-                send(type='window.configure', window_id=window['window_id'], width=800 * scale, height=500 * scale)
-                changed = until('window.metadata', lambda event: event['window_id'] == window['window_id'])
-                assert (changed['width'], changed['height']) == (800 * scale, 500 * scale)
-                wait_for(lambda: json.loads(metrics.read_text()) == dict(scale=scale, width=800, height=500))
-                send(type='input.pointer', window_id=window['window_id'], x=100 * scale, y=100 * scale, button=1, pressed=True)
-                send(type='input.pointer', window_id=window['window_id'], x=100 * scale, y=100 * scale, button=1, pressed=False)
-                send(type='input.text.commit', window_id=window['window_id'], text='清晰度🙂')
-                wait_for(lambda: (root / f'text-{scale}').read_text() == '清晰度🙂')
+                wait_for(lambda: metrics.exists() and all(json.loads(metrics.read_text())[key] == value for key, value in dict(scale=scale, width=600, height=400).items()))
+                logical_font_heights[scale] = json.loads(metrics.read_text())['font_height']
+                size = x_window_size('ControllerTextFixture', display_env)
+                assert size == (600 * scale, 400 * scale), (scale, size)
+                terminal = subprocess.Popen(['xterm', '-fa', 'DejaVu Sans Mono', '-fs', '12',
+                                             '-geometry', '60x12', '-T', 'PaneFerry DPI fixture',
+                                             '-hold', '-e', '/bin/true'], env=display_env,
+                                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL)
+                try:
+                    wait_for(lambda: x_window_size('PaneFerry DPI fixture', display_env))
+                    terminal_sizes[scale] = x_window_size('PaneFerry DPI fixture', display_env)
+                finally:
+                    terminal.terminate()
+                    terminal.wait(timeout=5)
                 wire.close()
-        print('PASS: GTK 1x/2x actual scale, constant logical size, doubled PNG pixels, resize and input mapping')
+        assert abs(logical_font_heights[1] - logical_font_heights[2]) <= 1, logical_font_heights
+        assert all(1.8 <= terminal_sizes[2][axis] / terminal_sizes[1][axis] <= 2.2 for axis in (0, 1)), terminal_sizes
+        print(f'PASS: private X11 96/192 DPI, GTK logical font heights {logical_font_heights}, GTK and Xft pixels 1x/2x ({terminal_sizes})')
     finally:
         agent.terminate()
         try: agent.wait(timeout=10)

@@ -754,6 +754,7 @@ fn launch(
         desktop_monitor: None,
     };
     let disp = format!(":{display}");
+    let dpi = (u16::from(scale_factor) * 96).to_string();
     let auth = st.runtime.join("Xauthority");
     let cookie = random_id()?;
     if !Command::new("xauth")
@@ -776,7 +777,7 @@ fn launch(
                 "0",
                 "4096x2160x24",
                 "-dpi",
-                "96",
+                &dpi,
                 "-nolisten",
                 "tcp",
                 "-auth",
@@ -792,6 +793,7 @@ fn launch(
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         if let Ok(mut b) = Backend::connect(&disp) {
+            b.set_private_display_dpi(scale_factor)?;
             b.set_scale_factor(scale_factor)?;
             s.backend = Some(Box::new(b));
             break;
@@ -892,9 +894,13 @@ fn launch(
             .env("DISABLE_WAYLAND", "1")
             .env("MOZ_ENABLE_WAYLAND", "0")
             .env("GDK_SCALE", scale_factor.to_string())
-            .env("GDK_DPI_SCALE", "1")
-            .env("QT_SCALE_FACTOR", scale_factor.to_string())
-            .env("QT_FONT_DPI", "96")
+            // Xft.dpi already carries the logical DPI. GTK's pixel scaling
+            // needs the inverse text adjustment; Qt 5 needs high-DPI enabled,
+            // but Qt must not multiply it by an additional forced factor.
+            .env("GDK_DPI_SCALE", if scale_factor == 2 { "0.5" } else { "1" })
+            .env("QT_ENABLE_HIGHDPI_SCALING", "1")
+            .env_remove("QT_SCALE_FACTOR")
+            .env_remove("QT_FONT_DPI")
             .env_remove("QT_SCREEN_SCALE_FACTORS")
             .process_group(0)
             .stdin(Stdio::null())

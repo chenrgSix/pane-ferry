@@ -518,3 +518,17 @@ GNOME 正式桌面 PID1309605、Agent1007878、ChatGPT1314034 的启动时间保
 当前源码构建的 Agent 与桥在隔离会话中通过：900×700 点收到完整 1800×1400 像素，随后 850×650 点收到完整 1700×1300；同一编辑器 PID 保持，右下像素均为白色，输出释放后虚拟显示器清理完成。当前 Ubuntu 已安装的 v4 Agent 搭配同样修复的 v4 桥复制件也分别通过 1×/2×：900×700 点收到 900×700/1800×1400，后续缩放亦完整。[未修补首帧](validation-artifacts/2026-10-23-editor-2x-partial-before.png)、修补后 [1×](validation-artifacts/2026-10-23-editor-1x.png) 和 [2×](validation-artifacts/2026-10-23-editor-2x.png) 画面均保存在仓库；[结构化记录](validation-artifacts/2026-10-23-real-app-redraw.json) 包含运行条件与校验和。原有 Wayland/Xwayland 逻辑尺寸回归和完整 `scripts/check.sh` 通过。
 
 Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启动；Chrome 155 在该无头会话里于窗口创建前 SIGSEGV。这两项未进入 PaneFerry 采集，不能据此判断真实 Firefox、飞书或 ChatGPT 的画质。1×/2× 图片是原始 PNG 源像素，不是 Mac 端 H.264 显示验收；现有 Mac 启动仍默认请求 1×，现有 Xwayland 窗口仍是 1×。修复仅提交源码，未部署到正式 Ubuntu；正式 GNOME1309605、Agent1007878、ChatGPT1314034 保持，窗口桥仍为 INACTIVE，没有注销或重启。
+
+## 2026-10-24：新独立 X11 会话的 DPI 同步
+
+新增私有 Xvfb 的 96/192 物理 DPI 与 `Xft.dpi`，并调整 GTK/Qt 的通用启动环境；没有修改正式 Ubuntu 桌面的资源数据库或已有应用进程。Mac 现有 Retina 新启动请求会选择 2×，但优先接管的已有窗口仍使用其原密度。具体实现边界见[窗口分辨率说明](window-resolution.md#2026-10-24新独立-x11-会话的通用-dpi)。
+
+| 验证 | 实际结果 |
+| --- | --- |
+| Ubuntu 隔离构建 | 仓库副本在 `/tmp` 下执行 `cargo build --locked -p paneferry-agent -j 2` 通过；没有替换正在运行的 Agent |
+| Ubuntu 隔离 DPI | `hidpi_smoke.py` 通过：`xdpyinfo` 96/192 DPI，`xrdb` 的 `Xft.dpi` 为 96/192；同一 GTK 窗口逻辑尺寸 600×400，实际 X11 客户区 600×400/1200×800，Pango 逻辑字体高度均为 19；Xft 终端窗口 604×232/1144×460 像素 |
+| Mac 全项目门禁 | `bash scripts/check.sh` 退出 0，Rust/启动器/Swift/AppKit/隔离 QUIC 与 H.264 回归通过；`git diff --check` 通过 |
+| Clippy | `paneferry-backend-x11 --all-targets -D warnings` 通过。全工作区严格检查未通过：Agent 有 5 处此次改动前已存在的告警（dead_code 2、needless_lifetimes、if_same_then_else、assertions_on_constants）；仅对这四种既有 lint 放宽后，Agent `--all-targets -D warnings` 通过 |
+| 正式服务保护 | 测试结束后 ChatGPT PID 14785 仍在；`remoteapp-agent.service` 与 `paneferry-network.service` 仍为 active。没有注销、重启、切换正式 Agent 或读取账号内容 |
+
+上述验证证明新私有 X11 应用能收到真实 2× 源像素及稳定逻辑字号；未验证真实 Qt/Electron 应用、Mac 端 H.264 画质、当前桌面的 Wayland/Xwayland 窗口或长期交互。当前正式版本没有部署本改动，不能宣称用户正在看的 ChatGPT 已变清晰。
