@@ -1,0 +1,178 @@
+{
+  "date": "2026-10-23",
+  "timezone": "Asia/Shanghai",
+  "code_commit": "51d43d9",
+  "incident": {
+    "time": "2026-10-23T11:37:43+08:00",
+    "previous_shell_pid": 998690,
+    "replacement_shell_pid": 1309605,
+    "whole_machine_rebooted": false,
+    "boot_time": "2026-10-19T10:26:04+08:00",
+    "evidence": [
+      "11:37:31 old GNOME added virtual monitor Meta-0",
+      "11:37:43 GNOME Shell crashed with signal 11",
+      "JS stack: installed virtualOutput.js:126 (root.move_to_monitor), :107 (queued destroy), GNOME init.js:20",
+      "Native core: GJS/FFI -> libmutter-18.so.0, faulting instruction mov 0x18(%rax),%esi immediately before meta_window_get_work_area_for_monitor",
+      "Old production ChatGPT PID 1002994 and Feishu PID 1034686 exited with the desktop. Profiles were not edited; task recovery is not verified."
+    ],
+    "attribution": "PaneFerry virtual-output teardown called move_to_monitor on an unmanaged root. The retained JS object did not make the native monitor valid; try/catch could not contain SIGSEGV. Reproduced with a test-owned GTK window in an isolated GNOME instance.",
+    "limitations": "The original window title/process that triggered cleanup is not established from the selected crash metadata. No user content, process environment, or core dump is included in this repository.",
+    "upstream_source": "https://github.com/GNOME/mutter/blob/50.0/src/core/window.c",
+    "upstream_evidence": "get_monitor returns -1 after unmanagement; move_to_monitor_internal dereferences window->monitor->number."
+  },
+  "containment": {
+    "action": "Disabled only paneferry@local after confirming the new desktop had no virtual output. Kept installed files, Agent, network, VPN and RustDesk unchanged.",
+    "impact": "Remote control/capture paths requiring the GNOME bridge are temporarily unavailable.",
+    "reboot_or_logout_sent": false,
+    "remote": {
+      "processes": {
+        "gnome_shell": {
+          "pid": 1309605,
+          "start_ticks": 34993582,
+          "comm": "gnome-shell"
+        },
+        "agent": {
+          "pid": 1007878,
+          "start_ticks": 34486424,
+          "comm": "paneferry-agent"
+        },
+        "network": {
+          "pid": 995120,
+          "start_ticks": 34479807,
+          "comm": "paneferry-netwo"
+        },
+        "easytier": {
+          "pid": 2900526,
+          "start_ticks": 29782254,
+          "comm": "easytier-gui"
+        },
+        "rustdesk": {
+          "pid": 52713,
+          "start_ticks": 3765602,
+          "comm": "rustdesk"
+        }
+      },
+      "boot_id": "e6e5e722-e4ee-45a5-9967-2a3c7631854a",
+      "sha256": {
+        "installed_virtual_output": "85c52ede8ffc985413d80a7ea5fb5f62c55cd000ac26b3adc11d1ecd993b62e0",
+        "staged_virtual_output": "9631ba3c343b6e531293c7aed30918eb3ba4c9ab92efe775d42d41025a39c208",
+        "agent": "da9c08de334a5f7ee6e0a8448f052ea989889e777f4220c051720c49fcd78e21"
+      },
+      "extension": "paneferry@local\n  Name: 窗渡 PaneFerry\n  Description: Publish selected existing windows to paired PaneFerry devices, preserving applications and desktop settings.\n  Path: /home/chenrg/.local/share/gnome-shell/extensions/paneferry@local\n  Version: 1\n  Enabled: No\n  State: INACTIVE\n",
+      "clock": "2026-10-23T11:52:44+08:00"
+    }
+  },
+  "changes": [
+    "Observe root unmanaging independently of lease cleanup, including delayed idle cleanup.",
+    "Reject missing native monitors before acquisition/movement and recheck after asynchronous provisioning.",
+    "Release cast sessions even when the original window is gone; make close idempotent and serialize connector teardown.",
+    "Add behavioral races to the gate and real isolated-GNOME close/acquire/idle/disable regression."
+  ],
+  "validation": {
+    "before": {
+      "exit": 1,
+      "pid": 1351980,
+      "event": "2026-10-23T11:50:10+08:00",
+      "kernel": "gnome-shell[1351980]: segfault at 18 ... libmutter-18.so.0.0.0[120aea,...]",
+      "result": "Old installed bridge reproduced the same native instruction offset on the first managed-window close. The test observed DisplayConfig timeout while the crash handler ran. System Apport notification was generated; production GNOME PID 1309605 remained alive."
+    },
+    "unit": {
+      "passed": 11,
+      "command": "node tests/unit/virtual_output_lifecycle.mjs"
+    },
+    "installed_v4_with_patch": {
+      "exit": 0,
+      "closed_windows": 3,
+      "exit_during_acquisition": 3,
+      "living_window_release_idle_disable": true,
+      "seconds": 9.455,
+      "peak_memory": "2.2G",
+      "runtime": "private GNOME, private bus/HOME/config, installed Agent da9c08de; only virtualOutput.js replaced in copied extension"
+    },
+    "repo_v2_with_patch": {
+      "exit": 0,
+      "closed_windows": 3,
+      "exit_during_acquisition": 3,
+      "living_window_release_idle_disable": true,
+      "seconds": 9.411,
+      "peak_memory": "2.2G",
+      "runtime": "private GNOME, source extension, backed-up older Agent"
+    },
+    "logical_geometry": {
+      "exit": 0,
+      "backends": [
+        "Wayland",
+        "Xwayland"
+      ],
+      "received_pixels": [
+        [
+          1470,
+          802
+        ],
+        [
+          900,
+          600
+        ],
+        [
+          1470,
+          900
+        ],
+        [
+          700,
+          500
+        ]
+      ],
+      "source_scale": 1,
+      "same_process_content_session_on_reconnect": true,
+      "seconds": 7.077,
+      "peak_memory": "1.2G"
+    },
+    "project_gate": {
+      "command": "bash scripts/check.sh",
+      "exit": 0,
+      "rust_passed": 49,
+      "rust_ignored": 5,
+      "frontend_passed": 24,
+      "includes": "11 new lifecycle checks; Swift/AppKit geometry/input/clipboard/reconnect; isolated real QUIC nodes/H.264/binary streams"
+    },
+    "isolation_limits": {
+      "memory": "4G",
+      "cpu": "200%",
+      "runtime_seconds": 120,
+      "core_limit": 0
+    },
+    "not_verified": [
+      "Production activation of the patch",
+      "Real Feishu/ChatGPT visual clarity",
+      "Recovery of interrupted user tasks",
+      "Long-duration stability or CI",
+      "Full rollback of the still-newer Ubuntu Agent/extension"
+    ]
+  },
+  "staged": {
+    "source_commit": "51d43d9",
+    "stage": "/home/chenrg/.local/state/lan-remoteapp/upgrades/window-lifecycle-20261023-1154",
+    "changed_files": [
+      "virtualOutput.js"
+    ],
+    "before": {
+      "extension.js": "65469a8ed5336d248ccd459aead52688af24436459d7770ef80c13a27ba84a95",
+      "keyCompletion.js": "87dcdc74514d9a8dbc5473f9130b7775b8325f2172a62513fe9cac53b118a3b0",
+      "metadata.json": "2f6df1bbcda49ab59ba45e5193e2d05217ca6dbd49f00aff09adc966950f587e",
+      "textInput.js": "898162a93eed17ef5bf3aa83e165076ff9a0226a7bda93ac2f1d5ba70440d7ed",
+      "virtualOutput.js": "85c52ede8ffc985413d80a7ea5fb5f62c55cd000ac26b3adc11d1ecd993b62e0"
+    },
+    "fixed": {
+      "extension.js": "65469a8ed5336d248ccd459aead52688af24436459d7770ef80c13a27ba84a95",
+      "keyCompletion.js": "87dcdc74514d9a8dbc5473f9130b7775b8325f2172a62513fe9cac53b118a3b0",
+      "metadata.json": "2f6df1bbcda49ab59ba45e5193e2d05217ca6dbd49f00aff09adc966950f587e",
+      "textInput.js": "898162a93eed17ef5bf3aa83e165076ff9a0226a7bda93ac2f1d5ba70440d7ed",
+      "virtualOutput.js": "9631ba3c343b6e531293c7aed30918eb3ba4c9ab92efe775d42d41025a39c208"
+    },
+    "activated": false,
+    "installed_files_changed": false,
+    "extension_disabled": true,
+    "activation_note": "GNOME caches imported extension modules; same-session disable/enable is not an activation of the fixed source. Preserve user work and arrange a new desktop login before activation. Do not reboot the computer or restart Agent/network services."
+  },
+  "next_state": "Leave production bridge disabled and patch staged. No automatic logout, application restart, Agent replacement or computer reboot. Arrange safe activation separately; same-session extension toggle retains the imported old module."
+}

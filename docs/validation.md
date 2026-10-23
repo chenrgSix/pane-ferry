@@ -467,3 +467,26 @@ Ubuntu 没有替换已安装文件、重启服务或注销；Agent 仍是新版 
 Ubuntu Agent1007878、网络995120、GNOME998690、飞书1034686、ChatGPT1002994、EasyTier2900526、RustDesk52713 的 PID 和内核启动时间在更新前后相同。真实 QUIC 连接、52 项应用、运行窗口和 4 个原会话列表读取正常。原账号和配置目录未修改，未输入真实应用或关闭其窗口。旧 Mac 包备份在 dist/logical-size-20261023/previous/，新包与校验在同级目录。
 
 此次没有操作真实任务窗口验证视觉效果、用户桌面的实际鼠标注入、系统全屏切换、多物理屏幕或长期稳定性；这些不能由夹具通过替代。1× 源画面显示在 Retina 上仍会放大，不能宣称获得原生 Retina 细节。协议仍沿用已有 1×/2× 源倍率，没有新增分数缩放协商。之前的 Ubuntu 整套回滚继续按用户要求暂缓，本轮 Mac 显示更新不依赖它。完整校验和日志见[结构化记录](validation-artifacts/2026-10-23-logical-window-size.json)和[压缩日志](validation-artifacts/2026-10-23-logical-window-size-logs.json.gz)。
+
+## 2026-10-23：GNOME 桌面崩溃，停止窗口桥并修复失效窗口清理
+
+用户随后报告 Ubuntu 桌面重启。11:37:43 的 GNOME 日志明确记录 SIGSEGV，JS 堆栈指向已部署 `virtualOutput.js:126` 的 `root.move_to_monitor()` 和第 107 行的异步清理。原生 core 的 GJS/FFI 调用进入 libmutter-18，故障指令在读取 monitor 字段后访问空指针偏移 0x18。窗口已经 unmanaged，JS 包装对象仍存在，原来的 try/catch 无法拦截原生段错误。[Mutter 50 源码](https://github.com/GNOME/mutter/blob/50.0/src/core/window.c)也明确区分了可返回 -1 的 get_monitor 与直接解引用 monitor 的 move_to_monitor_internal。
+
+这属于 PaneFerry 窗口桥引起的桌面崩溃，不能将责任归于网络或用户操作。整机启动时间仍为 10 月 19 日 10:26，Agent、网络、EasyTier 和 RustDesk 保持原进程；旧 GNOME998690、飞书1034686、ChatGPT1002994 已退出，新 GNOME 为1309605。上一节所述会话保留仅是 11:27 更新核验当时的状态，**不代表之后持续稳定，更不代表此次任务已恢复**。本轮没有修改应用账号、配置或标签页文件；未确认中断任务能否恢复。
+
+先确认新桌面只有物理 DP-2、没有遗留虚拟显示器，再单独禁用 paneferry@local，已核验 INACTIVE。其余扩展、桌面、Agent、网络和用户应用均未由本轮重启。依赖此窗口桥的远程接管暂时不可用。
+
+提交 `51d43d9` 在窗口开始 unmanaging 时立即撤销可操作的 root 引用，并在原生操作前检查 monitor。这个观察器独立于 lease，覆盖空闲释放已移除 lease.output、异步清理仍未完成的情况。创建过程跨异步边界再次检查窗口有效性，关闭操作保持幂等，串行清理并等待 connector 消失；窗口已关闭时仅回收虚拟显示器，不再移动失效窗口。没有修改应用缩放、账号、输入协议或做应用名称适配。
+
+| 验证 | 实际结果 |
+| --- | --- |
+| 旧版隔离复现 | 测试专属 GNOME1351980 在第一次关闭夹具窗口后崩溃，内核记录与生产相同的 libmutter 偏移 0x120aea / 地址 0x18；测试收到 DisplayConfig 超时，退出1。系统产生 Apport 通知，正式桌面1309605保持运行 |
+| 修复版生命周期 | 已部署 v4 的复制件只替换 virtualOutput.js：3次正常关闭、3次创建期间进程退出，以及活窗口的断开、空闲回收、禁用扩展均通过；旁边的夹具进程和内容保持。当前源码 v2 桥搭配旧 Agent 的隔离组合也通过 |
+| 逻辑尺寸回归 | 修复后的 v4 复制件，Wayland/Xwayland 均收到1470×802、900×600、1470×900、700×500实际像素，源倍率保持1×，重连复用同一进程、内容与会话 |
+| 本地门禁 | 新增11项生命周期竞态检查；完整 scripts/check.sh 退出0，Rust49通过/5忽略、前端24通过，Swift/AppKit、重连和隔离QUIC/H.264通过 |
+
+远端测试使用私有 D-Bus、HOME、配置和无头 GNOME，限制内存4G、CPU200%、运行时间120秒；没有操作真实飞书或 ChatGPT。Linux 复制件测试的内存峰值2.2G。旧版只复现一次，不在正式桌面重现。
+
+修复 **尚未激活到正式桌面**。已保存到 `/home/chenrg/.local/state/lan-remoteapp/upgrades/window-lifecycle-20261023-1154/`，同时保留原扩展副本；manifest确认只有virtualOutput.js变化。正式安装文件仍未覆盖，扩展保持停用。GNOME缓存已导入模块，同一桌面里禁用再启用不能证明新源码生效；遵守保留当前任务的要求，本轮没有注销或重启电脑。原先的Ubuntu整套回滚仍未完成，不能借本补丁悄悄切换Agent。
+
+清晰度改进暂缓；此次没有声称解决1×源在Retina上的细节不足，也没有把隔离回归当成真实应用或长期稳定性验收。事故证据、校验和、边界见[结构化记录](validation-artifacts/2026-10-23-window-lifecycle-crash.json)，测试输出见[压缩日志](validation-artifacts/2026-10-23-window-lifecycle-logs.json.gz)。原始core和应用私密内容没有复制进仓库。
