@@ -46,6 +46,13 @@ test("a live background process without a visible window is absent from running 
   assert.deepEqual(new Set(result.map(row => row.sessionId)), new Set([null, "visible"]));
 });
 
+test("a withdrawn desktop window cannot leave a connectable raw session ID", () => {
+  const result = connections([], [window("other-window")], [
+    session("stale", "window-0-14785-5129-52428804", { window_count: 1 }),
+  ]);
+  assert.deepEqual(result.map(row => row.appId), ["other-window"]);
+});
+
 test("a whole-desktop session stays out of the application window list", () => {
   const result = connections([], [], [session("screen", "screen-HDMI-1", {
     mode: "desktop", monitor_id: "HDMI-1", window_count: 1,

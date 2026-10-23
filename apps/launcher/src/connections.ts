@@ -25,6 +25,9 @@ export function connections(
     if (session.window_count === 0) continue;
     const window = windows.find(w => w.session_id === session.session_id)
       || windows.find(w => !w.session_id && w.id === session.app_id);
+    // Session metadata can outlive the desktop window inventory during an
+    // X11 withdraw/close. Do not offer a stale desktop session as a window.
+    if (session.display === 0 && !window) continue;
     const app = apps.find(a => a.id === session.app_id);
     rows.set(`session:${session.session_id}`, {
       key: `session:${session.session_id}`, appId: session.app_id, sessionId: session.session_id,
