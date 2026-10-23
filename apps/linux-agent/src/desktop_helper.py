@@ -65,6 +65,16 @@ def main():
         return monitor_list(call(display, '/org/gnome/Mutter/DisplayConfig', display,
                                  'GetCurrentState'))
 
+    def release_text():
+        nonlocal text_token
+        if text_token:
+            token, text_token = text_token, None
+            try:
+                call('io.paneferry.Windows', '/io/paneferry/Windows', 'io.paneferry.Windows1',
+                     'Call', GLib.Variant('(s)', (json.dumps({'op': 'release', 'token': token}),)))
+            except GLib.Error:
+                pass
+
     def stop():
         nonlocal session
         if session:
@@ -73,6 +83,7 @@ def main():
             except GLib.Error:
                 pass
             session = None
+        release_text()
 
     def start(connector):
         nonlocal session
@@ -155,11 +166,6 @@ def main():
             print(json.dumps(answer, ensure_ascii=False, separators=(',', ':')), flush=True)
     finally:
         stop()
-        if text_token:
-            try:
-                text({'op': 'release'})
-            except (GLib.Error, ValueError):
-                pass
 
 
 if __name__ == '__main__':
