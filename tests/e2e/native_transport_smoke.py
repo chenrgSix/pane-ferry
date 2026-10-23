@@ -16,6 +16,7 @@ import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--packaged-host', type=Path, help='verify a built executable against isolated QUIC nodes instead of compiling Swift fixtures')
+parser.add_argument('--quality', choices=['png', 'h264'], default='h264', help='packaged-host mode')
 args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
@@ -88,7 +89,7 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
             # Exercise the shipped entry point as well as compiled type tests:
             # startup, snapshot, decoding and resize must not exit immediately.
             host=subprocess.Popen([str(args.packaged_host.resolve()), '--native-peer', b['device_id'],
-                '--native-state', str(states[0]), '--native-helper', str(binary), '--session', 'retained'],
+                '--native-state', str(states[0]), '--native-helper', str(binary), '--session', 'retained', '--quality', args.quality],
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             children.append(host)
             deadline=time.monotonic()+10
@@ -103,7 +104,9 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
             assert configured, 'packaged host never configured its received window'
             time.sleep(3)
             assert host.poll() is None, ('packaged host exited after capture', host.stderr.read())
-            print('PASS: packaged WindowHost stays alive through real QUIC/H.264 and requests logical viewport', configured[-1])
+            requests=[json.loads(line) for line in (scratch/'requests').read_text().splitlines()]
+            assert any(item['type']=='video.enable' for item in requests) == (args.quality=='h264')
+            print('PASS: packaged WindowHost stays alive through real QUIC/'+args.quality+' and requests logical viewport', configured[-1])
             host.terminate();host.wait(timeout=5)
             raise SystemExit(0)
         types=scratch/'WindowHostTypes.swift'
@@ -111,11 +114,25 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         test=scratch/'NativeSmoke.swift'
         text=(root/'tests/swift/AutomaticReconnectSmoke.swift').read_text()
         text=text.replace('let options = Options(app: nil, session: "retained", native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: root.path, helper: root.appendingPathComponent("fake-bridge").path))',
-            'let options = try Options.parse(["--native-peer", CommandLine.arguments[2], "--native-state", CommandLine.arguments[3], "--native-helper", CommandLine.arguments[4], "--session", "retained"])')
+            'let options = try Options.parse(["--native-peer", CommandLine.arguments[2], "--native-state", CommandLine.arguments[3], "--native-helper", CommandLine.arguments[4], "--session", "retained", "--quality", "h264"])')
         text=text.replace('until { app.windows[42] != nil }', 'until { app.windows[42]?.surface.image != nil && app.lastSequence >= 11 }')
         text=text.replace('until { app.lastSequence >= 3 }', 'until { app.lastSequence >= 11 && app.windows[42]?.surface.image != nil }\n        let image = app.windows[42]!.surface.image!\n        let red = NSBitmapImageRep(cgImage:image).colorAt(x:20,y:20)!.usingColorSpace(.sRGB)!\n        precondition(red.redComponent > 0.8 && red.greenComponent < 0.2 && image.width == 640, "QUIC H.264 output is incorrect")\n        let nativeNextSequence = app.lastSequence + 1\n        print("PASS: real H.264 IDR and dependent P frames through QUIC into AppKit; decoded red pixels after reconnect")')
         for offset, seq in enumerate([4,5,6,7]):
             text=text.replace('"seq":'+str(seq)+',', '"seq":nativeNextSequence+'+str(offset)+',')
+        text=text.replace('let app = AppDelegate(options: options, clipboard: board, applicationIcon:icon)',
+            'let suite = "io.paneferry.quic-quality-test.\\(UUID().uuidString)"\n        let defaults = UserDefaults(suiteName:suite)!; defer { defaults.removePersistentDomain(forName:suite) }\n        let app = AppDelegate(options: options, clipboard: board, applicationIcon:icon, qualitySettings:DisplayQualitySettings(defaults:defaults))')
+        text=text.replace('precondition(count == "2")', r'''precondition(count == "2")
+        app.changeDisplayQuality(to:.clarity)
+        until { app.connected && !app.recovering && app.windows[42]?.revision == 3 && original.mediaMode == "PNG 无损 · 清晰优先" }
+        precondition(app.windows[42] === original && original.window.frame == frame)
+        precondition(original.mediaMode == "PNG 无损 · 清晰优先" && original.fixedPixels?.width == 800)
+        let png = NSBitmapImageRep(cgImage:original.surface.image!)
+        var pixel = [Int](repeating:0, count:png.samplesPerPixel); png.getPixel(&pixel, atX:20, y:20)
+        precondition(Array(pixel.prefix(3)) == [255,0,0])
+        let switched = try String(contentsOf: root.appendingPathComponent("requests"), encoding:.utf8)
+        let lastHello = switched.components(separatedBy:"\n").lastIndex { $0.contains("hello") }!
+        precondition(!switched.components(separatedBy:"\n")[lastHello...].contains { $0.contains("video.enable") || $0.contains("app.launch") })
+        print("PASS: real QUIC H.264 → lossless PNG switch resumes the same session/NSWindow without video negotiation or relaunch")''')
         test.write_text(text)
         files=[str(file) for file in source.glob('*.swift') if file.name!='main.swift']
         receiver=scratch/'receiver'
