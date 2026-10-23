@@ -90,15 +90,6 @@ fn existing_unavailable_reason(app: &App) -> Option<&'static str> {
     None
 }
 impl Session {
-    fn scale_mode(&self) -> &'static str {
-        if self.wayland {
-            "compositor"
-        } else if self.existing.is_some() {
-            "source"
-        } else {
-            "display"
-        }
-    }
     fn has_exited(&mut self) -> Result<bool> {
         if let Some(existing) = &self.existing {
             self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
@@ -482,18 +473,14 @@ fn launch(
             .into_iter()
             .next()
             .context("desktop_input_unavailable")?;
-        let backend = wayland::Backend::connect(
-            target.clone(),
-            st.desktop_input.lease(),
-            &desktop,
-            scale_factor,
-        )?;
+        let backend =
+            wayland::Backend::connect(target.clone(), st.desktop_input.lease(), &desktop)?;
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
             id: id.clone(),
             app_id: app_id.into(),
             display: 0,
-            scale_factor,
+            scale_factor: 1,
             backend: Some(Box::new(backend)),
             children: vec![],
             controller: false,
@@ -665,7 +652,7 @@ fn launch(
                 "0",
                 "4096x2160x24",
                 "-dpi",
-                &(96 * u32::from(scale_factor)).to_string(),
+                "96",
                 "-nolisten",
                 "tcp",
                 "-auth",
@@ -681,7 +668,7 @@ fn launch(
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         if let Ok(mut b) = Backend::connect(&disp) {
-            b.configure_private_scale(scale_factor)?;
+            b.set_scale_factor(scale_factor)?;
             s.backend = Some(Box::new(b));
             break;
         }
@@ -714,6 +701,12 @@ fn launch(
         application_args.extend(["-xrm", r"*VT100*translations: #override \n Ctrl Shift <Key>C: copy-selection(CLIPBOARD) \n Ctrl Shift <Key>V: insert-selection(CLIPBOARD)"]);
     }
     application_args.extend(app.argv.iter().map(String::as_str));
+    let scale_argument = discovered
+        .as_ref()
+        .and_then(|app| app.scale_argument(scale_factor));
+    if let Some(argument) = &scale_argument {
+        application_args.push(argument);
+    }
     let mut command = Command::new("dbus-run-session");
     command.arg("--");
     if let Some(snap) = discovered.as_ref().and_then(|app| app.snap.as_ref()) {
@@ -774,13 +767,10 @@ fn launch(
             .env("XMODIFIERS", "@im=none")
             .env("DISABLE_WAYLAND", "1")
             .env("MOZ_ENABLE_WAYLAND", "0")
-            // The private display publishes standard DPI to all toolkits.
-            // Multiplying it again with inherited overrides would double-scale.
-            .env_remove("GDK_SCALE")
-            .env_remove("GDK_DPI_SCALE")
-            .env_remove("QT_SCALE_FACTOR")
-            .env_remove("QT_FONT_DPI")
-            .env("QT_ENABLE_HIGHDPI_SCALING", "1")
+            .env("GDK_SCALE", scale_factor.to_string())
+            .env("GDK_DPI_SCALE", "1")
+            .env("QT_SCALE_FACTOR", scale_factor.to_string())
+            .env("QT_FONT_DPI", "96")
             .env_remove("QT_SCREEN_SCALE_FACTORS")
             .process_group(0)
             .stdin(Stdio::null())
@@ -857,11 +847,11 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
 fn send(out: &mut output::Output, value: Value, session: &str) -> Result<()> {
     out.message(value, session)
 }
-fn win_value(w: &Window, kind: &str, scale_mode: &str) -> Value {
+fn win_value(w: &Window, kind: &str, existing: bool) -> Value {
     let mut v = serde_json::to_value(w).unwrap();
     v["type"] = json!(kind);
     // Scale is a launch preference, not a measurement of GTK/Qt/Chromium UI.
-    v["scale_mode"] = json!(scale_mode);
+    v["scale_mode"] = json!(if existing { "source" } else { "requested" });
     v
 }
 fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
@@ -908,7 +898,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         "catalog",
         "native.png",
         "display.scale",
-        "display.viewport",
         "input.pointer",
         "input.key",
         "input.authorization",
@@ -1022,9 +1011,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(req) = req {
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
             let request_window = match &req {
-                Request::Configure { window_id, .. }
-                | Request::Viewport { window_id, .. }
-                | Request::Text { window_id, .. } => Some(*window_id),
+                Request::Configure { window_id, .. } | Request::Text { window_id, .. } => {
+                    Some(*window_id)
+                }
                 _ => None,
             };
             let result: Result<()> = (|| {
@@ -1245,7 +1234,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             known = windows.iter().cloned().map(|w| (w.window_id, w)).collect();
                             let values: Vec<_> = windows
                                 .iter()
-                                .map(|w| win_value(w, "window.created", s.scale_mode()))
+                                .map(|w| win_value(w, "window.created", s.existing.is_some()))
                                 .collect();
                             send(
                                 &mut out,
@@ -1272,15 +1261,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 width,
                                 height,
                             } => b.configure(window_id, width, height)?,
-                            Request::Viewport {
-                                window_id,
-                                logical_width,
-                                logical_height,
-                                scale_factor,
-                            } => {
-                                b.viewport(window_id, logical_width, logical_height, scale_factor)?;
-                                s.scale_factor = scale_factor;
-                            }
                             Request::Focus { window_id } => b.focus(window_id)?,
                             Request::Close { window_id } => b.close(window_id)?,
                             Request::Pointer {
@@ -1357,7 +1337,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 }
                 continue;
             }
-            let scale_mode = s.scale_mode();
+            let existing = s.existing.is_some();
             if let Some(b) = s.backend.as_mut() {
                 let status = b.input_status();
                 if status != input_status {
@@ -1399,7 +1379,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 } else {
                                     "window.created"
                                 },
-                                scale_mode,
+                                existing,
                             ),
                             &sid,
                         )?;

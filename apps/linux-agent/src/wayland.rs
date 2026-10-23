@@ -132,7 +132,6 @@ impl Rpc {
                     "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
                     "wayland_capture_unavailable" => "wayland_capture_unavailable",
                     "wayland_text_unavailable" => "wayland_text_unavailable",
-                    "wayland_text_outcome_unknown" => "wayland_text_outcome_unknown",
                     _ => "wayland_bridge_failed",
                 }
             )
@@ -192,28 +191,23 @@ pub struct Backend {
     infos: HashMap<u32, Info>,
     streams: RefCell<HashMap<u32, Stream>>,
     copied: Option<(u32, String, Instant)>,
-    requested_scale: u8,
 }
 impl Backend {
     pub fn connect(
         target: Target,
         input: Arc<dyn DesktopInput>,
         desktop: &crate::discovery::Desktop,
-        scale: u8,
     ) -> Result<Self> {
         // GNOME caches loaded extension modules until the next login. An
         // upgraded Agent must not silently use the old text/capture contract.
-        paneferry_protocol::validate_scale(scale)?;
-        if target.info.bridge_version < 4 {
+        if target.info.bridge_version < 2 {
             bail!("wayland_bridge_outdated")
         }
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
             bail!("approved existing process unavailable")
         }
         let mut rpc = Rpc::new()?;
-        rpc.call(
-            json!({"op":"acquire", "id":target.info.id, "pid":target.identity.pid,"scale":scale}),
-        )?;
+        rpc.call(json!({"op":"acquire", "id":target.info.id, "pid":target.identity.pid}))?;
         rpc.call(json!({"op":"focus", "window_id":target.info.window_id}))?;
         let keymap =
             X11::connect_existing(desktop.display, &desktop.authority, target.identity.pid)?;
@@ -226,7 +220,6 @@ impl Backend {
             infos: HashMap::new(),
             streams: RefCell::new(HashMap::new()),
             copied: None,
-            requested_scale: scale,
         })
     }
     fn call(&self, op: &str, id: u32) -> Result<Value> {
@@ -305,7 +298,7 @@ impl WindowBackend for Backend {
                 // GNOME disables user extensions while locked. Reacquire only
                 // this compositor ID and original process after unlock.
                 let mut rpc = Rpc::new()?;
-                rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid,"scale":self.requested_scale}))?;
+                rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid}))?;
                 self.streams.get_mut().clear();
                 self.rpc.replace(rpc);
                 self.call("scope", self.target.info.window_id)?
@@ -393,11 +386,11 @@ impl WindowBackend for Backend {
                 geometry_revision: self.windows.get(&id).map_or(1, |w| w.geometry_revision),
                 visible: !info.minimized,
             };
-            if self.windows.get(&id).is_some_and(|old| {
-                old.width != width
-                    || old.height != height
-                    || old.scale_factor != window.scale_factor
-            }) {
+            if self
+                .windows
+                .get(&id)
+                .is_some_and(|old| old.width != width || old.height != height)
+            {
                 window.geometry_revision += 1;
             }
             windows.insert(id, window);
@@ -455,31 +448,6 @@ impl WindowBackend for Backend {
         let scale = info.scale;
         self.rpc.borrow_mut().call(json!({"op":"resize","window_id":id,
             "width":(f64::from(width)/scale).round().max(1.0) as u32,"height":(f64::from(height)/scale).round().max(1.0) as u32}))?;
-        Ok(())
-    }
-    fn viewport(&mut self, id: u32, width: u32, height: u32, scale: u8) -> Result<()> {
-        paneferry_protocol::viewport_pixels(width, height, scale)?;
-        self.known(id)?;
-        if scale != self.requested_scale {
-            for window in self
-                .streams
-                .get_mut()
-                .drain()
-                .map(|(id, _)| id)
-                .collect::<Vec<_>>()
-            {
-                self.call("stop_capture", window)?;
-            }
-            self.rpc
-                .borrow_mut()
-                .call(json!({"op":"set_scale","window_id":id,"scale":scale}))?;
-            self.requested_scale = scale;
-        }
-        // The compositor receives logical units, independent of the previous
-        // capture's density. Its next frame establishes actual pixel geometry.
-        self.rpc
-            .borrow_mut()
-            .call(json!({"op":"resize","window_id":id,"width":width,"height":height}))?;
         Ok(())
     }
     fn focus(&self, id: u32) -> Result<()> {

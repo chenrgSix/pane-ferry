@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 pub mod clipboard;
@@ -55,15 +55,6 @@ pub enum Request {
         window_id: u32,
         width: u32,
         height: u32,
-    },
-    /// Logical layout and display density are negotiated together. Unlike
-    /// window.configure, dimensions here are device-independent units.
-    #[serde(rename = "window.viewport")]
-    Viewport {
-        window_id: u32,
-        logical_width: u32,
-        logical_height: u32,
-        scale_factor: u8,
     },
     #[serde(rename = "window.focus")]
     Focus { window_id: u32 },
@@ -127,15 +118,6 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
     if let Request::Launch { scale_factor, .. } = &request {
         validate_scale(*scale_factor)?;
     }
-    if let Request::Viewport {
-        logical_width,
-        logical_height,
-        scale_factor,
-        ..
-    } = &request
-    {
-        viewport_pixels(*logical_width, *logical_height, *scale_factor)?;
-    }
     if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
         validate_text(text)?;
     }
@@ -182,17 +164,6 @@ pub fn dimensions(w: u32, h: u32) -> Result<()> {
     };
     Ok(())
 }
-pub fn viewport_pixels(width: u32, height: u32, scale: u8) -> Result<(u32, u32)> {
-    validate_scale(scale)?;
-    let w = width
-        .checked_mul(u32::from(scale))
-        .context("invalid dimensions")?;
-    let h = height
-        .checked_mul(u32::from(scale))
-        .context("invalid dimensions")?;
-    dimensions(w, h)?;
-    Ok((w, h))
-}
 pub fn identifier(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 100
@@ -238,21 +209,6 @@ mod tests {
         assert!(dimensions(0, 2).is_err());
         assert!(dimensions(4096, 4096).is_err());
         assert!(dimensions(1920, 1080).is_ok());
-    }
-    #[test]
-    fn viewport_keeps_logical_units_distinct_and_bounds_physical_allocations() {
-        assert_eq!(viewport_pixels(1470, 802, 2).unwrap(), (2940, 1604));
-        assert_eq!(viewport_pixels(1470, 802, 1).unwrap(), (1470, 802));
-        for (w, h, s) in [
-            (0, 802, 2),
-            (1470, 802, 3),
-            (u32::MAX, 1, 2),
-            (2048, 2048, 2),
-        ] {
-            assert!(viewport_pixels(w, h, s).is_err());
-        }
-        assert!(parse_request(br#"{"version":1,"type":"window.viewport","window_id":1,"logical_width":1470,"logical_height":802,"scale_factor":2}"#).is_ok());
-        assert!(parse_request(br#"{"version":1,"type":"window.viewport","window_id":1,"logical_width":2940,"logical_height":1604,"scale_factor":2}"#).is_err());
     }
     #[test]
     fn ids() {

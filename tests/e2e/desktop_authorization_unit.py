@@ -15,25 +15,6 @@ spec.loader.exec_module(module)
 
 
 class AuthorizationTests(unittest.TestCase):
-    def test_dispatch_only_reads_ping_from_pong_event(self):
-        class Native:
-            def __init__(self): self.queue=[9,90,2]; self.unref=[]
-            def ei_dispatch(self, _): pass
-            def ei_get_event(self, _): return self.queue.pop(0) if self.queue else None
-            def ei_event_get_type(self, event): return event
-            def ei_event_get_device(self, _): return None
-            def ei_event_pong_get_ping(self, event):
-                assert event==90, 'typed getter used on unrelated libei event'
-                return 7
-            def ei_event_unref(self,event):self.unref.append(event)
-        eis=module.Eis.__new__(module.Eis)
-        eis.lib,eis.context,eis.can_sync=Native(),1,True
-        eis.waiting_ping,eis.pong,eis.disconnected=7,False,False
-        eis.dispatch()
-        self.assertTrue(eis.pong)
-        self.assertTrue(eis.disconnected)
-        self.assertEqual(eis.lib.unref,[9,90,2])
-
     def test_sync_pong_disconnect_timeout_and_cleanup(self):
         class Native:
             def __init__(self): self.events = []

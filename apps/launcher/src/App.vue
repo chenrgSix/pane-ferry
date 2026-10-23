@@ -264,7 +264,6 @@ async function launch(app: LaunchTarget) {
   notice.value = "";
   const sent = { ...endpoint.value };
   const key = `${signature()}:${app.id}:native:${renderScale.value}`;
-  notice.value = `正在打开 ${app.name}，窗口就绪后会自动连接…`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
@@ -281,7 +280,6 @@ async function launch(app: LaunchTarget) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
     if (signature() === endpointKey(sent)) {
-      notice.value = "";
       actionConnectionError.value = isConnectionFailure(e);
       error.value = failure.message + (failure.retrySameRequest
         ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");

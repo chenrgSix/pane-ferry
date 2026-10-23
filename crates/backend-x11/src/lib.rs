@@ -18,7 +18,6 @@ pub mod clipboard_store;
 mod controller_copy;
 mod controller_text;
 mod damage;
-mod display_settings;
 mod inventory;
 mod related_windows;
 mod shared_capture;
@@ -65,7 +64,6 @@ pub struct Backend {
     damage: RefCell<damage::Damage>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
     desktop_geometry: Option<Box<dyn DesktopGeometry>>,
-    display_settings: Option<display_settings::DisplaySettings>,
 }
 impl Backend {
     pub fn is_xwayland(&self) -> Result<bool> {
@@ -203,42 +201,12 @@ impl Backend {
             damage,
             desktop_input: None,
             desktop_geometry: None,
-            display_settings: None,
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
         paneferry_protocol::validate_scale(scale)?;
         self.scale_factor = scale;
         Ok(())
-    }
-    pub fn configure_private_scale(&mut self, scale: u8) -> Result<()> {
-        if self.process_id.is_some() || self.existing_display.is_some() {
-            bail!("display_scale_requires_restart")
-        }
-        if let Some(settings) = &mut self.display_settings {
-            settings.update(&self.conn, self.root, scale)?;
-        } else {
-            self.display_settings = Some(display_settings::DisplaySettings::start(
-                &self.conn, self.root, scale,
-            )?);
-        }
-        self.scale_factor = scale;
-        Ok(())
-    }
-    pub fn viewport(&mut self, id: u32, width: u32, height: u32, scale: u8) -> Result<()> {
-        let (w, h) = paneferry_protocol::viewport_pixels(width, height, scale)?;
-        if !self.windows.contains_key(&id) {
-            bail!("unknown window")
-        }
-        // No reliable per-window DPI control exists on a shared X display.
-        // Reject before enlarging its 1x layout or modifying global settings.
-        if self.process_id.is_some() || self.existing_display.is_some() {
-            bail!("display_scale_requires_restart")
-        }
-        if scale != self.scale_factor {
-            self.configure_private_scale(scale)?;
-        }
-        self.configure(id, w, h)
     }
     fn atom(&self, n: &str) -> u32 {
         self.atoms[n]
@@ -468,11 +436,7 @@ impl Backend {
             };
             if let Some(old) = self.windows.get(&id) {
                 w.geometry_revision = old.geometry_revision
-                    + u64::from(
-                        old.width != w.width
-                            || old.height != w.height
-                            || old.scale_factor != w.scale_factor,
-                    );
+                    + u64::from(old.width != w.width || old.height != w.height);
             }
             out.push(w);
         }

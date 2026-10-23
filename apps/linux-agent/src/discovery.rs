@@ -35,6 +35,18 @@ impl DesktopApp {
     pub fn matches_desktop_id(&self, id: &str) -> bool {
         self.desktop_id == id
     }
+    pub fn scale_argument(&self, scale: u8) -> Option<String> {
+        // Installed Feishu forwards argv to its Chromium-based libframe.
+        // GTK/Qt environment variables do not configure that renderer. Only
+        // apply this known switch to a newly launched, exact catalog entry.
+        (self.desktop_id == "bytedance-feishu.desktop"
+            && self.executable == "/usr/bin/bytedance-feishu-stable"
+            && !self
+                .argv
+                .iter()
+                .any(|a| a.starts_with("--force-device-scale-factor")))
+        .then(|| format!("--force-device-scale-factor={scale}"))
+    }
     pub fn public(&self) -> Value {
         json!({"id":self.id,"name":self.name,"description":self.description,"icon_png":self.icon_png,
             "source":"desktop","unavailable_reason":self.unavailable_reason})
@@ -345,4 +357,28 @@ pub fn is_receiver(identity: &ProcessIdentity) -> bool {
             .is_some_and(|value| {
                 value["pid"] == identity.pid && value["started"] == identity.started
             })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn feishu_startup_scale_is_scoped_to_the_known_renderer_and_respects_explicit_args() {
+        let mut app: DesktopApp = serde_json::from_value(json!({
+            "id":"desktop-fixture", "desktop_id":"bytedance-feishu.desktop", "name":"Feishu",
+            "description":"", "startup_class":"", "executable":"/usr/bin/bytedance-feishu-stable", "argv":[]
+        })).unwrap();
+        assert_eq!(
+            app.scale_argument(2).as_deref(),
+            Some("--force-device-scale-factor=2")
+        );
+        app.argv.push("--force-device-scale-factor=1.5".into());
+        assert!(app.scale_argument(2).is_none());
+        app.argv.clear();
+        app.executable = "/usr/bin/firefox".into();
+        assert!(app.scale_argument(2).is_none());
+        app.executable = "/usr/bin/bytedance-feishu-stable".into();
+        app.desktop_id = "other.desktop".into();
+        assert!(app.scale_argument(2).is_none());
+    }
 }

@@ -93,7 +93,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 4, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 2, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
             xwindow: w.get_client_type() === Meta.WindowClientType.X11 ? w.xwindow : null,
@@ -123,7 +123,6 @@ export default class PaneFerry extends Extension {
             if (Main.sessionMode.isLocked || (Main.sessionMode.currentMode !== 'user' && Main.sessionMode.parentMode !== 'user')) throw new Error('desktop_locked');
             if (r.op === 'list') result = this.windows().slice(0, 128).map(w => this.describe(w));
             else if (r.op === 'acquire') {
-                if (r.scale !== undefined && ![1, 2].includes(r.scale)) throw new Error('invalid_dimensions');
                 const root = this.windows().find(w => String(w.get_id()) === r.id && w.get_pid() === r.pid);
                 if (!root) throw new Error('window_unavailable');
                 const selected = this.scope(root);
@@ -151,18 +150,7 @@ export default class PaneFerry extends Extension {
                     if (r.op === 'scope') result = scope.slice(0, 16).map(window => this.describe(window));
                     else {
                         if (!w) throw new Error('window_unavailable');
-                        if (r.op === 'set_scale') {
-                            if (![1, 2].includes(r.scale)) throw new Error('invalid_dimensions');
-                            if (w.get_client_type() !== Meta.WindowClientType.WAYLAND) throw new Error('display_scale_requires_restart');
-                            if (lease.scale !== r.scale) {
-                                const output = lease.output;
-                                lease.output = null;
-                                if (output) await output.close();
-                                lease.scale = r.scale;
-                                await this.ensureOutput(lease);
-                            }
-                            result = this.describe(w);
-                        } else if (r.op === 'resize' || r.op === 'resize_x11') {
+                        if (r.op === 'resize' || r.op === 'resize_x11') {
                             if (!Number.isInteger(r.width) || !Number.isInteger(r.height) || r.width < 1 || r.height < 1 || r.width > 4096 || r.height > 4096 || r.width * r.height > 8000000) throw new Error('invalid_dimensions');
                             const rect = w.get_frame_rect();
                             const limits = this.describe(w);
@@ -229,7 +217,7 @@ export default class PaneFerry extends Extension {
             }
             invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result})]));
         } catch (error) {
-            const allowed = ['desktop_locked', 'window_unavailable', 'session_controlled', 'session_limit', 'invalid_request', 'invalid_dimensions', 'invalid_text', 'clipboard_copy_failed', 'resolution_limited', 'wayland_text_unavailable', 'wayland_text_outcome_unknown', 'display_scale_requires_restart'];
+            const allowed = ['desktop_locked', 'window_unavailable', 'session_controlled', 'session_limit', 'invalid_request', 'invalid_dimensions', 'invalid_text', 'clipboard_copy_failed', 'resolution_limited', 'wayland_text_unavailable'];
             if (!allowed.includes(error.message)) console.error(`PaneFerry compositor API: ${error.message}
 ${error.stack}`);
             invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({error: allowed.includes(error.message) ? error.message : 'wayland_bridge_failed'})]));

@@ -18,7 +18,6 @@ pub trait WindowBackend: Send {
     fn capture_needed(&self, window: u32) -> bool;
     fn capture(&self, window: &Window) -> Result<CapturedImage>;
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()>;
-    fn viewport(&mut self, id: u32, width: u32, height: u32, scale: u8) -> Result<()>;
     fn focus(&self, id: u32) -> Result<()>;
     fn close(&self, id: u32) -> Result<()>;
     fn pointer(&self, id: u32, x: i32, y: i32, button: u8, pressed: bool) -> Result<()>;
@@ -77,9 +76,6 @@ impl WindowBackend for X11 {
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         X11::configure(self, id, width, height)
-    }
-    fn viewport(&mut self, id: u32, width: u32, height: u32, scale: u8) -> Result<()> {
-        X11::viewport(self, id, width, height, scale)
     }
     fn focus(&self, id: u32) -> Result<()> {
         X11::focus(self, id)

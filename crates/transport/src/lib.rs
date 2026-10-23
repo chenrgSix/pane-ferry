@@ -88,15 +88,12 @@ pub fn remote_error_message(code: &str) -> String {
         "wayland_bridge_outdated" => "Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。".into(),
         "wayland_capture_unavailable" => "Wayland 窗口采集未就绪，请检查 PipeWire 与 GStreamer 组件。".into(),
         "resolution_limited" => "请求尺寸超出当前 Wayland 窗口采集范围。请缩小窗口或选择较低分辨率；原应用和桌面缩放保持不变。".into(),
-        "display_scale_requires_restart" => "原窗口保留；高清适配需保存工作后重开此应用，尚未执行。".into(),
-        "display_settings_unavailable" => "会话显示密度设置不可用；原桌面设置未修改。".into(),
         "wayland_binary_clipboard_unavailable" => "当前 Wayland 窗口仅支持文字剪贴板。".into(),
         "wayland_cut_unavailable" => "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。".into(),
-        "wayland_text_unavailable" => "当前输入框未确认输入状态，请重新聚焦或使用粘贴；输入未自动重试。".into(),
-        "wayland_text_outcome_unknown" => "文本可能已输入，请先核对内容，勿重复提交；输入未自动重试。".into(),
+        "wayland_text_unavailable" => "当前输入框不支持直接输入，请使用粘贴；输入未自动重试。".into(),
         "application_multiple_windows" => "该应用已有多个窗口，请从“运行中的窗口”选择要连接的窗口。".into(),
         "application_start_failed" => "应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新运行窗口；没有可连接窗口时检查应用兼容性。".into(),
-        "application_window_pending" => "等待应用窗口的时间较长，会话已保留。可稍后连接或重试同一次启动。".into(),
+        "application_window_pending" => "应用尚未产生窗口，会话已保留。可稍后刷新运行状态或重试，不会重复启动。".into(),
         "existing_process_unavailable" => "原窗口对应的进程已退出，请刷新窗口列表。".into(),
         "existing_process_mismatch" => "原窗口绑定已失效，请在 Ubuntu 重新确认应用进程。".into(),
         "existing_window_unavailable" => {
@@ -393,39 +390,8 @@ pub async fn launch_native(
     if !matches!(scale_factor, 1 | 2) {
         return Err(Error::Invalid("清晰度缩放必须为 1 或 2。"));
     }
-    wait_for_native_window(
-        endpoint,
-        json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor}),
-        Duration::from_secs(90),
-        Duration::from_secs(1),
-    )
-    .await
-}
-async fn wait_for_native_window(
-    endpoint: &Target,
-    body: Value,
-    budget: Duration,
-    retry_delay: Duration,
-) -> Result<Started, Error> {
-    let deadline = tokio::time::Instant::now() + budget;
-    loop {
-        // Only an explicit pending reply confirms that this request owns a
-        // retained session. Reuse its exact route, ID and parameters; never
-        // replay an ambiguous connection failure or create another launch ID.
-        let result =
-            tokio::time::timeout_at(deadline, request(endpoint, body.clone(), "session.started"))
-                .await
-                .map_err(|_| Error::Timeout)?;
-        match result {
-            Err(Error::Remote(code)) if code == "application_window_pending" => {
-                if tokio::time::Instant::now() + retry_delay >= deadline {
-                    return Err(Error::Remote(code));
-                }
-                tokio::time::sleep(retry_delay).await;
-            }
-            other => return parse_started(other?),
-        }
-    }
+    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor}), "session.started").await?;
+    parse_started(value)
 }
 fn parse_started(value: Value) -> Result<Started, Error> {
     let scale_factor = match value.get("scale_factor") {
@@ -525,112 +491,6 @@ mod tests {
 #[cfg(test)]
 mod unified_transport_tests {
     use super::*;
-    fn launch_body() -> Value {
-        json!({"type":"app.launch","version":1,"app_id":"slow-app","request_id":"retained-request","backend":"native","attach":false,"scale_factor":2})
-    }
-
-    async fn scripted_launch(
-        replies: Vec<Option<Value>>,
-        budget: Duration,
-        retry_delay: Duration,
-    ) -> (Result<Started, Error>, Vec<Value>) {
-        let directory = std::env::temp_dir().join(format!("rwp-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir(&directory).unwrap();
-        let path = directory.join("route.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
-        let server = tokio::spawn(async move {
-            let mut requests = Vec::new();
-            for reply in replies {
-                let (socket, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
-                    .await
-                    .unwrap()
-                    .unwrap();
-                let (read, mut write) = socket.into_split();
-                let mut read = BufReader::new(read);
-                assert_eq!(read_message(&mut read).await.unwrap()["type"], "hello");
-                write
-                    .write_all(b"{\"version\":1,\"type\":\"hello\"}\n")
-                    .await
-                    .unwrap();
-                requests.push(read_message(&mut read).await.unwrap());
-                if let Some(reply) = reply {
-                    let mut bytes = serde_json::to_vec(&reply).unwrap();
-                    bytes.push(b'\n');
-                    write.write_all(&bytes).await.unwrap();
-                }
-                // None simulates a lost result after accepting the request.
-            }
-            requests
-        });
-        let result =
-            wait_for_native_window(&Target { socket: path }, launch_body(), budget, retry_delay)
-                .await;
-        let requests = server.await.unwrap();
-        std::fs::remove_dir_all(directory).unwrap();
-        (result, requests)
-    }
-
-    fn pending_reply() -> Option<Value> {
-        Some(json!({"version":1,"type":"error","code":"application_window_pending"}))
-    }
-
-    #[tokio::test]
-    async fn slow_window_continues_same_device_request_until_ready() {
-        let ready = json!({"version":1,"type":"session.started","session_id":"original-session","backend":"native","display":101,"scale_factor":2});
-        let (result, requests) = scripted_launch(
-            vec![pending_reply(), pending_reply(), Some(ready)],
-            Duration::from_secs(2),
-            Duration::from_millis(1),
-        )
-        .await;
-        let started = result.unwrap();
-        assert_eq!(started.session_id, "original-session");
-        assert_eq!(started.scale_factor, 2);
-        assert_eq!(requests, vec![launch_body(); 3]);
-    }
-
-    #[tokio::test]
-    async fn slow_window_never_replays_a_lost_result_or_terminal_rejection() {
-        for reply in [
-            None,
-            Some(json!({"version":1,"type":"error","code":"session_exited"})),
-            Some(json!({"version":1,"type":"error","code":"session_controlled"})),
-        ] {
-            let expected = reply
-                .as_ref()
-                .map(|value| value["code"].as_str().unwrap().to_owned());
-            let (result, requests) = scripted_launch(
-                vec![pending_reply(), reply],
-                Duration::from_secs(2),
-                Duration::from_millis(1),
-            )
-            .await;
-            let error = result.unwrap_err();
-            match expected {
-                Some(expected) => assert!(matches!(error, Error::Remote(code) if code == expected)),
-                None => {
-                    assert!(matches!(error, Error::Connection));
-                    assert!(error.retry_same_request());
-                }
-            }
-            assert_eq!(requests, vec![launch_body(); 2]);
-        }
-    }
-
-    #[tokio::test]
-    async fn pending_window_stops_when_next_check_would_exceed_wait_budget() {
-        let (result, requests) = scripted_launch(
-            vec![pending_reply()],
-            Duration::from_secs(2),
-            Duration::from_secs(3),
-        )
-        .await;
-        let error = result.unwrap_err();
-        assert!(error.retry_same_request());
-        assert!(matches!(error, Error::Remote(code) if code == "application_window_pending"));
-        assert_eq!(requests, vec![launch_body()]);
-    }
-
     #[tokio::test]
     async fn native_target_uses_same_handshake_errors_and_validation() {
         let directory = std::env::temp_dir().join(format!("rwp-{}", uuid::Uuid::new_v4()));

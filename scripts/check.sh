@@ -8,7 +8,6 @@ python3 tests/e2e/desktop_authorization_unit.py
 python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v npm >/dev/null; then
-  node --experimental-default-type=module tests/e2e/key_completion_unit.mjs
   (cd apps/launcher && npm ci && npm test && npm run build)
 fi
 if [[ $(uname -s) == Darwin ]]; then

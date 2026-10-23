@@ -103,11 +103,7 @@ export class VirtualOutput {
     async close() {
         this.cancelled = true;
         try { await this.opening; } catch { /* A failed acquisition already unwound. */ }
-        if (!this.closing) {
-            this.closing = provisioning.then(() => this.destroy());
-            provisioning = this.closing.catch(() => {});
-        }
-        await this.closing;
+        await this.destroy();
     }
 
     contains(window) {
@@ -130,19 +126,11 @@ export class VirtualOutput {
                 if (this.fullscreen) this.root.make_fullscreen();
             }
         } catch { /* A closed original window must not keep its output alive. */ }
-        const connector = this.connector;
         this.connector = null;
         if (this.path) {
             const path = this.path;
             this.path = null;
             try { await call(path, SESSION, 'Stop'); } catch { /* Already stopped. */ }
-            // Stop replies before monitor removal is necessarily reflected in
-            // the layout. Wait before another output reuses the same connector,
-            // otherwise discovery mistakes it for a pre-existing monitor.
-            for (let attempt = 0; connector && attempt < 80; attempt++) {
-                if (this.manager.get_monitor_for_connector(connector) < 0) break;
-                await delay(25);
-            }
         }
     }
 }
