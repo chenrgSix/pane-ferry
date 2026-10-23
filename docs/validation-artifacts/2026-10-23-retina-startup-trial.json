@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-23",
+  "purpose": "Verify application-side 2x rendering without stretching a 1x capture or restarting the active Ubuntu desktop",
+  "mac": {
+    "system": "Apple Silicon macOS 27.0.1",
+    "display_logical_points": [1470, 956],
+    "backing_scale": 2,
+    "test_window_content_points": [1470, 815],
+    "client": "PaneFerryWindowHost release build, direct --app launch through the existing paired QUIC connection"
+  },
+  "ubuntu": {
+    "system": "Ubuntu 26.04.1 x86_64, GNOME Wayland",
+    "agent": "existing running Agent; not restarted",
+    "test_app": "org.gnome.TextEditor.desktop",
+    "session": "independent Xvfb display, 4096x2160 pixels at 96 DPI",
+    "application_environment": {
+      "GDK_SCALE": "2",
+      "QT_SCALE_FACTOR": "2"
+    }
+  },
+  "observed": {
+    "received_video_pixels": [2940, 1630],
+    "codec": "H.264",
+    "display": "Aspect-preserving presentation into 1470x815 Mac points; GTK toolbar and inserted text were visible at 2x source density",
+    "input": "Typed test text through the Mac host, then selected and deleted it; the editor title returned to an empty new document",
+    "cleanup": "Closed the test Mac host and stopped only the test editor and its private Xvfb; the original ChatGPT and Agent processes remained alive"
+  },
+  "separate_chatgpt_probe": {
+    "profile": "temporary isolated HOME and profile; original account/profile untouched",
+    "chromium_device_pixel_ratio": 2,
+    "viewport_logical_points": [1470, 809],
+    "received_video_pixels": [2940, 1618],
+    "codec": "H.264"
+  },
+  "limits": [
+    "Existing running applications keep their original scale until they are restarted; the live ChatGPT session was not changed.",
+    "This short trial does not establish sustained frame rate or latency under load.",
+    "Wayland desktop windows already running at 1x were not migrated to a different output."
+  ]
+}
