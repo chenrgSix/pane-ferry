@@ -75,6 +75,8 @@ pub struct SessionInfo {
     pub display: u16,
     pub controlled: bool,
     #[serde(default)]
+    pub window_count: Option<usize>,
+    #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
     pub monitor_id: Option<String>,
@@ -567,6 +569,21 @@ mod tests {
             json!({"session_id":"abc123","backend":"native","display":"101;id"})
         )
         .is_err());
+    }
+    #[test]
+    fn keeps_visible_window_count_for_launch_status() {
+        let session: SessionInfo = serde_json::from_value(json!({
+            "session_id":"starting","app_id":"feishu","backend":"native",
+            "display":149,"controlled":false,"window_count":0
+        }))
+        .unwrap();
+        assert_eq!(session.window_count, Some(0));
+        let ready: SessionInfo = serde_json::from_value(json!({
+            "session_id":"ready","app_id":"feishu","backend":"native",
+            "display":149,"controlled":false,"window_count":1
+        }))
+        .unwrap();
+        assert_eq!(ready.window_count, Some(1));
     }
 }
 

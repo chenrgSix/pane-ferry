@@ -15,3 +15,12 @@ test("terminal session failure permits a new launch; lost replies keep the origi
   assert.equal(failure.message, "会话已结束");
   assert.notEqual(pending.id("app"), id);
 });
+
+test("the remote pending-window code remains distinguishable from a launch failure", () => {
+  const failure = launchFailure({
+    message: "应用尚未产生窗口", retrySameRequest: true, code: "application_window_pending",
+  });
+  assert.equal(failure.code, "application_window_pending");
+  assert.equal(failure.retrySameRequest, true);
+  assert.equal(launchFailure(new Error("offline")).code, undefined);
+});

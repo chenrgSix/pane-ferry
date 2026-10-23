@@ -65,6 +65,12 @@ async function settled(state) {
   }
   assert.fail("launcher did not settle");
 }
+async function waitUntil(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline)
+    await new Promise(resolve => setTimeout(resolve, 25));
+  assert.ok(predicate(), "launcher did not update after automatic startup polling");
+}
 const actions = mounted => mounted.calls.filter(c => c.command === "launch_app" || c.command === "resume_session");
 
 test("actual launcher restores cached apps at mount and only refreshes live metadata on focus", async () => {
@@ -166,6 +172,57 @@ test("automatic startup requests the display density and retries each density wi
     mounted.state.renderScale = "1";
     await mounted.state.launch(target);
     assert.equal(actions(mounted).at(-1).args.requestId, standard.requestId);
+  } finally { mounted.unmount(); }
+});
+
+test("a slow launch shows starting, then becomes connectable without another launch", async () => {
+  let windowCount = 0;
+  let launched = false;
+  const mounted = mount(storage(), {
+    list_sessions: () => launched ? [{ ...session("slow", "firefox", 228), window_count: windowCount }] : [],
+    launch_app: () => {
+      launched = true;
+      throw { message: "应用尚未产生窗口", retrySameRequest: true, code: "application_window_pending" };
+    },
+  });
+  try {
+    await settled(mounted.state);
+    await mounted.state.launch(app);
+    assert.equal(mounted.state.error, "");
+    assert.match(mounted.state.notice, /Firefox启动中/);
+    assert.equal(mounted.state.currentStarting.length, 1);
+    assert.equal(mounted.state.runningConnections.length, 0);
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).filter(call => call.command === "launch_app").length, 1);
+    windowCount = 1;
+    await waitUntil(() => mounted.state.currentStarting.length === 0);
+    assert.equal(mounted.state.currentStarting.length, 0);
+    assert.equal(mounted.state.runningConnections[0].sessionId, "slow");
+    assert.match(mounted.state.notice, /已出现窗口/);
+    assert.ok(mounted.calls.filter(call => call.command === "list_sessions").length >= 3,
+      "the launcher polled the remote session automatically");
+    assert.equal(actions(mounted).filter(call => call.command === "launch_app").length, 1);
+    await mounted.state.connect(mounted.state.runningConnections[0]);
+    assert.equal(actions(mounted).at(-1).command, "resume_session");
+  } finally { mounted.unmount(); }
+});
+
+test("a pending launch whose session exits stops claiming it is still starting", async () => {
+  let present = true;
+  const mounted = mount(storage(), {
+    list_sessions: () => present ? [{ ...session("slow", "firefox", 228), window_count: 0 }] : [],
+    launch_app: () => { throw { message: "等待窗口", retrySameRequest: true, code: "application_window_pending" }; },
+  });
+  try {
+    await settled(mounted.state);
+    await mounted.state.launch(app);
+    present = false;
+    await mounted.state.refresh();
+    await mounted.state.refresh();
+    assert.equal(mounted.state.currentStarting.length, 0);
+    assert.match(mounted.state.error, /会话已结束/);
+    assert.equal(mounted.state.notice, "");
+    assert.equal(mounted.state.isStarting("firefox"), false);
   } finally { mounted.unmount(); }
 });
 

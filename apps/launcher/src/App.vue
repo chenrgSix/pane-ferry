@@ -54,6 +54,8 @@ try {
 } catch {}
 retireLegacyPreferences(storage);
 const attempts = new PendingLaunches(storage);
+type StartingApp = { endpoint: string; appId: string; name: string; requestKey: string; missingReads: number };
+const startingApps = ref<StartingApp[]>([]), launchingAppId = ref<string | null>(null);
 type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}};
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
@@ -131,6 +133,10 @@ const filtered = computed(() =>
 const installed = computed(() => filtered.value.filter(app => app.source === "desktop"));
 const custom = computed(() => filtered.value.filter(app => app.source === "custom"));
 const runningConnections = computed(() => connections(apps.value, desktopWindows.value, sessions.value));
+const currentStarting = computed(() => startingApps.value.filter(item => item.endpoint === signature()));
+const filteredStarting = computed(() => currentStarting.value.filter(item =>
+  item.name.toLowerCase().includes(search.value.toLowerCase())));
+const isStarting = (appId: string) => currentStarting.value.some(item => item.appId === appId);
 const desktopSession = (monitor: DesktopMonitor) => sessions.value.find(
   session => session.mode === "desktop" && session.monitor_id === monitor.id);
 const filteredConnections = computed(() => runningConnections.value.filter(row =>
@@ -141,6 +147,7 @@ const signature = () => endpointKey(endpoint.value),
 let runtimeRevision = 0;
 let focusRead: Promise<void> | undefined;
 let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+let startupTimer: ReturnType<typeof setTimeout> | undefined;
 let recoveryAttempt = 0;
 let disposed = false;
 function stopRetry(reset = true) {
@@ -152,6 +159,44 @@ function retryRuntime() {
   if (disposed || recoveryTimer !== undefined) return;
   const delay = [1000, 2000, 4000, 8000, 15000][Math.min(recoveryAttempt++, 4)];
   recoveryTimer = setTimeout(() => { recoveryTimer = undefined; onFocus(); }, delay);
+}
+function stopStartupPoll() {
+  if (startupTimer !== undefined) clearTimeout(startupTimer);
+  startupTimer = undefined;
+}
+function scheduleStartupPoll() {
+  if (disposed || startupTimer !== undefined || !valid.value || !currentStarting.value.length) return;
+  startupTimer = setTimeout(() => {
+    startupTimer = undefined;
+    if (busy.value || focusRead) scheduleStartupPoll();
+    else void readRuntime();
+  }, 2000);
+}
+function reconcileStarting(sent: Endpoint, remote: SessionInfo[]) {
+  const target = endpointKey(sent);
+  const ready: StartingApp[] = [], ended: StartingApp[] = [];
+  startingApps.value = startingApps.value.flatMap(item => {
+    if (item.endpoint !== target) return [item];
+    const matching = remote.filter(session => session.app_id === item.appId && session.mode !== "desktop");
+    if (matching.some(session => (session.window_count ?? 0) > 0)) {
+      ready.push(item);
+      attempts.resolve(item.requestKey);
+      return [];
+    }
+    if (!matching.length && item.missingReads >= 1) {
+      ended.push(item);
+      attempts.resolve(item.requestKey);
+      return [];
+    }
+    return [{ ...item, missingReads: matching.length ? 0 : item.missingReads + 1 }];
+  });
+  if (ready.length) notice.value = `${ready.map(item => item.name).join("、")}已出现窗口，可在“运行中的窗口”点击连接。`;
+  if (ended.length) {
+    if (!ready.length) notice.value = "";
+    error.value = `${ended.map(item => item.name).join("、")}启动后未产生窗口，会话已结束；可以再次打开。`;
+  }
+  if (currentStarting.value.length) scheduleStartupPoll();
+  else stopStartupPoll();
 }
 const valid = computed(() => validPeerId(endpoint.value.peerId));
 function startupScale(): 1 | 2 {
@@ -173,6 +218,7 @@ try {
 } catch {}
 function restoreCatalog() {
   stopRetry();
+  stopStartupPoll();
   const cached = catalogCache.get(signature());
   apps.value = cached?.apps ?? [];
   connected.value = cached ? signature() : "";
@@ -258,6 +304,8 @@ async function readRuntime(sent = { ...endpoint.value }) {
       notice.value = "连接暂时中断，正在自动重连…"; retryRuntime();
     } else stopRetry();
   }
+  if (running.status === "fulfilled") reconcileStarting(sent, running.value);
+  else scheduleStartupPoll();
 }
 async function refresh() {
   if (busy.value || !valid.value) return;
@@ -275,8 +323,9 @@ function record(name: string, result: Result) {
   save();
 }
 async function launch(app: LaunchTarget) {
-  if (busy.value || !valid.value || app.unavailable_reason) return;
+  if (busy.value || !valid.value || app.unavailable_reason || isStarting(app.id)) return;
   busy.value = true;
+  launchingAppId.value = app.id;
   error.value = "";
   actionConnectionError.value = false;
   notice.value = "";
@@ -294,17 +343,26 @@ async function launch(app: LaunchTarget) {
       iconPng: app.icon_png ?? null,
     });
     attempts.resolve(key);
+    startingApps.value = startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id);
     if (signature() === endpointKey(sent)) record(app.name, result);
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
     if (signature() === endpointKey(sent)) {
       actionConnectionError.value = isConnectionFailure(e);
-      error.value = failure.message + (failure.retrySameRequest
-        ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
+      if (failure.code === "application_window_pending") {
+        startingApps.value = [...startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id),
+          { endpoint: endpointKey(sent), appId: app.id, name: app.name, requestKey: key, missingReads: 0 }];
+        notice.value = `${app.name}启动中，正在等待应用窗口；窗口出现后会自动显示连接入口。`;
+      } else {
+        if (!failure.retrySameRequest) startingApps.value = startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id);
+        error.value = failure.message + (failure.retrySameRequest
+          ? " 可先刷新运行状态；再次点击会安全重试同一次启动。" : "");
+      }
     }
   } finally {
     await readRuntime(sent);
+    launchingAppId.value = null;
     busy.value = false;
   }
 }
@@ -391,7 +449,7 @@ onMounted(() => {
   localTimer=setInterval(()=> {void readLocal(); void readNetwork();},5000);
 });
 onUnmounted(() => {
-  disposed = true; runtimeRevision++; stopRetry();
+  disposed = true; runtimeRevision++; stopRetry(); stopStartupPoll();
   if(localTimer) clearInterval(localTimer);
   if(inviteTimer) clearTimeout(inviteTimer);
   window.removeEventListener("focus", onFocus);
@@ -475,15 +533,26 @@ onUnmounted(() => {
             <button v-if="!valid" class="primary-action" @click="activePage = 'devices'">{{ nativePeers.length ? "选择设备" : "配对第一台设备" }}</button>
           </div>
           <div v-else-if="installed.length" class="app-grid">
-            <button v-for="app in installed" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)" @click="launch(app)">
+            <button v-for="app in installed" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason) || isStarting(app.id)" @click="launch(app)">
               <AppIcon :icon="app.icon_png" :name="app.name" />
               <strong>{{ app.name }}</strong>
               <p :title="app.unavailable_reason || app.description">{{ app.unavailable_reason || app.description }}</p>
-              <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : "打开应用 ↗" }}</span>
+              <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : isStarting(app.id) || launchingAppId === app.id ? "启动中…" : "打开应用 ↗" }}</span>
             </button>
           </div>
           <p v-else class="empty search-empty">没有匹配的应用，试试其他关键词。</p>
           <p v-if="apps.length && !catalogCurrent" class="hint">设备已改变，请刷新当前设备的应用。</p>
+        </section>
+        <section v-if="currentStarting.length" class="catalog desktop-windows" aria-live="polite">
+          <div class="section-title"><h2>启动中的应用 <span class="count">{{ currentStarting.length }}</span></h2><button :disabled="busy" @click="refresh">检查状态</button></div>
+          <p class="hint">应用进程仍在等待窗口；这里会自动更新，无需重复启动。</p>
+          <p v-if="!filteredStarting.length" class="hint">没有匹配的应用。</p>
+          <div v-for="item in filteredStarting" :key="item.endpoint + item.appId" class="desktop-window-row">
+            <AppIcon :icon="apps.find(app => app.id === item.appId)?.icon_png" :name="item.name" />
+            <div class="window-label"><strong>{{ item.name }}</strong><p>正在等待应用创建窗口</p></div>
+            <span class="window-state">启动中</span>
+            <button disabled>启动中</button>
+          </div>
         </section>
         <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
           <div class="section-title">
@@ -505,10 +574,10 @@ onUnmounted(() => {
         <section v-if="custom.length" class="catalog">
           <div class="section-title"><h2>自定义入口 <span class="count">{{ custom.length }}</span></h2></div>
           <div class="app-grid">
-            <button v-for="app in custom" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason)" @click="launch(app)">
+            <button v-for="app in custom" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason) || isStarting(app.id)" @click="launch(app)">
               <AppIcon :icon="app.icon_png" :name="app.name" /><strong>{{ app.name }}</strong>
               <p :title="app.unavailable_reason || app.description || app.id">{{ app.unavailable_reason || app.description || app.id }}</p>
-              <span class="launch-label">{{ app.unavailable_reason ? "入口不可用" : "打开应用 ↗" }}</span>
+              <span class="launch-label">{{ app.unavailable_reason ? "入口不可用" : isStarting(app.id) || launchingAppId === app.id ? "启动中…" : "打开应用 ↗" }}</span>
             </button>
           </div>
         </section>

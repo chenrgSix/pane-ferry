@@ -54,13 +54,19 @@ struct LaunchFailure {
     kind: &'static str,
     message: String,
     retry_same_request: bool,
+    code: Option<String>,
 }
 impl From<transport::Error> for LaunchFailure {
     fn from(error: transport::Error) -> Self {
+        let code = match &error {
+            transport::Error::Remote(code) => Some(code.clone()),
+            _ => None,
+        };
         Self {
             kind: error.kind(),
             message: error.to_string(),
             retry_same_request: error.retry_same_request(),
+            code,
         }
     }
 }
@@ -252,6 +258,7 @@ async fn launch_app(
                 kind: "client",
                 message,
                 retry_same_request: false,
+                code: None,
             }
         })?;
     // The UI resolves auto against its current display before assigning the
@@ -270,6 +277,7 @@ async fn launch_app(
                 kind: "client",
                 message,
                 retry_same_request: true,
+                code: None,
             }
         })?;
     Ok(LaunchResult {
@@ -296,10 +304,10 @@ async fn start_desktop(
     transport::validate_id(&request_id)?;
     let name = format!("Ubuntu 桌面 · {}", monitor_name.chars().take(80).collect::<String>());
     let path = named_native_host(&app, &endpoint, &format!("screen-{monitor_id}"), Some(&name))
-        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: false })?;
+        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: false, code: None })?;
     let session = transport::start_desktop(&network::target(&app, &endpoint)?, &monitor_id, &request_id).await?;
     let pid = spawn_host(&app, path, &endpoint, &session.session_id, None)
-        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: true })?;
+        .map_err(|message| LaunchFailure { kind: "client", message, retry_same_request: true, code: None })?;
     Ok(LaunchResult { session_id: Some(session.session_id), display: Some(session.display), pid,
         message: "已连接当前登录的桌面；关闭本机窗口只会断开连接。".into() })
 }
