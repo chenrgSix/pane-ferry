@@ -166,6 +166,23 @@ export default class PaneFerry extends Extension {
                                 width = wanted.width + rect.width - client.width;
                                 height = wanted.height + rect.height - client.height;
                             }
+                            // Mutter can publish the new capture crop before a
+                            // Wayland client has painted the enlarged buffer.
+                            // Prime each private output with one distinct
+                            // configure; a repeated identical size is ignored.
+                            const output = lease.output;
+                            lease.primedWindows ??= new Map();
+                            const windowId = w.get_stable_sequence();
+                            if (w.get_client_type() === Meta.WindowClientType.WAYLAND &&
+                                output && lease.primedWindows.get(windowId) !== output) {
+                                w.move_resize_frame(true, rect.x, rect.y,
+                                    width > 1 ? width - 1 : width + 1,
+                                    height > 1 ? height - 1 : height + 1);
+                                await delay(250);
+                                if (this.leases.get(r.token) !== lease || lease.output !== output ||
+                                    !this.windows().includes(w)) throw new Error('window_unavailable');
+                                lease.primedWindows.set(windowId, output);
+                            }
                             w.move_resize_frame(true, rect.x, rect.y, width, height);
                             result = this.describe(w);
                         } else if (r.op === 'locate_x11') {

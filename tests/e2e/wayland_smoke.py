@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Opt-in: private D-Bus, headless GNOME, Xvfb keymap and native GTK fixture.
-Never replaces the logged-in compositor, opens Firefox, or changes desktop settings.
+Never replaces the logged-in compositor or changes its desktop settings.
 """
 import argparse
 from contextlib import ExitStack
@@ -28,6 +28,10 @@ p.add_argument('--with-xwayland', action='store_true')
 p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
 p.add_argument('--logical-wayland-scale', type=int, choices=(1, 2), default=1,
                help='source scale to request for the logical-size fixture')
+p.add_argument('--isolated-app', choices=('text-editor',),
+               help='launch an installed app with temporary state in the private compositor')
+p.add_argument('--app-artifact-dir', type=Path,
+               help='write only isolated-app frames to this existing directory')
 p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
@@ -42,6 +46,8 @@ if not a.private_bus:
         raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
             *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
             '--logical-wayland-scale', str(a.logical_wayland_scale),
+            *(['--isolated-app', a.isolated_app] if a.isolated_app else []),
+            *(['--app-artifact-dir', str(a.app_artifact_dir.resolve())] if a.app_artifact_dir else []),
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])]))
 root = Path(__file__).resolve().parents[2]
@@ -159,6 +165,11 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.isolated_app:
+                    from isolated_app_test import verify
+                    verify(peer, sock, env, t, log, start, wait, Peer, Bridge, monitor_layout,
+                           a.isolated_app, a.logical_wayland_scale, a.app_artifact_dir)
+                    raise SystemExit(0)
                 if a.window_lifecycle_only:
                     from window_lifecycle_test import verify
                     verify(env, app, state, fixture, t, log, start, wait, Bridge, monitor_layout, shell)
