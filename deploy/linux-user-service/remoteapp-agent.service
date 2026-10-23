@@ -1,7 +1,6 @@
 [Unit]
 # Keep the unit identity stable when upgrading existing PaneFerry installations.
 Description=窗渡 PaneFerry user agent
-After=default.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/paneferry-agent serve
