@@ -435,3 +435,16 @@ Mac 完整 `scripts/check.sh` 通过：Rust 44 项通过、4 项忽略，前端 
 已在 Ubuntu 写入同名持久单元 `/etc/systemd/system/easytier-recovery.service` 和开机依赖链接；配置原样复制到 `/etc/easytier/recovery/network.toml`，仅 root 可读写（0600），目录 0700，网络密钥未输出或写入仓库。持久单元等待 `network-online.target`，使用原二进制和网络配置，退出后每 5 秒重试。没有启动第二份相同网络、没有重启现有服务或注销桌面。`systemd-analyze verify` 通过，排除临时目录的开机单元检查返回 `enabled`，当前 EasyTier PID 2900526 保持且为 active。运行中的临时单元仍承载当前连接，持久单元供下次开机使用。
 
 此次仅验证持久配置、开机依赖和当前连接保留；尚未重启验收，也未验证 RustDesk 在登录界面的实际控制能力。此项不改变 PaneFerry 新版暂缓激活的决定。
+
+
+## 2026-10-23：按用户要求回滚，Ubuntu 运行会话暂缓切换
+
+用户要求恢复到“那就按统一方案改，覆盖 Wayland 和 Xwayland…”这条指令时的状态，随后明确选择“还有任务运行，先保留 Ubuntu 会话”。因此本轮仅完成代码与 Mac 运行程序回滚，**整套回滚尚未完成**。
+
+代码通过提交 2fd332f 撤销 9b79da8..ca3ded1，提交后的树与统一 DPI 改造前 9b79da8 完全相同；这条记录另行提交，不属于原代码。原改动和证据仍在 Git 历史与 codex/pre-unified-rollback-20261023 备份分支，没有强制重置或覆盖用户未提交工作。VPN 持久化记录位于目标之前，保留。
+
+Mac 已从 dist/activation-backup-20261023-100931/窗渡 PaneFerry.app 恢复到原活动路径并启动，使用当时实际运行的包，没有激活当时另行暂存的 Retina/input 包。旧备份缺少完整外层资源封印，恢复后续签外层 ad-hoc 签名；签名会改变 Mach-O 签名/链接元数据，不能直接把原始文件 SHA 当作签后相等。已核对签名前四个组件与旧包一致、签后启动器 15 个有文件数据的 Mach-O 代码/数据 section 全部相同、网络与 WindowHost/Node 全文件 SHA 不变，外层深度/严格验签通过。没有为了通过验证编写新产品修复。回滚前的新运行包也已备份。
+
+Ubuntu 没有替换已安装文件、重启服务或注销；Agent 仍是新版 da9c08…，窗口桥仍报告版本4。Agent1007878、网络995120、GNOME998690、飞书1034686、ChatGPT1002994、EasyTier2900526、RustDesk52713 的 PID 与内核启动时间未变，账号目录未修改。Mac Node15189 保留。整机未重启。用户保存任务并安排一次桌面重新登录后，仍需恢复 Ubuntu 旧服务/窗口桥，不能把当前混合运行状态称为整套回滚完成。
+
+回滚源码的 scripts/check.sh 通过，170.96 秒：Rust49通过/5忽略、前端24通过，以及 Swift/AppKit 和隔离真实 QUIC/视频/二进制传输。恢复的 Mac 网络组件与未切换的 Ubuntu 真实 QUIC 握手、52项应用、窗口、会话列表可读，配对身份保留。本轮未操作真实应用做画面或长期稳定性验收，未据此宣布闪退已解决。校验、日志、备份与未完成范围见[回滚记录](validation-artifacts/2026-10-23-rollback.json)。

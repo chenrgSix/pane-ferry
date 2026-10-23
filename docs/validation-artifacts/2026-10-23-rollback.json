@@ -1,0 +1,137 @@
+{
+  "target_source_commit": "9b79da8cfacf47f625697b5ee2e8a118387a9b34",
+  "source_tree_matches_target": true,
+  "runtime": "pre-activation compiled backup, not the staged Retina/input package",
+  "active_app": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+  "backup_before_rollback": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/before-rollback-20261023-104335/窗渡 PaneFerry.app",
+  "backup_source": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/activation-backup-20261023-100931/窗渡 PaneFerry.app",
+  "original_component_sha256": {
+    "Contents/MacOS/paneferry-launcher": "cdb262347cf3e6af16c9bc629c4dd39504f0f7ef89956c4298d63ecce2c3ee3a",
+    "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+    "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "f6ac4c97215161a402aa865f2fd41cf7729948dc2061f22e8ffd133534269c18",
+    "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+  },
+  "active_component_sha256": {
+    "Contents/MacOS/paneferry-launcher": "9bda3a33129411da261b416734e1a2dc8c27e1683f7b17922841f1a48726232e",
+    "Contents/Resources/paneferry-network": "73270d34b819f33c132fa7122ea496e6c675f27b0790d5c4e945d7f5caff1002",
+    "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "f6ac4c97215161a402aa865f2fd41cf7729948dc2061f22e8ffd133534269c18",
+    "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "ee5ba0f930a774c7ca9e825864763ec7f90fa2cca7962700c6f88315ad2508d0"
+  },
+  "launcher_file_backed_macho_sections_unchanged": {
+    "__TEXT/__text": "f75195b5d2ca93a6c58015ebd7378c746c3a2607244ba1ab69885ef69b4586c6",
+    "__TEXT/__text_startup": "5cf41d0e597c36a92bc5a0b871d45a313e2cecdb13bf5ee87e933f54c9aaa54a",
+    "__TEXT/__stubs": "5a93d54761b696b3eaec9b63c5a30587e90bba1a08dfe7558e30de1d381173f4",
+    "__TEXT/__init_offsets": "a7164e4471688d4f1fc0a6ccc18655ef94d5d2c13e8fa0882a6a521f9be8a19d",
+    "__TEXT/__gcc_except_tab": "33736637ec6b65fa01a742f4d490fde54defdb8d73ae47eb7f9b0b5c87d1976b",
+    "__TEXT/__const": "79d4a3e264ef23fe8595e00745e1f9bcf37e959c6cd1f39ae3d0d1eaad8e797b",
+    "__TEXT/__cstring": "f10c71f27ab989bea15b994eba907c7a8d19dcb7e764ae9af26fb6a599b06589",
+    "__TEXT/__unwind_info": "2b9d0ee9a8abbabdb545e25b2af3eff083db8ca3272124374238903e0a875382",
+    "__TEXT/__eh_frame": "e2cab81ae9c092a5fbe3a9ad000b49c6d0e79549d4f00b4d39e962742b972d2a",
+    "__DATA_CONST/__const": "617e9aa43767fd43fbe82ad881a8b4f6ad373075eeb9243718d0882ba52f74f8",
+    "__DATA_CONST/__objc_imageinfo": "94039884329d3732c577860f40d0dfdf883ff89dac332f87216e692c08892fa2",
+    "__DATA_CONST/__got": "402196dd023c72a67be3f125a89990b42b3af832b331e3ab25645210404185a3",
+    "__DATA/__data": "7a63eba8a21bdf5b732a59b98b261ed822ad131ce70cf718710618dfa45ded75",
+    "__DATA/__thread_vars": "3eb6edd962e3508668f234fb94046cf592243302c68645bb60603d4f6ece8b54",
+    "__DATA/__thread_data": "3a33ad708d05f1861b37727ba14351ddbaa5570fa8b5273198bb4e627898cc5f"
+  },
+  "packaging": "old backup lacked an outer resource seal; renewed only outer ad-hoc signature. Signature-stripped full-byte comparison differs in Mach-O signing metadata; every file-backed section is identical and helper full-file hashes are unchanged.",
+  "node_retained": 15189,
+  "ubuntu": "not modified or restarted; user has active work",
+  "status": "Mac old runtime active; Ubuntu rollback deferred by user",
+  "rollback_commit": "2fd332ffb1cd4b69871a2a5a242b635ca38856de",
+  "recovery_branch": "codex/pre-unified-rollback-20261023",
+  "verification": {
+    "project_check": {
+      "exit": 0,
+      "seconds": 170.96,
+      "rust_passed": 49,
+      "rust_ignored": 5,
+      "frontend": "24 passed",
+      "limits": "local/isolation checks; not real remote app stability or visual acceptance"
+    },
+    "post_rollback_quic_readonly": {
+      "hello": {
+        "type": "hello",
+        "count": 0,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "app.list": {
+        "type": "app.list",
+        "count": 52,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "window.list": {
+        "type": "window.list",
+        "count": 8,
+        "discovery_error": null,
+        "unavailable_reason": null
+      },
+      "session.list": {
+        "type": "session.list",
+        "count": 4,
+        "discovery_error": null,
+        "unavailable_reason": null
+      }
+    },
+    "paired_device_id": "5036c985-9a8e-4706-afa5-91f2409b05f7",
+    "paired_connected": true
+  },
+  "user_constraint": "还有任务运行，先保留 Ubuntu 会话；因此不重启 Agent，不替换远端已安装文件，不注销桌面。",
+  "ubuntu_verified": {
+    "agent_sha256": "da9c08de334a5f7ee6e0a8448f052ea989889e777f4220c051720c49fcd78e21",
+    "bridge_versions": [
+      4
+    ],
+    "processes": {
+      "1007878": [
+        "paneferry-agent",
+        "34486424"
+      ],
+      "995120": [
+        "paneferry-network",
+        "34479807"
+      ],
+      "998690": [
+        "gnome-shell",
+        "34481110"
+      ],
+      "1034686": [
+        "feishu",
+        "34535598"
+      ],
+      "1002994": [
+        "ChatGPT",
+        "34482010"
+      ],
+      "2900526": [
+        "easytier",
+        "29782254"
+      ],
+      "52713": [
+        "rustdesk",
+        "3765602"
+      ]
+    }
+  },
+  "rollback_complete": false,
+  "completed_scope": [
+    "所有源代码恢复到 9b79da8；以反向提交保留历史",
+    "Mac 恢复用户引用阶段实际运行的旧备份，重新启动旧启动器/网络；Node字节相同且原进程保留"
+  ],
+  "remaining_scope": [
+    "Ubuntu Agent、Linux客户端与GNOME窗口桥的实际安装版本仍为新版；保存运行任务并安排桌面重新登录后才能完成整套回滚"
+  ],
+  "limits": [
+    "不将源码/构建通过或应用列表可读当作真实应用不再闪退。",
+    "未重新连接或操作当前 Firefox、ChatGPT、飞书来进行视觉或长期稳定性验收。",
+    "原诊断发现命名窗口入口缺少完整资源封印，但可直接执行；用户要求回滚后停止定位，不将其宣布为闪退根因。",
+    "源代码目标包含之前已提交但尚未激活的 Retina/输入工作；实际 Mac 运行版本用的是当时已经运行的备份。"
+  ],
+  "project_check_log": {
+    "sha256": "9235c859ba584c5196acb6ab018e2120f2264770947b486ef2d5a46d8fdcff37",
+    "bytes": 17925,
+    "archive": "docs/validation-artifacts/2026-10-23-rollback-check.log.gz"
+  }
+}
