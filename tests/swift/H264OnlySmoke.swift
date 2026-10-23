@@ -11,12 +11,6 @@ struct H264OnlySmoke {
             do { _ = try Options.parse(args + ["--quality", deprecated]); preconditionFailure("obsolete quality option accepted") }
             catch HostError.message { }
         }
-        let savedRate = UserDefaults.standard.object(forKey: "videoMaxFPS")
-        UserDefaults.standard.set(60, forKey: "videoMaxFPS")
-        defer {
-            if let savedRate { UserDefaults.standard.set(savedRate, forKey: "videoMaxFPS") }
-            else { UserDefaults.standard.removeObject(forKey: "videoMaxFPS") }
-        }
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
         let app = AppDelegate(options: options, clipboard: board)
         var sent: [[String: Any]] = []
@@ -29,10 +23,15 @@ struct H264OnlySmoke {
         let adaptive = AppDelegate(options: options, clipboard: board)
         var adaptiveSent: [[String: Any]] = []
         adaptive.wireSink = { adaptiveSent.append($0) }
-        adaptive.receive(Incoming(object:["type":"hello", "capabilities":["native.h264", "video.qos"]], image:nil))
-        precondition(adaptiveSent[0]["max_fps"] as? Int == 60 && adaptiveSent[0]["feedback"] as? Bool == true)
-        adaptive.setVideoFPS(90)
-        precondition(adaptiveSent.last?["type"] as? String == "video.configure" && adaptiveSent.last?["max_fps"] as? Int == 90)
+        adaptive.receive(Incoming(object:["type":"hello", "capabilities":["native.h264", "video.qos"], "video_max_fps":75], image:nil))
+        precondition(adaptiveSent[0]["max_fps"] as? Int == adaptive.videoFPS && adaptive.videoFPS <= 75
+                     && adaptiveSent[0]["feedback"] as? Bool == true)
+        adaptive.refreshVideoFPS(displayRefresh: 120)
+        precondition(adaptiveSent.last?["type"] as? String == "video.configure" && adaptiveSent.last?["max_fps"] as? Int == 75)
+        adaptive.refreshVideoFPS(displayRefresh: 50)
+        precondition(adaptiveSent.last?["max_fps"] as? Int == 50)
+        precondition(automaticVideoFPS(displayHz: 0) == 60 && automaticVideoFPS(displayHz: 120) == 90)
+        precondition(automaticVideoFPS(displayHz: 144, publisherMax: 75) == 75)
         adaptive.pendingVideoFeedbackID = 41
         adaptive.clipboardBusy = true
         adaptive.pump()
@@ -44,6 +43,6 @@ struct H264OnlySmoke {
         adaptive.lastVideoFeedback = ProcessInfo.processInfo.systemUptime - 0.1
         adaptive.pump()
         precondition(adaptiveSent.last?["frame_id"] as? UInt64 == 42, "the final still frame must be acknowledged")
-        print("PASS: H.264-only legacy negotiation, default 60/optional 90 fps, and idle-frame feedback")
+        print("PASS: H.264-only legacy negotiation, automatic display/publisher frame limits, and idle-frame feedback")
     }
 }

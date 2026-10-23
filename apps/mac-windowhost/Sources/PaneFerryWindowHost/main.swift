@@ -5,6 +5,11 @@ import Network
 // RWP/1 developer preview. Rendering is CoreGraphics/NSView, not Metal.
 let maximumLine = 16 * 1024 * 1024
 let maximumPixels = 8_000_000
+let maximumVideoFPS = 90
+func automaticVideoFPS(displayHz: Int, publisherMax: Int = maximumVideoFPS) -> Int {
+    let refresh = displayHz > 0 ? displayHz : 60
+    return min(refresh, max(1, min(publisherMax, maximumVideoFPS)))
+}
 func unsignedInteger(_ value: Any?) -> UInt64? {
     guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
     let string = number.stringValue
@@ -232,8 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let launchRequestID = UUID().uuidString
     var poll: Timer?
     var statusItem: NSStatusItem?
+    var rateMenuItem: NSMenuItem?
     var capabilities = Set<String>()
-    var videoFPS = UserDefaults.standard.integer(forKey: "videoMaxFPS") == 90 ? 90 : 60
+    var videoFPS = 60
+    var displayHz = 60
+    var publisherMaxVideoFPS = maximumVideoFPS
     var lastVideoFeedback: TimeInterval = 0
     var pendingVideoFeedbackID: UInt64?
     let controllerClipboard: NSPasteboard
@@ -275,13 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
-        let rateItem = NSMenuItem(title: "帧率上限", action: nil, keyEquivalent: "")
-        let rateMenu = NSMenu(title: "帧率上限")
-        let fps60 = rateMenu.addItem(withTitle: "60 fps（默认）", action: #selector(use60FPS), keyEquivalent: "")
-        fps60.target = self
-        let fps90 = rateMenu.addItem(withTitle: "90 fps", action: #selector(use90FPS), keyEquivalent: "")
-        fps90.target = self
-        rateItem.submenu = rateMenu; displayMenu.addItem(rateItem)
+        let rateItem = NSMenuItem(title: "帧率：自动", action: nil, keyEquivalent: "")
+        rateItem.isEnabled = false; rateMenuItem = rateItem; displayMenu.addItem(rateItem)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         startConnection()
@@ -296,20 +299,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         monitor.start(queue: DispatchQueue(label: "paneferry.network"))
+        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
+                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示，默认上限 60 fps，可选 90 fps。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，沿用远端已有缩放；收到的 H.264 画面等比显示。帧率按本机显示器与远端能力自动协商，协议最高 90 fps，并随画面反馈调整。新应用默认使用 100% 启动缩放。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
-    @objc func use60FPS() { setVideoFPS(60) }
-    @objc func use90FPS() { setVideoFPS(90) }
-    func setVideoFPS(_ fps: Int) {
-        guard fps == 60 || fps == 90 else { return }
-        videoFPS = fps
-        UserDefaults.standard.set(fps, forKey: "videoMaxFPS")
-        if ready && capabilities.contains("video.qos") {
-            send(["type": "video.configure", "max_fps": fps])
-        }
+    @objc func screenParametersChanged(_ notification: Notification) { refreshVideoFPS() }
+    func updateRateMenu() {
+        rateMenuItem?.title = !ready ? "帧率：自动协商中" : capabilities.contains("video.qos")
+            ? "帧率：自动 · 屏幕 \(displayHz) Hz · 上限 \(videoFPS) fps"
+            : "帧率：远端固定 60 fps"
+    }
+    func refreshVideoFPS(displayRefresh: Int? = nil) {
+        let screens = windows.values.filter { $0.remoteVisible }.compactMap { $0.window.screen }
+        let refresh = displayRefresh ?? (screens.isEmpty ? NSScreen.main?.maximumFramesPerSecond : screens.map(\.maximumFramesPerSecond).max()) ?? 60
+        displayHz = refresh > 0 ? refresh : 60
+        let selected = automaticVideoFPS(displayHz: displayHz, publisherMax: publisherMaxVideoFPS)
+        updateRateMenu()
+        guard selected != videoFPS else { return }
+        videoFPS = selected
+        updateRateMenu()
+        if ready && capabilities.contains("video.qos") { send(["type": "video.configure", "max_fps": selected]) }
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -320,11 +332,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
             return activeHost() != nil
-        }
-        if menuItem.action == #selector(use60FPS) || menuItem.action == #selector(use90FPS) {
-            let fps = capabilities.contains("video.qos") ? videoFPS : 60
-            menuItem.state = fps == (menuItem.action == #selector(use90FPS) ? 90 : 60) ? .on : .off
-            return capabilities.contains("video.qos")
         }
         return true
     }
@@ -372,6 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !stopping else { return }
         reconnectTimer?.invalidate(); reconnectTimer = nil
         transport = makeTransport(); connected = true; ready = false; lastSequence = 0; capabilities.removeAll()
+        publisherMaxVideoFPS = maximumVideoFPS
+        updateRateMenu()
         lastVideoFeedback = 0; pendingVideoFeedbackID = nil
         do {
             try transport.start(options)
@@ -495,12 +504,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let object = incoming.object
         guard let type = object["type"] as? String else { return }
         if type == "hello" {
-            guard !ready else { return }; ready = true
+            guard !ready else { return }
             capabilities = Set(object["capabilities"] as? [String] ?? [])
             guard capabilities.contains("native.h264") else {
                 stopRecovery(); alert("远端不支持 H.264 视频，无法连接该窗口。")
                 return
             }
+            if let limit = unsignedInteger(object["video_max_fps"]), (1...UInt64(maximumVideoFPS)).contains(limit) {
+                publisherMaxVideoFPS = Int(limit)
+            }
+            refreshVideoFPS()
+            ready = true
+            updateRateMenu()
             var enable: [String: Any] = ["type":"video.enable", "codec":"h264"]
             if capabilities.contains("video.qos") {
                 enable["max_fps"] = videoFPS
@@ -656,6 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "window.metadata": updateWindow(object, create: false); attachParents()
         case "window.destroyed":
             windows.removeValue(forKey: id)?.closeLocally(); parents.removeValue(forKey: id); removed.insert(id)
+            refreshVideoFPS()
         case "frame":
             guard !removed.contains(id), let host = windows[id], let image = incoming.image,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
@@ -687,6 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             windows[id] = host
             host.inputNotice = desktopInputNotice
+            host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
         }
         guard let host = windows[id], rev >= host.revision else { return }
         host.surface.transmit = { [weak self] in self?.send($0) }
@@ -704,6 +721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             host.remoteVisible = visible
             if visible { host.window.makeKeyAndOrderFront(nil) }
             else { host.surface.releaseInput(); host.window.orderOut(nil) }
+            refreshVideoFPS()
         }
         if justCreated, visible, object["role"] as? String == "toplevel" {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
@@ -736,7 +754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         return .terminateLater
     }
-    func applicationWillTerminate(_ notification: Notification) { stopping = true; networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
+    func applicationWillTerminate(_ notification: Notification) { stopping = true; NotificationCenter.default.removeObserver(self); networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
 }
 
 // WINDOWHOST_ENTRYPOINT

@@ -71,6 +71,8 @@ class Wire:
         if hello.get('type') != 'hello':
             raise ValueError('invalid_hello')
         self.capabilities = hello.get('capabilities', [])
+        advertised = hello.get('video_max_fps')
+        self.video_max_fps = advertised if type(advertised) is int and 1 <= advertised <= 90 else 90
 
     def send(self, **value):
         data = json.dumps(dict(value, version=1), ensure_ascii=False, separators=(',', ':')).encode() + b'\n'

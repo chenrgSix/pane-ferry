@@ -16,6 +16,12 @@ from wire import Wire, message
 Gst.init(None)
 
 
+def automatic_video_fps(refresh_millihz, publisher_max=90):
+    refresh = refresh_millihz if type(refresh_millihz) is int and refresh_millihz > 0 else 60_000
+    limit = publisher_max if type(publisher_max) is int and 1 <= publisher_max <= 90 else 90
+    return min(max(1, round(refresh / 1000)), limit)
+
+
 def bounds(width, height):
     return type(width) is int and type(height) is int and 0 < width <= 4096 and 0 < height <= 4096 and width * height <= 8_000_000
 
@@ -158,7 +164,8 @@ class Viewer:
         self.display_lock = threading.Lock(); self.pending_image = None; self.display_scheduled = False
         self.presented_frame_id = None
         if owner is None:
-            self.max_fps = 60; self.qos_supported = False
+            self.max_fps = 60; self.configured_fps = None; self.qos_supported = False
+            self.publisher_max_fps = 90; self.refresh_millihz = 0; self.monitor_timer = None
             self.pending_feedback = None; self.feedback_timer = None; self.last_feedback_at = 0
             self.last_feedback_id = 0
         self.copy_request = None; self.waiting_paste = False; self.resize_timer = None
@@ -170,13 +177,10 @@ class Viewer:
         self.notice = Gtk.Label(label='正在连接 ' + name)
         self.view = Gtk.DrawingArea(); self.view.set_can_focus(True)
         self.box.pack_start(self.notice, False, False, 0)
-        self.rate_selector = None
+        self.rate_label = None
         if owner is None:
-            self.rate_selector = Gtk.ComboBoxText()
-            self.rate_selector.append('60', '60 fps（默认）'); self.rate_selector.append('90', '90 fps')
-            self.rate_selector.set_active_id('60'); self.rate_selector.set_sensitive(False)
-            self.rate_selector.connect('changed', self.rate_changed)
-            self.box.pack_start(self.rate_selector, False, False, 0)
+            self.rate_label = Gtk.Label(label='帧率：自动协商中')
+            self.box.pack_start(self.rate_label, False, False, 0)
         self.box.pack_start(self.view, True, True, 0)
         self.window.add(self.box)
         self.pixels = None; self.preedit = ''; self.anchor = (30, 30)
@@ -197,8 +201,12 @@ class Viewer:
         self.view.connect('focus-in-event', lambda *args: self.im.focus_in() or self.send(type='window.focus'))
         self.view.connect('focus-out-event', self.focus_out)
         self.window.connect('delete-event', self.close)
+        if owner is None:
+            self.window.connect('configure-event', lambda *_: self.refresh_video_rate() and False)
         self.window.show_all(); self.view.grab_focus()
         if owner is None:
+            self.refresh_video_rate()
+            self.monitor_timer = GLib.timeout_add_seconds(2, self.refresh_video_rate)
             threading.Thread(target=self.run, daemon=True).start()
 
     def preedit_changed(self, context):
@@ -242,13 +250,28 @@ class Viewer:
             self.notice.set_text(text)
         return False
 
-    def rate_changed(self, selector):
-        if not self.qos_supported or self.closed.is_set(): return
-        rate = int(selector.get_active_id() or 60)
-        if rate == self.max_fps: return
-        self.max_fps = rate
-        try: self.outbound.put_nowait((self.epoch, dict(type='video.configure', max_fps=rate)))
-        except queue.Full: self.status('帧率切换未发送，请稍后重选')
+    def refresh_video_rate(self, refresh_millihz=None):
+        if self.closed.is_set(): return False
+        if refresh_millihz is None:
+            try:
+                native = self.window.get_window()
+                monitor = native.get_display().get_monitor_at_window(native)
+                refresh_millihz = monitor.get_refresh_rate() if monitor else 0
+            except (AttributeError, GLib.Error):
+                refresh_millihz = 0
+        self.refresh_millihz = refresh_millihz
+        selected = automatic_video_fps(refresh_millihz, self.publisher_max_fps)
+        self.max_fps = selected
+        if self.qos_supported:
+            shown_hz = round(refresh_millihz / 1000) if refresh_millihz > 0 else 60
+            self.rate_label.set_text(f'帧率：自动 · 屏幕 {shown_hz} Hz · 上限 {selected} fps')
+            if self.ready and selected != self.configured_fps:
+                try: self.outbound.put_nowait((self.epoch, dict(type='video.configure', max_fps=selected)))
+                except queue.Full: self.status('帧率自动调整未发送，正在重试')
+                else: self.configured_fps = selected
+        else:
+            self.rate_label.set_text('帧率：远端固定 60 fps' if self.ready else '帧率：自动协商中')
+        return True
 
     def feedback(self, frame_id):
         if not self.qos_supported or self.closed.is_set() or frame_id <= self.last_feedback_id: return
@@ -352,7 +375,8 @@ class Viewer:
 
     def invalidate(self, text):
         self.qos_supported = False
-        if self.rate_selector: self.rate_selector.set_sensitive(False)
+        if self is self.owner: self.configured_fps = None
+        if self.rate_label: self.rate_label.set_text('帧率：重新协商中')
         if self.feedback_timer is not None:
             GLib.source_remove(self.feedback_timer); self.feedback_timer = None
         self.pending_feedback = None; self.last_feedback_id = 0
@@ -468,10 +492,14 @@ class Viewer:
                 if 'input.key.logical' not in wire.capabilities or 'native.h264' not in wire.capabilities:
                     raise ValueError('protocol_error')
                 self.qos_supported = 'video.qos' in wire.capabilities
+                self.publisher_max_fps = wire.video_max_fps
+                self.max_fps = automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
                 if self.qos_supported:
                     wire.send(type='video.enable', codec='h264', max_fps=self.max_fps, feedback=True)
+                    self.configured_fps = self.max_fps
                 else:
                     wire.send(type='video.enable', codec='h264')
+                    self.configured_fps = None
                 wire.until('video.ready')
                 if not self.session_id:
                     wire.send(type='app.launch', app_id=self.app_id, request_id=self.request_id, backend='native', attach=False)
@@ -483,7 +511,7 @@ class Viewer:
                 catalog = self.validate_windows(snapshot['windows'])
                 if retired.intersection(catalog): raise ValueError('protocol_error')
                 self.on_ui(self.apply_members, catalog, epoch)
-                self.on_ui(self.rate_selector.set_sensitive, self.qos_supported)
+                self.on_ui(self.refresh_video_rate)
                 attempt = 0
                 def send_loop(wire=wire, sender_stop=sender_stop):
                     while not sender_stop.is_set() and not self.closed.is_set():
@@ -576,6 +604,8 @@ class Viewer:
 
     def destroy_local(self):
         self.ready = False; self.closed.set(); self.frame_token = None; self.destroyed = True
+        if self is self.owner and self.monitor_timer is not None:
+            GLib.source_remove(self.monitor_timer); self.monitor_timer = None
         if self.resize_timer:
             GLib.source_remove(self.resize_timer); self.resize_timer = None
         self.cancel_copy(); self.window.destroy()

@@ -56,7 +56,7 @@ final class Client {
                 DispatchQueue.global().async {
                     do {
                         guard let hello=try wire.read(),hello["type"] as? String == "hello",hello.count==2 else { throw NodeError.invalid_request }
-                        wire.send(["type":"hello","capabilities":["native.h264","video.qos","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"]])
+                        wire.send(["type":"hello","capabilities":["native.h264","video.qos","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"],"video_max_fps":90])
                         while let request=try wire.read() {
                             let finished=DispatchSemaphore(value:0)
                             Task { @MainActor in

@@ -16,10 +16,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var scaleMode = "unknown"
     var resolutionNotice: String? { didSet { updateSubtitle() } }
     var inputNotice: String? { didSet { updateSubtitle() } }
+    var onScreenChange: (() -> Void)?
     var fixedPixels: (width: Int, height: Int)?
     private(set) var requestedPixels: (width: Int, height: Int)?
     private var resolutionTimer: Timer?
     private var resolutionDelayed = false
+    private var recentFrames: [TimeInterval] = []
     var transmit: ([String: Any]) -> Void
     private let disconnect: () -> Void
 
@@ -82,6 +84,10 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
+        if recentFrames.count >= 5, let first = recentFrames.first, let last = recentFrames.last,
+           last - first >= 0.4 {
+            parts.append("最近收到约 \(Int((Double(recentFrames.count - 1) / (last - first)).rounded())) fps")
+        }
         if let frame = frame {
             let rect = surface.imageRect
             let enlargement = max(rect.width * window.backingScaleFactor / CGFloat(frame.width),
@@ -94,6 +100,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func present(_ image: CGImage, mediaMode: String) {
         surface.image = image; self.mediaMode = mediaMode
+        let now = ProcessInfo.processInfo.systemUptime
+        recentFrames.append(now)
+        recentFrames.removeAll { now - $0 > 2 }
         updateSubtitle()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -124,6 +133,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowDidEndLiveResize(_ notification: Notification) { sendResize() }
     func windowDidChangeBackingProperties(_ notification: Notification) { windowDidResize(notification) }
+    func windowDidChangeScreen(_ notification: Notification) { onScreenChange?() }
     private func sendResize() {
         resizeTimer?.invalidate(); resizeTimer = nil
         guard !applyingRemote, remoteVisible, !popup else { return }

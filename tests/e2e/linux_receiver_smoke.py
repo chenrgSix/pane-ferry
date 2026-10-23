@@ -18,7 +18,7 @@ os.environ['HOME']=temporary.name
 sys.path.insert(0,str(root/'apps/linux-client'))
 from wire import STATE,private,save
 import clipboard
-from windowhost import Gtk,Gdk,GLib,Gst,GdkPixbuf,Video,Viewer,check_sps
+from windowhost import Gtk,Gdk,GLib,Gst,GdkPixbuf,Video,Viewer,check_sps,automatic_video_fps
 
 path=Path(temporary.name)/'publisher.sock'
 pipeline=Gst.parse_launch('videotestsrc num-buffers=1 ! video/x-raw,format=I420,width=640,height=480,framerate=30/1 ! openh264enc ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=out sync=false')
@@ -51,7 +51,7 @@ class PublisherFixture:
         try:
             for line in wire:
                 event=json.loads(line);kind=event['type'];self.events.append(event)
-                if kind=='hello':send('hello',capabilities=['native.h264','input.key.logical']+(['video.qos'] if self.qos else []))
+                if kind=='hello':send('hello',capabilities=['native.h264','input.key.logical']+(['video.qos'] if self.qos else []),**({'video_max_fps':75} if self.qos else {}))
                 elif kind=='video.enable':send('video.ready',codec='h264')
                 elif kind=='session.resume':
                     send('session.snapshot',windows=list(self.members.values()))
@@ -129,11 +129,14 @@ try:
     finally:decoder.close()
     until(lambda:viewer.ready and viewer.pixels is not None)
     assert (viewer.pixels.get_width(),viewer.pixels.get_height())==(640,480)
-    assert viewer.qos_supported and viewer.max_fps==60
+    assert viewer.qos_supported and viewer.max_fps==automatic_video_fps(viewer.refresh_millihz,75)
     until(lambda:any(e['type']=='video.feedback' and e['frame_id']==1 for e in events))
-    assert any(e['type']=='video.enable' and e['max_fps']==60 and e['feedback'] is True for e in events)
-    viewer.rate_selector.set_active_id('90')
-    until(lambda:any(e['type']=='video.configure' and e['max_fps']==90 for e in events))
+    assert any(e['type']=='video.enable' and e['max_fps']==viewer.max_fps and e['feedback'] is True for e in events)
+    assert automatic_video_fps(0)==60 and automatic_video_fps(120_000)==90
+    viewer.refresh_video_rate(120_000)
+    until(lambda:any(e['type']=='video.configure' and e['max_fps']==75 for e in events))
+    viewer.refresh_video_rate(50_000)
+    until(lambda:any(e['type']=='video.configure' and e['max_fps']==50 for e in events))
     viewer.im.emit('commit','中文🙂')
     until(lambda:any(e['type']=='input.text.commit' and e['text']=='中文🙂' for e in events))
     viewer.send(type='input.key.logical',key='Return',pressed=True)
@@ -169,7 +172,7 @@ try:
         except ValueError:pass
     other_viewer=Viewer(app,other_peer,'other fixture',session_id='fixture')
     until(lambda:other_viewer.ready and other_viewer.pixels is not None)
-    assert not other_viewer.qos_supported and not other_viewer.rate_selector.get_sensitive()
+    assert not other_viewer.qos_supported and '固定 60 fps' in other_viewer.rate_label.get_text()
     assert viewer.members is not other_viewer.members and viewer.window_id==other_viewer.window_id==42
     viewer.send(type='input.key.logical',key='F2',pressed=True)
     viewer.send(type='input.key.logical',key='F2',pressed=False)

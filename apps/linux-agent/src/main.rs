@@ -920,7 +920,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     }
     send(
         &mut out,
-        json!({"type":"hello","capabilities":capabilities}),
+        json!({"type":"hello","capabilities":capabilities,
+               "video_max_fps": if video::available() { Some(paneferry_protocol::MAX_VIDEO_FPS) } else { None }}),
         "",
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
