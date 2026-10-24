@@ -73,6 +73,57 @@ import AppKit
         precondition([menu, tooltip, dialog, outside, orphan, late].allSatisfy { !$0.window.isVisible })
         root.applyRemoteVisibility(true); app.attachParents()
         precondition(menu.window.isVisible && tooltip.window.isVisible)
+        // Reproduce a popup taller than the receiving work area. Keep readable
+        // pixels, expose the bottom via a real AppKit clip view, and exercise
+        // input after scrolling rather than merely testing a clamp formula.
+        let workArea = (root.window.screen ?? NSScreen.main!).visibleFrame
+        let tall = update(metadata(10, 1, "menu", CGRect(x: -450, y: 350, width: 200, height: 2000), 1))
+        let scroll = tall.overflowViewport!
+        precondition(workArea.insetBy(dx: -1, dy: -1).contains(tall.window.frame), "overlay stays above Dock and below menu bar")
+        precondition(abs(tall.surface.bounds.height - 1600) < 1 && abs(tall.surface.bounds.width - 160) < 1,
+                     "overflow must not shrink the source text")
+        precondition(scroll.hasVerticalScroller && !scroll.hasHorizontalScroller)
+        precondition(scroll.contentView.bounds.minY == 0, "a new menu starts at its first item")
+        let nested = update(metadata(11, 10, "menu", CGRect(x: -250, y: 900, width: 100, height: 40), 1))
+        let nestedBefore = nested.window.frame
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 120)); scroll.reflectScrolledClipView(scroll.contentView)
+        app.attachParents()
+        precondition(abs(nested.window.frame.minY - nestedBefore.minY - 120) < 1,
+                     "nested popup follows its scrolled source anchor")
+        let retained = scroll.contentView.bounds.origin
+        tall.present(pixels(tall.surface.remoteWidth, tall.surface.remoteHeight), mediaMode: "fixture")
+        app.attachParents()
+        precondition(scroll.contentView.bounds.origin == retained, "video frames must not reset local scrolling")
+        let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -80, wheel2: 0, wheel3: 0)!
+        messages.removeAll()
+        tall.surface.scrollWheel(with: NSEvent(cgEvent: wheel)!)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        precondition(scroll.contentView.bounds.minY > retained.y, "a real wheel event scrolls the local viewport")
+        precondition(!messages.contains { $0["type"] as? String == "input.pointer" }, "local scroll must not also scroll the remote menu")
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: tall.surface.bounds.height - scroll.contentSize.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let bottomPoint = CGPoint(x: tall.surface.bounds.midX, y: tall.surface.bounds.maxY - 8)
+        let bottomEvent = NSEvent.mouseEvent(with: .leftMouseDown, location: tall.surface.convert(bottomPoint, to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: tall.window.windowNumber, context: nil,
+            eventNumber: 2, clickCount: 1, pressure: 1)!
+        tall.surface.mouseDown(with: bottomEvent); tall.surface.mouseUp(with: bottomEvent)
+        let bottomPress = messages.first { $0["type"] as? String == "input.pointer" && $0["pressed"] as? Bool == true }!
+        precondition(bottomPress["window_id"] as? UInt32 == 10 && bottomPress["y"] as? Int == 1990,
+                     "clicking the visible bottom item reaches that source row, not the top of the menu")
+        precondition(!messages.contains { ["window.focus", "window.configure"].contains($0["type"] as? String ?? "") })
+        tall.applyRemoteVisibility(false); tall.applyRemoteVisibility(true); app.attachParents()
+        precondition(scroll.contentView.bounds.minY == 0, "a hidden/reopened menu must not retain the previous bottom offset")
+        // Shrinking back to an ordinary menu removes the viewport and stale offset.
+        _ = update(metadata(10, 1, "menu", CGRect(x: -450, y: 350, width: 200, height: 100), 1))
+        precondition(tall.overflowViewport == nil && tall.window.contentView === tall.surface && !tall.surface.scrollOverflowLocally)
+        precondition(abs(tall.surface.bounds.height - 80) < 1)
+        for id: UInt32 in [10, 11] { app.windows.removeValue(forKey: id)?.closeLocally(); app.parents.removeValue(forKey: id) }
+        // Negative display origins and horizontal overflow use the same policy.
+        let secondary = CGRect(x: -1600, y: -200, width: 1600, height: 900)
+        let both = OverlayViewport(content: CGRect(x: -1700, y: -900, width: 2000, height: 1800), available: secondary)
+        precondition(both.frame == secondary && both.scrolls && both.documentSize == CGSize(width: 2000, height: 1800))
+        let shift = OverlayViewport(content: CGRect(x: -50, y: -250, width: 200, height: 100), available: secondary)
+        precondition(shift.frame == CGRect(x: -200, y: -200, width: 200, height: 100) && !shift.scrolls)
         // Cycles and vanished parents hide descendants instead of reparenting them to the desktop.
         app.parents[2] = 3; app.attachParents()
         precondition(!menu.window.isVisible && !tooltip.window.isVisible)
@@ -98,6 +149,6 @@ import AppKit
         precondition(app.pendingVideoFeedbackID==1, "feedback follows the actual AppKit draw")
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
-        print("PASS: source-relative nested overlays, fractional density, letterboxing, overflow, passive tooltip hit testing, child-local input, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")
+        print("PASS: source-relative nested overlays, fractional density, letterboxing, screen bounds, native overflow scrolling, bottom-item input, nested scroll anchors, passive tooltip hit testing, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")
     }
 }

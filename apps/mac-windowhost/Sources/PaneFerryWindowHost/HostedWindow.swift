@@ -14,6 +14,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var presentation: WindowPresentation?
     var onLayoutChange: (() -> Void)?
     private var lastPlacement: NSRect?
+    private(set) var overflowViewport: NSScrollView?
     var desktopMode = false
     var revision: UInt64
     var applyingRemote = false
@@ -96,6 +97,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.ignoresMouseEvents = overlay && value.passive
         window.hasShadow = !overlay // Don't add a second native shadow to source pixels.
         if overlay { resizeTimer?.invalidate(); resizeTimer = nil }
+        else { removeOverflowViewport() }
     }
     func place(relativeTo parent: HostedWindow, available: Bool) {
         guard let placement = presentation, let anchor = parent.presentation, available,
@@ -107,9 +109,28 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         }
         let rect = placement.relativeRect(to: anchor, in: parent.surface.imageRect)
         let content = parent.window.convertToScreen(parent.surface.convert(rect, to: nil))
-        let frame = window.frameRect(forContentRect: content)
+        let viewport = popup ? (parent.window.screen ?? NSScreen.main).map {
+            OverlayViewport(content: content, available: $0.visibleFrame)
+        } : nil
+        let frame = window.frameRect(forContentRect: viewport?.frame ?? content)
         applyingRemote = true
-        if frame != lastPlacement { window.setFrame(frame, display: true); lastPlacement = frame }
+        if let viewport = viewport, viewport.scrolls {
+            installOverflowViewport()
+        } else { removeOverflowViewport() }
+        // AppKit can move child windows with their parent, independently of our
+        // last source placement. Compare the actual frame as well.
+        if frame != lastPlacement || window.frame != frame { window.setFrame(frame, display: true); lastPlacement = frame }
+        if let scroll = overflowViewport, let viewport = viewport {
+            let origin = scroll.contentView.bounds.origin
+            surface.setFrameSize(viewport.documentSize)
+            scroll.hasVerticalScroller = viewport.documentSize.height > viewport.frame.height
+            scroll.hasHorizontalScroller = viewport.documentSize.width > viewport.frame.width
+            scroll.tile()
+            scroll.contentView.scroll(to: CGPoint(
+                x: min(max(0, origin.x), max(0, surface.frame.width - scroll.contentSize.width)),
+                y: min(max(0, origin.y), max(0, surface.frame.height - scroll.contentSize.height))))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
         applyingRemote = false
         // Overlays keep the keyboard responder in their owner. Ordinary
         // dialogs retain their existing ability to receive typing on opening.
@@ -118,12 +139,52 @@ final class HostedWindow: NSObject, NSWindowDelegate {
             else { window.makeKeyAndOrderFront(nil) }
         }
     }
+    private func installOverflowViewport() {
+        guard overflowViewport == nil else { return }
+        let scroll = NSScrollView(frame: surface.frame)
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        scroll.scrollerStyle = .overlay
+        scroll.autohidesScrollers = false
+        scroll.horizontalScrollElasticity = .none
+        scroll.verticalScrollElasticity = .none
+        surface.removeFromSuperview()
+        surface.autoresizingMask = []
+        scroll.documentView = surface
+        window.contentView = scroll
+        overflowViewport = scroll
+        surface.scrollOverflowLocally = true
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(viewportScrolled),
+            name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        window.makeFirstResponder(surface)
+    }
+    private func removeOverflowViewport() {
+        guard let scroll = overflowViewport else { return }
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        scroll.documentView = nil
+        surface.scrollOverflowLocally = false
+        window.contentView = surface
+        overflowViewport = nil
+        window.makeFirstResponder(surface)
+    }
+    @objc private func viewportScrolled(_ notification: Notification) {
+        // Descendant overlays use the document-to-screen transform, including
+        // this viewport's offset, rather than an unscrolled source origin.
+        if !applyingRemote { onLayoutChange?() }
+    }
     func applyRemoteVisibility(_ visible: Bool) {
         let changed = !receivedVisibility || visible != remoteVisible
         receivedVisibility = true
         if !visible {
             surface.releaseInput(); surface.unmarkText()
             resizeTimer?.invalidate(); resizeTimer = nil
+            if let scroll = overflowViewport {
+                applyingRemote = true
+                scroll.contentView.scroll(to: .zero)
+                scroll.reflectScrolledClipView(scroll.contentView)
+                applyingRemote = false
+            }
         }
         remoteVisible = visible
         surface.transmit = visible ? transmit : nil
@@ -246,7 +307,10 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     func windowDidDeminiaturize(_ notification: Notification) { onLayoutChange?() }
     func windowDidEndLiveResize(_ notification: Notification) { sendResize() }
     func windowDidChangeBackingProperties(_ notification: Notification) { windowDidResize(notification) }
-    func windowDidChangeScreen(_ notification: Notification) { onScreenChange?() }
+    func windowDidChangeScreen(_ notification: Notification) {
+        onScreenChange?()
+        if !applyingRemote { onLayoutChange?() }
+    }
     private func sendResize() {
         resizeTimer?.invalidate(); resizeTimer = nil
         guard !desktopMode, !applyingRemote, remoteVisible, !popup else { return }
@@ -279,5 +343,11 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.setFrame(screen.visibleFrame, display: true, animate: false)
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
-    func closeLocally() { resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.parent?.removeChildWindow(window); window.close() }
+    func closeLocally() {
+        resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil
+        if let scroll = overflowViewport {
+            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        }
+        window.parent?.removeChildWindow(window); window.close()
+    }
 }

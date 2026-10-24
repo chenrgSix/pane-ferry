@@ -324,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showAbout() {
         alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。帧率按本机显示器与远端能力自动协商，协议最高 90 fps，并随画面反馈调整。新应用按本机显示倍率请求 100% 或 200% 启动缩放，实际效果取决于应用。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
-    @objc func screenParametersChanged(_ notification: Notification) { refreshVideoFPS() }
+    @objc func screenParametersChanged(_ notification: Notification) { refreshVideoFPS(); attachParents() }
     func updateRateMenu() {
         rateMenuItem?.title = !ready ? "帧率：自动协商中" : capabilities.contains("video.qos")
             ? "帧率：自动 · 屏幕 \(displayHz) Hz · 上限 \(videoFPS) fps"

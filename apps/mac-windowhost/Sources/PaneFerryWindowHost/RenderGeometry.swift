@@ -1,5 +1,21 @@
 import Foundation
 
+/// Keep source-sized overlay content readable while constraining its viewport
+/// to the receiving display's work area (which excludes the Dock/menu bar).
+struct OverlayViewport {
+    let frame: CGRect
+    let documentSize: CGSize
+    var scrolls: Bool { documentSize.width > frame.width || documentSize.height > frame.height }
+    init(content: CGRect, available: CGRect) {
+        documentSize = content.size
+        let width = min(content.width, available.width)
+        let height = min(content.height, available.height)
+        frame = CGRect(x: min(max(content.minX, available.minX), available.maxX - width),
+                       y: min(max(content.maxY - height, available.minY), available.maxY - height),
+                       width: width, height: height)
+    }
+}
+
 /// Source scene coordinates are independent of decoded pixel density (including
 /// fractional Wayland scaling). Legacy peers use their existing x/y pixel space.
 struct WindowPresentation {

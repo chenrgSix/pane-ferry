@@ -5,6 +5,7 @@ let controllerTextLimit = 8 * 1024
 final class SurfaceView: NSView, NSTextInputClient {
     var remoteID: UInt32 = 0
     var overlay = false { didSet { if overlay != oldValue { updateTrackingAreas() } } }
+    var scrollOverflowLocally = false
     var remoteWidth = 1
     var remoteHeight = 1
     var didDrawFrame: (() -> Void)?
@@ -93,6 +94,13 @@ final class SurfaceView: NSView, NSTextInputClient {
     override func rightMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
     override func otherMouseDragged(with event: NSEvent) { pointer(event, button: 0, pressed: false) }
     override func scrollWheel(with event: NSEvent) {
+        if scrollOverflowLocally, let viewport = enclosingScrollView {
+            // The complete remote image remains the document. AppKit converts
+            // subsequent pointer events through the scrolled clip view, so the
+            // source receives the pixel actually visible under the pointer.
+            viewport.scrollWheel(with: event)
+            return
+        }
         let vertical = event.scrollingDeltaY
         let horizontal = event.scrollingDeltaX
         let value = abs(vertical) >= abs(horizontal) ? vertical : horizontal
