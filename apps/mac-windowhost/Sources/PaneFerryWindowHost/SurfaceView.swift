@@ -7,7 +7,8 @@ final class SurfaceView: NSView, NSTextInputClient {
     var overlay = false { didSet { if overlay != oldValue { updateTrackingAreas() } } }
     var remoteWidth = 1
     var remoteHeight = 1
-    var image: CGImage? { didSet { needsDisplay = true } }
+    var didDrawFrame: (() -> Void)?
+    var image: CGImage? { didSet { didDrawFrame=nil; needsDisplay = true } }
     var transmit: (([String: Any]) -> Void)?
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
@@ -44,6 +45,7 @@ final class SurfaceView: NSView, NSTextInputClient {
                 .backgroundColor: NSColor.textBackgroundColor, .underlineStyle: NSUnderlineStyle.single.rawValue])
             preview.draw(at: insertionPoint)
         }
+        let completed=didDrawFrame; didDrawFrame=nil; completed?()
     }
     override func updateTrackingAreas() {
         if let tracking = tracking { removeTrackingArea(tracking) }

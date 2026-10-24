@@ -83,6 +83,19 @@ import AppKit
         precondition(legacy.rect == CGRect(x: 12, y: -4, width: 100, height: 50))
         precondition(WindowPresentation.parse(["presentation": ["x": Double.infinity, "y": 0, "width": 1, "height": 1]], width: 1, height: 1) == nil)
         precondition(WindowPresentation.parse(["presentation": ["kind": "menu"]], width: 1, height: 1) == nil)
+        for seq in 1...3 {
+            _=update(metadata(99,1,"dialog",CGRect(x:0,y:0,width:20,height:20)))
+            app.receive(Incoming(object:["type":"window.destroyed","window_id":99,"session_id":"fixture","seq":seq],image:nil))
+            precondition(app.windows[99]==nil)
+        }
+        let reused=update(metadata(99,1,"dialog",CGRect(x:0,y:0,width:20,height:20)))
+        precondition(app.windows[99] === reused)
+        app.capabilities.insert("video.qos")
+        app.receive(Incoming(object:["type":"frame","window_id":99,"session_id":"fixture","seq":4,"geometry_revision":1,"frame_id":1],image:pixels(40,40)))
+        precondition(app.pendingVideoFeedbackID==nil, "scheduling a redraw is not feedback")
+        let bitmap=reused.surface.bitmapImageRepForCachingDisplay(in:reused.surface.bounds)!
+        reused.surface.cacheDisplay(in:reused.surface.bounds,to:bitmap)
+        precondition(app.pendingVideoFeedbackID==1, "feedback follows the actual AppKit draw")
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
         print("PASS: source-relative nested overlays, fractional density, letterboxing, overflow, passive tooltip hit testing, child-local input, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")

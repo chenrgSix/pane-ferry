@@ -120,6 +120,7 @@ final class RWPTransport {
         var buffer = Data()
         var videoDecoders: [UInt32: H264Decoder] = [:]
         var videoPixels: [UInt32: Int] = [:]
+        var members=Set<UInt32>()
         do {
             while true {
                 lock.lock(); let stop = closed; lock.unlock(); if stop { break }
@@ -137,6 +138,16 @@ final class RWPTransport {
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
                     let allowedTypes: Set<String> = ["hello", "error", "video.ready", "input.authorization", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
+                    let eventType=object["type"] as? String ?? ""
+                    if eventType == "session.snapshot" || eventType == "session.exited" {
+                        members=Set((object["windows"] as? [[String:Any]] ?? []).compactMap { unsignedInteger($0["window_id"]).flatMap { $0 <= UInt32.max ? UInt32($0):nil } })
+                    }
+                    if let number=unsignedInteger(object["window_id"]), number<=UInt32.max {
+                        let id=UInt32(number)
+                        if eventType == "window.created" { members.insert(id) }
+                        if eventType == "window.destroyed" { members.remove(id) }
+                        if eventType == "frame" && !members.contains(id) { continue }
+                    }
                     if ["session.snapshot", "session.exited"].contains(object["type"] as? String ?? "") { videoDecoders.removeAll(); videoPixels.removeAll() }
                     if object["type"] as? String == "window.destroyed" ||
                         (object["type"] as? String == "window.metadata" && (object["visible"] as? Bool) == false),
@@ -225,7 +236,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var parents: [UInt32: UInt32] = [:]
     private var layingOutWindows = false
     private var childStacking: [UInt32: [UInt32]] = [:]
-    var removed = Set<UInt32>()
     var session: String?
     var lastSequence: UInt64 = 0
     var ready = false
@@ -466,7 +476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         poll?.invalidate(); poll = nil
         networkMonitor?.cancel(); networkMonitor = nil
         for host in windows.values { host.closeLocally() }
-        windows.removeAll(); parents.removeAll(); removed.removeAll()
+        windows.removeAll(); parents.removeAll()
         session = nil
         terminateHost()
     }
@@ -726,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let retained = Set(snapshot.compactMap { unsignedInteger($0["window_id"]).flatMap { $0 <= UInt32.max ? UInt32($0) : nil } })
             if let window=clipboardWindow, !retained.contains(window) { cancelClipboard() }
             for id in Array(windows.keys) where !retained.contains(id) { windows.removeValue(forKey: id)?.closeLocally() }
-            parents.removeAll(); removed.removeAll()
+            parents.removeAll()
             for item in snapshot { updateWindow(item, create: true) }
             attachParents()
             for host in windows.values where !host.popup { host.windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
@@ -744,18 +754,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "window.metadata": updateWindow(object, create: false); attachParents()
         case "window.destroyed":
             if clipboardWindow == id { cancelClipboard() }
-            windows.removeValue(forKey: id)?.closeLocally(); parents.removeValue(forKey: id); removed.insert(id)
+            windows.removeValue(forKey: id)?.closeLocally(); parents.removeValue(forKey: id)
             attachParents()
             refreshVideoFPS()
         case "frame":
-            guard !removed.contains(id), let host = windows[id], let image = incoming.image,
+            guard let host = windows[id], let image = incoming.image,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.present(image, mediaMode: "H.264 视频")
             attachParents()
             statusItem?.button?.title = "PaneFerry · H.264 视频"
             if capabilities.contains("video.qos"), let frameID = unsignedInteger(object["frame_id"]), frameID > 0 {
-                pendingVideoFeedbackID = frameID
+                host.surface.didDrawFrame = { [weak self, weak host] in
+                    guard let self=self, let host=host, self.connected, self.windows[id] === host, host.revision == revision else { return }
+                    self.pendingVideoFeedbackID = max(self.pendingVideoFeedbackID ?? 0, frameID)
+                }
             }
         default: break
         }
@@ -775,7 +788,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let presentation = WindowPresentation.parse(object, width: w, height: h) else { return }
         let parentID = unsignedInteger(object["parent_id"]).flatMap { $0 <= UInt32.max && $0 != id ? UInt32($0) : nil }
         let role = object["role"] as? String ?? "toplevel"
-        if removed.contains(id) { return } // XID reuse in one connection is deliberately not supported.
         let otherPixels = windows.filter { $0.key != id }.values.reduce(0) { $0 + $1.surface.remoteWidth * $1.surface.remoteHeight }
         guard otherPixels + w * h <= 16_000_000 else { transport.disconnect(); return }
         let justCreated = windows[id] == nil
