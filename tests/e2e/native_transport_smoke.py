@@ -106,7 +106,9 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
             requests=[json.loads(line) for line in (scratch/'requests').read_text().splitlines()]
             assert any(item['type']=='video.enable' and item.get('codec')=='h264' for item in requests)
             print('PASS: packaged WindowHost stays alive through real QUIC/H.264 and requests logical viewport', configured[-1])
-            host.terminate();host.wait(timeout=5)
+            (scratch/'end-session').touch()
+            assert host.wait(timeout=8) == 0, 'packaged host did not quit cleanly after source exit'
+            print('PASS: packaged WindowHost exits after session.exited through real QUIC, without a local close')
             raise SystemExit(0)
         types=scratch/'WindowHostTypes.swift'
         types.write_text((source/'main.swift').read_text().split('\n// WINDOWHOST_ENTRYPOINT\n')[0])
@@ -115,9 +117,7 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         text=text.replace('let options = Options(app: nil, session: "retained", native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: root.path, helper: root.appendingPathComponent("fake-bridge").path))',
             'let options = try Options.parse(["--native-peer", CommandLine.arguments[2], "--native-state", CommandLine.arguments[3], "--native-helper", CommandLine.arguments[4], "--session", "retained"])')
         text=text.replace('until { app.windows[42] != nil }', 'until { app.windows[42]?.surface.image != nil && app.lastSequence >= 11 }')
-        text=text.replace('until { app.lastSequence >= 3 }', 'until { app.lastSequence >= 11 && app.windows[42]?.surface.image != nil }\n        let image = app.windows[42]!.surface.image!\n        let red = NSBitmapImageRep(cgImage:image).colorAt(x:20,y:20)!.usingColorSpace(.sRGB)!\n        precondition(red.redComponent > 0.8 && red.greenComponent < 0.2 && image.width == 640, "QUIC H.264 output is incorrect")\n        let nativeNextSequence = app.lastSequence + 1\n        print("PASS: real H.264 IDR and dependent P frames through QUIC into AppKit; decoded red pixels after reconnect")')
-        for offset, seq in enumerate([4,5,6,7]):
-            text=text.replace('"seq":'+str(seq)+',', '"seq":nativeNextSequence+'+str(offset)+',')
+        text=text.replace('until { app.lastSequence >= 3 }', 'until { app.lastSequence >= 11 && app.windows[42]?.surface.image != nil }\n        let image = app.windows[42]!.surface.image!\n        let red = NSBitmapImageRep(cgImage:image).colorAt(x:20,y:20)!.usingColorSpace(.sRGB)!\n        precondition(red.redComponent > 0.8 && red.greenComponent < 0.2 && image.width == 640, "QUIC H.264 output is incorrect")\n        print("PASS: real H.264 IDR and dependent P frames through QUIC into AppKit; decoded red pixels after reconnect")')
         text=text.replace('precondition(count == "2")', r'''precondition(count == "2")
         let wireLog = try String(contentsOf: root.appendingPathComponent("requests"), encoding:.utf8)
         precondition(wireLog.components(separatedBy:"video.enable").count == 3)

@@ -9,6 +9,8 @@ import AppKit
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
         let app = AppDelegate(options: options, clipboard: board)
+        var terminations = 0
+        app.terminateHost = { terminations += 1 }
         defer {
             app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
             for host in app.windows.values { host.closeLocally() }
@@ -64,6 +66,7 @@ import AppKit
         }
         send("window.close.request")
         until { app.windows.isEmpty }
+        precondition(terminations == 1 && app.stopping && !app.connected && !app.recovering)
         print("PASS: live Ubuntu GTK -> QUIC -> AppKit H.264; Unicode, bidirectional text clipboard, cut, resize, three same-window/session reconnects and remote close; no SSH in receiver")
     }
 }

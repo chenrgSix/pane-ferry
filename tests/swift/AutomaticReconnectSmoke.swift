@@ -101,9 +101,9 @@ struct AutomaticReconnectSmoke {
         precondition(NSApp.mainMenu?.items.first?.title == app.applicationName,
                      "transport recovery retains the Ubuntu application identity")
         until { app.lastSequence >= 3 }
-        app.receive(Incoming(object:["type":"input.authorization", "session_id":"other", "seq":4, "state":"pending"], image:nil))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"other", "seq":app.lastSequence + 1, "state":"pending"], image:nil))
         precondition(original.inputNotice == nil, "another session changed input status")
-        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":4, "state":"pending"], image:nil))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":app.lastSequence + 1, "state":"pending"], image:nil))
         precondition(original.window.subtitle.contains("Ubuntu") && original.window.subtitle.contains("授权"))
         original.mediaMode = "H.264"; original.updateSubtitle()
         precondition(original.window.subtitle.contains(app.desktopInputNotice!), "frame metadata hid the consent instructions")
@@ -114,11 +114,11 @@ struct AutomaticReconnectSmoke {
         }
         app.receive(Incoming(object:["type":"error", "code":"desktop_authorization_pending"], image:nil))
         precondition(app.connected && !app.recovering, "pending permission interrupted the transport")
-        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":5, "state":"ready"], image:nil))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":app.lastSequence + 1, "state":"ready"], image:nil))
         precondition(original.inputNotice == nil && original.window.subtitle.contains("H.264"))
-        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":6, "state":"paused"], image:nil))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":app.lastSequence + 1, "state":"paused"], image:nil))
         precondition(original.window.subtitle.contains("锁屏"))
-        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":7, "state":"ready"], image:nil))
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"retained", "seq":app.lastSequence + 1, "state":"ready"], image:nil))
         let other = HostedWindow(id:43, width:640, height:480, revision:1, scale:1, popup:false, disconnect:{}, transmit:{ _ in })
         app.windows[43] = other
         app.receive(Incoming(object:["type":"error", "code":"resolution_limited", "window_id":42], image:nil))
@@ -126,7 +126,7 @@ struct AutomaticReconnectSmoke {
                      "a resize rejection must keep the session and other windows unaffected")
         var terminations = 0
         app.terminateHost = { terminations += 1 }
-        app.receive(Incoming(object:["type":"window.destroyed", "session_id":"retained", "seq":8, "window_id":43], image:nil))
+        app.receive(Incoming(object:["type":"window.destroyed", "session_id":"retained", "seq":app.lastSequence + 1, "window_id":43], image:nil))
         precondition(app.windows[42] === original && app.windows[43] == nil && app.connected && terminations == 0,
                      "closing one source window must preserve the other windows and connection")
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
@@ -139,9 +139,9 @@ struct AutomaticReconnectSmoke {
         let count = try String(contentsOf: root.appendingPathComponent("connections"), encoding: .utf8)
         precondition(count == "2")
         precondition((0...10).map(AppDelegate.reconnectDelay) == [1,2,4,8,15,15,15,15,15,15,15])
-        app.receive(Incoming(object:["type":"session.exited", "session_id":"other", "seq":9], image:nil))
+        app.receive(Incoming(object:["type":"session.exited", "session_id":"other", "seq":app.lastSequence + 1], image:nil))
         precondition(terminations == 0 && app.connected, "another session cannot terminate this host")
-        app.receive(Incoming(object:["type":"session.exited", "session_id":"retained", "seq":9], image:nil))
+        app.receive(Incoming(object:["type":"session.exited", "session_id":"retained", "seq":app.lastSequence + 1], image:nil))
         until { !app.transport.alive }
         precondition(terminations == 1 && app.windows.isEmpty && !original.window.isVisible && app.session == nil)
         precondition(app.stopping && !app.connected && !app.recovering && app.poll == nil && !app.transport.alive,
