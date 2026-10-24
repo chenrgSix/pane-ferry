@@ -6,6 +6,11 @@ use tokio::io::{
 };
 pub const MAX: usize = 16 * 1024 * 1024;
 pub async fn line<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Value> {
+    line_limit(reader, MAX).await
+}
+/// Publishers only accept small controls; video compatibility bridges use MAX.
+pub async fn line_limit<R: AsyncBufRead + Unpin>(reader: &mut R, limit: usize) -> Result<Value> {
+    ensure!(limit > 0 && limit <= MAX, "invalid message limit");
     let mut bytes = Vec::new();
     loop {
         let buf = reader.fill_buf().await?;
@@ -14,7 +19,7 @@ pub async fn line<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Value> {
             .iter()
             .position(|c| *c == b'\n')
             .map_or(buf.len(), |n| n + 1);
-        ensure!(bytes.len() + n <= MAX, "message too large");
+        ensure!(bytes.len() + n <= limit, "message too large");
         let done = buf[n - 1] == b'\n';
         bytes.extend_from_slice(&buf[..n]);
         reader.consume(n);
@@ -141,6 +146,14 @@ async fn budget(bytes: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn publisher_control_limit_rejects_large_partial_lines() {
+        let data = vec![b'a'; 65 * 1024];
+        let mut read = tokio::io::BufReader::new(data.as_slice());
+        assert!(line_limit(&mut read, 64 * 1024).await.is_err());
+        let mut read = tokio::io::BufReader::new(&b"{\"type\":\"hello\"}\n"[..]);
+        assert_eq!(line_limit(&mut read, 64).await.unwrap()["type"], "hello");
+    }
     #[tokio::test]
     async fn binary_frame_roundtrip_and_oversize_before_allocation() {
         let packet = Packet::new(
