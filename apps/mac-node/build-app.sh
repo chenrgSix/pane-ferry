@@ -4,8 +4,9 @@ cd "$(dirname "$0")"
 swift build -c release "$@"
 bin="$(swift build -c release --show-bin-path "$@")"
 app="dist/PaneFerryNode.app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/PaneFerryNode" "$app/Contents/MacOS/PaneFerryNode"
+cp ../../LICENSE "$app/Contents/Resources/LICENSE"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

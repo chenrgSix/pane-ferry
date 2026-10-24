@@ -22,6 +22,8 @@ Gst.init(None)
 assert any(Gst.ElementFactory.find(n) for n in ('avdec_h264','openh264dec')), '需要 H.264 解码组件'
 PY
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/paneferry" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps" "$HOME/.config/systemd/user"
+mkdir -p "$HOME/.local/share/doc/paneferry"
+install -m 644 share/doc/paneferry/LICENSE "$HOME/.local/share/doc/paneferry/LICENSE"
 for binary in bin/*; do
   name=$(basename "$binary")
   install -m 755 "$binary" "$HOME/.local/bin/.$name.new"

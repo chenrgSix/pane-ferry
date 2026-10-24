@@ -3,6 +3,7 @@ resolver = "2"
 members = ["crates/protocol", "crates/transport", "crates/network", "crates/core", "crates/backend-x11", "crates/capture", "apps/linux-agent"]
 exclude = ["apps/launcher/src-tauri"]
 [workspace.package]
+license = "PolyForm-Noncommercial-1.0.0"
 version = "0.1.0"
 edition = "2021"
 [workspace.dependencies]

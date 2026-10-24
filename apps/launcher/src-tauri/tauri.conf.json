@@ -29,6 +29,7 @@
       "app"
     ],
     "resources": {
+      "../../../LICENSE": "LICENSE",
       "resources/PaneFerryWindowHost.app": "PaneFerryWindowHost.app",
       "resources/PaneFerryNode.app": "PaneFerryNode.app",
       "resources/paneferry-network": "paneferry-network"

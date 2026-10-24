@@ -2,6 +2,8 @@
 
 在 Mac 和 Ubuntu 之间双向使用对方的图形应用。每台设备同时可以发布和接收，应用和文件仍留在原设备。
 
+许可证：[PolyForm Noncommercial 1.0.0](LICENSE)。商业用途须符合许可证的明确授权范围或另行取得授权，详见下方[许可证与商业授权](#许可证与商业授权)。
+
 产品显示名称统一为 **窗渡 PaneFerry**，命令与软件包使用 `paneferry` 前缀。升级继续使用原有设备身份、配对和配置；保留的内部标识与新旧名称对应见[命名与升级兼容](docs/naming.md)。
 
 **双向组件（2026-10-22）：** 已加入 Mac 发布、Ubuntu 接收和统一管理入口，每个平台交付一个 窗渡 PaneFerry。设备连接、目录和窗口保留来源设备，预留多设备扩展；实际多设备并发尚未验收。Mac → Ubuntu 已通过真实 H.264 画面、点击、中文与 emoji 提交、双向文本剪贴板、缩放、同会话重连和断开保留应用验证。使用步骤与当前边界见 [Mac 发布指南](docs/mac-publishing.md)。
@@ -58,3 +60,13 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 ## 构建与验证
 
 见 `docs/validation.md`。`scripts/check.sh` 用于已装好工具链的开发机器；它不安装依赖、不连接远端、不修改系统服务。Mac 的 Swift/AppKit 构建只能在具备 macOS SDK 的 Mac 完成。
+
+## 许可证与商业授权
+
+除另有说明外，本项目采用 **PolyForm Noncommercial License 1.0.0**，SPDX 标识为 `PolyForm-Noncommercial-1.0.0`。完整且未经修改的官方条款见 [LICENSE](LICENSE)（[官方来源](https://polyformproject.org/licenses/noncommercial/1.0.0)）。
+
+该许可证允许在其规定的用途范围内使用、修改和分发。除一般非商业用途外，`Personal Uses` 和 `Noncommercial Organizations` 条款还明确列出允许的个人用途及特定机构用途；这些条款仍完整适用，不能将本说明理解为无例外的全面禁商用。
+
+不在许可证明确许可范围内的商业用途，须事先取得相关著作权人的单独书面授权。可通过[项目仓库](https://github.com/chenrgSix/pane-ferry)联系维护者申请；申请本身不构成授权。分发副本时须遵守原文的 `Notices` 条款，提供许可证副本或其官方链接，并保留适用的 `Required Notice:` 通知。
+
+这是限制商业用途的**源码可用许可证**，不符合 [OSI 开源定义](https://opensource.org/osd)中不得限制商业领域使用的要求。第三方依赖及单独标注的文件继续遵循各自的许可证，本项目许可证不替代其条款。以上中文内容仅作说明，具体权利和义务以 [LICENSE](LICENSE) 原文为准。

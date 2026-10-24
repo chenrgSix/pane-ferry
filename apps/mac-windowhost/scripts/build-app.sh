@@ -10,6 +10,7 @@ BIN_DIR="$(swift build -c release --show-bin-path)"
 APP="dist/PaneFerryWindowHost.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/PaneFerryWindowHost" "$APP/Contents/MacOS/PaneFerryWindowHost"
+cp ../../LICENSE "$APP/Contents/Resources/LICENSE"
 cp ../launcher/src-tauri/icons/icon.png "$APP/Contents/Resources/PaneFerry.png"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
