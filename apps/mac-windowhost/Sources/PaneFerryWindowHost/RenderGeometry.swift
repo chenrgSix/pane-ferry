@@ -1,5 +1,38 @@
 import Foundation
 
+/// Source scene coordinates are independent of decoded pixel density (including
+/// fractional Wayland scaling). Legacy peers use their existing x/y pixel space.
+struct WindowPresentation {
+    let rect: CGRect
+    let kind: String
+    let order: Int
+    var passive: Bool { kind == "tooltip" || kind == "passive" }
+    var overlay: Bool { passive || kind == "menu" || kind == "popup" }
+    static func parse(_ object: [String: Any], width: Int, height: Int) -> WindowPresentation? {
+        let role = object["role"] as? String ?? "toplevel"
+        let fallback = role == "popup" ? "popup" : role == "dialog" ? "dialog" : "window"
+        let value = object["presentation"] as? [String: Any]
+        if object["presentation"] != nil && value == nil { return nil }
+        let kind = value?["kind"] as? String ?? fallback
+        guard ["window", "dialog", "popup", "menu", "tooltip", "passive"].contains(kind) else { return nil }
+        if let value = value, ["x", "y", "width", "height"].contains(where: { value[$0] as? NSNumber == nil }) { return nil }
+        let x = ((value?["x"] ?? object["x"]) as? NSNumber)?.doubleValue ?? 0
+        let y = ((value?["y"] ?? object["y"]) as? NSNumber)?.doubleValue ?? 0
+        let w = (value?["width"] as? NSNumber)?.doubleValue ?? Double(width)
+        let h = (value?["height"] as? NSNumber)?.doubleValue ?? Double(height)
+        guard [x, y, w, h].allSatisfy({ $0.isFinite }), abs(x) <= 10_000_000, abs(y) <= 10_000_000,
+              w > 0, h > 0, w <= 32768, h <= 32768 else { return nil }
+        return WindowPresentation(rect: CGRect(x: x, y: y, width: w, height: h), kind: kind,
+                                  order: value?["order"] as? Int ?? 0)
+    }
+    func relativeRect(to parent: WindowPresentation, in imageRect: CGRect) -> CGRect {
+        let sx = imageRect.width / parent.rect.width, sy = imageRect.height / parent.rect.height
+        return CGRect(x: imageRect.minX + (rect.minX - parent.rect.minX) * sx,
+                      y: imageRect.minY + (rect.minY - parent.rect.minY) * sy,
+                      width: rect.width * sx, height: rect.height * sy)
+    }
+}
+
 /// The wire uses source pixels; AppKit uses logical points. Preserve the
 /// source's existing scale, or an explicitly negotiated page presentation
 /// density, never the Mac's backing density. Ordinary resizing does not change DPI.

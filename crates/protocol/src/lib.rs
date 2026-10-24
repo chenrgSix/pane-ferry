@@ -184,11 +184,23 @@ pub fn validate_text(text: &str) -> Result<()> {
     Ok(())
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct WindowPresentation {
+    /// Shared source coordinate space; independent of each window's pixel density.
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub kind: String,
+    pub order: u32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Window {
     pub window_id: u32,
     pub parent_id: Option<u32>,
     pub title: String,
     pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<WindowPresentation>,
     pub x: i32,
     pub y: i32,
     pub width: u32,

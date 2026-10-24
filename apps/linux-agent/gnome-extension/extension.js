@@ -8,6 +8,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {VirtualOutput, delay} from './virtualOutput.js';
 import {TextInput} from './textInput.js';
+import {windowKind, preservesPopupFocus} from './windowPresentation.js';
 
 // No Eval, shell commands, desktop scaling or whole-monitor capture. Leases
 // belong to the unique D-Bus sender, and die when that helper disconnects.
@@ -86,14 +87,15 @@ export default class PaneFerry extends Extension {
         return global.get_window_actors().map(actor => actor.meta_window)
             .filter(w => w && w.get_pid() > 0 && ![Meta.WindowType.DESKTOP, Meta.WindowType.DOCK].includes(w.get_window_type()));
     }
-    describe(w) {
+    describe(w, order = 0) {
         const frame = w.get_frame_rect();
         const buffer = w.get_buffer_rect();
         const client = w.get_client_content_rect();
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 2, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 3, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+            window_kind: windowKind(w, Meta.WindowType), stack_order: order,
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
             xwindow: w.get_client_type() === Meta.WindowClientType.X11 ? w.xwindow : null,
@@ -139,7 +141,7 @@ export default class PaneFerry extends Extension {
             const r = JSON.parse(encoded);
             const owner = invocation.get_sender();
             if (Main.sessionMode.isLocked || (Main.sessionMode.currentMode !== 'user' && Main.sessionMode.parentMode !== 'user')) throw new Error('desktop_locked');
-            if (r.op === 'list') result = this.windows().slice(0, 128).map(w => this.describe(w));
+            if (r.op === 'list') result = global.display.sort_windows_by_stacking(this.windows()).slice(0, 128).map((w, order) => this.describe(w, order));
             else if (r.op === 'acquire') {
                 const root = this.windows().find(w => String(w.get_id()) === r.id && w.get_pid() === r.pid);
                 if (!root) throw new Error('window_unavailable');
@@ -182,7 +184,7 @@ export default class PaneFerry extends Extension {
                     const scope = this.scope(lease.root);
                     const w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
                         : scope.find(window => window.get_stable_sequence() === r.window_id);
-                    if (r.op === 'scope') result = scope.slice(0, 16).map(window => this.describe(window));
+                    if (r.op === 'scope') result = global.display.sort_windows_by_stacking(scope).slice(0, 16).map((window, order) => this.describe(window, order));
                     else {
                         if (!w) throw new Error('window_unavailable');
                         if (r.op === 'resize' || r.op === 'resize_x11') {
@@ -241,7 +243,12 @@ export default class PaneFerry extends Extension {
                             }
                             if (x < area.x || y < area.y || x >= area.x + area.width || y >= area.y + area.height) throw new Error('window_unavailable');
                             result = {x: Math.round(x), y: Math.round(y)};
-                        } else if (r.op === 'focus') { Main.activateWindow(w); result = {}; }
+                        } else if (r.op === 'focus') {
+                            const kind = windowKind(w, Meta.WindowType);
+                            if (!['tooltip', 'passive', 'menu', 'popup'].includes(kind) &&
+                                !preservesPopupFocus(w, global.display.focus_window, scope, Meta.WindowType)) Main.activateWindow(w);
+                            result = {};
+                        }
                         else if (r.op === 'close') { w.delete(global.get_current_time()); result = {}; }
                         else if (r.op === 'commit_text') {
                             if (typeof r.text !== 'string' || !r.text || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');

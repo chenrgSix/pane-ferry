@@ -8,10 +8,12 @@ python3 tests/e2e/desktop_authorization_unit.py
 python3 tests/e2e/desktop_monitor_unit.py
 python3 tests/e2e/linux_install_safety.py
 python3 tests/e2e/linux_runtime_unit.py
+python3 tests/e2e/wayland_capture_unit.py
 python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then
   node tests/unit/virtual_output_lifecycle.mjs
+  node tests/unit/window_presentation.mjs
   python3 tests/e2e/electron_page_scale_unit.py
 fi
 if command -v npm >/dev/null; then
@@ -23,6 +25,7 @@ if [[ $(uname -s) == Darwin ]]; then
   (cd apps/mac-windowhost && swift build)
   python3 tests/e2e/windowhost_pipe_smoke.py
   python3 tests/e2e/controller_input_smoke.py
+  python3 tests/e2e/window_tree_smoke.py
   python3 tests/e2e/clipboard_ordering_smoke.py
   python3 tests/e2e/automatic_reconnect_smoke.py
   python3 tests/e2e/h264_only_smoke.py

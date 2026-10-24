@@ -60,6 +60,7 @@ mod tests {
             window_id: id,
             parent_id: None,
             title: String::new(),
+            presentation: None,
             role: role.into(),
             x: 0,
             y: 0,

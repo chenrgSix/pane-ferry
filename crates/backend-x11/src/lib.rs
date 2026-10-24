@@ -152,6 +152,15 @@ impl Backend {
         for name in [
             "_NET_CLIENT_LIST",
             "_NET_WM_NAME",
+            "_NET_WM_WINDOW_TYPE",
+            "_NET_WM_WINDOW_TYPE_TOOLTIP",
+            "_NET_WM_WINDOW_TYPE_NOTIFICATION",
+            "_NET_WM_WINDOW_TYPE_DND",
+            "_NET_WM_WINDOW_TYPE_MENU",
+            "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU",
+            "_NET_WM_WINDOW_TYPE_POPUP_MENU",
+            "_NET_WM_WINDOW_TYPE_COMBO",
+            "_NET_WM_WINDOW_TYPE_DIALOG",
             "UTF8_STRING",
             "WM_TRANSIENT_FOR",
             "WM_PROTOCOLS",
@@ -243,6 +252,34 @@ impl Backend {
             .conn
             .get_property(false, w, self.atom(name), ty, 0, 4096)?
             .reply()?)
+    }
+    fn window_kind(&self, id: u32, override_redirect: bool, parent: bool) -> &'static str {
+        let types = self
+            .prop(id, "_NET_WM_WINDOW_TYPE", AtomEnum::ATOM)
+            .ok()
+            .and_then(|p| p.value32().map(|v| v.collect::<Vec<_>>()))
+            .unwrap_or_default();
+        for (name, kind) in [
+            ("TOOLTIP", "tooltip"),
+            ("NOTIFICATION", "passive"),
+            ("DND", "passive"),
+            ("MENU", "menu"),
+            ("DROPDOWN_MENU", "menu"),
+            ("POPUP_MENU", "menu"),
+            ("COMBO", "menu"),
+            ("DIALOG", "dialog"),
+        ] {
+            if types.contains(&self.atom(&format!("_NET_WM_WINDOW_TYPE_{name}"))) {
+                return kind;
+            }
+        }
+        if override_redirect {
+            "popup"
+        } else if parent {
+            "dialog"
+        } else {
+            "window"
+        }
     }
     fn belongs_to_process(&self, mut id: u32) -> bool {
         if let Some(scope) = &self.window_scope {
@@ -355,6 +392,24 @@ impl Backend {
             })
             .collect()
     }
+    fn stack_order(&self, mut id: u32, roots: &HashMap<u32, u32>) -> u32 {
+        // QueryTree lists bottom-to-top. Managed clients may be nested inside
+        // a WM frame; override-redirect surfaces normally sit directly at root.
+        for _ in 0..16 {
+            if let Some(order) = roots.get(&id) {
+                return *order;
+            }
+            let Ok(reply) = self.conn.query_tree(id) else {
+                break;
+            };
+            let Ok(tree) = reply.reply() else { break };
+            if tree.parent == id || tree.parent == self.root {
+                break;
+            }
+            id = tree.parent;
+        }
+        0
+    }
     pub fn includes_window(&self, id: u32) -> bool {
         self.windows.contains_key(&id) && self.belongs_to_process(id)
     }
@@ -369,6 +424,15 @@ impl Backend {
             None
         };
         let ids = self.window_ids()?;
+        let stacking: HashMap<u32, u32> = self
+            .conn
+            .query_tree(self.root)?
+            .reply()?
+            .children
+            .into_iter()
+            .enumerate()
+            .map(|(order, id)| (id, order as u32))
+            .collect();
         let candidates = if self.window_scope.is_some() {
             self.window_candidates(&ids)
         } else {
@@ -441,11 +505,13 @@ impl Backend {
                         .and_then(|p| p.value32().and_then(|mut v| v.next()))
                         .filter(|id| self.belongs_to_process(*id))
                 });
+            let kind = self.window_kind(id, a.override_redirect, parent_id.is_some());
+            let overlay = matches!(kind, "tooltip" | "passive" | "menu" | "popup");
             let mut w = Window {
                 window_id: id,
                 parent_id,
                 title,
-                role: if a.override_redirect {
+                role: if overlay {
                     "popup"
                 } else if parent_id.is_some() {
                     "dialog"
@@ -453,6 +519,14 @@ impl Backend {
                     "toplevel"
                 }
                 .into(),
+                presentation: Some(paneferry_protocol::WindowPresentation {
+                    x: f64::from(pos.dst_x),
+                    y: f64::from(pos.dst_y),
+                    width: f64::from(g.width),
+                    height: f64::from(g.height),
+                    kind: kind.into(),
+                    order: self.stack_order(id, &stacking),
+                }),
                 x: pos.dst_x.into(),
                 y: pos.dst_y.into(),
                 width: g.width.into(),
@@ -649,6 +723,9 @@ impl Backend {
     }
     pub fn focus(&self, id: u32) -> Result<()> {
         self.known(id)?;
+        if self.windows[&id].role == "popup" {
+            return Ok(());
+        }
         if !self.windows[&id].visible {
             if self.windows[&id].role == "popup" {
                 bail!("window is hidden")
@@ -696,7 +773,27 @@ impl Backend {
         if !self.windows[&id].visible {
             bail!("window is hidden")
         }
+        if self.windows[&id].role == "popup" {
+            return Ok(());
+        }
         let mut focused = self.conn.get_input_focus()?.reply()?.focus;
+        // A focused transient popup retains its toolkit keyboard grab.
+        let mut popup = focused;
+        for _ in 0..16 {
+            let Some(window) = self.windows.get(&popup) else {
+                break;
+            };
+            if window.role != "popup" {
+                break;
+            }
+            let Some(parent) = window.parent_id else {
+                break;
+            };
+            if parent == id {
+                return Ok(());
+            }
+            popup = parent;
+        }
         for _ in 0..16 {
             if focused == id {
                 return Ok(());

@@ -4,6 +4,7 @@ let controllerTextLimit = 8 * 1024
 
 final class SurfaceView: NSView, NSTextInputClient {
     var remoteID: UInt32 = 0
+    var overlay = false { didSet { if overlay != oldValue { updateTrackingAreas() } } }
     var remoteWidth = 1
     var remoteHeight = 1
     var image: CGImage? { didSet { needsDisplay = true } }
@@ -31,6 +32,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { overlay || super.acceptsFirstMouse(for: event) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill(); bounds.fill()
         guard let image = image else { return }
@@ -45,7 +47,10 @@ final class SurfaceView: NSView, NSTextInputClient {
     }
     override func updateTrackingAreas() {
         if let tracking = tracking { removeTrackingArea(tracking) }
-        tracking = NSTrackingArea(rect: .zero, options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect], owner: self, userInfo: nil)
+        // Attached menus keep keyboard focus in their owner, but still need
+        // hover events to open submenus and highlight the pointed item.
+        let activity: NSTrackingArea.Options = overlay ? .activeInActiveApp : .activeInKeyWindow
+        tracking = NSTrackingArea(rect: .zero, options: [activity, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(tracking!); super.updateTrackingAreas()
     }
     private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {

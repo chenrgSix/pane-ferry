@@ -292,6 +292,7 @@ mod tests {
             window_id: 7,
             parent_id: None,
             title: String::new(),
+            presentation: None,
             role: "toplevel".into(),
             x: 0,
             y: 0,

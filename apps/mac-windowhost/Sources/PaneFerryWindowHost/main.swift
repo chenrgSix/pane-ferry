@@ -223,6 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var windows: [UInt32: HostedWindow] = [:]
     var receivedWindow = false
     var parents: [UInt32: UInt32] = [:]
+    private var layingOutWindows = false
+    private var childStacking: [UInt32: [UInt32]] = [:]
     var removed = Set<UInt32>()
     var session: String?
     var lastSequence: UInt64 = 0
@@ -733,12 +735,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "window.metadata": updateWindow(object, create: false); attachParents()
         case "window.destroyed":
             windows.removeValue(forKey: id)?.closeLocally(); parents.removeValue(forKey: id); removed.insert(id)
+            attachParents()
             refreshVideoFPS()
         case "frame":
             guard !removed.contains(id), let host = windows[id], let image = incoming.image,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.present(image, mediaMode: "H.264 视频")
+            attachParents()
             statusItem?.button?.title = "PaneFerry · H.264 视频"
             if capabilities.contains("video.qos"), let frameID = unsignedInteger(object["frame_id"]), frameID > 0 {
                 pendingVideoFeedbackID = frameID
@@ -758,6 +762,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             : (object["scale_factor"] == nil ? 1 : unsignedInteger(object["scale_factor"]))
         guard let scale = scaleValue, scale <= 2, let rendering = RenderGeometry(scale: Int(scale)) else { transport.disconnect(); return }
         let id = UInt32(number)
+        guard let presentation = WindowPresentation.parse(object, width: w, height: h) else { return }
+        let parentID = unsignedInteger(object["parent_id"]).flatMap { $0 <= UInt32.max && $0 != id ? UInt32($0) : nil }
+        let role = object["role"] as? String ?? "toplevel"
         if removed.contains(id) { return } // XID reuse in one connection is deliberately not supported.
         let otherPixels = windows.filter { $0.key != id }.values.reduce(0) { $0 + $1.surface.remoteWidth * $1.surface.remoteHeight }
         guard otherPixels + w * h <= 16_000_000 else { transport.disconnect(); return }
@@ -766,13 +773,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard create, windows.count < 64 else { return }
             receivedWindow = true
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
-                popup: object["role"] as? String == "popup", disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
+                popup: role == "popup" || (parentID != nil && presentation.overlay), disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             host.desktopMode = object["surface_type"] as? String == "desktop"
             windows[id] = host
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
+            host.onLayoutChange = { [weak self] in self?.attachParents() }
         }
         guard let host = windows[id], rev >= host.revision else { return }
+        host.applyPresentation(presentation, related: parentID != nil, role: role)
         host.surface.transmit = { [weak self] in self?.send($0) }
         host.surface.requestControllerPaste = { [weak self] in self?.send(["type":"controller.paste", "window_id":id]) }
         host.surface.controllerTextEnabled = capabilities.contains("input.text.commit")
@@ -786,25 +795,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.pageScale = object["page_scale_factor"] as? Int ?? 1
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
-        if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }
+        if let parent = parentID { parents[id] = parent; host.relatedWindow = true }
         else { parents.removeValue(forKey: id); host.relatedWindow = false; host.window.parent?.removeChildWindow(host.window) }
         let visible = object["visible"] as? Bool ?? true
         let visibilityChanged = visible != host.remoteVisible
         host.applyRemoteVisibility(visible)
         if visibilityChanged { refreshVideoFPS() }
-        if justCreated, visible, ["toplevel", "desktop"].contains(object["role"] as? String ?? "") {
+        if justCreated, visible, parentID == nil, !host.popup, ["toplevel", "desktop"].contains(role) {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
         automaticallyEnablePageScale(host)
     }
     func attachParents() {
-        for (id, parentID) in parents where id != parentID {
-            guard let child = windows[id]?.window, let parent = windows[parentID]?.window else { continue }
-            // Do not permit cycles from malformed window metadata.
-            var ancestor: UInt32? = parentID; var seen: Set<UInt32> = [id]; var valid = true
-            while let next = ancestor { if !seen.insert(next).inserted { valid = false; break }; ancestor = parents[next] }
-            if valid, child.parent !== parent { child.parent?.removeChildWindow(child); parent.addChildWindow(child, ordered: .above) }
+        guard !layingOutWindows else { return }
+        layingOutWindows = true
+        defer { layingOutWindows = false }
+        var visited = Set<UInt32>(), visiting = Set<UInt32>()
+        @discardableResult func place(_ id: UInt32) -> Bool {
+            guard let child = windows[id] else { return false }
+            if visited.contains(id) { return child.window.isVisible && !child.window.isMiniaturized }
+            guard visiting.insert(id).inserted else { return false }
+            defer { visiting.remove(id); visited.insert(id) }
+            guard let parentID = parents[id] else {
+                if child.popup { child.window.orderOut(nil); return false }
+                return child.remoteVisible && child.window.isVisible && !child.window.isMiniaturized
+            }
+            guard place(parentID), let parent = windows[parentID] else {
+                child.window.parent?.removeChildWindow(child.window); child.window.orderOut(nil); return false
+            }
+            if child.window.parent !== parent.window {
+                child.window.parent?.removeChildWindow(child.window)
+                parent.window.addChildWindow(child.window, ordered: .above)
+            }
+            child.place(relativeTo: parent, available: true)
+            return child.window.isVisible
         }
+        let ordered = windows.keys.sorted {
+            let a = windows[$0]?.presentation?.order ?? 0, b = windows[$1]?.presentation?.order ?? 0
+            return a == b ? $0 < $1 : a < b
+        }
+        var stacking: [UInt32: [UInt32]] = [:]
+        for id in ordered {
+            guard place(id), let parentID = parents[id] else { continue }
+            stacking[parentID, default: []].append(id)
+        }
+        // Reordering native windows for every video frame adds WindowServer
+        // work even when the source hierarchy has not changed.
+        for (parentID, ids) in stacking where childStacking[parentID] != ids {
+            for (lower, upper) in zip(ids, ids.dropFirst()) {
+                if let below = windows[lower], let above = windows[upper] {
+                    above.window.order(.above, relativeTo: below.window.windowNumber)
+                }
+            }
+        }
+        childStacking = stacking
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

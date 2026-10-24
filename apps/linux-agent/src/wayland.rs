@@ -25,6 +25,10 @@ use std::{
 pub struct Info {
     #[serde(default)]
     pub bridge_version: u32,
+    #[serde(default)]
+    pub window_kind: String,
+    #[serde(default)]
+    pub stack_order: u32,
     pub id: String,
     pub window_id: u32,
     pub pid: u32,
@@ -47,6 +51,31 @@ pub struct Info {
     pub scale: f64,
 }
 impl Info {
+    fn is_popup(&self) -> bool {
+        matches!(
+            self.window_kind.as_str(),
+            "tooltip" | "passive" | "menu" | "popup"
+        )
+    }
+    fn presentation(&self) -> Option<paneferry_protocol::WindowPresentation> {
+        Some(paneferry_protocol::WindowPresentation {
+            x: f64::from(self.x),
+            y: f64::from(self.y),
+            width: f64::from(self.width),
+            height: f64::from(self.height),
+            kind: if self.window_kind.is_empty() {
+                if self.parent_id.is_some() {
+                    "dialog"
+                } else {
+                    "window"
+                }
+                .into()
+            } else {
+                self.window_kind.clone()
+            },
+            order: self.stack_order,
+        })
+    }
     fn validate(&self) -> Result<()> {
         if self.id.parse::<u64>().is_err()
             || self.window_id == 0
@@ -56,6 +85,11 @@ impl Info {
             || self.title.len() > 2048
             || !self.scale.is_finite()
             || !(1.0..=4.0).contains(&self.scale)
+            || (self.bridge_version >= 3
+                && !matches!(
+                    self.window_kind.as_str(),
+                    "window" | "dialog" | "tooltip" | "passive" | "menu" | "popup"
+                ))
         {
             bail!("wayland_bridge_failed")
         }
@@ -243,7 +277,7 @@ impl Backend {
             let Some(stream) = streams.get_mut(id) else {
                 continue;
             };
-            if let Some(image) = stream.capture.pull(
+            let result = stream.capture.pull(
                 [
                     (info.x - info.buffer_x) as u32,
                     (info.y - info.buffer_y) as u32,
@@ -252,7 +286,15 @@ impl Backend {
                 ],
                 (info.buffer_width, info.buffer_height),
                 info.scale,
-            )? {
+            );
+            // Transients can disappear between discovery and a PipeWire pull.
+            // Their lifetime must never tear down the root's controller.
+            let image = match result {
+                Ok(image) => image,
+                Err(_) if *id != self.target.info.window_id => continue,
+                Err(error) => return Err(error),
+            };
+            if let Some(image) = image {
                 if let Some(window) = self.windows.get_mut(id) {
                     if window.width != image.width || window.height != image.height {
                         window.width = image.width;
@@ -263,7 +305,10 @@ impl Backend {
                 stream.image = Some(Arc::new(image));
                 stream.dirty = true;
             }
-            if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
+            if *id == self.target.info.window_id
+                && stream.image.is_none()
+                && stream.started.elapsed() > Duration::from_secs(8)
+            {
                 bail!("wayland_capture_unavailable")
             }
         }
@@ -346,13 +391,30 @@ impl WindowBackend for Backend {
             }
             result => result?,
         };
-        let infos: Vec<Info> = serde_json::from_value(scope)?;
-        if infos.len() > 16 {
+        let discovered: Vec<Info> = serde_json::from_value(scope)?;
+        if discovered.len() > 16 {
             bail!("wayland_bridge_failed")
+        }
+        let mut infos = Vec::new();
+        for info in discovered {
+            match info.validate() {
+                Ok(()) => infos.push(info),
+                Err(error) if info.window_id == self.target.info.window_id => return Err(error),
+                Err(_) => {
+                    // xdg_popup exists before its initial configure/buffer and
+                    // can briefly have a zero-sized frame during unmapping.
+                    // Retain a known identity hidden; never publish invalid
+                    // geometry or end the owner's controller for this race.
+                    if let Some(previous) = self.infos.get(&info.window_id) {
+                        let mut hidden = previous.clone();
+                        hidden.minimized = true;
+                        infos.push(hidden);
+                    }
+                }
+            }
         }
         let mut pixels_total = 0u64;
         for info in &infos {
-            info.validate()?;
             let width = (f64::from(info.width) * info.scale).round() as u32;
             let height = (f64::from(info.height) * info.scale).round() as u32;
             paneferry_protocol::dimensions(width, height)
@@ -368,17 +430,33 @@ impl WindowBackend for Backend {
         for info in infos {
             info.validate()?;
             // Native transients can belong to a helper process, but never another UID.
-            process_identity(info.pid)?;
             let id = info.window_id;
+            match process_identity(info.pid) {
+                Ok(_) => {}
+                Err(_) if id != self.target.info.window_id => continue,
+                Err(error) => return Err(error),
+            }
             if let std::collections::hash_map::Entry::Vacant(entry) = streams.entry(id) {
-                let reply = self.call("capture", id)?;
+                let reply = match self.call("capture", id) {
+                    Ok(reply) => reply,
+                    Err(_) if id != self.target.info.window_id => continue,
+                    Err(error) => return Err(error),
+                };
+                if reply["pending"] == true {
+                    continue;
+                }
                 let node = u32::try_from(
                     reply["node"]
                         .as_u64()
                         .context("wayland_capture_unavailable")?,
                 )?;
+                let capture = match PipeWireCapture::new(node, self.frame_wake.clone()) {
+                    Ok(capture) => capture,
+                    Err(_) if id != self.target.info.window_id => continue,
+                    Err(error) => return Err(error),
+                };
                 entry.insert(Stream {
-                    capture: PipeWireCapture::new(node, self.frame_wake.clone())?,
+                    capture,
                     image: None,
                     dirty: true,
                     started: Instant::now(),
@@ -393,19 +471,22 @@ impl WindowBackend for Backend {
                 .image
                 .as_ref()
                 .map(|i| (i.width, i.height))
-                .unwrap_or((info.width, pixels(info.height)));
+                .unwrap_or((pixels(info.width), pixels(info.height)));
             let mut window = Window {
                 window_id: id,
                 parent_id: info.parent_id.filter(|_| id != self.target.info.window_id),
                 title: info.title.clone(),
                 role: if id == self.target.info.window_id {
                     "toplevel"
+                } else if info.is_popup() {
+                    "popup"
                 } else {
                     "dialog"
                 }
                 .into(),
-                x: 0,
-                y: 0,
+                presentation: info.presentation(),
+                x: info.x,
+                y: info.y,
                 width,
                 height,
                 scale_factor: if info.scale >= 1.5 { 2 } else { 1 },
@@ -478,6 +559,9 @@ impl WindowBackend for Backend {
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         let info = self.known(id)?;
+        if info.is_popup() {
+            bail!("window_unavailable")
+        }
         paneferry_protocol::dimensions(width, height)?;
         // Frame pixels and compositor coordinates are different at HiDPI.
         let scale = info.scale;
@@ -486,7 +570,9 @@ impl WindowBackend for Backend {
         Ok(())
     }
     fn focus(&self, id: u32) -> Result<()> {
-        self.known(id)?;
+        if self.known(id)?.is_popup() {
+            return Ok(());
+        }
         self.call("focus", id)?;
         Ok(())
     }
@@ -787,6 +873,26 @@ mod tests {
             "max_width":1548, "max_height":848, "parent_id":null, "minimized":false, "scale":2.0
         })).unwrap();
         assert!(info.validate().is_ok());
+        let mut popup = info.clone();
+        popup.bridge_version = 3;
+        popup.window_kind = "tooltip".into();
+        popup.parent_id = Some(42);
+        popup.scale = 1.5;
+        popup.stack_order = 7;
+        assert!(popup.validate().is_ok());
+        assert!(popup.is_popup());
+        let placement = popup.presentation().unwrap();
+        assert_eq!(
+            (placement.x, placement.y, placement.width, placement.height),
+            (10.0, 20.0, 700.0, 450.0)
+        );
+        assert_eq!(placement.order, 7);
+        popup.window_kind = "guessed_by_application_name".into();
+        assert!(popup.validate().is_err());
+        assert_eq!(info.presentation().unwrap().kind, "window");
+        let mut legacy = info.clone();
+        legacy.parent_id = Some(42);
+        assert_eq!(legacy.presentation().unwrap().kind, "dialog");
         let mut bad = info.clone();
         bad.buffer_x = i32::MIN;
         assert!(bad.validate().is_err());

@@ -29,6 +29,12 @@ window.configure {window_id,width,height}；window.focus {window_id}；window.cl
 窗口元数据另有 `page_scale_supported:bool`、`page_scale_factor:1|2` 和 `presentation_scale_factor:1|2`；最后一项是源密度乘页面租约倍率，用于新版 Mac 的逻辑尺寸换算。其他窗口保持各自密度；实际捕获宽高、几何版本和帧验证继续生效。页面支持标记仅表示候选适配器，实际开启仍需验证调试入口、布局和唯一目标。`page_scale_*` 错误带窗口号，只拒绝本次操作。正常关闭、传输断开和发布器退出会恢复租约；下次连接由控制端重新申请，Agent 不跨连接保留租约。详见[ChatGPT 页面高清](chatgpt-page-scale.md)。
 
 Linux 应用窗口的显式 window.focus 也用于恢复已最小化或隐藏的受控窗口；普通输入不隐式恢复隐藏窗口。Mac 接收端保留隐藏主窗口的本地恢复入口，等待源端 visible:true 后恢复输入。隐藏的菜单与子窗口不创建恢复占位页。
+
+Linux 窗口事件和会话快照可附加 `presentation:{x,y,width,height,kind,order}`。矩形使用同一源桌面的坐标系，原点在左上；GNOME 为逻辑坐标，X11 为该 X server 的坐标。它独立于视频像素尺寸及 `scale_factor`，不能拿逻辑偏移直接当像素偏移。`kind` 为 `window|dialog|menu|popup|tooltip|passive`，来自合成器窗口类型或 X11 EWMH/override-redirect；`order` 为从下到上的堆叠次序。`parent_id` 仍必须来自已授权窗口的 transient 关系，不用应用名、标题、尺寸或同 PID 猜测父子关系。未提供 presentation 的发布端沿用旧的 x/y 和视频宽高。
+
+Mac 按父窗口实际图像区域（包括等比显示留边）换算子窗口的位置和大小。菜单、提示和临时浮层使用无标题栏的附属窗口，允许伸出父窗口边界；普通对话框保留正常窗口。浮层不抢键盘焦点，tooltip/passive 不拦截鼠标；菜单点击仍发送自身窗口号和自身视频像素坐标。父窗口隐藏、销毁、尚无匹配画面或关系成环时隐藏子窗口。独立合成器窗口可有独立视频流，但无需把像素复制合并到主窗口；源端本来已合成的 subsurface 保留在原视频里，不重复拆分。
+
+GNOME 桥接版本 3 提供上述类型和堆叠信息。PipeWire 节点未就绪时返回 pending，由后续扫描推进，不在同步输入路径中等待三秒；短暂子窗口消失不应终止主窗口会话。桥接版本 2 仍可连接，但不能提供完整的浮层类型。
 Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。
 window.configure 是合法像素尺寸的请求，不是成功确认。宿主默认按内容区 points × backingScaleFactor 计算，并按比例限制到 4096×2160 / 800 万像素预算。自动和手动模式均按成功解码图像的宽高比显示，远端回包不改变本机窗口大小。未匹配时留边，标题区分实际接收、目标、预算限制及等待/拒绝状态；旧画面与新几何不一致时不发送新点击。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。Mac 宿主立即传递有效鼠标移动；仅在本机发送队列尚未写出时，以同一窗口的最新连续移动覆盖旧坐标，点击、滚轮和释放保持顺序。

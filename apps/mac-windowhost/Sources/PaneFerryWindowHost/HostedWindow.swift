@@ -1,10 +1,19 @@
 import AppKit
 
+private final class SurfaceWindow: NSWindow {
+    var overlay = false
+    override var canBecomeKey: Bool { !overlay && super.canBecomeKey }
+    override var canBecomeMain: Bool { !overlay && super.canBecomeMain }
+}
+
 final class HostedWindow: NSObject, NSWindowDelegate {
     let id: UInt32
     let window: NSWindow
     let surface = SurfaceView(frame: .zero)
-    let popup: Bool
+    private(set) var popup: Bool
+    var presentation: WindowPresentation?
+    var onLayoutChange: (() -> Void)?
+    private var lastPlacement: NSRect?
     var desktopMode = false
     var revision: UInt64
     var applyingRemote = false
@@ -39,12 +48,15 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         self.rendering = RenderGeometry(scale: scale)!
         let size = rendering.points(width: width, height: height)
         let style: NSWindow.StyleMask = popup ? [.borderless] : [.titled, .closable, .miniaturizable, .resizable]
-        self.window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        let nativeWindow = SurfaceWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        nativeWindow.overlay = popup
+        self.window = nativeWindow
         super.init()
         window.delegate = self; window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 64, height: 48)
+        window.contentMinSize = popup ? NSSize(width: 1, height: 1) : NSSize(width: 64, height: 48)
         window.acceptsMouseMovedEvents = true
         surface.remoteID = id; surface.remoteWidth = width; surface.remoteHeight = height; surface.transmit = transmit
+        surface.overlay = popup
         window.contentView = surface; window.center()
         window.makeFirstResponder(surface)
         hiddenSourceView.frame = surface.bounds
@@ -59,11 +71,52 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         stack.orientation = .vertical; stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
         hiddenSourceView.addSubview(stack); surface.addSubview(hiddenSourceView)
+        // The restore notice must not impose its intrinsic width on a small
+        // source popup, even while this view is hidden.
+        let noticeWidth = stack.widthAnchor.constraint(lessThanOrEqualTo: hiddenSourceView.widthAnchor, constant: -24)
+        noticeWidth.priority = .defaultLow
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: hiddenSourceView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: hiddenSourceView.centerYAnchor),
-            stack.widthAnchor.constraint(lessThanOrEqualTo: hiddenSourceView.widthAnchor, constant: -24)
+            noticeWidth
         ])
+    }
+    func applyPresentation(_ value: WindowPresentation, related: Bool, role: String) {
+        let overlay = role == "popup" || (related && value.overlay)
+        if popup != overlay {
+            surface.releaseInput()
+            popup = overlay
+            (window as? SurfaceWindow)?.overlay = overlay
+            window.styleMask = overlay ? [.borderless] : [.titled, .closable, .miniaturizable, .resizable]
+            window.contentMinSize = overlay ? NSSize(width: 1, height: 1) : NSSize(width: 64, height: 48)
+        }
+        relatedWindow = related
+        surface.overlay = overlay
+        presentation = value
+        window.ignoresMouseEvents = overlay && value.passive
+        window.hasShadow = !overlay // Don't add a second native shadow to source pixels.
+        if overlay { resizeTimer?.invalidate(); resizeTimer = nil }
+    }
+    func place(relativeTo parent: HostedWindow, available: Bool) {
+        guard let placement = presentation, let anchor = parent.presentation, available,
+              remoteVisible, parent.remoteVisible, parent.window.isVisible, !parent.window.isMiniaturized,
+              let image = parent.surface.image, image.width == parent.surface.remoteWidth,
+              image.height == parent.surface.remoteHeight,
+              surface.image?.width == surface.remoteWidth, surface.image?.height == surface.remoteHeight else {
+            window.orderOut(nil); return
+        }
+        let rect = placement.relativeRect(to: anchor, in: parent.surface.imageRect)
+        let content = parent.window.convertToScreen(parent.surface.convert(rect, to: nil))
+        let frame = window.frameRect(forContentRect: content)
+        applyingRemote = true
+        if frame != lastPlacement { window.setFrame(frame, display: true); lastPlacement = frame }
+        applyingRemote = false
+        // Overlays keep the keyboard responder in their owner. Ordinary
+        // dialogs retain their existing ability to receive typing on opening.
+        if !window.isVisible {
+            if popup { window.orderFront(nil) }
+            else { window.makeKeyAndOrderFront(nil) }
+        }
     }
     func applyRemoteVisibility(_ visible: Bool) {
         let changed = !receivedVisibility || visible != remoteVisible
@@ -76,12 +129,13 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         surface.transmit = visible ? transmit : nil
         hiddenSourceView.isHidden = visible || popup || relatedWindow || desktopMode
         if !visible { surface.requestControllerPaste = nil }
-        if changed {
+        if changed && !relatedWindow && !popup {
             if visible || !hiddenSourceView.isHidden {
                 // A remote visibility change must not undo a local minimization.
                 if !window.isMiniaturized { window.makeKeyAndOrderFront(nil) }
             } else { window.orderOut(nil) }
         }
+        if !visible && (relatedWindow || popup) { window.orderOut(nil) }
         updateSubtitle()
     }
     @objc func restoreSourceWindow() {
@@ -95,7 +149,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         surface.remoteWidth = width; surface.remoteHeight = height
         // Replies can describe an earlier resize. The controller owns the
         // viewport; only remote-sized popup windows follow incoming geometry.
-        if popup {
+        if popup && !relatedWindow {
             applyingRemote = true
             window.setContentSize(rendering.points(width: width, height: height))
             applyingRemote = false
@@ -104,7 +158,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         updateSubtitle()
         // A source can move to another monitor. Keep the local logical size
         // and convert it using the newly reported source density only.
-        if scaleChanged && fixedPixels == nil { windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
+        if scaleChanged && fixedPixels == nil && !relatedWindow { windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
     }
     func updateSubtitle() {
         let now = ProcessInfo.processInfo.systemUptime
@@ -179,6 +233,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     }
     func windowDidResignKey(_ notification: Notification) { surface.releaseInput() }
     func windowDidResize(_ notification: Notification) {
+        if !applyingRemote { onLayoutChange?() }
         guard !desktopMode, !applyingRemote, remoteVisible, !popup, resizeTimer == nil else { return }
         // Common modes keep this running during AppKit's live resize loop.
         // Coalesce to the latest bounds without postponing every update.
@@ -186,6 +241,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         resizeTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
+    func windowDidMove(_ notification: Notification) { if !applyingRemote { onLayoutChange?() } }
+    func windowDidMiniaturize(_ notification: Notification) { onLayoutChange?() }
+    func windowDidDeminiaturize(_ notification: Notification) { onLayoutChange?() }
     func windowDidEndLiveResize(_ notification: Notification) { sendResize() }
     func windowDidChangeBackingProperties(_ notification: Notification) { windowDidResize(notification) }
     func windowDidChangeScreen(_ notification: Notification) { onScreenChange?() }
@@ -221,5 +279,5 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.setFrame(screen.visibleFrame, display: true, animate: false)
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
-    func closeLocally() { resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.close() }
+    func closeLocally() { resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil; window.parent?.removeChildWindow(window); window.close() }
 }

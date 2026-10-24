@@ -80,6 +80,8 @@ GNOME 50 的 RecordWindow 使用显示器大小的缓冲区；原生 Wayland 目
 
 首次安装扩展时，GNOME 可能直到下次登录才发现它。不要为自动验收注销桌面；注销会退出用户应用。Agent 的独立会话也不持久化，重启服务前须保存工作。普通 X11 路径在扩展未启用时保持可用，但原桌面的尺寸请求仍可能被窗口管理器限制。
 
+升级扩展同样需要下一次 GNOME 登录：当前登录缓存已经导入的 JavaScript 模块，`ReloadExtension` 不能保证加载磁盘上的新代码。扩展版本 2 / 桥接版本 3 增加通用菜单、提示框类型及堆叠次序；应更新 Agent、Mac WindowHost 和扩展，并在用户自行保存工作、重新登录 Ubuntu 后核对 `bridge_version:3`。旧桥接仍可连接，但不会具备完整的浮层展示语义。相关协议见[窗口元数据](wire-contract.md)。
+
 ### 原桌面统一输入授权
 
 Ubuntu Wayland / Xwayland 原桌面的键鼠由 **窗渡 PaneFerry Agent** 统一申请和管理。首次接管时，在 Ubuntu 的系统窗口确认控制授权并保留“记住”选项；授权的是同一 Ubuntu 用户的 Agent。之后新增应用、关闭控制端窗口、网络断线和重新连接，都复用 Agent 的同一个输入会话，不按应用另弹分享窗口。应用列表发现、只准备会话（`attach:false`）和独立 Xvfb 应用不申请原桌面授权。

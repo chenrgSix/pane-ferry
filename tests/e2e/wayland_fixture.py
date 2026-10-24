@@ -27,6 +27,9 @@ def activate(app):
         entry.connect('paste-clipboard', paste)
     win.add(entry)
     win.show_all()
+    if '--window-tree' in sys.argv:
+        from window_tree_fixture import install
+        install(win, state)
     def record():
         size = win.get_size()
         temporary = state.with_suffix('.tmp')
