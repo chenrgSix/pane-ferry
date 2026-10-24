@@ -270,12 +270,10 @@ final class Client {
             case "input.pointer":
                 guard let x=request["x"] as? Int,let y=request["y"] as? Int,let button=request["button"] as? Int,let pressed=request["pressed"] as? Bool else { throw NodeError.invalid_request }
                 try member.pointer(x,y,button,pressed)
-                if pressed && button != 0 { publisher.recordInput(session,window:window) }
             case "input.key.logical":
                 guard let key=request["key"] as? String,key.count<=32,let pressed=request["pressed"] as? Bool else { throw NodeError.invalid_request }
                 try member.keyEvent(key,pressed)
-                if pressed { publisher.recordInput(session,window:window) }
-            case "input.text.commit":guard let text=request["text"] as? String else { throw NodeError.invalid_request };try member.text(text);publisher.recordInput(session,window:window)
+            case "input.text.commit":guard let text=request["text"] as? String else { throw NodeError.invalid_request };try member.text(text)
             case "clipboard.paste":
                 guard let text=request["text"] as? String else { throw NodeError.clipboard_invalid }
                 try writeClipboard(["kind":"text","text":text],directory:publisher.directory);try member.shortcut(9)

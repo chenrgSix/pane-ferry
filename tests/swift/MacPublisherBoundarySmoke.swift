@@ -13,11 +13,6 @@ import Darwin
         blocked.finish()
         precondition(ProcessInfo.processInfo.systemUptime-started<1)
         Darwin.close(sockets[1])
-        let first=WindowInteraction(session:"a",window:1,at:100),second=WindowInteraction(session:"b",window:2,at:101)
-        precondition(uniqueRecentInteraction([first],now:102)?.window==1)
-        precondition(uniqueRecentInteraction([first,second],now:102)==nil, "ambiguous multi-device input must not guess popup ownership")
-        precondition(uniqueRecentInteraction([first,second],now:105)?.window==2)
-        precondition(uniqueRecentInteraction([second],now:99)==nil)
         let identity=ProcessIdentity.read(getpid())!.identity
         precondition(identity.current && identity.descends(from:identity))
         let reused=ProcessIdentity(pid:identity.pid,started:identity.started+1,executable:identity.executable)

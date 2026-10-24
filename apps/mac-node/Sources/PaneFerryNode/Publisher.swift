@@ -269,7 +269,6 @@ final class PublishedSession {
 final class Publisher {
     let directory:URL, deviceID:String
     var sharing=false, apps=[String:PublishedApp](), targets=[String:Target](), sessions=[String:PublishedSession](), requests=[String:String]()
-    private var interactions=[ProcessIdentity:[String:WindowInteraction]]()
     init(directory:URL) throws {
         self.directory=directory;try privateDirectory(directory)
         let path=directory.appendingPathComponent("device-id")
@@ -311,16 +310,29 @@ final class Publisher {
         }
         targets=Dictionary(uniqueKeysWithValues:result.map{($0.id,$0)});return result
     }
-    func recordInput(_ session:PublishedSession,window:UInt32) {
-        let now=ProcessInfo.processInfo.systemUptime
-        interactions=interactions.mapValues{$0.filter{now-$0.value.at<5}}.filter{!$0.value.isEmpty}
-        interactions[session.target.identity,default:[:]][session.id]=WindowInteraction(session:session.id,window:window,at:now)
+    /// Only an OS accessibility parent chain establishes a child relationship.
+    /// Recent input and executable identity alone do not grant window access.
+    private func explicitParent(_ target:Target, in session:PublishedSession) -> UInt32? {
+        guard let child=try? PublishedWindow(target).axWindow() else { return nil }
+        let approved=session.windows.compactMap { id,member -> (UInt32,AXUIElement)? in
+            guard let element=try? member.axWindow() else { return nil };return (id,element)
+        }
+        var current=child
+        for _ in 0..<16 {
+            var value:CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current,kAXParentAttribute as CFString,&value) == .success,
+                  let value=value, CFGetTypeID(value)==AXUIElementGetTypeID() else { return nil }
+            let parent=value as! AXUIElement
+            if CFEqual(parent,current) { return nil }
+            if let match=approved.first(where:{CFEqual($0.1,parent)}) { return match.0 }
+            current=parent
+        }
+        return nil
     }
-    /// Membership survives reconnects. A helper needs verified OS ancestry and
-    /// a new/reshown window after input to this session; titles are never proof.
     func refresh(_ session:PublishedSession,from list:[Target]) -> (added:[UInt32],removed:[UInt32],changed:[UInt32]) {
         var added=[UInt32](),removed=[UInt32](),changed=[UInt32]()
         let latest=Dictionary(uniqueKeysWithValues:list.map{($0.id,$0)})
+        session.retired.formIntersection(Set(list.map{$0.window.windowID}))
         for (id,member) in session.windows where member !== session.root {
             if !member.valid() {
                 member.release();session.windows.removeValue(forKey:id);session.retired.insert(id);removed.append(id)
@@ -341,17 +353,15 @@ final class Publisher {
                 member.target=target
             }
         }
-        let input=uniqueRecentInteraction(Array(interactions[session.target.identity,default:[:]].values),now:ProcessInfo.processInfo.systemUptime)
-        if let input=input,input.session==session.id,session.member(input.window) != nil {
-            for target in list where target.window.isOnScreen && session.seen[target.id] != true {
-                let id=target.window.windowID
-                guard session.windows[id]==nil,session.windows.count<16,!session.retired.contains(id),session.retired.count<128,
-                      target.identity.belongs(to:session.target.app.url,root:session.target.identity),
-                      !sessions.values.contains(where:{$0 !== session && $0.windows[id] != nil && $0.valid()}) else { continue }
-                let member=PublishedWindow(target,parentID:input.window,rootApplication:session.target.application)
-                guard session.windows.values.reduce(0,{$0+$1.width*$1.height})+member.width*member.height<=16_000_000 else { continue }
-                session.windows[id]=member;added.append(id)
-            }
+        for target in list where target.window.isOnScreen && session.seen[target.id] != true {
+            let id=target.window.windowID
+            guard session.windows[id]==nil,session.windows.count<16,!session.retired.contains(id),
+                  target.identity.belongs(to:session.target.app.url,root:session.target.identity),
+                  !sessions.values.contains(where:{$0 !== session && $0.windows[id] != nil && $0.valid()}),
+                  let parent=explicitParent(target,in:session) else { continue }
+            let member=PublishedWindow(target,parentID:parent,rootApplication:session.target.application)
+            guard session.windows.values.reduce(0,{$0+$1.width*$1.height})+member.width*member.height<=16_000_000 else { continue }
+            session.windows[id]=member;added.append(id)
         }
         session.seen=Dictionary(uniqueKeysWithValues:list.map{($0.id,$0.window.isOnScreen)})
         return (added,removed,changed)

@@ -1,14 +1,6 @@
 import Foundation
 import Darwin
 
-struct WindowInteraction {
-    let session: String, window: UInt32, at: TimeInterval
-}
-func uniqueRecentInteraction(_ values: [WindowInteraction], now: TimeInterval) -> WindowInteraction? {
-    let recent=values.filter{now >= $0.at && now-$0.at<5}
-    return recent.count==1 ? recent[0]:nil
-}
-
 /// NSRunningApplication.launchDate is nil for real accessory helpers (including
 /// Feishu's image viewer). Pin the kernel start time and executable instead.
 struct ProcessIdentity: Hashable {
