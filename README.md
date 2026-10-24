@@ -2,6 +2,8 @@
 
 在 Mac 和 Ubuntu 之间双向使用对方的图形应用。每台设备同时可以发布和接收，应用和文件仍留在原设备。
 
+**开始使用：[下载 v0.1.1 预览版](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.1) · [使用教程](docs/usage.md)**
+
 许可证：[PolyForm Noncommercial 1.0.0](LICENSE)。商业用途须符合许可证的明确授权范围或另行取得授权，详见下方[许可证与商业授权](#许可证与商业授权)。
 
 产品显示名称统一为 **窗渡 PaneFerry**，命令与软件包使用 `paneferry` 前缀。升级继续使用原有设备身份、配对和配置；保留的内部标识与新旧名称对应见[命名与升级兼容](docs/naming.md)。
@@ -10,7 +12,7 @@
 
 **原生传输（2026-10-22）：** 两端已接入统一传输、QUIC 可靠流及设备配对，产品仅使用 QUIC。使用方法见[统一传输指南](docs/native-transport.md)；删除 SSH 前后的实机双向回归、多设备隔离和新包范围见[QUIC 独立链路验收](docs/quic-only-validation.md)。
 
-**整桌面模式（源码已实现，正式服务尚未切换）：** Mac 工作台可按显示器连接 Ubuntu 当前登录的 GNOME 桌面，使用同一配对、QUIC、H.264 和输入链路；关闭本机窗口只断开连接。应用模式仍单独存在，桌面模式不会调整 Ubuntu 显示器或关闭应用。首版范围、实测与部署状态见[整桌面模式](docs/desktop-mode.md)。
+**整桌面模式（实验功能）：** Mac 工作台可按显示器连接 Ubuntu 当前登录的 GNOME 桌面，使用同一配对、QUIC、H.264 和输入链路；关闭本机窗口只断开连接。应用模式仍单独存在，桌面模式不会调整 Ubuntu 显示器或关闭应用。首版范围、实测与部署状态见[整桌面模式](docs/desktop-mode.md)。
 
 **状态：原生链路开发者预览。** 已在 Apple Silicon Mac 与 Ubuntu 26.04 上验证 xterm 的真实画面、键鼠输入、窗口缩放、隐藏恢复和断开重连。控制端输入法与主动双向文本、截图及文件剪贴板已实现，并在原桌面 Firefox 上实测点击、中文输入、多行粘贴和复制回传。以 `docs/validation.md` 的实际记录为准。
 
@@ -42,7 +44,9 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 - `docs/threat-model.md`：安全边界。
 - `docs/acceptance.md`：实机验收覆盖范围与剩余步骤。
 
-## 使用顺序
+## 从源码运行
+
+使用发布安装包请先阅读[使用教程](docs/usage.md)，包含安装、配对、双向接管、ChatGPT 自动高清、升级与恢复。以下步骤面向开发者。
 
 1. 阅读 Linux Agent、Mac WindowHost 和 Launcher 目录内 README，按对应平台安装依赖并编译。不要在没有图形运行依赖的 Linux 上将编译成功当作可运行。
 2. 默认读取该 Linux 用户已安装的桌面应用；可额外配置 apps.json，保留固定参数或已有进程的自定义入口。客户端只能提交服务端列出的 ID，不能提交任意程序或 shell 命令。

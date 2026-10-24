@@ -4,7 +4,7 @@ Tauri 2 + Vue 3 管理本机共享、设备配对、应用目录和运行窗口�
 
 ## macOS 构建
 
-需要已有 Rust、Node.js、Xcode Command Line Tools。运行 `cd apps/launcher && ./scripts/build-macos.sh`。产物在 `src-tauri/target/release/bundle/macos/`，为尚未签名公证的开发包。单独 `npm run dev` 仅预览界面，没有本机服务能力。
+需要已有 Rust、Node.js、Xcode Command Line Tools。运行 `cd apps/launcher && ./scripts/build-macos.sh`。产物在 `src-tauri/target/release/bundle/macos/`，为本机临时签名的开发包，尚无 Apple Developer ID 签名和公证。单独 `npm run dev` 仅预览界面，没有本机服务能力。
 
 ## 配对与恢复
 
