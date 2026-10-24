@@ -165,6 +165,16 @@ import AppKit
         precondition(reused.surface.image === delayedVideo, "control overtaking decode must not suppress a still-current frame")
         app.receive(Incoming(object:["type":"frame", "window_id":99, "session_id":"fixture", "seq":4, "geometry_revision":1], image:pixels(40,40)))
         precondition(reused.surface.image === delayedVideo, "older video from the same window is still rejected")
+        var sessionData = metadata(100, nil, "window", CGRect(x: 0, y: 0, width: 800, height: 450))
+        sessionData["surface_type"] = "session"; sessionData["role"] = "session"
+        let scene = update(sessionData)
+        precondition(scene.sessionMode && scene.fixedCanvas && !scene.desktopMode)
+        messages.removeAll()
+        scene.window.setContentSize(NSSize(width: 700, height: 400))
+        scene.windowDidResize(Notification(name: NSWindow.didResizeNotification))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        precondition(!messages.contains { $0["type"] as? String == "window.configure" && ($0["window_id"] as? UInt32) == 100 })
+        precondition(scene.window.subtitle.contains("应用会话画面"))
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
         print("PASS: source-relative nested overlays, fractional density, letterboxing, screen bounds, native overflow scrolling, bottom-item input, nested scroll anchors, passive tooltip hit testing, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")

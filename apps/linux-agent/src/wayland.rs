@@ -232,23 +232,29 @@ pub struct Backend {
     frame_wake: Arc<FrameWake>,
     pending_pull: bool,
     copied: Option<(u32, String, Instant)>,
+    scene: Option<paneferry_protocol::SceneSize>,
+    scene_node: Option<u32>,
+    scale: u8,
 }
 impl Backend {
     pub fn connect(
         target: Target,
         input: Arc<dyn DesktopInput>,
         desktop: &crate::discovery::Desktop,
+        scale: u8,
+        scene: Option<paneferry_protocol::SceneSize>,
     ) -> Result<Self> {
         // GNOME caches loaded extension modules until the next login. An
         // upgraded Agent must not silently use the old text/capture contract.
-        if target.info.bridge_version < 2 {
+        if target.info.bridge_version < if scene.is_some() { 4 } else { 2 } {
             bail!("wayland_bridge_outdated")
         }
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
             bail!("approved existing process unavailable")
         }
+        let scale = if scene.is_some() { scale } else { 2 };
         let mut rpc = Rpc::new()?;
-        rpc.call(json!({"op":"acquire", "id":target.info.id, "pid":target.identity.pid}))?;
+        rpc.call(json!({"op":"acquire", "id":target.info.id, "pid":target.identity.pid,"scale":scale,"scene":scene}))?;
         rpc.call(json!({"op":"focus", "window_id":target.info.window_id}))?;
         let keymap =
             X11::connect_existing(desktop.display, &desktop.authority, target.identity.pid)?;
@@ -263,6 +269,9 @@ impl Backend {
             frame_wake: Arc::new(FrameWake::new()?),
             pending_pull: false,
             copied: None,
+            scene,
+            scene_node: None,
+            scale,
         })
     }
     fn call(&self, op: &str, id: u32) -> Result<Value> {
@@ -277,16 +286,20 @@ impl Backend {
             let Some(stream) = streams.get_mut(id) else {
                 continue;
             };
-            let result = stream.capture.pull(
-                [
-                    (info.x - info.buffer_x) as u32,
-                    (info.y - info.buffer_y) as u32,
-                    info.width,
-                    info.height,
-                ],
-                (info.buffer_width, info.buffer_height),
-                info.scale,
-            );
+            let result = if self.scene.is_some() {
+                stream.capture.pull_monitor()
+            } else {
+                stream.capture.pull(
+                    [
+                        (info.x - info.buffer_x) as u32,
+                        (info.y - info.buffer_y) as u32,
+                        info.width,
+                        info.height,
+                    ],
+                    (info.buffer_width, info.buffer_height),
+                    info.scale,
+                )
+            };
             // Transients can disappear between discovery and a PipeWire pull.
             // Their lifetime must never tear down the root's controller.
             let image = match result {
@@ -295,6 +308,12 @@ impl Backend {
                 Err(error) => return Err(error),
             };
             if let Some(image) = image {
+                if self
+                    .scene
+                    .is_some_and(|size| size.width != image.width || size.height != image.height)
+                {
+                    bail!("resolution_limited")
+                }
                 if let Some(window) = self.windows.get_mut(id) {
                     if window.width != image.width || window.height != image.height {
                         window.width = image.width;
@@ -313,6 +332,70 @@ impl Backend {
             }
         }
         Ok(())
+    }
+    fn scan_scene(&mut self, discovered: Vec<Info>) -> Result<Vec<Window>> {
+        let id = self.target.info.window_id;
+        let visible = discovered.iter().any(|info| !info.minimized);
+        let info = discovered
+            .into_iter()
+            .find(|w| w.window_id == id && w.id == self.target.info.id)
+            .context("unknown window")?;
+        info.validate()?;
+        let scene = self.rpc.borrow_mut().call(json!({"op":"scene"}))?;
+        let canvas = self.scene.context("application_scene_unavailable")?;
+        // Refuse monitor renegotiation outside the agreed canvas, rather than
+        // sending coordinates from one layout against another.
+        if scene["width"].as_u64() != Some(u64::from(canvas.width / u32::from(self.scale)))
+            || scene["height"].as_u64() != Some(u64::from(canvas.height / u32::from(self.scale)))
+            || scene["scale"].as_f64() != Some(f64::from(self.scale))
+        {
+            bail!("resolution_limited")
+        }
+        let Some(node) = scene["node"].as_u64() else {
+            return Ok(vec![]);
+        };
+        let node = u32::try_from(node)?;
+        if self.scene_node != Some(node) {
+            self.streams.borrow_mut().clear();
+            self.scene_node = Some(node);
+        }
+        if !self.streams.borrow().contains_key(&id) {
+            let capture = PipeWireCapture::new(node, self.frame_wake.clone())?;
+            self.streams.borrow_mut().insert(
+                id,
+                Stream {
+                    capture,
+                    image: None,
+                    dirty: true,
+                    started: Instant::now(),
+                },
+            );
+        }
+        let window = Window {
+            window_id: id,
+            parent_id: None,
+            title: info.title.clone(),
+            role: "session".into(),
+            presentation: None,
+            x: 0,
+            y: 0,
+            width: canvas.width,
+            height: canvas.height,
+            scale_factor: self.scale,
+            geometry_revision: 1,
+            visible,
+        };
+        self.windows.insert(id, window.clone());
+        self.infos.insert(id, info);
+        if self
+            .streams
+            .borrow()
+            .get(&id)
+            .is_some_and(|s| s.image.is_none())
+        {
+            self.pull_frames()?;
+        }
+        Ok(vec![window])
     }
     fn ready(&self) -> Result<()> {
         match self.input.status() {
@@ -384,7 +467,7 @@ impl WindowBackend for Backend {
                 // GNOME disables user extensions while locked. Reacquire only
                 // this compositor ID and original process after unlock.
                 let mut rpc = Rpc::new()?;
-                rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid}))?;
+                rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid,"scale":self.scale,"scene":self.scene}))?;
                 self.streams.get_mut().clear();
                 self.rpc.replace(rpc);
                 self.call("scope", self.target.info.window_id)?
@@ -392,6 +475,9 @@ impl WindowBackend for Backend {
             result => result?,
         };
         let discovered: Vec<Info> = serde_json::from_value(scope)?;
+        if self.scene.is_some() {
+            return self.scan_scene(discovered);
+        }
         if discovered.len() > 16 {
             bail!("wayland_bridge_failed")
         }
@@ -558,6 +644,9 @@ impl WindowBackend for Backend {
         Ok(Arc::clone(image))
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
+        if self.scene.is_some() {
+            bail!("resolution_limited")
+        }
         let info = self.known(id)?;
         if info.is_popup() {
             bail!("window_unavailable")
@@ -594,6 +683,24 @@ impl WindowBackend for Backend {
         self.ready()?;
         if pressed && button > 0 {
             self.focus(id)?;
+        }
+        if self.scene.is_some() {
+            let result = self
+                .rpc
+                .borrow_mut()
+                .call(json!({"op":"scene_point", "x":x,"y":y,
+                "width":window.width,"height":window.height}));
+            let point = match result {
+                Ok(point) => point,
+                Err(_) if button > 0 && !pressed => {
+                    self.input.release_all();
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+            let x = i32::try_from(point["x"].as_i64().context("wayland_bridge_failed")?)?;
+            let y = i32::try_from(point["y"].as_i64().context("wayland_bridge_failed")?)?;
+            return self.input.pointer(x, y, button, pressed);
         }
         // The compositor can move the window between frames; re-read position
         // immediately before converting an input into desktop coordinates.

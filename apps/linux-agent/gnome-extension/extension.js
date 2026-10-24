@@ -7,10 +7,11 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {VirtualOutput, delay} from './virtualOutput.js';
+import {ApplicationScene} from './applicationScene.js';
 import {TextInput} from './textInput.js';
 import {windowKind, preservesPopupFocus} from './windowPresentation.js';
 
-// No Eval, shell commands, desktop scaling or whole-monitor capture. Leases
+// No Eval, shell commands or desktop scaling. Leases
 // belong to the unique D-Bus sender, and die when that helper disconnects.
 const XML = `<node><interface name="io.paneferry.Windows1"><method name="Call"><arg type="s" direction="in"/><arg type="s" direction="out"/></method></interface></node>`;
 export default class PaneFerry extends Extension {
@@ -32,7 +33,8 @@ export default class PaneFerry extends Extension {
                 if (lease.output && !lease.opening && now - lease.lastUse > 3000000) {
                     const output = lease.output;
                     lease.output = null;
-                    lease.suspending = output.close();
+                    lease.suspending = lease.scene ? lease.scene.close() : output.close();
+                    lease.scene = null;
                 }
             }
             return GLib.SOURCE_CONTINUE;
@@ -61,7 +63,8 @@ export default class PaneFerry extends Extension {
         this.leases.delete(token);
         if (lease) lease.cancelled = true;
         if (lease?.unmanaged) lease.root.disconnect(lease.unmanaged);
-        lease?.output?.close();
+        if (lease?.scene) lease.scene.close();
+        else lease?.output?.close();
     }
     async ensureOutput(lease) {
         lease.lastUse = GLib.get_monotonic_time();
@@ -77,10 +80,22 @@ export default class PaneFerry extends Extension {
                 await delay(25);
             }
         }
-        lease.output = new VirtualOutput(lease.root);
-        lease.opening = lease.output.open(lease.scale);
+        lease.output = new VirtualOutput(lease.root, lease.canvas);
+        lease.opening = (async () => {
+            await lease.output.open(lease.scale);
+            if (lease.cancelled) throw new Error('window_unavailable');
+            if (lease.canvas) {
+                lease.scene = new ApplicationScene(lease.output, () => this.scope(lease.root));
+                lease.scene.starting = lease.scene.start();
+                await lease.scene.starting;
+            }
+        })();
         try { await lease.opening; }
-        catch (error) { lease.output = null; throw error; }
+        catch (error) {
+            if (lease.scene) lease.scene.close();
+            else lease.output?.close();
+            lease.scene = null; lease.output = null; throw error;
+        }
         finally { lease.opening = null; lease.lastUse = GLib.get_monotonic_time(); }
     }
     windows() {
@@ -94,7 +109,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 3, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 4, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             window_kind: windowKind(w, Meta.WindowType), stack_order: order,
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
@@ -149,7 +164,12 @@ export default class PaneFerry extends Extension {
                 if ([...this.leases.values()].some(l => this.scope(l.root).some(w => selected.includes(w)))) throw new Error('session_controlled');
                 if (this.leases.size >= 16) throw new Error('session_limit');
                 const token = GLib.uuid_string_random();
-                const lease = {owner, root, output: null, scale: r.scale ?? 2};
+                if (r.scene && (root.get_client_type() !== Meta.WindowClientType.WAYLAND ||
+                    ![r.scene.width, r.scene.height].every(Number.isInteger) ||
+                    r.scene.width < 640 || r.scene.height < 480 || r.scene.width > 4096 || r.scene.height > 4096 ||
+                    r.scene.width * r.scene.height > 8000000 || r.scene.width % (r.scale ?? 2) || r.scene.height % (r.scale ?? 2)))
+                    throw new Error('invalid_dimensions');
+                const lease = {owner, root, output: null, scale: r.scale ?? 2, canvas: r.scene ?? null};
                 this.leases.set(token, lease);
                 lease.unmanaged = root.connect('unmanaged', () => this.release(token));
                 try { await this.ensureOutput(lease); }
@@ -182,12 +202,20 @@ export default class PaneFerry extends Extension {
                     await this.ensureOutput(lease);
                     if (this.leases.get(r.token) !== lease) throw new Error('window_unavailable');
                     const scope = this.scope(lease.root);
-                    const w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
+                    let w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
                         : scope.find(window => window.get_stable_sequence() === r.window_id);
-                    if (r.op === 'scope') result = global.display.sort_windows_by_stacking(scope).slice(0, 16).map((window, order) => this.describe(window, order));
+                    if (lease.scene && r.op === 'commit_text') w = lease.scene.focus();
+                    if (r.op === 'scene') {
+                        if (!lease.scene) throw new Error('invalid_request');
+                        result = lease.scene.info();
+                    } else if (r.op === 'scene_point') {
+                        if (!lease.scene) throw new Error('invalid_request');
+                        result = lease.scene.point(r.x, r.y, r.width, r.height);
+                    } else if (r.op === 'scope') result = global.display.sort_windows_by_stacking(scope).slice(0, 16).map((window, order) => this.describe(window, order));
                     else {
                         if (!w) throw new Error('window_unavailable');
                         if (r.op === 'resize' || r.op === 'resize_x11') {
+                            if (lease.scene) throw new Error('resolution_limited');
                             if (!Number.isInteger(r.width) || !Number.isInteger(r.height) || r.width < 1 || r.height < 1 || r.width > 4096 || r.height > 4096 || r.width * r.height > 8000000) throw new Error('invalid_dimensions');
                             const rect = w.get_frame_rect();
                             const limits = this.describe(w);
@@ -244,10 +272,13 @@ export default class PaneFerry extends Extension {
                             if (x < area.x || y < area.y || x >= area.x + area.width || y >= area.y + area.height) throw new Error('window_unavailable');
                             result = {x: Math.round(x), y: Math.round(y)};
                         } else if (r.op === 'focus') {
+                            if (lease.scene) { lease.scene.focus(); result = {}; }
+                            else {
                             const kind = windowKind(w, Meta.WindowType);
                             if (!['tooltip', 'passive', 'menu', 'popup'].includes(kind) &&
                                 !preservesPopupFocus(w, global.display.focus_window, scope, Meta.WindowType)) Main.activateWindow(w);
                             result = {};
+                            }
                         }
                         else if (r.op === 'close') { w.delete(global.get_current_time()); result = {}; }
                         else if (r.op === 'commit_text') {

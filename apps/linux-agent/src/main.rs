@@ -75,6 +75,7 @@ mod video;
 mod video_qos;
 mod wayland;
 struct Session {
+    scene: Option<paneferry_protocol::SceneSize>,
     id: String,
     app_id: String,
     display: u16,
@@ -275,6 +276,7 @@ impl Drop for Session {
 }
 #[derive(Clone)]
 struct LaunchRequest {
+    scene: Option<paneferry_protocol::SceneSize>,
     session_id: String,
     app_id: String,
     scale_factor: u8,
@@ -296,10 +298,18 @@ struct State {
     desktop_input: desktop_input::Manager,
 }
 impl State {
-    fn remember_launch(&mut self, request: &str, app: &str, scale: u8, session: &str) {
+    fn remember_launch(
+        &mut self,
+        request: &str,
+        app: &str,
+        scale: u8,
+        scene: Option<paneferry_protocol::SceneSize>,
+        session: &str,
+    ) {
         self.requests.insert(
             request.into(),
             LaunchRequest {
+                scene,
                 session_id: session.into(),
                 app_id: app.into(),
                 scale_factor: scale,
@@ -575,6 +585,7 @@ fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mute
     let backend = desktop::Backend::connect(monitor, st.desktop_input.lease(), &desktop)?;
     let id = random_id()?;
     let session = Arc::new(Mutex::new(Session {
+        scene: None,
         page_scale: None,
         page_scale_authority: None,
         window_lifetime: Default::default(),
@@ -604,8 +615,12 @@ fn launch(
     app_id: &str,
     req: &str,
     scale_factor: u8,
+    scene: Option<paneferry_protocol::SceneSize>,
 ) -> Result<Arc<Mutex<Session>>> {
     paneferry_protocol::validate_scale(scale_factor)?;
+    if let Some(scene) = scene {
+        scene.validate(scale_factor)?;
+    }
     if !identifier(app_id) || !identifier(req) {
         bail!("invalid launch request")
     }
@@ -613,7 +628,10 @@ fn launch(
         bail!("request id conflict")
     }
     if let Some(request) = st.requests.get(req) {
-        if request.app_id != app_id || request.scale_factor != scale_factor {
+        if request.app_id != app_id
+            || request.scale_factor != scale_factor
+            || request.scene != scene
+        {
             bail!("request id conflict")
         }
         let s = st
@@ -648,13 +666,26 @@ fn launch(
             })
             .cloned(),
     )? {
-        let s = session.lock().unwrap();
+        let mut s = session.lock().unwrap();
         if s.controller {
             bail!("session already controlled")
         }
-        st.remember_launch(req, app_id, scale_factor, &s.id);
+        if s.scene == scene && (scene.is_none() || s.scale_factor == scale_factor) {
+            st.remember_launch(req, app_id, scale_factor, scene, &s.id);
+            drop(s);
+            return Ok(session);
+        }
+        if !s.wayland || s.existing.is_none() {
+            bail!("session_mode_conflict")
+        }
+        let old_id = s.id.clone();
+        s.exited = true; // Concurrent resume must not acquire the retiring lease.
+        let retired_backend = s.backend.take();
         drop(s);
-        return Ok(session);
+        st.sessions.remove(&old_id);
+        // Drop the old compositor lease before acquiring the new presentation.
+        // This session owns no application process; the source keeps running.
+        drop(retired_backend);
     }
     if app_id.starts_with("desktop-") && !st.desktop_apps.iter().any(|a| a.id == app_id) {
         st.desktop_apps = discovery::applications()?;
@@ -717,7 +748,7 @@ fn launch(
         .cloned()
     {
         for session in st.sessions.values().cloned().collect::<Vec<_>>() {
-            let s = session.lock().unwrap();
+            let mut s = session.lock().unwrap();
             if s.desktop_monitor.is_some() {
                 continue;
             }
@@ -728,8 +759,16 @@ fn launch(
                 if s.controller {
                     bail!("session already controlled")
                 }
-                st.remember_launch(req, app_id, scale_factor, &s.id);
-                return Ok(session.clone());
+                if s.scene == scene && (scene.is_none() || s.scale_factor == scale_factor) {
+                    st.remember_launch(req, app_id, scale_factor, scene, &s.id);
+                    return Ok(session.clone());
+                }
+                let old_id = s.id.clone();
+                s.exited = true;
+                let retired_backend = s.backend.take();
+                drop(s);
+                st.sessions.remove(&old_id);
+                drop(retired_backend);
             }
         }
         if st.sessions.len() >= 16 {
@@ -739,10 +778,16 @@ fn launch(
             .into_iter()
             .next()
             .context("desktop_input_unavailable")?;
-        let backend =
-            wayland::Backend::connect(target.clone(), st.desktop_input.lease(), &desktop)?;
+        let backend = wayland::Backend::connect(
+            target.clone(),
+            st.desktop_input.lease(),
+            &desktop,
+            scale_factor,
+            scene,
+        )?;
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            scene,
             page_scale: None,
             page_scale_authority: None,
             window_lifetime: Default::default(),
@@ -750,7 +795,7 @@ fn launch(
             id: id.clone(),
             app_id: app_id.into(),
             display: 0,
-            scale_factor: 1,
+            scale_factor: if scene.is_some() { scale_factor } else { 1 },
             backend: Some(Box::new(backend)),
             children: vec![],
             controller: false,
@@ -762,9 +807,12 @@ fn launch(
             wayland: true,
             desktop_monitor: None,
         }));
-        st.remember_launch(req, app_id, scale_factor, &id);
+        st.remember_launch(req, app_id, scale_factor, scene, &id);
         st.sessions.insert(id, session.clone());
         return Ok(session);
+    }
+    if scene.is_some() {
+        bail!("application_scene_unavailable")
     }
     let target = target_id.as_ref().and_then(|id| st.running.get(id));
     let root_window = target.map(|target| target.window_id);
@@ -815,7 +863,10 @@ fn launch(
                 if s.controller {
                     bail!("session already controlled")
                 }
-                st.remember_launch(req, app_id, scale_factor, &s.id);
+                if s.scene != scene {
+                    bail!("session_mode_conflict")
+                }
+                st.remember_launch(req, app_id, scale_factor, scene, &s.id);
                 return Ok(session.clone());
             }
         }
@@ -854,6 +905,7 @@ fn launch(
         }
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            scene: None,
             page_scale: None,
             page_scale_authority: Some(PathBuf::from(&existing.xauthority)),
             window_lifetime: Default::default(),
@@ -873,7 +925,7 @@ fn launch(
             wayland: false,
             desktop_monitor: None,
         }));
-        st.remember_launch(req, app_id, scale_factor, &id);
+        st.remember_launch(req, app_id, scale_factor, scene, &id);
         st.sessions.insert(id, session.clone());
         return Ok(session);
     }
@@ -891,6 +943,7 @@ fn launch(
         .context("no display available")?;
     let id = random_id()?;
     let mut s = Session {
+        scene: None,
         page_scale: None,
         page_scale_authority: None,
         window_lifetime: Default::default(),
@@ -1070,7 +1123,7 @@ fn launch(
             .context("application start failed")?,
     );
     let session = Arc::new(Mutex::new(s));
-    st.remember_launch(req, app_id, scale_factor, &id);
+    st.remember_launch(req, app_id, scale_factor, scene, &id);
     st.sessions.insert(id, session.clone());
     Ok(session)
 }
@@ -1163,6 +1216,9 @@ fn win_value(
     } else {
         "requested"
     });
+    if w.role == "session" {
+        v["surface_type"] = json!("session");
+    }
     if desktop {
         v["surface_type"] = json!("desktop");
     }
@@ -1209,6 +1265,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         _ => bail!("hello version 1 required"),
     }
     let mut capabilities = vec![
+        "application.scene",
         "catalog",
         "display.scale",
         "window.page-scale",
@@ -1422,7 +1479,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             }
                             sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,
                                 "controlled":controlled,"window_count":window_count,"unavailable_reason":unavailable_reason,
-                                "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"},
+                                "mode":if s.desktop_monitor.is_some() {"desktop"} else if s.scene.is_some() {"scene"} else {"app"},
                                 "monitor_id":s.desktop_monitor}));
                         }
                         sessions.sort_by(|a, b| {
@@ -1565,6 +1622,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         backend: _,
                         attach,
                         scale_factor,
+                        scene,
                     } => {
                         if !state.lock().unwrap().sharing {
                             bail!("sharing disabled")
@@ -1573,7 +1631,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             bail!("detach before launching another session")
                         };
                         let session = catalog_operation(&state, |st| {
-                            launch(st, &app_id, &request_id, scale_factor)
+                            launch(st, &app_id, &request_id, scale_factor, scene)
                         })?;
                         wait_for_window(&session)?;
                         // A launcher only prepares a session. It must not race the
@@ -1656,7 +1714,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             send(
                                 &mut out,
                                 json!({"type":"session.snapshot","windows":values,
-                                    "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"}}),
+                                    "mode":if s.desktop_monitor.is_some() {"desktop"} else if s.scene.is_some() {"scene"} else {"app"}}),
                                 &s.id,
                             )?;
                         }
@@ -1914,6 +1972,7 @@ mod tests {
             .spawn()
             .unwrap();
         let session = Arc::new(Mutex::new(Session {
+            scene: None,
             page_scale: None,
             page_scale_authority: None,
             window_lifetime: Default::default(),
@@ -1949,11 +2008,11 @@ mod tests {
             desktop_input: desktop_input::Manager::new(PathBuf::from("/unused")),
         };
         assert!(Arc::ptr_eq(
-            &launch(&mut st, "test-app", "request", 2).unwrap(),
+            &launch(&mut st, "test-app", "request", 2, None).unwrap(),
             &session
         ));
         assert!(Arc::ptr_eq(
-            &launch(&mut st, "test-app", "request", 2).unwrap(),
+            &launch(&mut st, "test-app", "request", 2, None).unwrap(),
             &session
         ));
         assert_eq!(
@@ -1961,10 +2020,24 @@ mod tests {
             1,
             "reuse must not change application scale"
         );
-        assert!(launch(&mut st, "other-app", "request", 2).is_err());
-        assert!(launch(&mut st, "test-app", "request", 1).is_err());
+        assert!(launch(&mut st, "other-app", "request", 2, None).is_err());
+        assert!(launch(&mut st, "test-app", "request", 1, None).is_err());
+        let canvas = Some(paneferry_protocol::SceneSize {
+            width: 1600,
+            height: 900,
+        });
+        assert!(launch(&mut st, "test-app", "request", 2, canvas)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("request id conflict"));
+        assert!(launch(&mut st, "test-app", "scene-request", 2, canvas)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("session_mode_conflict"));
         session.lock().unwrap().controller = true;
-        assert!(launch(&mut st, "test-app", "another-request", 2).is_err());
+        assert!(launch(&mut st, "test-app", "another-request", 2, None).is_err());
         assert_eq!(st.sessions.len(), 1);
         let shared = Arc::new(Mutex::new(st));
         let worker = shared.clone();

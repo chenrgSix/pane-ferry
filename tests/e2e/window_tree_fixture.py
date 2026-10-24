@@ -50,6 +50,14 @@ def install(root, state):
                 return False
             # xdg_popup's parent must have completed its initial configure.
             GLib.timeout_add(150, nested)
+        if action == 'stranger':
+            # Same PID, no transient relationship: must NEVER enter the scene.
+            stranger = Gtk.Window(title='Unrelated red window')
+            stranger.set_default_size(500, 300)
+            area = Gtk.DrawingArea()
+            area.connect('draw', lambda widget, cr: (cr.set_source_rgb(1, 0, 0), cr.paint(), False)[-1])
+            stranger.add(area); stranger.show_all(); stranger.present()
+            children.append(stranger)
         if action == 'pulse':
             popup(root, Gdk.WindowTypeHint.POPUP_MENU, 'Short lived popup', (180, 60), (.9, .1, .2))
             GLib.timeout_add(15, lambda: (close(), False)[1])

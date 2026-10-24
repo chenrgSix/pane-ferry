@@ -100,6 +100,8 @@ pub enum Error {
 }
 pub fn remote_error_message(code: &str) -> String {
     match code {
+        "application_scene_unavailable" => "当前来源不支持应用会话画面。首版需要新版 Ubuntu 扩展和已打开的 GNOME/Wayland 应用。".into(),
+        "session_mode_conflict" => "已有会话采用不同的显示方式，请先断开该会话。".into(),
         "sharing_disabled" => "对方已停止本机共享，应用仍在原设备运行。".into(),
         "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
         "accessibility_required" => "请在 Mac 允许 窗渡 PaneFerry 的辅助功能权限。".into(),
@@ -266,8 +268,16 @@ where
         .await
         .map_err(|_| Error::Connection)?;
     input.flush().await.map_err(|_| Error::Connection)?;
-    if read_message(output).await?["type"] != "hello" {
+    let hello = read_message(output).await?;
+    if hello["type"] != "hello" {
         return Err(Error::Protocol);
+    }
+    if body.get("scene").is_some_and(|v| !v.is_null())
+        && !hello["capabilities"]
+            .as_array()
+            .is_some_and(|caps| caps.iter().any(|c| c == "application.scene"))
+    {
+        return Err(Error::Remote("application_scene_unavailable".into()));
     }
     let mut data = serde_json::to_vec(&body).map_err(|_| Error::Protocol)?;
     if data.len() >= MAX_CONTROL_LINE {
@@ -449,18 +459,39 @@ pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
     }
     Ok(sessions)
 }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneSize {
+    pub width: u32,
+    pub height: u32,
+}
 pub async fn launch_native(
     endpoint: &Target,
     app_id: &str,
     request_id: &str,
     scale_factor: u8,
+    scene: Option<SceneSize>,
 ) -> Result<Started, Error> {
     validate_id(app_id)?;
     validate_id(request_id)?;
     if !matches!(scale_factor, 1 | 2) {
         return Err(Error::Invalid("清晰度缩放必须为 1 或 2。"));
     }
-    let value = request(endpoint, json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor}), "session.started").await?;
+    let mut body = json!({"type":"app.launch","version":1,"app_id":app_id,"request_id":request_id,"backend":"native","attach":false,"scale_factor":scale_factor});
+    if let Some(scene) = scene {
+        if scene.width < 640
+            || scene.height < 480
+            || scene.width > 4096
+            || scene.height > 4096
+            || u64::from(scene.width) * u64::from(scene.height) > 8_000_000
+            || scene.width % u32::from(scale_factor) != 0
+            || scene.height % u32::from(scale_factor) != 0
+        {
+            return Err(Error::Invalid("应用会话画面尺寸无效。"));
+        }
+        body["scene"] = serde_json::to_value(scene).map_err(|_| Error::Protocol)?;
+    }
+    let value = request(endpoint, body, "session.started").await?;
     parse_started(value)
 }
 pub async fn start_desktop(
@@ -594,6 +625,58 @@ mod tests {
 #[cfg(test)]
 mod unified_transport_tests {
     use super::*;
+    #[tokio::test]
+    async fn scene_request_is_never_sent_to_publishers_without_the_capability() {
+        for supported in [false, true] {
+            let (client, server) = tokio::io::duplex(4096);
+            let (read, mut write) = tokio::io::split(client);
+            let mut read = BufReader::new(read);
+            let task = tokio::spawn(async move {
+                let (read, mut write) = tokio::io::split(server);
+                let mut read = BufReader::new(read);
+                assert_eq!(read_message(&mut read).await.unwrap()["type"], "hello");
+                let hello = json!({"version":1,"type":"hello","capabilities":if supported {vec!["application.scene"]} else {vec![]}});
+                write
+                    .write_all(format!("{}\n", hello).as_bytes())
+                    .await
+                    .unwrap();
+                if supported {
+                    assert_eq!(
+                        read_message(&mut read).await.unwrap()["scene"]["width"],
+                        1600
+                    );
+                    write
+                        .write_all(b"{\"version\":1,\"type\":\"session.started\"}\n")
+                        .await
+                        .unwrap();
+                } else {
+                    let mut data = String::new();
+                    assert_eq!(
+                        read.read_line(&mut data).await.unwrap(),
+                        0,
+                        "launch leaked before capability check"
+                    );
+                }
+            });
+            let result = exchange(
+                &mut read,
+                &mut write,
+                json!({"version":1,"type":"app.launch","scene":{"width":1600,"height":900}}),
+                "session.started",
+            )
+            .await;
+            if supported {
+                assert!(result.is_ok());
+            } else {
+                assert!(
+                    matches!(result, Err(Error::Remote(code)) if code == "application_scene_unavailable")
+                );
+            }
+            drop(write);
+            drop(read);
+            task.await.unwrap();
+        }
+    }
     #[tokio::test]
     async fn native_target_uses_same_handshake_errors_and_validation() {
         let directory = std::env::temp_dir().join(format!("rwp-{}", uuid::Uuid::new_v4()));

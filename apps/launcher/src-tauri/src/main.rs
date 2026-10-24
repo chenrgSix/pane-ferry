@@ -246,6 +246,7 @@ async fn launch_app(
     app_id: String,
     request_id: String,
     render_scale: Option<u8>,
+    scene: Option<transport::SceneSize>,
     icon_png: Option<String>,
     app_name: Option<String>,
 ) -> Result<LaunchResult, LaunchFailure> {
@@ -269,6 +270,7 @@ async fn launch_app(
         &app_id,
         &request_id,
         scale,
+        scene,
     )
     .await?;
     let pid =

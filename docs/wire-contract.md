@@ -10,7 +10,11 @@
 新版 app.list 从 GIO 每次发现已安装桌面应用，并追加自定义入口。响应另有 discovery_supported:true、discovery_error:null|code；每项有 source:"desktop"|"custom" 和 icon_png:null|base64。图标仅为受限 PNG，应用图标最多 12KiB / 96px；控制端检查格式头、尺寸和长度。客户端不接收可执行路径或 argv；旧 Agent 没有 discovery_supported 时，新启动器明确提示需要更新。自动应用最多 512 个，自定义配置最多 256 个，控制响应行仍限制 16MiB。
 客户端 window.list，服务端 window.list {windows:[{id,app_id:null|string,window_id,name,title,icon_png,minimized,controlled,session_id:null|string}],unavailable_reason:null|code}。最多 128 个当前用户的 X11/XWayland 窗口及已启用 GNOME 桥接的原生 Wayland 窗口。app_id 是核验后的目录关联，不用标题猜测。只读查询不得截屏、改变焦点/尺寸或发送输入；单个窗口图标不超过 16KiB / 128px。自己的独立虚拟桌面和已接收的远程窗口不重复发布。
 接管从 window.list 返回的 id 仍使用 app.launch，不允许客户端传 PID、显示号、认证文件或任意 XID 作为接入目标。服务端注册并复核 XRes 客户 PID、同 UID、进程启动时间、可执行身份和选中窗口，仅该主窗口及关联弹窗进入会话。同 PID 的其他主窗口不属于这个会话。session_id 非空时从远程会话区重连，避免重复接管。
-客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口的原生应用缩放保持原值；ChatGPT 页面高清通过下述独立租约启用。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
+客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2,scene?:{width,height}}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口的原生应用缩放保持原值；ChatGPT 页面高清通过下述独立租约启用。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
+可选 `scene` 请求源端合成的固定像素画布，必须先协商 `application.scene` 能力；缺省继续分窗口模式。画布宽 640..4096、高 480..4096、总像素不超过 8M，宽高须整除 scale_factor。首版只接受已打开的 GNOME/Wayland 目标和桥接版本 4；其他来源返回 `application_scene_unavailable`，绝不自动改为整桌面采集。scene 与缩放纳入 request_id 幂等校验。已断开的外部 Wayland 会话可重新 app.launch 切换显示方式，只替换窗口租约，保留原应用进程。独立子进程会话不通过该操作销毁。
+
+应用会话画面只发布一个 `role:"session",surface_type:"session",parent_id:null` 的窗口，`session.list`/snapshot 的 mode 为 `scene`。原生菜单和对话框已在源端画布中合成，不另发子窗口视频。Mac 调整窗口时等比显示，不回发 window.configure；重设画布需断开后重新 app.launch。它与 mode=desktop 的授权范围不同。
+
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled,window_count?:number|null,unavailable_reason?:null|string}]}，只返回尚未退出的会话，不抢占控制权。window_count 为当前可见窗口数；0 表示进程虽仍在运行但没有可列出的窗口，null 表示暂时无法确认。unavailable_reason 为扫描失败的稳定错误码，缺失或 null 表示未发现错误；客户端应结束该会话的“启动中”状态并显示本地映射提示，保留原会话供重试。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
@@ -57,7 +61,7 @@ X11 原窗口超出每边 4096 / 800 万像素预算时，按 WM_NORMAL_HINTS �
 
 需要桌面密钥服务兼容策略的应用，在本地总线或受限代理不可用时返回 `desktop_secrets_unavailable`。这是启动前的明确拒绝，不保留新会话。该策略由发布端本地目录决定，客户端不能提交总线地址、代理规则或修改启动策略。
 
-H.264 编码与 socket 写出由独立线程执行，不持有会话输入锁。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。编码前像素去重包含 geometry_revision（PipeWire 使用转换后的 I420 有效行，忽略内存对齐字节），隐藏/重现会重发当前帧。反馈模式根据已显示帧的排队延迟在 15 fps 与配置上限之间调节采集节奏；输入请求优先于下一次采集，但连续输入时至少每 100ms 尝试一次扫描。QUIC 控制流优先级高于每窗口视频流，每窗口视频队列满时不阻塞上游控制读取，跳过丢失帧及其依赖，直到下一关键帧；实际帧率受编码、网络及控制端限制。已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
+H.264 编码使用两个固定工作线程，窗口按 ID 分配，每个编码器只在所属线程创建和使用；控制事件及 socket 写出由独立输出线程处理，不等待编码完成，也不持有会话输入锁。原始帧队列按窗口合并，已编码帧不任意丢弃；生命周期代号过滤旧编码结果。Mac 解码使用两个并发工作槽，同窗口顺序解码，控制读取不等待解码；隐藏、销毁和快照切换使旧结果失效，视频按窗口检查顺序号。待编码的同一窗口旧原始帧被最新帧替换，新帧仍排在此前的元数据事件之后；seq 在实际发送时生成。编码前像素去重包含 geometry_revision（PipeWire 使用转换后的 I420 有效行，忽略内存对齐字节），隐藏/重现会重发当前帧。反馈模式根据已显示帧的排队延迟在 15 fps 与配置上限之间调节采集节奏；输入请求优先于下一次采集，但连续输入时至少每 100ms 尝试一次扫描。QUIC 控制流优先级高于每窗口视频流，每窗口视频队列满时不阻塞上游控制读取，跳过丢失帧及其依赖，直到下一关键帧；实际帧率受编码、网络及控制端限制。已实现 H.264 over QUIC，尚未实现 WebRTC 视频轨道。
 
 Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/lan-remoteapp/apps.json 自定义入口。Exec 字段由发布器解析、启动前重新确认对应桌面入口；自定义配置只接受固定绝对 executable + argv 数组。客户端不能传 executable 或命令字符串。原生后端是唯一实现，其他 backend 值在协议解析时拒绝。网络组件通过本机私有 socket 访问发布器，不执行远端 shell 命令。完整行为见 [应用与窗口发现](application-discovery.md)。
 

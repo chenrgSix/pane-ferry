@@ -74,13 +74,15 @@ Agent 仅在组件可用时声明 `native.h264`；当前视频链路要求 H.264
 
 支持 GNOME 50（当前在 50.1 隔离桌面测试）。将 `apps/linux-agent/gnome-extension/` 安装到用户的 `gnome-shell/extensions/paneferry@local/` 并启用。普通本地 D-Bus 窗口接口提供元数据、目标窗口的尺寸/焦点操作与租约；不启用 Shell Eval，不改变其他用户、全局缩放或桌面分辨率。当前是同用户组件间的范围校验，不是额外的操作系统沙箱。
 
-Agent 保留原 PID 和窗口身份，不启动新 Firefox、不访问浏览器资料。主窗口与明确 transient 弹窗通过 Mutter RecordWindow / PipeWire 分别采集，使用 `GstVideoCropMeta` 去掉合成器 padding，再送同一 PNG/H.264 输出。另需 `libgstvideo-1.0.so.0`、GStreamer `pipewiresrc`、运行中的 PipeWire 和 Mutter ScreenCast。共享输入授权仍使用 RemoteDesktop Portal；文字复制/粘贴经 GNOME 文本剪贴板桥接，当前拒绝二进制剪贴板和剪切，不在后台读取。
+Agent 保留原 PID 和窗口身份，不启动新 Firefox、不访问浏览器资料。默认分窗口模式下，主窗口与明确 transient 弹窗通过 Mutter RecordWindow / PipeWire 分别采集，使用 `GstVideoCropMeta` 去掉合成器 padding，再送同一 PNG/H.264 输出。另需 `libgstvideo-1.0.so.0`、GStreamer `pipewiresrc`、运行中的 PipeWire 和 Mutter ScreenCast。共享输入授权仍使用 RemoteDesktop Portal；文字复制/粘贴经 GNOME 文本剪贴板桥接，当前拒绝二进制剪贴板和剪切，不在后台读取。
 
 GNOME 50 的 RecordWindow 使用显示器大小的缓冲区；原生 Wayland 目标超出可完整采集区域时明确返回 `resolution_limited`，不会冒用目标尺寸或放大低分辨率帧。尺寸请求先从像素换算到合成器逻辑单位。Xwayland 仍用 XComposite 原像素，扩展通过用户尺寸请求允许大于物理屏幕的目标窗口，并仅移动选中窗口，使画面外控制点能落入输入设备范围。比例、预算和实测边界见[分辨率说明](window-resolution.md)。
 
 首次安装扩展时，GNOME 可能直到下次登录才发现它。不要为自动验收注销桌面；注销会退出用户应用。Agent 的独立会话也不持久化，重启服务前须保存工作。普通 X11 路径在扩展未启用时保持可用，但原桌面的尺寸请求仍可能被窗口管理器限制。
 
 升级扩展同样需要下一次 GNOME 登录：当前登录缓存已经导入的 JavaScript 模块，`ReloadExtension` 不能保证加载磁盘上的新代码。扩展版本 2 / 桥接版本 3 增加通用菜单、提示框类型及堆叠次序；应更新 Agent、Mac WindowHost 和扩展，并在用户自行保存工作、重新登录 Ubuntu 后核对 `bridge_version:3`。旧桥接仍可连接，但不会具备完整的浮层展示语义。相关协议见[窗口元数据](wire-contract.md)。
+
+应用会话画面使用桥接版本 4，建立固定输出上的受限合成场景并只发送一个流；为可选模式，详见[应用会话画面](application-scene.md)。
 
 ### 原桌面统一输入授权
 

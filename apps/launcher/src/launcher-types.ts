@@ -23,7 +23,7 @@ export type SessionInfo = {
   backend: "native";
   display: number;
   controlled: boolean;
-  mode?: "app" | "desktop" | null;
+  mode?: "app" | "desktop" | "scene" | null;
   monitor_id?: string | null;
   window_count?: number | null;
   unavailable_reason?: string | null;

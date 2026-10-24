@@ -421,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func automaticallyEnablePageScale(_ host: HostedWindow) {
         guard connected, ready, !recovering, session != nil,
               capabilities.contains("window.page-scale"), host.pageScaleSupported,
-              host.remoteVisible, !host.popup, !host.relatedWindow, !host.desktopMode,
+              host.remoteVisible, !host.popup, !host.relatedWindow, !host.fixedCanvas,
               pageScaleAttempted.insert(host.id).inserted else { return }
         // Once per connection: metadata updates must neither retry a failed
         // adapter nor undo a manual opt-out. Reconnect starts a fresh lease.
@@ -434,7 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menuItem.state = activeHost()?.pageScale == 2 ? .on : .off
             return ready && capabilities.contains("window.page-scale") && activeHost()?.pageScaleSupported == true
         }
-        if menuItem.action == #selector(setResolution) { return activeHost()?.desktopMode != true }
+        if menuItem.action == #selector(setResolution) { return activeHost()?.fixedCanvas != true }
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
             return activeHost() != nil
@@ -443,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func setResolution() {
         guard let host = activeHost() else { return }
-        if host.desktopMode { return }
+        if host.fixedCanvas { return }
         let dialog = NSAlert(); dialog.messageText = "设置远端窗口分辨率"
         dialog.informativeText = "输入远端实际渲染像素宽高，固定模式按比例显示。选择“自动适应窗口”可恢复跟随本机逻辑大小，保留应用现有缩放。上限 4096×2160、800 万像素。"
         let width = NSTextField(string: String(host.surface.remoteWidth)), height = NSTextField(string: String(host.surface.remoteHeight))
@@ -878,6 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: role == "popup" || (parentID != nil && presentation.overlay), disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
             host.desktopMode = object["surface_type"] as? String == "desktop"
+            host.sessionMode = object["surface_type"] as? String == "session"
             windows[id] = host
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }

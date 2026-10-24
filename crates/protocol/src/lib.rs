@@ -7,6 +7,28 @@ pub const MAX_PIXELS: u64 = 8_000_000;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
 pub const DEFAULT_VIDEO_FPS: u8 = 60;
 pub const MAX_VIDEO_FPS: u8 = 90;
+/// Optional fixed pixel canvas, composed on the source. Absence keeps the
+/// existing per-window contract; unsupported publishers must reject it.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SceneSize {
+    pub width: u32,
+    pub height: u32,
+}
+impl SceneSize {
+    pub fn validate(self, scale: u8) -> Result<()> {
+        validate_scale(scale)?;
+        dimensions(self.width, self.height)?;
+        if self.width < 640
+            || self.height < 480
+            || self.width % u32::from(scale) != 0
+            || self.height % u32::from(scale) != 0
+        {
+            bail!("invalid scene dimensions")
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Deserialize)]
 pub enum LaunchBackend {
     #[serde(rename = "native")]
@@ -60,6 +82,8 @@ pub enum Request {
         attach: bool,
         #[serde(default = "default_scale")]
         scale_factor: u8,
+        #[serde(default)]
+        scene: Option<SceneSize>,
     },
     #[serde(rename = "session.resume")]
     Resume { session_id: String },
@@ -137,8 +161,16 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
             .remove("version");
     }
     let request = serde_json::from_value(v)?;
-    if let Request::Launch { scale_factor, .. } = &request {
+    if let Request::Launch {
+        scale_factor,
+        scene,
+        ..
+    } = &request
+    {
         validate_scale(*scale_factor)?;
+        if let Some(scene) = scene {
+            scene.validate(*scale_factor)?;
+        }
     }
     if let Request::PageScale { scale, .. } = &request {
         validate_scale(*scale)?;
@@ -382,6 +414,35 @@ mod tests {
         assert!(matches!(old, Request::Launch { attach: true, .. }));
         let prepared = parse_request(br#"{"type":"app.launch","version":1,"app_id":"a","request_id":"r","backend":"native","attach":false}"#).unwrap();
         assert!(matches!(prepared, Request::Launch { attach: false, .. }));
+    }
+    #[test]
+    fn scene_canvas_is_explicit_bounded_and_density_aligned() {
+        let message = |scene| {
+            serde_json::json!({"type":"app.launch","version":1,"app_id":"a","request_id":"r",
+            "backend":"native","scale_factor":2,"scene":scene})
+        };
+        assert!(matches!(
+            parse_request(
+                &serde_json::to_vec(&message(serde_json::json!({"width":2940,"height":1618})))
+                    .unwrap()
+            )
+            .unwrap(),
+            Request::Launch {
+                scene: Some(SceneSize {
+                    width: 2940,
+                    height: 1618
+                }),
+                ..
+            }
+        ));
+        for scene in [
+            serde_json::json!({"width":1,"height":1}),
+            serde_json::json!({"width":4096,"height":4096}),
+            serde_json::json!({"width":2941,"height":1618}),
+            serde_json::json!({"width":1600,"height":900,"monitor":"HDMI-1"}),
+        ] {
+            assert!(parse_request(&serde_json::to_vec(&message(scene)).unwrap()).is_err());
+        }
     }
     #[test]
     fn launch_scale_is_optional_and_bounded() {

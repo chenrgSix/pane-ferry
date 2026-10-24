@@ -1,6 +1,8 @@
 /// Stable public codes; never require a client to display arbitrary error details.
 pub fn code(message: &str) -> &'static str {
     match message {
+        "application_scene_unavailable" => "application_scene_unavailable",
+        "session_mode_conflict" => "session_mode_conflict",
         "page_scale_unsupported" => "page_scale_unsupported",
         "page_scale_restart_required" => "page_scale_restart_required",
         "page_scale_target_ambiguous" => "page_scale_target_ambiguous",

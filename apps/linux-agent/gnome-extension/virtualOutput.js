@@ -26,7 +26,8 @@ export function delay(milliseconds) {
 // client redraws its own buffers. No screenshot resampling or application flags.
 // RecordWindow still captures only the leased window, never this whole output.
 export class VirtualOutput {
-    constructor(root) {
+    constructor(root, canvas = null) {
+        this.canvas = canvas;
         if (root.get_monitor() < 0) throw new Error('window_unavailable');
         this.root = root;
         this.original = root.get_frame_rect();
@@ -71,12 +72,17 @@ export class VirtualOutput {
         try {
             if (![1, 2].includes(scale)) throw new Error('invalid_dimensions');
             this.requireRoot();
+            this.original = this.root.get_frame_rect();
+            this.maximized = this.root.get_maximize_flags();
+            this.fullscreen = this.root.is_fullscreen();
+            this.originalConnector = this.manager.get_monitors().find(m =>
+                this.manager.get_monitor_for_connector(m.get_connector()) === this.root.get_monitor())?.get_connector();
             const before = new Set(this.manager.get_monitors().map(m => m.get_connector()));
             [this.path] = await call(PATH, BUS, 'CreateSession', new GLib.Variant('(a{sv})', [{}]));
             this.requireRoot();
             // Fixed envelope avoids output hotplug during every live resize.
             // It includes headroom for shadows around the 4096x2160 viewport.
-            const mode = {size: new GLib.Variant('(uu)', [4352, 2432]),
+            const mode = {size: new GLib.Variant('(uu)', this.canvas ? [this.canvas.width, this.canvas.height] : [4352, 2432]),
                 'refresh-rate': new GLib.Variant('d', 60),
                 'is-preferred': new GLib.Variant('b', true),
                 'preferred-scale': new GLib.Variant('d', scale)};
@@ -98,7 +104,8 @@ export class VirtualOutput {
                         this.requireRoot().unmaximize();
                         this.requireRoot().move_to_monitor(index);
                         const area = this.requireRoot().get_work_area_for_monitor(index);
-                        this.requireRoot().move_resize_frame(true, area.x + 48, area.y + 48,
+                        if (this.canvas) this.requireRoot().maximize();
+                        else this.requireRoot().move_resize_frame(true, area.x + 48, area.y + 48,
                             Math.min(this.original.width, area.width - 96),
                             Math.min(this.original.height, area.height - 96));
                         for (let repaint = 0; repaint < 40; repaint++) {

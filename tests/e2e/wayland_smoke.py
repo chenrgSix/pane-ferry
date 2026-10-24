@@ -32,6 +32,7 @@ p.add_argument('--isolated-app', choices=('text-editor',),
 p.add_argument('--app-artifact-dir', type=Path,
                help='write only isolated-app frames to this existing directory')
 p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
+p.add_argument('--application-scene-only', action='store_true', help='test one scoped compositor stream')
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
@@ -50,6 +51,7 @@ if not a.private_bus:
             *(['--app-artifact-dir', str(a.app_artifact_dir.resolve())] if a.app_artifact_dir else []),
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--window-tree-only'] if a.window_tree_only else []),
+            *(['--application-scene-only'] if a.application_scene_only else []),
             *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])]))
 root = Path(__file__).resolve().parents[2]
 children = []
@@ -125,6 +127,30 @@ try:
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
         shutil.copytree(a.extension_dir or root/'apps/linux-agent/gnome-extension',ext)
+        if a.application_scene_only:
+            # Test-only injection into this private compositor: deliberately put
+            # an unrelated window under the cover. Never installed in production.
+            extension = ext/'extension.js'
+            source = extension.read_text().replace('lease.output?.connector && !lease.opening', 'lease.output?.connector && !lease.opening && !lease.canvas')
+            source = source.replace("const r = JSON.parse(encoded);", """const r = JSON.parse(encoded);
+            if (r.op === 'test_scene_point') {
+                const scene = [...this.leases.values()].find(l => l.scene).scene;
+                const info = scene.info();
+                const result = scene.point(r.x, r.y, info.width * info.scale, info.height * info.scale);
+                invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result})])); return;
+            }
+            if (r.op === 'test_scene_intruder') {
+                const lease = [...this.leases.values()].find(l => l.scene);
+                const w = this.windows().find(w => w.get_title() === 'Unrelated red window');
+                const index = lease.output.manager.get_monitor_for_connector(lease.output.connector);
+                const area = global.display.get_monitor_geometry(index);
+                w.move_to_monitor(index);
+                w.move_resize_frame(true, area.x + 100, area.y + 100, 500, 300);
+                w.make_above(); w.raise(); w.get_compositor_private()?.show();
+                invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result: {}})]));
+                return;
+            }""")
+            extension.write_text(source)
         (data/'gnome-shell/update-check-50').touch()
         applications=data/'applications';applications.mkdir()
         state=t/'state.json';fixture=root/'tests/e2e/wayland_fixture.py'
@@ -149,7 +175,7 @@ try:
             wait(lambda:Path(f'/tmp/.X11-unix/X{display}').exists())
             shell=start(['gnome-shell','--headless','--wayland',*(['--no-x11'] if not a.with_xwayland else []),'--wayland-display',wayland,'--virtual-monitor','1600x900'],env,log)
             wait(lambda:(runtime/wayland).exists())
-            app=start(['/usr/bin/python3',str(fixture),str(state),'--delayed-paste', *(['--window-tree'] if a.window_tree_only else [])],dict(env,GDK_BACKEND='wayland'),log)
+            app=start(['/usr/bin/python3',str(fixture),str(state),'--delayed-paste', *(['--window-tree'] if a.window_tree_only or a.application_scene_only else [])],dict(env,GDK_BACKEND='wayland'),log)
             try:
                 wait(state.exists, seconds=60)
             except Exception:
@@ -167,6 +193,14 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.application_scene_only:
+                    from application_scene_test import verify
+                    try:
+                        verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, a.logical_wayland_scale)
+                    except Exception:
+                        print((t/'fixture.log').read_text(errors='replace')[-10000:], file=sys.stderr)
+                        raise
+                    raise SystemExit(0)
                 if a.window_tree_only:
                     from window_tree_test import verify
                     verify(peer, sock, env, state, app, wait, Peer, Bridge)

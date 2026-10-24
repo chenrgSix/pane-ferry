@@ -42,7 +42,7 @@ function mount(saved, fixtures = {}) {
   const calls = [];
   const listeners = new Map();
   globalThis.localStorage = saved;
-  globalThis.window = { devicePixelRatio: fixtures.devicePixelRatio ?? 1,
+  globalThis.window = { screen: {availWidth: 1470, availHeight: 837}, devicePixelRatio: fixtures.devicePixelRatio ?? 1,
     addEventListener: (type, callback) => listeners.set(type, callback), removeEventListener: type => listeners.delete(type) };
   globalThis.launcherTestInvoke = async (command, args) => {
     calls.push({ command, args });
@@ -172,6 +172,31 @@ test("automatic startup requests the display density and retries each density wi
     mounted.state.renderScale = "1";
     await mounted.state.launch(target);
     assert.equal(actions(mounted).at(-1).args.requestId, standard.requestId);
+  } finally { mounted.unmount(); }
+});
+
+test("optional scene canvas is bounded, retained on retries, and switches a detached external session", async () => {
+  const mounted = mount(storage(), { devicePixelRatio: 2,
+    list_sessions: () => [{...session("old", "wayland-root"), mode:"app"}],
+    list_desktop_windows: () => ({windows:[window("wayland-root", "old")], unavailable_reason:null}),
+    launch_app: () => { throw {message:"connection", retrySameRequest:true}; },
+  });
+  try {
+    await settled(mounted.state);
+    assert.equal(mounted.state.applicationScene, false);
+    mounted.state.applicationScene = true;
+    await mounted.state.connect(mounted.state.runningConnections[0]);
+    const sent = actions(mounted).at(-1);
+    assert.equal(sent.command, "launch_app");
+    assert.deepEqual(sent.args.scene, {width:2940,height:1594});
+    await mounted.state.connect(mounted.state.runningConnections[0]);
+    assert.equal(actions(mounted).at(-1).args.requestId, sent.args.requestId);
+    globalThis.window.screen = {availWidth:7680,availHeight:4320};
+    await mounted.state.connect(mounted.state.runningConnections[0]);
+    const large = actions(mounted).at(-1).args;
+    assert.ok(large.scene.width <= 4096 && large.scene.height <= 4096);
+    assert.ok(large.scene.width * large.scene.height <= 8_000_000);
+    assert.notEqual(large.requestId, sent.args.requestId);
   } finally { mounted.unmount(); }
 });
 

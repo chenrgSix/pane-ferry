@@ -38,6 +38,7 @@ const endpoint = ref<Endpoint>({ peerId: "" }),
   search = ref("");
 const busy = ref(false),
   renderScale = ref("auto"),
+  applicationScene = ref(false),
   error = ref(""),
   notice = ref(""),
   catalogSavedAt = ref<number | null>(null),
@@ -216,12 +217,13 @@ function save() {
   try {
     storage?.setItem(
       "lan-remoteapp.connection",
-      JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value }),
+      JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value, applicationScene: applicationScene.value }),
     );
   } catch {}
 }
 try {
   const saved = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
+  applicationScene.value = saved?.applicationScene === true;
   if (["auto", "1", "2"].includes(saved?.renderScale)) renderScale.value = saved.renderScale;
   if (validPeerId(saved?.endpoint?.peerId)) endpoint.value = { peerId: saved.endpoint.peerId };
 } catch {}
@@ -340,7 +342,15 @@ async function launch(app: LaunchTarget) {
   notice.value = "";
   const sent = { ...endpoint.value };
   const scale = startupScale();
-  const key = `${signature()}:${app.id}:native:${scale}`;
+  // Fixed canvas follows the local work area at launch. Local resizing scales
+  // the composed image; it doesn't change popup placement behind the user's back.
+  const canvasScale = applicationScene.value ? Math.min(scale, 4096 / window.screen.availWidth, 4096 / Math.max(240, window.screen.availHeight - 40),
+    Math.sqrt(8_000_000 / (window.screen.availWidth * Math.max(240, window.screen.availHeight - 40)))) : scale;
+  const scene = applicationScene.value ? {
+    width: Math.max(640, Math.floor(window.screen.availWidth * canvasScale / scale) * scale),
+    height: Math.max(480, Math.floor(Math.max(240, window.screen.availHeight - 40) * canvasScale / scale) * scale),
+  } : null;
+  const key = `${signature()}:${app.id}:native:${scale}${scene ? `:scene:${scene.width}x${scene.height}` : ""}`;
   try {
     const requestId = attempts.id(key);
     const result = await invoke<Result>("launch_app", {
@@ -349,6 +359,7 @@ async function launch(app: LaunchTarget) {
       appName: app.name,
       requestId,
       renderScale: scale,
+      scene,
       iconPng: app.icon_png ?? null,
     });
     attempts.resolve(key);
@@ -429,7 +440,10 @@ async function resume(sessionId: string, name: string, iconPng?: string | null) 
 }
 async function connect(row: Connection) {
   if (row.controlled) return;
-  if (row.sessionId) await resume(row.sessionId, row.name, row.icon_png);
+  const session = sessions.value.find(s => s.session_id === row.sessionId);
+  const changingPresentation = session && session.display === 0 && session.mode !== "desktop" &&
+    (session.mode === "scene") !== applicationScene.value;
+  if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png);
   else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png });
 }
 function onFocus() {
@@ -653,6 +667,7 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
+          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">主窗口、菜单和对话框在同一个窗口中显示，保留远端原生布局。首版支持已打开的 Ubuntu GNOME/Wayland 应用；画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
           <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">自动模式按本机显示器倍率请求 100% 或 200%。仅对新启动的应用生效；已有窗口和会话保留原来的缩放。实际清晰度以收到的画面为准。</p></div>
             <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
               <option value="auto">自动 · 跟随本机显示器</option>
