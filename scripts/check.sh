@@ -10,6 +10,7 @@ python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then
   node tests/unit/virtual_output_lifecycle.mjs
+  python3 tests/e2e/electron_page_scale_unit.py
 fi
 if command -v npm >/dev/null; then
   (cd apps/launcher && npm ci && npm test && npm run build)

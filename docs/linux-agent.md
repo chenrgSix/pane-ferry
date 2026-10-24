@@ -56,6 +56,14 @@ Agent 在 hello 中仅在组件可用时声明 `native.h264`；没有组件或�
 
 `deploy/firefox-x11.sh` 仅保留为显式隔离测试工具，不是接管原 Firefox 的产品路径。原窗口、账号与标签页通过下述 Wayland 接管路径保留，不复制或创建替代浏览器配置。
 
+## ChatGPT 页面高清（显式开启）
+
+新增的可选适配器支持已准备调试入口的 `/usr/lib/chatgpt/ChatGPT` XWayland 主窗口，源密度必须为 1×，依赖 `/usr/bin/python3`、`python3-websocket` 和 libX11。它通过应用页面自己的布局缩放变量和浏览器 WebView CSS 布局，在目标客户区增大后重新绘制；不修改 XSettings、全局 DPI 或同进程其他主窗口。仅验证当前布局版本，未知布局明确拒绝。
+
+应用没有调试入口时，在 Ubuntu 本地显式运行 `paneferry-agent prepare-chatgpt PID`。命令校验同 UID、准确可执行路径和原进程启动参数；仅对普通无额外参数的启动发送 SIGTERM，等待退出后用原 profile 重新启动，并添加 `--remote-debugging-address=127.0.0.1 --remote-debugging-port=0`。不强杀、不复制账号；已准备的进程直接返回成功。调试入口具有应用控制能力，仅接受该主进程持有的回环监听端口，远程协议不暴露 CDP。此命令会重启整个 ChatGPT 进程，应先保存该应用的工作。
+
+连接目标窗口后，在新版 Mac WindowHost 的“显示 → ChatGPT 页面高清（2×）”开启，再点一次恢复。关闭控制窗口或连接断开也恢复。它不是新的默认缩放策略，不覆盖系统原生菜单/文件对话框。完整边界和实测见 [ChatGPT 页面高清](chatgpt-page-scale.md)。
+
 ## 接入现有 GNOME Wayland 窗口
 
 支持 GNOME 50（当前在 50.1 隔离桌面测试）。将 `apps/linux-agent/gnome-extension/` 安装到用户的 `gnome-shell/extensions/paneferry@local/` 并启用。普通本地 D-Bus 窗口接口提供元数据、目标窗口的尺寸/焦点操作与租约；不启用 Shell Eval，不改变其他用户、全局缩放或桌面分辨率。当前是同用户组件间的范围校验，不是额外的操作系统沙箱。

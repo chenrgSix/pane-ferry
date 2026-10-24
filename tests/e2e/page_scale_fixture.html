@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>PaneFerry page-scale verification</title>
+<style>body{font:20px sans-serif;margin:16px;background:#fff;color:#142433}button{width:200px;height:60px;font:20px sans-serif}input{font:20px sans-serif;width:240px;height:36px}canvas{width:320px;height:60px;border:1px solid #ccc}iframe{width:320px;height:100px;border:1px solid #aaa}</style>
+<h2>PaneFerry 页面高清验证</h2><p id="route"></p>
+<button id="button">点击计数：<span id="count">0</span></button><p><input id="entry" placeholder="输入验证文本"></p>
+<canvas id="canvas"></canvas><p><a id="next" href="/next">下一页</a></p>
+<script>
+route.textContent=location.pathname;let n=0;button.onclick=()=>count.textContent=String(++n);
+function draw(){canvas.width=640;canvas.height=120;const c=canvas.getContext('2d');c.scale(2,2);c.font='20px sans-serif';c.fillText('中文 AaBb 0123456789',8,32)}draw();
+if(location.pathname!='/frame'){let f=document.createElement('iframe');f.src='/frame';document.body.append(f)}
+</script>

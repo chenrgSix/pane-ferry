@@ -895,6 +895,7 @@ fn allowed_request(value: &Value) -> bool {
                     | "window.close"
                     | "window.close.request"
                     | "window.configure"
+                    | "window.page-scale"
                     | "input.pointer"
                     | "input.key"
                     | "input.key.logical"

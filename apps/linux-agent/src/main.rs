@@ -64,6 +64,7 @@ mod backend;
 mod desktop;
 mod desktop_input;
 mod discovery;
+mod electron_scale;
 mod input_queue;
 mod launch_policy;
 mod output;
@@ -89,6 +90,8 @@ struct Session {
     wayland: bool,
     desktop_monitor: Option<String>,
     window_lifetime: session_lifecycle::WindowLifetime,
+    page_scale: Option<electron_scale::Lease>,
+    page_scale_authority: Option<PathBuf>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -130,7 +133,56 @@ fn existing_unavailable_reason(app: &App) -> Option<&'static str> {
     None
 }
 impl Session {
+    fn page_scale_supported(&self, window: u32) -> bool {
+        !self.wayland
+            && self.root_window == Some(window)
+            && self.page_scale_authority.is_some()
+            && self
+                .existing
+                .as_ref()
+                .is_some_and(|p| p.executable == std::path::Path::new(electron_scale::EXECUTABLE))
+    }
+    fn set_page_scale(&mut self, window: u32, scale: u8) -> Result<()> {
+        paneferry_protocol::validate_scale(scale)?;
+        if !self.page_scale_supported(window) {
+            bail!("page_scale_unsupported")
+        }
+        if scale == 1 {
+            if let Some(mut zoom) = self.page_scale.take() {
+                zoom.stop()?;
+            }
+        } else if self.page_scale.is_none() {
+            let backend = self
+                .backend
+                .as_ref()
+                .context("native backend unavailable")?;
+            if backend
+                .windows()
+                .get(&window)
+                .is_none_or(|w| w.scale_factor != 1 || !w.visible)
+            {
+                bail!("page_scale_unsupported")
+            }
+            let mut zoom = electron_scale::Lease::start(
+                self.existing.as_ref().unwrap(),
+                window,
+                self.display,
+                self.page_scale_authority.as_ref().unwrap(),
+            )?;
+            backend.configure(window, zoom.size[0], zoom.size[1])?;
+            zoom.commit()?;
+            self.page_scale = Some(zoom);
+        }
+        if let Some(b) = &self.backend {
+            b.refresh_capture();
+        }
+        Ok(())
+    }
+
     fn scan_windows(&mut self) -> Result<Vec<Window>> {
+        if let Some(zoom) = &mut self.page_scale {
+            zoom.check()?;
+        }
         let Some(backend) = self.backend.as_mut() else {
             return Ok(vec![]);
         };
@@ -201,6 +253,7 @@ fn stop_child(child: &mut Child) {
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        self.page_scale.take();
         if let Some(backend) = &self.backend {
             backend.release_all();
         }
@@ -282,6 +335,9 @@ fn run() -> Result<()> {
             paneferry_backend_x11::clipboard_store::ClipboardStore::open()?
                 .send(id, &mut std::io::stdout().lock())
         }
+        Some("prepare-chatgpt") => {
+            electron_scale::prepare(args.get(2).context("ChatGPT PID required")?)
+        }
         Some("serve") => serve(),
         Some("bridge") => bridge(),
         Some("check") => {
@@ -316,7 +372,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         _ => {
-            bail!("usage: paneferry-agent serve | bridge | check")
+            bail!("usage: paneferry-agent serve | bridge | check | prepare-chatgpt PID")
         }
     }
 }
@@ -473,6 +529,8 @@ fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mute
     let backend = desktop::Backend::connect(monitor, st.desktop_input.lease(), &desktop)?;
     let id = random_id()?;
     let session = Arc::new(Mutex::new(Session {
+        page_scale: None,
+        page_scale_authority: None,
         window_lifetime: Default::default(),
         id: id.clone(),
         app_id: format!("screen-{monitor_id}"),
@@ -638,6 +696,8 @@ fn launch(
             wayland::Backend::connect(target.clone(), st.desktop_input.lease(), &desktop)?;
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            page_scale: None,
+            page_scale_authority: None,
             window_lifetime: Default::default(),
             id: id.clone(),
             app_id: app_id.into(),
@@ -746,6 +806,8 @@ fn launch(
         }
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            page_scale: None,
+            page_scale_authority: Some(PathBuf::from(&existing.xauthority)),
             window_lifetime: Default::default(),
             id: id.clone(),
             app_id: app_id.into(),
@@ -780,6 +842,8 @@ fn launch(
         .context("no display available")?;
     let id = random_id()?;
     let mut s = Session {
+        page_scale: None,
+        page_scale_authority: None,
         window_lifetime: Default::default(),
         id: id.clone(),
         app_id: app_id.into(),
@@ -985,6 +1049,7 @@ struct Lease(Arc<Mutex<Session>>);
 impl Drop for Lease {
     fn drop(&mut self) {
         if let Ok(mut s) = self.0.lock() {
+            s.page_scale.take();
             s.controller = false;
             if let Some(b) = &mut s.backend {
                 b.cancel_text();
@@ -1014,9 +1079,19 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
 fn send(out: &mut output::Output, value: Value, session: &str) -> Result<()> {
     out.message(value, session)
 }
-fn win_value(w: &Window, kind: &str, existing: bool, desktop: bool) -> Value {
+fn win_value(
+    w: &Window,
+    kind: &str,
+    existing: bool,
+    desktop: bool,
+    page_scale: u8,
+    supported: bool,
+) -> Value {
     let mut v = serde_json::to_value(w).unwrap();
     v["type"] = json!(kind);
+    v["page_scale_supported"] = json!(supported);
+    v["page_scale_factor"] = json!(page_scale);
+    v["presentation_scale_factor"] = json!(w.scale_factor * page_scale);
     // Scale is a launch preference, not a measurement of GTK/Qt/Chromium UI.
     v["scale_mode"] = json!(if desktop {
         "source"
@@ -1073,6 +1148,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut capabilities = vec![
         "catalog",
         "display.scale",
+        "window.page-scale",
         "input.pointer",
         "input.key",
         "input.authorization",
@@ -1198,9 +1274,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 last_window_action = Instant::now();
             }
             let request_window = match &req {
-                Request::Configure { window_id, .. } | Request::Text { window_id, .. } => {
-                    Some(*window_id)
-                }
+                Request::Configure { window_id, .. }
+                | Request::PageScale { window_id, .. }
+                | Request::Text { window_id, .. } => Some(*window_id),
                 _ => None,
             };
             let result: Result<()> = (|| {
@@ -1485,6 +1561,15 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                         "window.created",
                                         s.existing.is_some(),
                                         s.desktop_monitor.is_some(),
+                                        if s.page_scale
+                                            .as_ref()
+                                            .is_some_and(|z| z.window == w.window_id)
+                                        {
+                                            2
+                                        } else {
+                                            1
+                                        },
+                                        s.page_scale_supported(w.window_id),
                                     )
                                 })
                                 .collect();
@@ -1501,6 +1586,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         bail!("detach")
                     }
                     Request::Hello { .. } => bail!("duplicate hello"),
+                    Request::PageScale { window_id, scale } => {
+                        let l = lease.as_ref().context("no session attached")?;
+                        let mut s = l.0.lock().unwrap();
+                        s.set_page_scale(window_id, scale)?;
+                        known.clear();
+                    }
                     request => {
                         let l = lease.as_ref().context("no session attached")?;
                         let mut s = l.0.lock().unwrap();
@@ -1635,6 +1726,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             }
             let existing = s.existing.is_some();
             let desktop_mode = s.desktop_monitor.is_some();
+            let scaled_window = s.page_scale.as_ref().map(|z| z.window);
+            let scale_supported = s.root_window.filter(|id| s.page_scale_supported(*id));
             if let Some(b) = s.backend.as_mut() {
                 let status = b.input_status();
                 if status != input_status {
@@ -1669,6 +1762,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 },
                                 existing,
                                 desktop_mode,
+                                if scaled_window == Some(w.window_id) {
+                                    2
+                                } else {
+                                    1
+                                },
+                                scale_supported == Some(w.window_id),
                             ),
                             &sid,
                         )?;
@@ -1731,6 +1830,8 @@ mod tests {
             .spawn()
             .unwrap();
         let session = Arc::new(Mutex::new(Session {
+            page_scale: None,
+            page_scale_authority: None,
             window_lifetime: Default::default(),
             id: "existing-session".into(),
             app_id: "test-app".into(),

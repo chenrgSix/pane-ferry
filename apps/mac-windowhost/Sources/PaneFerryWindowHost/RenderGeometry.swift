@@ -1,8 +1,8 @@
 import Foundation
 
 /// The wire uses source pixels; AppKit uses logical points. Preserve the
-/// source's existing scale when converting between them, never the Mac's
-/// backing density. Resizing must not request a change of application DPI.
+/// source's existing scale, or an explicitly negotiated page presentation
+/// density, never the Mac's backing density. Ordinary resizing does not change DPI.
 struct RenderGeometry {
     let scale: Int
     init?(scale: Int) {

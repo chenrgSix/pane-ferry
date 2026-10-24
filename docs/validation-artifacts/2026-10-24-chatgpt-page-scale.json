@@ -1,0 +1,907 @@
+{
+  "date": "2026-10-24",
+  "environment": "real Ubuntu GNOME XWayland, actual logged-in profile, private Agent/QUIC test route",
+  "chatgpt_package": "26.1013.40934",
+  "process_preserved_after_authorized_restart": {
+    "pid": 820738,
+    "start_ticks": 7862967,
+    "xid": 52428804
+  },
+  "codex_mode": {
+    "before": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          813
+        ],
+        "inner": [
+          1470,
+          813
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 911.9375,
+        "y": 144,
+        "width": 554.0625,
+        "height": 665,
+        "top": 144,
+        "right": 1466,
+        "bottom": 809,
+        "left": 911.9375
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "scaled": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          2940,
+          1626
+        ],
+        "inner": [
+          2940,
+          1626
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1330,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1618,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "clicked": {
+      "root": {
+        "bounds": [
+          -145,
+          90,
+          2940,
+          1626
+        ],
+        "inner": [
+          2940,
+          1626
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1330,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1618,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/",
+        "count": "1",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "typed": {
+      "root": {
+        "bounds": [
+          -193,
+          90,
+          2940,
+          1626
+        ],
+        "inner": [
+          2940,
+          1626
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1330,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1618,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/",
+        "count": "1",
+        "text": "窗渡缩放验证",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "navigated": {
+      "root": {
+        "bounds": [
+          -193,
+          -62,
+          2940,
+          1626
+        ],
+        "inner": [
+          2940,
+          1626
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1330,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1618,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "restored": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          813
+        ],
+        "inner": [
+          1470,
+          813
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 911.703125,
+        "y": 144,
+        "width": 554.296875,
+        "height": 665,
+        "top": 144,
+        "right": 1466,
+        "bottom": 809,
+        "left": 911.703125
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          665
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    }
+  },
+  "chatgpt_mode": {
+    "before": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          805
+        ],
+        "inner": [
+          1470,
+          805
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 911.9375,
+        "y": 144,
+        "width": 554.0625,
+        "height": 657,
+        "top": 144,
+        "right": 1466,
+        "bottom": 801,
+        "left": 911.9375
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "scaled": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          2940,
+          1610
+        ],
+        "inner": [
+          2940,
+          1610
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1314,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1602,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "clicked": {
+      "root": {
+        "bounds": [
+          -145,
+          90,
+          2940,
+          1610
+        ],
+        "inner": [
+          2940,
+          1610
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1314,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1602,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/",
+        "count": "1",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "typed": {
+      "root": {
+        "bounds": [
+          -193,
+          90,
+          2940,
+          1610
+        ],
+        "inner": [
+          2940,
+          1610
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1314,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1602,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/",
+        "count": "1",
+        "text": "窗渡缩放验证",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "navigated": {
+      "root": {
+        "bounds": [
+          -193,
+          -62,
+          2940,
+          1610
+        ],
+        "inner": [
+          2940,
+          1610
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1314,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1602,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "restored": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          805
+        ],
+        "inner": [
+          1470,
+          805
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 2381.703125,
+        "y": 144,
+        "width": 554.296875,
+        "height": 1462,
+        "top": 144,
+        "right": 2936,
+        "bottom": 1606,
+        "left": 2381.703125
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          1462
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    }
+  },
+  "publisher_sigkill": {
+    "before": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          805
+        ],
+        "inner": [
+          1470,
+          805
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 911.9375,
+        "y": 144,
+        "width": 554.0625,
+        "height": 657,
+        "top": 144,
+        "right": 1466,
+        "bottom": 801,
+        "left": 911.9375
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "scaled": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          2940,
+          1610
+        ],
+        "inner": [
+          2940,
+          1610
+        ],
+        "dpr": 1,
+        "zoom": "2",
+        "priority": "important",
+        "login": true
+      },
+      "webview": {
+        "x": 1823.390625,
+        "y": 288,
+        "width": 1109,
+        "height": 1314,
+        "top": 288,
+        "right": 2932.390625,
+        "bottom": 1602,
+        "left": 1823.390625
+      },
+      "guest": {
+        "dpr": 2,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 2,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    },
+    "restored": {
+      "root": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          805
+        ],
+        "inner": [
+          1470,
+          805
+        ],
+        "dpr": 1,
+        "zoom": "",
+        "priority": "",
+        "login": true
+      },
+      "webview": {
+        "x": 911.703125,
+        "y": 144,
+        "width": 554.296875,
+        "height": 657,
+        "top": 144,
+        "right": 1466,
+        "bottom": 801,
+        "left": 911.703125
+      },
+      "guest": {
+        "dpr": 1,
+        "inner": [
+          554,
+          657
+        ],
+        "route": "/next",
+        "count": "0",
+        "text": "",
+        "iframe": [
+          {
+            "dpr": 1,
+            "width": 320
+          }
+        ]
+      },
+      "witness": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "inner": [
+          900,
+          650
+        ],
+        "dpr": 1,
+        "zoom": ""
+      }
+    }
+  },
+  "appkit": {
+    "source_before": [
+      1470,
+      805
+    ],
+    "source_scaled": [
+      2940,
+      1610
+    ],
+    "same_window_and_frame": true,
+    "explicit_disable": true,
+    "automatic_reconnect_restores": true
+  },
+  "gate": {
+    "scripts/check.sh": "passed",
+    "rust_passed": 63,
+    "rust_ignored": 6,
+    "frontend_passed": 32,
+    "final_python_page_scale_tests": 3
+  },
+  "production_services_upgraded": false
+}

@@ -284,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "适应可用屏幕", action: #selector(fitScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
+        displayMenu.addItem(withTitle: "ChatGPT 页面高清（2×）", action: #selector(togglePageScale), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
         let rateItem = NSMenuItem(title: "帧率：自动", action: nil, keyEquivalent: "")
         rateItem.isEnabled = false; rateMenuItem = rateItem; displayMenu.addItem(rateItem)
@@ -330,7 +331,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func fitScreen() { activeHost()?.fitToScreen() }
     @objc func actualPixels() { activeHost()?.showActualPixels() }
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
+    @objc func togglePageScale() {
+        guard let host = activeHost(), host.pageScaleSupported, capabilities.contains("window.page-scale") else { return }
+        host.fixedPixels = nil
+        send(["type": "window.page-scale", "window_id": host.id, "scale": host.pageScale == 2 ? 1 : 2])
+    }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(togglePageScale) {
+            menuItem.state = activeHost()?.pageScale == 2 ? .on : .off
+            return ready && capabilities.contains("window.page-scale") && activeHost()?.pageScaleSupported == true
+        }
         if menuItem.action == #selector(setResolution) { return activeHost()?.desktopMode != true }
         if menuItem.action == #selector(automaticResolution) {
             menuItem.state = activeHost()?.fixedPixels == nil ? .on : .off
@@ -556,6 +566,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
+            if code.hasPrefix("page_scale_") {
+                let message: String
+                switch code {
+                case "page_scale_restart_required": message = "请先在 Ubuntu 运行 paneferry-agent prepare-chatgpt PID，重启 ChatGPT 后重新连接此窗口。"
+                case "page_scale_target_ambiguous": message = "无法唯一对应 ChatGPT 页面与窗口。请错开窗口的位置或尺寸后重试。"
+                case "page_scale_unsupported": message = "此模式仅支持已准备好的 ChatGPT 主窗口，源端缩放需为 1×。"
+                case "page_scale_restore_incomplete": message = "页面高清恢复未完成，请检查 Ubuntu 上的目标窗口。"
+                default: message = "页面高清连接中断或尺寸未生效，已结束适配并尝试恢复目标窗口。"
+                }
+                alert(message); return
+            }
             if code == "resolution_limited" {
                 if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
                    let host = windows[UInt32(number)] {
@@ -709,7 +730,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               let w = object["width"] as? Int, let h = object["height"] as? Int,
               w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels,
               let rev = unsignedInteger(object["geometry_revision"]) else { return }
-        let scaleValue = object["scale_factor"] == nil ? 1 : unsignedInteger(object["scale_factor"])
+        // Source/compositor scale stays on the wire unchanged. A page lease
+        // explicitly supplies a separate presentation density for this window.
+        let scaleValue = object["presentation_scale_factor"] != nil
+            ? unsignedInteger(object["presentation_scale_factor"])
+            : (object["scale_factor"] == nil ? 1 : unsignedInteger(object["scale_factor"]))
         guard let scale = scaleValue, scale <= 2, let rendering = RenderGeometry(scale: Int(scale)) else { transport.disconnect(); return }
         let id = UInt32(number)
         if removed.contains(id) { return } // XID reuse in one connection is deliberately not supported.
@@ -735,6 +760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.controllerCutEnabled = capabilities.contains("clipboard.cut")
         host.revision = rev
         host.scaleMode = object["scale_mode"] as? String ?? "unknown"
+        host.pageScaleSupported = object["page_scale_supported"] as? Bool ?? false
+        host.pageScale = object["page_scale_factor"] as? Int ?? 1
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
         if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }

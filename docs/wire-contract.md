@@ -24,6 +24,10 @@ display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，�
 视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
 
+声明 `window.page-scale` 的 Agent 接受 `window.page-scale {window_id,scale:1|2}`，仅已接管的受支持 ChatGPT XWayland 主窗口可用。2 表示当前页面布局倍率的两倍，1 结束本次租约并恢复原值；不改变原生 `scale_factor`。需要显式操作，不在连接/重连时自动开启。远端不能提供 URL、调试端口、JavaScript、PID 或启动参数，也不能借此重启应用。
+
+窗口元数据另有 `page_scale_supported:bool`、`page_scale_factor:1|2` 和 `presentation_scale_factor:1|2`；最后一项是源密度乘页面租约倍率，用于新版 Mac 的逻辑尺寸换算。其他窗口保持各自密度；实际捕获宽高、几何版本和帧验证继续生效。页面支持标记仅表示候选适配器，实际开启仍需验证调试入口、布局和唯一目标。`page_scale_*` 错误带窗口号，只拒绝本次操作。正常关闭、传输断开和发布器退出会恢复租约，不保留高清设置至下次连接。详见[ChatGPT 页面高清](chatgpt-page-scale.md)。
+
 Linux 应用窗口的显式 window.focus 也用于恢复已最小化或隐藏的受控窗口；普通输入不隐式恢复隐藏窗口。Mac 接收端保留隐藏主窗口的本地恢复入口，等待源端 visible:true 后恢复输入。隐藏的菜单与子窗口不创建恢复占位页。
 Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。
 window.configure 是合法像素尺寸的请求，不是成功确认。宿主默认按内容区 points × backingScaleFactor 计算，并按比例限制到 4096×2160 / 800 万像素预算。自动和手动模式均按成功解码图像的宽高比显示，远端回包不改变本机窗口大小。未匹配时留边，标题区分实际接收、目标、预算限制及等待/拒绝状态；旧画面与新几何不一致时不发送新点击。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。

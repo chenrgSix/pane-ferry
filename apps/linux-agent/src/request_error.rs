@@ -1,6 +1,15 @@
 /// Stable public codes; never require a client to display arbitrary error details.
 pub fn code(message: &str) -> &'static str {
     match message {
+        "page_scale_unsupported" => "page_scale_unsupported",
+        "page_scale_restart_required" => "page_scale_restart_required",
+        "page_scale_target_ambiguous" => "page_scale_target_ambiguous",
+        "page_scale_unavailable"
+        | "page_scale_window_changed"
+        | "page_scale_navigation_unsupported"
+        | "page_scale_busy" => "page_scale_unavailable",
+        "page_scale_resize_failed" => "page_scale_resize_failed",
+        "page_scale_restore_incomplete" => "page_scale_restore_incomplete",
         "sharing disabled" => "sharing_disabled",
         "desktop_locked" => "desktop_locked",
         "desktop_monitor_unavailable" => "desktop_monitor_unavailable",

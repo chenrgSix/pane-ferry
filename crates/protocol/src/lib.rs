@@ -71,6 +71,8 @@ pub enum Request {
         width: u32,
         height: u32,
     },
+    #[serde(rename = "window.page-scale")]
+    PageScale { window_id: u32, scale: u8 },
     #[serde(rename = "window.focus")]
     Focus { window_id: u32 },
     #[serde(rename = "window.close.request")]
@@ -135,6 +137,9 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
     let request = serde_json::from_value(v)?;
     if let Request::Launch { scale_factor, .. } = &request {
         validate_scale(*scale_factor)?;
+    }
+    if let Request::PageScale { scale, .. } = &request {
+        validate_scale(*scale)?;
     }
     if let Request::StartDesktop {
         monitor_id,
@@ -339,6 +344,22 @@ mod tests {
         ] {
             assert!(parse_request(data.as_bytes()).is_err());
         }
+    }
+    #[test]
+    fn page_scale_is_bounded_and_cannot_supply_a_debug_endpoint() {
+        for scale in [1, 2] {
+            let value = serde_json::json!({"type":"window.page-scale","version":1,"window_id":7,"scale":scale});
+            assert!(matches!(
+                parse_request(&serde_json::to_vec(&value).unwrap()).unwrap(),
+                Request::PageScale { window_id: 7, .. }
+            ));
+        }
+        for scale in [0, 3, 255] {
+            let value = serde_json::json!({"type":"window.page-scale","version":1,"window_id":7,"scale":scale});
+            assert!(parse_request(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+        let value = br#"{"type":"window.page-scale","version":1,"window_id":7,"scale":2,"url":"http://localhost:9222"}"#;
+        assert!(parse_request(value).is_err());
     }
     #[test]
     fn launch_can_prepare_without_attaching_and_keeps_old_default() {
