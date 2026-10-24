@@ -229,6 +229,7 @@ pub fn desktops(explicit: &Option<Desktop>, configured: &[App]) -> Vec<Desktop> 
     values
 }
 
+#[derive(Clone)]
 pub struct RunningWindow {
     pub id: String,
     pub app_id: Option<String>,

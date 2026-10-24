@@ -273,12 +273,15 @@ impl Drop for Session {
         }
     }
 }
+#[derive(Clone)]
 struct LaunchRequest {
     session_id: String,
     app_id: String,
     scale_factor: u8,
 }
+#[derive(Clone)]
 struct State {
+    operations: Arc<Mutex<()>>,
     device_id: String,
     sharing: bool,
     sessions: HashMap<String, Arc<Mutex<Session>>>,
@@ -304,6 +307,35 @@ impl State {
         );
     }
 }
+// Serialize launch/idempotency mutations without holding the shared catalog
+// lock during process startup, desktop discovery or backend connection.
+fn catalog_operation<T>(
+    state: &Arc<Mutex<State>>,
+    operation: impl FnOnce(&mut State) -> Result<T>,
+) -> Result<T> {
+    let gate = state.lock().unwrap().operations.clone();
+    let _exclusive = gate.lock().unwrap();
+    let mut work = state.lock().unwrap().clone();
+    if !work.sharing {
+        bail!("sharing disabled")
+    }
+    let result = operation(&mut work);
+    let mut current = state.lock().unwrap();
+    if STOP.load(Ordering::SeqCst) {
+        bail!("agent stopping")
+    }
+    current.sessions = work.sessions;
+    current.requests = work.requests;
+    current.desktop_requests = work.desktop_requests;
+    current.running = work.running;
+    current.wayland_running = work.wayland_running;
+    current.desktop_apps = work.desktop_apps;
+    if !current.sharing {
+        bail!("sharing disabled")
+    }
+    result
+}
+
 fn home() -> Result<PathBuf> {
     Ok(PathBuf::from(
         std::env::var("HOME").context("HOME required")?,
@@ -425,6 +457,7 @@ fn serve() -> Result<()> {
     });
     listener.set_nonblocking(true)?;
     let state = Arc::new(Mutex::new(State {
+        operations: Arc::new(Mutex::new(())),
         device_id: paneferry_core::node::device_id(&dir)?,
         sharing: fs::read(dir.join("sharing-enabled")).map_or(true, |bytes| bytes == b"1"),
         sessions: HashMap::new(),
@@ -1354,7 +1387,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     Request::ConfigureVideo { max_fps } => out.configure_video(max_fps)?,
                     Request::VideoFeedback { frame_id } => out.video_feedback(frame_id),
                     Request::Sessions {} => {
-                        let st = state.lock().unwrap();
+                        let st = state.lock().unwrap().clone();
                         let mut sessions = Vec::new();
                         for session in st.sessions.values() {
                             let mut s = session.lock().unwrap();
@@ -1405,8 +1438,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .as_ref()
                             .err()
                             .map(|_| "application_discovery_unavailable");
-                        let mut st = state.lock().unwrap();
-                        st.desktop_apps = result.unwrap_or_default();
+                        let st = {
+                            let mut current = state.lock().unwrap();
+                            current.desktop_apps = result.unwrap_or_default();
+                            current.clone()
+                        };
                         let mut apps: Vec<_> =
                             st.desktop_apps.iter().map(|app| app.public()).collect();
                         apps.extend(st.apps.iter().map(|a| {
@@ -1440,7 +1476,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         if !state.lock().unwrap().sharing {
                             bail!("sharing disabled")
                         }
-                        let mut st = state.lock().unwrap();
+                        let mut st = state.lock().unwrap().clone();
                         let sources = discovery::desktops(&st.desktop, &st.apps);
                         let excluded: Vec<_> = st
                             .sessions
@@ -1506,7 +1542,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 .then(a["title"].as_str().cmp(&b["title"].as_str()))
                         });
                         windows.truncate(128);
-                        st.running = running;
+                        {
+                            let mut current = state.lock().unwrap();
+                            current.running = running;
+                            current.wayland_running = st.wayland_running;
+                        }
                         send(
                             &mut out,
                             json!({"type":"window.list","windows":windows,
@@ -1527,12 +1567,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         if lease.is_some() {
                             bail!("detach before launching another session")
                         };
-                        let session = launch(
-                            &mut state.lock().unwrap(),
-                            &app_id,
-                            &request_id,
-                            scale_factor,
-                        )?;
+                        let session = catalog_operation(&state, |st| {
+                            launch(st, &app_id, &request_id, scale_factor)
+                        })?;
                         wait_for_window(&session)?;
                         // A launcher only prepares a session. It must not race the
                         // WindowHost for the exclusive controller lease.
@@ -1561,8 +1598,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         if lease.is_some() {
                             bail!("detach before starting another session")
                         }
-                        let session =
-                            start_desktop(&mut state.lock().unwrap(), &monitor_id, &request_id)?;
+                        let session = catalog_operation(&state, |st| {
+                            start_desktop(st, &monitor_id, &request_id)
+                        })?;
                         let s = session.lock().unwrap();
                         send(
                             &mut out,
@@ -1891,6 +1929,7 @@ mod tests {
             desktop_monitor: None,
         }));
         let mut st = State {
+            operations: Arc::new(Mutex::new(())),
             device_id: "test-device".into(),
             sharing: true,
             sessions: HashMap::from([("existing-session".into(), session.clone())]),
@@ -1922,6 +1961,27 @@ mod tests {
         session.lock().unwrap().controller = true;
         assert!(launch(&mut st, "test-app", "another-request", 2).is_err());
         assert_eq!(st.sessions.len(), 1);
+        let shared = Arc::new(Mutex::new(st));
+        let worker = shared.clone();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let task = thread::spawn(move || {
+            catalog_operation(&worker, |_| {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            })
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        // A stalled launch/discovery cannot block an attached loop or stop-sharing.
+        shared
+            .try_lock()
+            .expect("global lock held during slow operation")
+            .sharing = false;
+        assert!(session.try_lock().is_ok());
+        release_tx.send(()).unwrap();
+        assert!(task.join().unwrap().is_err());
+        assert!(!shared.lock().unwrap().sharing);
     }
     #[test]
     fn id_entropy() {

@@ -16,6 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[derive(Clone)]
 pub struct Manager(Arc<Inner>);
 struct Inner {
     runtime: PathBuf,
