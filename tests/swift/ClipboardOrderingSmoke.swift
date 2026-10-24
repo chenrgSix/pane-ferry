@@ -37,6 +37,14 @@ struct ClipboardOrderingSmoke {
         precondition(board.string(forType:.string) == "copied locally later", "unsupported text cannot alter the clipboard or disconnect")
         app.send(["type":"input.pointer", "window_id":UInt32(42), "button":1, "pressed":true])
         precondition(host.inputNotice == nil, "selecting a different input field clears the contextual notice")
+        app.send(["type":"clipboard.copy", "window_id":UInt32(42), "request_id":"unrelated"])
+        let count=sent.count
+        app.send(["type":"input.key.logical", "window_id":UInt32(43), "key":"a", "pressed":true])
+        precondition(sent.count==count+1 && app.clipboardBusy, "another window input must not wait for clipboard")
+        app.receive(Incoming(object:["type":"window.destroyed", "window_id":42, "session_id":"fixture", "seq":4], image:nil))
+        precondition(!app.clipboardBusy && app.clipboardJob==nil && app.clipboardDeferred.isEmpty, "destroyed target must cancel its job")
+        reply("unrelated", "stale", 5)
+        precondition(board.string(forType:.string)=="copied locally later")
         host.closeLocally(); app.clipboardTimer?.invalidate()
         print("PASS: actual AppDelegate cut→paste ordering, unsolicited response rejection, failed-copy paste cancellation and newer local clipboard preservation")
     }

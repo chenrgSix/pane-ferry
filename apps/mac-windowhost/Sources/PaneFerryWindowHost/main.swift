@@ -258,6 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var clipboardReading = false
     var clipboardDeferred: [[String: Any]] = []
     var clipboardJob: UUID?
+    var clipboardWindow: UInt32?
+    var clipboardTransfer: ClipboardBulkTransfer?
     var clipboardTimer: Timer?
     var clipboardChangeCount = 0
     var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(native: options.native) }
@@ -433,6 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         connected = false; ready = false; transport.disconnect()
         pageScaleAttempted.removeAll()
         handshakeTimer?.invalidate(); handshakeTimer = nil
+        clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardWindow=nil
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil
         clipboardDeferred.removeAll(); clipboardBusy = false; clipboardReading = false; clipboardCopyGate = ClipboardCopyGate()
         for host in windows.values {
@@ -467,7 +470,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         session = nil
         terminateHost()
     }
-    private func beginClipboard(timeout: TimeInterval, reading: Bool = false) -> UUID {
+    private func beginClipboard(window: UInt32, timeout: TimeInterval, reading: Bool = false) -> UUID {
+        clipboardWindow=window
         clipboardBusy = true; clipboardReading = reading
         let job = UUID(); clipboardJob = job; clipboardChangeCount = controllerClipboard.changeCount
         clipboardTimer?.invalidate()
@@ -477,21 +481,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return job
     }
     private func finishClipboard() {
+        clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardWindow=nil
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil; clipboardBusy = false; clipboardReading = false
         if connected { statusItem?.button?.title = "PaneFerry · 已连接" }
         let queued = clipboardDeferred; clipboardDeferred.removeAll()
         for message in queued { send(message) }
     }
+    private func cancelClipboard() {
+        clipboardDeferred.removeAll(); clipboardCopyGate=ClipboardCopyGate(); finishClipboard()
+    }
     private func clipboardFailed() {
-        if clipboardReading {
-            var replacement = false
-            clipboardDeferred = clipboardDeferred.filter { message in
-                let type = message["type"] as? String ?? ""
-                if ["clipboard.copy", "clipboard.cut"].contains(type) { replacement = true }
-                return type != "controller.paste" || replacement
-            }
-        }
-        NSSound.beep(); finishClipboard(); statusItem?.button?.title = "PaneFerry · 剪贴板操作失败"
+        cancelClipboard(); NSSound.beep(); statusItem?.button?.title = "PaneFerry · 剪贴板操作失败"
     }
     private func pasteController(_ window: UInt32) {
         do {
@@ -501,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case .text(let text): writeWire(["type":"clipboard.paste", "window_id":window, "text":text])
             case .bundle(let payload):
                 guard capabilities.contains("clipboard.bundle") else { throw ClipboardFailure.unsupported }
-                let job = beginClipboard(timeout: 310); let transfer = bulk
+                let job = beginClipboard(window: window, timeout: 310); let transfer = bulk; clipboardTransfer=transfer
                 statusItem?.button?.title = "PaneFerry · 正在传输剪贴板"
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     let result = Result { try transfer.upload(payload) }
@@ -524,12 +524,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
            let window = message["window_id"] as? UInt32 {
             windows[window]?.inputNotice = desktopInputNotice
         }
-        if clipboardBusy && type != "session.detach" && type != "video.feedback" {
-            if type == "input.pointer", message["button"] as? Int == 0,
-               clipboardDeferred.last?["type"] as? String == type, clipboardDeferred.last?["button"] as? Int == 0,
-               clipboardDeferred.last?["window_id"] as? UInt32 == message["window_id"] as? UInt32 { clipboardDeferred.removeLast() }
-            guard clipboardDeferred.count < 256 else { transport.disconnect(); return }
-            clipboardDeferred.append(message); return
+        if clipboardBusy {
+            let window=message["window_id"] as? UInt32
+            if type == "controller.paste", window == clipboardWindow, clipboardReading {
+                clipboardDeferred=[message]; return
+            }
+            if type.hasPrefix("clipboard.") || type == "controller.paste" ||
+               (window == clipboardWindow && (type.hasPrefix("input.") || type.hasPrefix("window.close"))) || type == "session.detach" {
+                cancelClipboard()
+            }
         }
         if type == "controller.paste", let window = message["window_id"] as? UInt32 { pasteController(window); return }
         var wire = message
@@ -538,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if ["clipboard.copy", "clipboard.cut"].contains(type), let id = message["request_id"] as? String,
                let window = message["window_id"] as? UInt32 {
                 let rich = capabilities.contains("clipboard.bundle")
-                _ = beginClipboard(timeout: rich ? 35 : 5, reading: true)
+                _ = beginClipboard(window: window, timeout: rich ? 35 : 5, reading: true)
                 clipboardCopyGate.begin(id: id, window: window, timeout: rich ? 35 : 5)
                 if rich { wire["type"] = "clipboard.copy.bundle"; wire["cut"] = type == "clipboard.cut" }
             }
@@ -700,7 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             clipboardTimer = Timer.scheduledTimer(withTimeInterval: 310, repeats: false) { [weak self] _ in
                 guard let self = self, self.clipboardJob == job else { return }; self.clipboardFailed()
             }
-            let transfer = bulk
+            let transfer = bulk; clipboardTransfer=transfer
             let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("LAN RemoteApp/Clipboard")
             let urls = controllerClipboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
             let pins = Set(urls.filter { $0.path.hasPrefix(root.path + "/") }.compactMap { $0.path.dropFirst(root.path.count + 1).split(separator: "/").first.map(String.init) })
@@ -721,6 +724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if type == "session.snapshot" {
             let snapshot = object["windows"] as? [[String: Any]] ?? []
             let retained = Set(snapshot.compactMap { unsignedInteger($0["window_id"]).flatMap { $0 <= UInt32.max ? UInt32($0) : nil } })
+            if let window=clipboardWindow, !retained.contains(window) { cancelClipboard() }
             for id in Array(windows.keys) where !retained.contains(id) { windows.removeValue(forKey: id)?.closeLocally() }
             parents.removeAll(); removed.removeAll()
             for item in snapshot { updateWindow(item, create: true) }
@@ -739,6 +743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "window.created": updateWindow(object, create: true); attachParents()
         case "window.metadata": updateWindow(object, create: false); attachParents()
         case "window.destroyed":
+            if clipboardWindow == id { cancelClipboard() }
             windows.removeValue(forKey: id)?.closeLocally(); parents.removeValue(forKey: id); removed.insert(id)
             attachParents()
             refreshVideoFPS()
@@ -863,7 +868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Stop diagnostics now so the polling timer cannot open a modal alert.
         stopping = true; reconnectTimer?.invalidate(); reconnectTimer = nil; handshakeTimer?.invalidate(); handshakeTimer = nil
         networkMonitor?.cancel(); networkMonitor = nil
-        connected = false; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll()
+        connected = false; clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll()
         poll?.invalidate(); poll = nil
         // Give the serial write queue a brief opportunity, then close local transport only.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in

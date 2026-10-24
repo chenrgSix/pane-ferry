@@ -9,6 +9,12 @@ struct NativeRoute {
 /// reliable QUIC stream of the paired device, without shell file paths.
 final class ClipboardBulkTransfer {
     let native: NativeRoute
+    private let lock = NSLock()
+    private var active: Process?, cancelled = false
+    func cancel() {
+        lock.lock(); cancelled=true; let process=active; lock.unlock()
+        if let process=process, process.isRunning { process.terminate() }
+    }
     init(native: NativeRoute) { self.native = native }
     private func start(_ command: String) throws -> (Process, FileHandle, FileHandle, DispatchWorkItem) {
         let process = Process(), input = Pipe(), output = Pipe()
@@ -17,7 +23,10 @@ final class ClipboardBulkTransfer {
         process.arguments = [fields[0] == "clipboard-upload" ? "bulk-upload" : "bulk-download", "--state", native.state, "--peer", native.peer]
         if fields.count == 2 { process.arguments! += ["--transfer", fields[1]] }
         process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
-        try process.run()
+        lock.lock()
+        guard !cancelled else { lock.unlock(); throw ClipboardFailure.transport }
+        do { try process.run(); active=process; lock.unlock() }
+        catch { lock.unlock(); throw error }
         let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + 300, execute: timeout)
         return (process, input.fileHandleForWriting, output.fileHandleForReading, timeout)
