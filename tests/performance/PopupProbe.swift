@@ -19,13 +19,17 @@ enum Probe {
     static var preview = false
     static var serial = -1
     static var finishing = false
+    static var expectedPopup: (width: Int, height: Int)?
+    static var windowsBeforeInput = Set<UInt32>()
+    static var ignoredPopupIDs = Set<UInt32>()
     static var tick: Timer?
     static let output = ProcessInfo.processInfo.environment["PROBE_OUTPUT"]!
     static let command = ProcessInfo.processInfo.environment["PROBE_COMMAND"]!
     static func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
     static func configure(_ host: HostedWindow) {
-        // Preserve the application's original source geometry, including DPI.
+        // Keep geometry supplied by the normal attach path; don't request a
+        // separate benchmark resolution. Attach itself may change output/DPI.
         host.fixedPixels = (host.surface.remoteWidth, host.surface.remoteHeight)
         let available = (host.window.screen ?? NSScreen.main!).visibleFrame.size
         let ratio = min(1, min(available.width / CGFloat(host.surface.remoteWidth),
@@ -111,6 +115,14 @@ enum Probe {
             finish(error: "an existing related window must be closed before the test"); return
         }
         point = CGPoint(x: x, y: y); preview = request["action"] as? String == "preview"
+        if !preview {
+            guard let width = request["popup_width"] as? Int, let height = request["popup_height"] as? Int,
+                  width > 0, height > 0 else {
+                finish(error: "run requires observed popup_width and popup_height in stream pixels"); return
+            }
+            expectedPopup = (width, height)
+        } else { expectedPopup = nil }
+        ignoredPopupIDs.removeAll()
         samples = min(100, max(1, request["samples"] as? Int ?? 30)); count = 0; rows.removeAll()
         openMenu()
     }
@@ -124,6 +136,7 @@ enum Probe {
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber,
             context: nil, eventNumber: count + 1, clickCount: 1, pressure: 1)!
         count += 1; phase = "opening"; phaseStarted = now()
+        windowsBeforeInput = Set(delegate?.windows.keys ?? Dictionary<UInt32, HostedWindow>().keys)
         lock.lock(); current = ["count": count, "start": phaseStarted, "warmup": count <= 2,
                                "root_width": host.surface.remoteWidth, "root_height": host.surface.remoteHeight,
                                "root_scale": host.rendering.scale]; lock.unlock()
@@ -154,6 +167,13 @@ enum Probe {
               let number = unsignedInteger(frame["window_id"]), number <= UInt32.max,
               let app = delegate, let host = app.windows[UInt32(number)], host.id != rootID,
               app.parents[host.id] == rootID, host.remoteVisible, host.window.isVisible else { return }
+        // Some applications expose hover tips as popup menus too. Match the
+        // observed target, and never time a repaint of a pre-existing child.
+        guard !windowsBeforeInput.contains(host.id) else { return }
+        if let expected = expectedPopup,
+           host.presentation?.kind != "menu" || image.width != expected.width || image.height != expected.height {
+            ignoredPopupIDs.insert(host.id); return
+        }
         openedID = host.id
         guard host.popup && host.window.styleMask == .borderless else {
             finish(error: "related popup is still decorated; check active bridge version"); return
@@ -172,7 +192,9 @@ enum Probe {
         lock.lock(); let values = rows; lock.unlock()
         var result: [String: Any] = ["frames": values, "expected_samples": samples,
             "endpoint": "context menu AppKit draw completion", "injection": "SurfaceView rightMouseDown",
-            "source_geometry": "preserved", "phase": phase]
+            "source_geometry": "normal attach; no benchmark resolution override", "phase": phase,
+            "ignored_popup_count": ignoredPopupIDs.count]
+        if let expected = expectedPopup { result["expected_popup_pixels"] = [expected.width, expected.height] }
         if let error { result["error"] = error }
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: output), options: .atomic)

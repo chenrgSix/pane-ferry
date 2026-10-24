@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in context-menu latency on an explicitly authorized existing application.
 
-Uses its current source size. Only right-click and Escape are injected; a private
+Uses source geometry from normal attach. Only right-click and Escape are injected; a private
 command file selects an observed safe location. No editor text or clipboard use.
 """
 import argparse
@@ -32,4 +32,6 @@ else:
     assert 'error' not in result, result.get('error')
     assert len([r for r in result['frames'] if not r['warmup']]) == result['expected_samples']
     assert all(r['hardware_decoder'] and r['codec'] == 'h264' and r['borderless'] for r in result['frames'])
+    assert all([r['width'], r['height']] == result['expected_popup_pixels'] and r['kind'] == 'menu'
+               for r in result['frames'])
     print(json.dumps({'output': args.output, 'samples': result['expected_samples']}))
