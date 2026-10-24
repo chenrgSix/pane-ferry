@@ -124,7 +124,11 @@ struct AutomaticReconnectSmoke {
         app.receive(Incoming(object:["type":"error", "code":"resolution_limited", "window_id":42], image:nil))
         precondition(app.connected && original.resolutionNotice != nil && other.resolutionNotice == nil,
                      "a resize rejection must keep the session and other windows unaffected")
-        app.windows.removeValue(forKey:43); other.closeLocally()
+        var terminations = 0
+        app.terminateHost = { terminations += 1 }
+        app.receive(Incoming(object:["type":"window.destroyed", "session_id":"retained", "seq":8, "window_id":43], image:nil))
+        precondition(app.windows[42] === original && app.windows[43] == nil && app.connected && terminations == 0,
+                     "closing one source window must preserve the other windows and connection")
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"after reconnect"])
         until { ((try? String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)) ?? "").contains("after reconnect") }
         let requests = try String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)
@@ -135,8 +139,26 @@ struct AutomaticReconnectSmoke {
         let count = try String(contentsOf: root.appendingPathComponent("connections"), encoding: .utf8)
         precondition(count == "2")
         precondition((0...10).map(AppDelegate.reconnectDelay) == [1,2,4,8,15,15,15,15,15,15,15])
-        app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        app.receive(Incoming(object:["type":"session.exited", "session_id":"other", "seq":9], image:nil))
+        precondition(terminations == 0 && app.connected, "another session cannot terminate this host")
+        app.receive(Incoming(object:["type":"session.exited", "session_id":"retained", "seq":9], image:nil))
+        until { !app.transport.alive }
+        precondition(terminations == 1 && app.windows.isEmpty && !original.window.isVisible && app.session == nil)
+        precondition(app.stopping && !app.connected && !app.recovering && app.poll == nil && !app.transport.alive,
+                     "confirmed source exit must tear down transport, windows and the host")
         app.connectionLost(); precondition(app.reconnectTimer == nil)
+        app.receive(Incoming(object:["type":"error", "code":"session_exited"], image:nil))
+        precondition(terminations == 1, "terminal cleanup must be idempotent")
+
+        for code in ["session_exited", "session_expired"] {
+            let ended = AppDelegate(options:options, clipboard:board)
+            ended.session = "retained"; ended.recovering = true
+            ended.terminateHost = { terminations += 1 }
+            ended.receive(Incoming(object:["type":"error", "code":code], image:nil))
+            precondition(ended.stopping && !ended.connected && !ended.recovering && ended.session == nil,
+                         "an ended session discovered on reconnect must also terminate the host")
+        }
+        precondition(terminations == 3)
 
         // A lost initial launch response must reuse its request ID. Once a
         // session is known, even --app startup resumes instead of relaunching.

@@ -76,7 +76,7 @@ final class RWPTransport {
     private var failure: TransportFailure?
     private var queuedPixels = 0
     private let writer = DispatchQueue(label: "paneferry.rwp.writer")
-    private(set) var alive = false
+    var alive: Bool { process.isRunning }
     var onDiagnostic: ((String) -> Void)?
 
     func start(_ options: Options) throws {
@@ -87,7 +87,7 @@ final class RWPTransport {
         process.terminationHandler = { [weak self] process in
             self?.fail("设备连接已结束（退出码 \(process.terminationStatus)）。远端会话不会因此主动终止；可用会话 ID 重新连接。")
         }
-        try process.run(); alive = true
+        try process.run()
         DispatchQueue(label: "paneferry.rwp.reader").async { [weak self] in self?.readLoop() }
     }
 
@@ -247,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var pendingVideoFeedbackID: UInt64?
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
+    var terminateHost: () -> Void = { NSApp.terminate(nil) }
     var desktopInputNotice: String?
     private func writeWire(_ message: [String: Any]) { if let sink = wireSink { sink(message) } else { transport.send(message) } }
     var clipboardCopyGate = ClipboardCopyGate()
@@ -429,6 +430,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusItem?.button?.title = "PaneFerry · 已断开"
         for host in windows.values { host.window.subtitle = "已断开，请从启动器重新连接。" }
     }
+    func finishSession() {
+        guard !stopping else { return }
+        stopping = true
+        stopRecovery()
+        poll?.invalidate(); poll = nil
+        networkMonitor?.cancel(); networkMonitor = nil
+        for host in windows.values { host.closeLocally() }
+        windows.removeAll(); parents.removeAll(); removed.removeAll()
+        session = nil
+        terminateHost()
+    }
     private func beginClipboard(timeout: TimeInterval, reading: Bool = false) -> UUID {
         clipboardBusy = true; clipboardReading = reading
         let job = UUID(); clipboardJob = job; clipboardChangeCount = controllerClipboard.changeCount
@@ -579,7 +591,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if code == "window_unavailable" { return }
             if code == "session_controlled", recovering { connectionLost(); return }
             if ["session_expired", "session_exited"].contains(code) {
-                stopRecovery(); statusItem?.button?.title = "PaneFerry · 会话已结束"; return
+                finishSession(); return
             }
             if code == "wayland_text_unavailable" {
                 // Missing text-input focus is a capability limit, not a lost
@@ -669,10 +681,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         if type == "session.exited" {
-            stopRecovery()
-            for host in windows.values { host.closeLocally() }; windows.removeAll()
             if !receivedWindow { alert("应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新启动器的运行窗口列表后连接已有窗口。") }
-            statusItem?.button?.title = "PaneFerry · 应用已退出"; return
+            finishSession(); return
         }
         guard let number = unsignedInteger(object["window_id"]), number <= UInt64(UInt32.max) else { return }
         let id = UInt32(number)
