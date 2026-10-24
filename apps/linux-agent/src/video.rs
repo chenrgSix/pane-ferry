@@ -325,15 +325,19 @@ impl PipeWireCapture {
         &self,
         frame: [u32; 4],
         expected_buffer: (u32, u32),
+        display_scale: f64,
     ) -> Result<Option<CapturedImage>> {
-        self.pull_inner(Some((frame, expected_buffer)))
+        self.pull_inner(Some((frame, expected_buffer, display_scale)))
     }
     /// A monitor stream has no window crop. Preserve its actual captured pixels;
     /// the caller updates geometry before publishing a frame after a mode change.
     pub fn pull_monitor(&self) -> Result<Option<CapturedImage>> {
         self.pull_inner(None)
     }
-    fn pull_inner(&self, window: Option<([u32; 4], (u32, u32))>) -> Result<Option<CapturedImage>> {
+    fn pull_inner(
+        &self,
+        window: Option<([u32; 4], (u32, u32), f64)>,
+    ) -> Result<Option<CapturedImage>> {
         let sample = unsafe { (self.api.pull)(self.sink, 0) };
         if sample.is_null() {
             return Ok(None);
@@ -374,21 +378,34 @@ impl PipeWireCapture {
             if crop.is_null() && window.is_some() {
                 bail!("wayland_capture_unavailable")
             }
-            let (crop_x, crop_y, crop_width, crop_height) = if crop.is_null() {
+            let (crop_x, crop_y, mut crop_width, mut crop_height) = if crop.is_null() {
                 (0, 0, width as u32, height as u32)
             } else {
                 let crop = unsafe { &*crop };
                 (crop.x, crop.y, crop.width, crop.height)
             };
-            // A window resize and PipeWire frame can arrive in either order.
-            // Never label an earlier frame with newer geometry, or include padding.
-            if let Some((_, expected_buffer)) = window {
-                if (crop_width, crop_height) != expected_buffer {
-                    return Ok(None);
+            let [left, top, frame_width, frame_height] = match window {
+                Some((frame, buffer, scale)) => {
+                    let Some(frame) =
+                        window_pixel_crop(frame, buffer, scale, (crop_width, crop_height))
+                    else {
+                        return Ok(None);
+                    };
+                    // Mutter's CPU renderer composites multi-surface windows
+                    // at resource scale, while VideoCrop can still describe
+                    // the root surface in logical units. The full rendered
+                    // rectangle must fit in this frame's negotiated buffer.
+                    if (crop_width, crop_height) == buffer && scale != 1.0 {
+                        if crop_x != 0 || crop_y != 0 {
+                            return Ok(None);
+                        }
+                        crop_width = (f64::from(buffer.0) * scale).round() as u32;
+                        crop_height = (f64::from(buffer.1) * scale).round() as u32;
+                    }
+                    frame
                 }
-            }
-            let [left, top, frame_width, frame_height] =
-                window.map_or([0, 0, crop_width, crop_height], |(frame, _)| frame);
+                None => [0, 0, crop_width, crop_height],
+            };
             paneferry_protocol::dimensions(frame_width, frame_height)?;
             if crop_x > width as u32
                 || crop_y > height as u32
@@ -427,6 +444,22 @@ impl PipeWireCapture {
         result
     }
 }
+// Compare both forms of Mutter's crop metadata against the current logical
+// geometry. The CPU-composited pixels remain at resource scale in either case;
+// this corrects the crop rectangle, without scaling the image itself.
+fn window_pixel_crop(
+    frame: [u32; 4],
+    buffer: (u32, u32),
+    display_scale: f64,
+    crop: (u32, u32),
+) -> Option<[u32; 4]> {
+    let pixels = |value: u32| (f64::from(value) * display_scale).round() as u32;
+    if crop == (pixels(buffer.0), pixels(buffer.1)) || crop == buffer {
+        return Some(frame.map(pixels));
+    }
+    None
+}
+
 impl Drop for PipeWireCapture {
     fn drop(&mut self) {
         unsafe {
@@ -689,6 +722,25 @@ mod tests {
         thread,
         time::Duration,
     };
+
+    #[test]
+    fn logical_crop_metadata_preserves_hidpi_pixels_and_rejects_stale_sizes() {
+        let frame = [26, 26, 700, 450];
+        assert_eq!(
+            window_pixel_crop(frame, (752, 502), 2.0, (1504, 1004)),
+            Some([52, 52, 1400, 900])
+        );
+        assert_eq!(
+            window_pixel_crop(frame, (752, 502), 2.0, (752, 502)),
+            Some([52, 52, 1400, 900])
+        );
+        assert_eq!(window_pixel_crop(frame, (752, 502), 2.0, (1504, 502)), None);
+        assert_eq!(window_pixel_crop(frame, (752, 502), 2.0, (1470, 809)), None);
+        assert_eq!(
+            window_pixel_crop(frame, (752, 502), 1.5, (1128, 753)),
+            Some([39, 39, 1050, 675])
+        );
+    }
 
     #[test]
     fn crop_copies_exact_pixels_without_padding_or_aliasing() {

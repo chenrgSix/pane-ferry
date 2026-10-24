@@ -243,15 +243,15 @@ impl Backend {
             let Some(stream) = streams.get_mut(id) else {
                 continue;
             };
-            let pixels = |value: u32| (f64::from(value) * info.scale).round() as u32;
             if let Some(image) = stream.capture.pull(
                 [
-                    pixels((info.x - info.buffer_x) as u32),
-                    pixels((info.y - info.buffer_y) as u32),
-                    pixels(info.width),
-                    pixels(info.height),
+                    (info.x - info.buffer_x) as u32,
+                    (info.y - info.buffer_y) as u32,
+                    info.width,
+                    info.height,
                 ],
-                (pixels(info.buffer_width), pixels(info.buffer_height)),
+                (info.buffer_width, info.buffer_height),
+                info.scale,
             )? {
                 if let Some(window) = self.windows.get_mut(id) {
                     if window.width != image.width || window.height != image.height {
@@ -393,7 +393,7 @@ impl WindowBackend for Backend {
                 .image
                 .as_ref()
                 .map(|i| (i.width, i.height))
-                .unwrap_or((pixels(info.width), pixels(info.height)));
+                .unwrap_or((info.width, pixels(info.height)));
             let mut window = Window {
                 window_id: id,
                 parent_id: info.parent_id.filter(|_| id != self.target.info.window_id),
