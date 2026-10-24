@@ -1,0 +1,406 @@
+{
+  "date": "2026-10-24",
+  "product_commit": "50f2170",
+  "fixture_commit": "7143259",
+  "scope": "Real Ubuntu private Xvfb + Openbox + GTK 3 CSD -> authenticated native QUIC -> deployed macOS release WindowHost. Source buttons clicked through the Mac window; recovery used its native AppKit button.",
+  "deployment": {
+    "mac_windowhost_sha256": "2dd41e190ce45e6cb20c945da0da6631a12ef4e0d2613c3bb34f2dd45615daaa",
+    "mac_active": true,
+    "mac_signature_deep_strict": true,
+    "ubuntu_agent_sha256": "2c5eb5ee1d5aface8f1b7a34f88014fb760c51267ed7cd85b743307b9f2493fd",
+    "ubuntu_running_agent_sha256": "5985628ec389dbcddd4be02cb7ca08085d5cca0beeeb6f4ee442725c111d0a01",
+    "ubuntu_service_activation": "deferred; existing in-memory sessions retained",
+    "rollback": "previous Mac bundle and Ubuntu Agent binary retained outside Git"
+  },
+  "checks": {
+    "source_minimize_placeholder": true,
+    "explicit_restore_same_pid_and_xid": true,
+    "source_close_session_removed": true,
+    "source_close_windowhost_exits": true,
+    "last_window_closed_while_fixture_main_loop_stays_running": true,
+    "local_close_preserves_source_session": true,
+    "reconnect_hidden_session_has_restore_button": true,
+    "reconnected_source_close_exit_code": 0,
+    "independent_sentinel_session_preserved": true
+  },
+  "observations": {
+    "restored": {
+      "main": {
+        "pid": 590940,
+        "title": "PaneFerry Lifecycle main",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible",
+          "minimized",
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513597
+      },
+      "sentinel": {
+        "pid": 590856,
+        "title": "PaneFerry Lifecycle sentinel",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513537
+      },
+      "sessions": {
+        "seq": 2,
+        "session_id": "",
+        "sessions": [
+          {
+            "app_id": "lifecycle-sentinel",
+            "backend": "native",
+            "controlled": false,
+            "display": 159,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "4f28d6876af4d7e5b4905b4c0fc9a36e",
+            "window_count": 1
+          },
+          {
+            "app_id": "lifecycle-main",
+            "backend": "native",
+            "controlled": true,
+            "display": 160,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "8eae39f3ddf1dd65d4fa1e7e09e23444",
+            "window_count": 1
+          }
+        ],
+        "type": "session.list",
+        "version": 1
+      },
+      "host_running": true,
+      "timestamp": 1792823655.4813728
+    },
+    "source-closed": {
+      "main": {
+        "pid": 590940,
+        "title": "PaneFerry Lifecycle main",
+        "xid": 6291467,
+        "destroyed": true,
+        "iconified": false,
+        "events": [
+          "visible",
+          "minimized",
+          "visible",
+          "destroyed-process-still-running"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": false
+      },
+      "sentinel": {
+        "pid": 590856,
+        "title": "PaneFerry Lifecycle sentinel",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513537
+      },
+      "sessions": {
+        "seq": 2,
+        "session_id": "",
+        "sessions": [
+          {
+            "app_id": "lifecycle-sentinel",
+            "backend": "native",
+            "controlled": false,
+            "display": 159,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "4f28d6876af4d7e5b4905b4c0fc9a36e",
+            "window_count": 1
+          }
+        ],
+        "type": "session.list",
+        "version": 1
+      },
+      "host_running": false,
+      "timestamp": 1792823666.886415
+    },
+    "local-detached": {
+      "main": {
+        "pid": 597792,
+        "title": "PaneFerry Lifecycle main",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": true,
+        "events": [
+          "visible",
+          "minimized"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7523666
+      },
+      "sentinel": {
+        "pid": 590856,
+        "title": "PaneFerry Lifecycle sentinel",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513537
+      },
+      "sessions": {
+        "seq": 2,
+        "session_id": "",
+        "sessions": [
+          {
+            "app_id": "lifecycle-sentinel",
+            "backend": "native",
+            "controlled": false,
+            "display": 159,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "4f28d6876af4d7e5b4905b4c0fc9a36e",
+            "window_count": 1
+          },
+          {
+            "app_id": "lifecycle-main",
+            "backend": "native",
+            "controlled": false,
+            "display": 161,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "9f1ff2f20efadeab0bcfff622e6c1d2e",
+            "window_count": 0
+          }
+        ],
+        "type": "session.list",
+        "version": 1
+      },
+      "host_running": false,
+      "timestamp": 1792823727.4351292
+    },
+    "reattached-restored": {
+      "main": {
+        "pid": 597792,
+        "title": "PaneFerry Lifecycle main",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible",
+          "minimized",
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7523666
+      },
+      "sentinel": {
+        "pid": 590856,
+        "title": "PaneFerry Lifecycle sentinel",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513537
+      },
+      "sessions": {
+        "seq": 2,
+        "session_id": "",
+        "sessions": [
+          {
+            "app_id": "lifecycle-sentinel",
+            "backend": "native",
+            "controlled": false,
+            "display": 159,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "4f28d6876af4d7e5b4905b4c0fc9a36e",
+            "window_count": 1
+          },
+          {
+            "app_id": "lifecycle-main",
+            "backend": "native",
+            "controlled": true,
+            "display": 161,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "9f1ff2f20efadeab0bcfff622e6c1d2e",
+            "window_count": 1
+          }
+        ],
+        "type": "session.list",
+        "version": 1
+      },
+      "host_running": true,
+      "timestamp": 1792823749.9676921
+    },
+    "reattached-source-closed": {
+      "main": {
+        "pid": 597792,
+        "title": "PaneFerry Lifecycle main",
+        "xid": 6291467,
+        "destroyed": true,
+        "iconified": false,
+        "events": [
+          "visible",
+          "minimized",
+          "visible",
+          "destroyed-process-still-running"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": false
+      },
+      "sentinel": {
+        "pid": 590856,
+        "title": "PaneFerry Lifecycle sentinel",
+        "xid": 6291467,
+        "destroyed": false,
+        "iconified": false,
+        "events": [
+          "visible"
+        ],
+        "marker": "private-window-lifecycle-fixture",
+        "process_alive": true,
+        "start_ticks": 7513537
+      },
+      "sessions": {
+        "seq": 2,
+        "session_id": "",
+        "sessions": [
+          {
+            "app_id": "lifecycle-sentinel",
+            "backend": "native",
+            "controlled": false,
+            "display": 159,
+            "mode": "app",
+            "monitor_id": null,
+            "session_id": "4f28d6876af4d7e5b4905b4c0fc9a36e",
+            "window_count": 1
+          }
+        ],
+        "type": "session.list",
+        "version": 1
+      },
+      "host_running": false,
+      "timestamp": 1792823757.3601751
+    }
+  },
+  "preservation": {
+    "production_sessions_exactly_equal": 5,
+    "mac_node_network_launcher_pids": [
+      20969,
+      20971,
+      56381
+    ],
+    "mac_pid_start_and_command_unchanged": true,
+    "mac_node_and_network_files_unchanged": true,
+    "ubuntu": {
+      "units": {
+        "remoteapp-agent.service": {
+          "ActiveState": "active",
+          "MainPID": "1619731"
+        },
+        "paneferry-network.service": {
+          "ActiveState": "active",
+          "MainPID": "535589"
+        }
+      },
+      "protected_process_count": 105,
+      "preserved_count": 98,
+      "missing_processes": [
+        {
+          "pid": 566098,
+          "comm": "python3"
+        },
+        {
+          "pid": 566189,
+          "comm": "sh"
+        },
+        {
+          "pid": 566194,
+          "comm": "python3"
+        },
+        {
+          "pid": 566195,
+          "comm": "python3"
+        },
+        {
+          "pid": 566283,
+          "comm": "python3"
+        },
+        {
+          "pid": 566576,
+          "comm": "git"
+        },
+        {
+          "pid": 566577,
+          "comm": "python3"
+        }
+      ],
+      "reused_pids": [],
+      "critical_pids_preserved": [
+        6098,
+        14785,
+        1619731,
+        535589,
+        478169,
+        478182,
+        1804350,
+        1804368,
+        1805437,
+        1805448,
+        1806612,
+        1806622,
+        13108
+      ],
+      "test_owned_pids_stopped": [
+        586980,
+        586983,
+        590846,
+        590851,
+        590854,
+        590855,
+        590856,
+        590859,
+        590866,
+        590871,
+        590899,
+        590921
+      ],
+      "running_agent_sha256": "5985628ec389dbcddd4be02cb7ca08085d5cca0beeeb6f4ee442725c111d0a01",
+      "installed_agent_sha256": "2c5eb5ee1d5aface8f1b7a34f88014fb760c51267ed7cd85b743307b9f2493fd",
+      "network_unchanged": true
+    }
+  },
+  "cleanup": {
+    "test_units_inactive": true,
+    "all_test_owned_processes_stopped": true,
+    "private_pairing_and_home_removed": true,
+    "temporary_ssh_master_closed": true
+  },
+  "limits": [
+    "Production Ubuntu service still runs its old mapped executable until a separately safe restart; this is not a fully activated two-end rollout.",
+    "No existing user app was controlled, closed or minimized; GTK private X11 validation does not cover real Feishu/ChatGPT or existing Wayland desktop windows.",
+    "98 of 105 initially observed Linux process identities remained. Seven transient tool descendants of the pre-existing Codex process ended; all tracked desktop/application/service roots and four private displays remained.",
+    "No full scripts/check.sh rerun for this fixture-only addition; Python syntax, diff checks, actual GTK execution and both UI cycles passed."
+  ]
+}

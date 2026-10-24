@@ -590,3 +590,24 @@ Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启
 | Clippy | X11 后端 `--all-targets -D warnings` 通过；Agent 严格检查仍受已有 5 处告警阻挡（dead_code 两处、needless_lifetimes、if_same_then_else、assertions_on_constants），仅放宽这些既有 lint 后通过 |
 
 本轮没有连接或修改正式 Ubuntu、替换正式安装包、重启服务或关闭用户应用。6 项依赖 Linux Xvfb/GStreamer 的 Rust 测试仍按项目配置忽略。真实 Ubuntu 最小化→远程恢复、关闭窗口但后台进程仍存活、已有桌面窗口与真实应用长期使用尚未实机验收；已将可选的 `native_session_smoke.py` 恢复步骤改成 `window.focus`，但本轮未运行该远程脚本。以上源码修复不会自动改变当前已运行的旧版宿主或清理旧进程。
+
+## 2026-10-24：两端安装与真实跨机生命周期验证
+
+经用户授权部署并实测，同时保留其他应用和会话。Mac 已将新版 WindowHost 安装到启动器应用包，通过目录交换保留旧文件映射，深度严格签名验证通过；原 Node、网络、启动器的 PID、启动时间和命令行保持，Node 与网络文件哈希未变。Ubuntu release 构建通过，新 Agent 文件已备份后原子安装，但正式 Agent 仍运行旧版：它持有 5 个会话，其中 4 个依赖其自有 Xvfb，当前没有跨进程交接机制，重启会违反保留会话的约束。因此这是 **Mac 已生效、Ubuntu 文件已安装但正式服务待安全切换**，不能报告两端正式服务均已升级。
+
+实测使用已安装的两个新二进制：Ubuntu 新 Agent 在独立 HOME、私有 Xvfb/Openbox 和受限 systemd 单元中运行；两端另建临时网络身份与随机 UDP 端口，以真实 QUIC 传输至已部署 Mac release WindowHost。SSH 仅用于部署和读取测试状态。夹具 `tests/fixtures/window_lifecycle_fixture.py` 是无用户数据的 GTK 3 标题栏窗口；关闭窗口后故意继续 GTK 主循环，检验最后窗口关闭时的会话清理，而非依赖应用自行退出。另保留一个独立夹具会话作旁观检查。
+
+| 实际操作 | 验证结果 |
+| --- | --- |
+| 点击画面右上方源端最小化 | GTK 报告 `iconified=true`；Mac 窗口仍在并显示“源端窗口已最小化或隐藏”和恢复按钮 |
+| 点击本地“恢复源端窗口” | 同一源端 PID/XID 恢复可见，Mac 收到新 H.264 画面；无新应用启动 |
+| 点击画面右上方源端关闭 | GTK 记录 `destroyed-process-still-running`；随后 Agent 清理该进程与会话，Mac WindowHost 退出，不留下空连接；第二轮实际进程退出码为 0 |
+| 最小化后点击本地红色关闭 | Mac WindowHost 退出；源端进程、XID、会话仍保留且处于最小化状态 |
+| 重连上述隐藏会话再恢复 | 首次快照即提供恢复入口；恢复后仍为原 PID/start_ticks/XID 和会话，可再次从源端关闭 |
+| 旁观会话 | 两轮关闭、断开、重连后，独立夹具的 PID/start_ticks、窗口及会话保持 |
+| 正式环境保护 | 5 个原有会话的完整列表前后相同；Ubuntu GNOME、ChatGPT、飞书、HexHub、文件管理器、安全中心、4 个私有显示器、正式 Agent 与网络进程身份保持；Mac 原 3 个服务进程保持 |
+| 清理 | 只停止本轮两个 Ubuntu 测试单元与 Mac 测试网络；验证其自有进程全部退出，删除临时配对和 HOME，并关闭临时 SSH 主连接 |
+
+基线扫描的 105 个 Ubuntu 进程中，98 个身份保持，7 个原有 Codex 下的临时工具子进程已结束；不声称所有 105 个进程都保持。未操作用户实际应用窗口，未重启正式服务、桌面或网络，也没有启用/更新 GNOME 扩展。本次覆盖私有 X11 窗口，不替代已有 Wayland 窗口、真实应用或长期使用验收。夹具语法、diff 检查和真实 GUI 两轮通过，本次未重跑全项目门禁。
+
+[结构化证据](validation-artifacts/2026-10-24-window-lifecycle-deployment.json)、[最小化恢复入口](validation-artifacts/2026-10-24-source-minimized.png)、[恢复后的画面](validation-artifacts/2026-10-24-source-restored.png)。完整安装备份及本机记录保留在忽略目录 `dist/window-lifecycle-20261024/`，Ubuntu 旧 Agent 备份保留在用户状态目录的 `upgrades/window-lifecycle-20261024/`。
