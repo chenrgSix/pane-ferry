@@ -22,7 +22,7 @@ PipeWire 节点就绪信号改由后续请求推进，pending 时不在同步输
 
 Mac 在父窗口无匹配画面、隐藏、最小化、销毁或关系成环时隐藏子窗口。细窄提示框不再受隐藏恢复按钮的固有宽度撑大；浮层使用不要求 key window 的鼠标跟踪。仅在子窗口堆叠顺序变化时重排本地窗口。
 
-本次未重新测量真实 IDEA 的端到端延迟，不把移除等待或通过功能测试当作已取得整体延迟改善。此前测量仍见[端到端延迟报告](performance/2026-10-24-live-agent-latency.md)。
+真实 IDEA Git 菜单已经完成 60 次有效端到端测量：中位数 234.204 ms、P95 277.494 ms，保留一次 1081.746 ms 长尾。没有同场景旧版本基线，不能把移除等待或通过功能测试当作整体延迟改善。详见 [IDEA 实测报告](performance/2026-10-25-idea-popup-latency.md)；此前的 [GTK 窗口测量](performance/2026-10-24-live-agent-latency.md)不是可直接比较的 IDEA 基线。
 
 ## 验证记录
 
@@ -37,12 +37,12 @@ Mac 在父窗口无匹配画面、隐藏、最小化、销毁或关系成环时�
 
 需要 Agent、Mac WindowHost 和 GNOME 扩展一起更新。扩展包版本 2、运行时桥接版本 3 才提供完整类型信息。GNOME 会缓存已经导入的扩展模块，[50.1 扩展管理器源码](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/extensionSystem.js)明确说明同一登录中不能加载不同版本。用户保存工作、重新登录 Ubuntu 后应核对 `bridge_version:3`；不能把文件安装或 `ReloadExtension` 成功当作新版已运行，也不能为更新自动注销用户桌面。
 
-本次开发期间的真实原桌面 IDEA 弹窗视觉验收及部署后延迟测量尚未完成。隔离 GNOME 和本地 AppKit 结果不能替代这两项。
+用户重新登录后，真实 IDEA Git 菜单及小分支提示的视频图像、NSWindow 几何和无标题栏样式已核对，部署后菜单延迟已测量。Mac 桌面控制工具超时，最终桌面合成截图仍未验收；IDEA 嵌套菜单、普通对话框也不能仅凭本次菜单测试视为完成。
 
 2026-10-25 部署状态：`f158a34` 对应 Mac WindowHost 已更新到本机启动器内嵌包及开发资源模板，严格签名校验通过；二进制 SHA-256 为 `de1f1e7674a089600d9738c2ced14b59fc1ec993cb4209a68e7db7cb0eb8d178`。旧包已保留在本机诊断目录的 `deployment-20261025-f158a34/`。
 
-Ubuntu Agent 与扩展文件也已安装：Agent PID `2831475`、服务 active、NRestarts=0；运行二进制 SHA-256 为 `844176fe3d45216ee56b3475196e951a998c43efebd24861f708ecc8643dd202`。旧 Agent 与扩展完整备份在 `/home/chenrg/.local/state/lan-remoteapp/backups/windows-f158a34-20261025/`。部署前仅有未被控制的现有 IDEA 会话，没有 Agent 自有应用；部署后 IDEA PID `1546582`、启动标记 `9028388` 和窗口 `330` 保留。Agent 重启清空内存中的会话记录，原应用可从窗口列表重新接管。
+Ubuntu Agent 与扩展文件也已安装：首次部署时 Agent PID `2831475`、服务 active、NRestarts=0；运行二进制 SHA-256 为 `844176fe3d45216ee56b3475196e951a998c43efebd24861f708ecc8643dd202`。旧 Agent 与扩展完整备份在 `/home/chenrg/.local/state/lan-remoteapp/backups/windows-f158a34-20261025/`。当次部署保留了原 IDEA 进程与窗口。随后用户重启并登录桌面，当前 Agent PID `37014`、GNOME Shell PID `114131`，IDEA 通过原桌面入口重新打开为 PID `122542`、窗口 `7`。测试后 Agent 仍 active、NRestarts=0，IDEA 保持运行并已解除临时控制。
 
 Mac 当前网络无法到达原配对地址 `192.168.1.26:42424`，已将同一受信任设备的地址改为经 SSH 确认可达的 `10.0.1.66:42424`，保持证书与配对身份。实际 QUIC hello 成功，声明 H.264，window.list 仍能发现原 IDEA。145 ms 是单次连接加握手的观察值，不是视频端到端延迟。
 
-**尚待用户重新登录 Ubuntu：**磁盘扩展包为版本 2，但运行桥接仍为缓存的版本 2；未调用注销或重启 GNOME。完整浮层类型需要下次登录加载桥接版本 3，之后才能完成真实 IDEA 弹窗验收。
+**运行版本已确认：**用户重新进入桌面后，窗口列表返回 `bridge_version:3`，完整浮层类型已经生效。Mac 历史 IDEA 缓存入口仍可能携带旧二进制；本次已打开新版主启动器，从该启动器重新连接时会根据新二进制摘要生成新的应用入口。

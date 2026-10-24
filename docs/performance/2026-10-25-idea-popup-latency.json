@@ -1,0 +1,198 @@
+{
+  "date": "2026-10-25",
+  "application": "IntelliJ IDEA build 262.10968.63",
+  "scenario": "open the Git log commit context menu with right-click; dismiss with Escape",
+  "production_commit": "f158a34",
+  "probe_commit": "a73524a",
+  "macos": "27.0.1 (26A434)",
+  "ubuntu_gnome": "50.1",
+  "gstreamer": "1.28.2",
+  "extension_package_version": 2,
+  "bridge_version": 3,
+  "agent_sha256": "844176fe3d45216ee56b3475196e951a998c43efebd24861f708ecc8643dd202",
+  "windowhost_sha256": "de1f1e7674a089600d9738c2ced14b59fc1ec993cb4209a68e7db7cb0eb8d178",
+  "transport": {
+    "protocol": "paired QUIC",
+    "address": "10.0.1.66:42424",
+    "mac_interface": "utun4",
+    "note": "current tunnel route; not a direct-LAN or previous-run baseline"
+  },
+  "source": {
+    "main_stream_pixels": [
+      2800,
+      2000
+    ],
+    "logical_size": [
+      1400,
+      1000
+    ],
+    "scale": 2,
+    "menu_stream_pixels": [
+      554,
+      1102
+    ],
+    "menu_logical_size": [
+      277,
+      551
+    ],
+    "click_stream_pixels": [
+      1200,
+      1115
+    ],
+    "note": "normal product attach creates a virtual output; no separate benchmark resolution request"
+  },
+  "measurement": {
+    "clock": "same Mac monotonic clock",
+    "start": "SurfaceView.rightMouseDown entry",
+    "end": "matching menu NSImage.draw return",
+    "warmups_per_run": 2,
+    "expected_new_child": true,
+    "expected_popup_pixels": [
+      554,
+      1102
+    ],
+    "hardware_decode": true,
+    "all_menu_windows_borderless": true,
+    "all_menu_windows_can_become_key": false,
+    "includes_physical_input_or_display_scanout": false
+  },
+  "runs": [
+    {
+      "run": 4,
+      "ignored_popup_count": 1,
+      "samples": 30,
+      "median_ms": 234.204,
+      "p95_ms": 277.494,
+      "min_ms": 176.063,
+      "max_ms": 1081.746
+    },
+    {
+      "run": 5,
+      "ignored_popup_count": 0,
+      "samples": 30,
+      "median_ms": 237.128,
+      "p95_ms": 277.832,
+      "min_ms": 158.178,
+      "max_ms": 317.492
+    }
+  ],
+  "stages": {
+    "total": {
+      "samples": 60,
+      "median_ms": 234.204,
+      "p95_ms": 277.494,
+      "min_ms": 158.178,
+      "max_ms": 1081.746
+    },
+    "input_write": {
+      "samples": 60,
+      "median_ms": 0.172,
+      "p95_ms": 1.038,
+      "min_ms": 0.053,
+      "max_ms": 1.502
+    },
+    "response_before_receive": {
+      "samples": 60,
+      "median_ms": 194.04,
+      "p95_ms": 233.395,
+      "min_ms": 127.985,
+      "max_ms": 1039.717
+    },
+    "parse_decode": {
+      "samples": 60,
+      "median_ms": 30.822,
+      "p95_ms": 40.431,
+      "min_ms": 21.95,
+      "max_ms": 47.821
+    },
+    "main_queue": {
+      "samples": 60,
+      "median_ms": 5.883,
+      "p95_ms": 10.748,
+      "min_ms": 0.22,
+      "max_ms": 11.137
+    },
+    "draw": {
+      "samples": 60,
+      "median_ms": 3.088,
+      "p95_ms": 6.966,
+      "min_ms": 1.001,
+      "max_ms": 17.48
+    }
+  },
+  "excluded_or_preliminary_runs": [
+    {
+      "run": 1,
+      "reason": "preview only; stopped because another popup was present"
+    },
+    {
+      "run": 2,
+      "reason": "preliminary; all frames matched retrospectively; excluded from headline"
+    },
+    {
+      "run": 3,
+      "reason": "rejected: two unrelated 136x64 hover-popup frames were incorrectly timed"
+    },
+    {
+      "run": 6,
+      "reason": "not sampled: pre-existing hover popup prevented test start"
+    }
+  ],
+  "display_evidence": {
+    "root_source_rect": [
+      1968,
+      48,
+      1400,
+      1000
+    ],
+    "root_local_window_frame": [
+      180,
+      95,
+      1109,
+      824
+    ],
+    "root_image_rect": [
+      0.1,
+      0,
+      1108.8,
+      792
+    ],
+    "menu_source_rect": [
+      2568,
+      598,
+      277,
+      551
+    ],
+    "menu_local_window_frame": [
+      655,
+      15,
+      220,
+      437
+    ],
+    "small_popup_source_rect": [
+      2749,
+      588,
+      68,
+      32
+    ],
+    "small_popup_pixels": [
+      136,
+      64
+    ],
+    "small_popup_local_window_frame": [
+      798,
+      433,
+      54,
+      26
+    ],
+    "small_popup_borderless": true,
+    "images_inspected": "decoded root, menu, and small branch-label popup streams; no final desktop compositor screenshot"
+  },
+  "limits": [
+    "No old-build IDEA baseline at the same route and geometry; cannot infer a performance improvement",
+    "One valid long-tail sample is retained: 1081.746 ms, of which 1039.717 ms preceded frame receipt",
+    "Pre-receive time includes input transport, application handling, capture, stream/encoder startup, encoding and return transport; it is not attributed to one cause",
+    "No complete nested-menu, dialog, typing or scrolling latency result for IDEA",
+    "Mac desktop-control tool timed out; final compositor visuals are not verified"
+  ]
+}
