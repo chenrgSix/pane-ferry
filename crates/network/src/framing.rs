@@ -101,30 +101,66 @@ impl Packet {
         Ok(())
     }
     pub async fn read<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        let meta = reader.read_u32().await? as usize;
-        let binary = reader.read_u32().await? as usize;
-        ensure!(
-            meta > 0 && meta <= MAX && binary <= 12 * 1024 * 1024 && meta + binary <= MAX,
-            "packet too large"
-        );
-        let barrier = reader.read_u64().await?;
-        let reservation = Some(budget(meta + binary).await?);
-        let mut bytes = vec![0; meta];
-        reader.read_exact(&mut bytes).await?;
-        let value: Value = serde_json::from_slice(&bytes)?;
-        ensure!(value.is_object(), "invalid packet");
-        ensure!(
-            binary == 0 || value["type"] == "frame",
-            "unexpected binary payload"
-        );
-        let mut payload = vec![0; binary];
-        reader.read_exact(&mut payload).await?;
-        Ok(Self {
-            value,
-            payload,
-            barrier,
-            reservation,
+        Self::read_optional(reader)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("connection closed"))
+    }
+    pub async fn read_optional<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Self>> {
+        Self::read_bounded(reader, MAX, 12 * 1024 * 1024, true).await
+    }
+    /// Before authentication (and for stream headers), never allocate from the
+    /// media pool or accept a frame-sized metadata/body declaration.
+    pub async fn read_header<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
+        Self::read_bounded(reader, 8192, 0, false)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("connection closed"))
+    }
+    async fn read_bounded<R: AsyncRead + Unpin>(
+        reader: &mut R,
+        limit: usize,
+        binary_limit: usize,
+        reserve: bool,
+    ) -> Result<Option<Self>> {
+        let mut first = [0u8; 1];
+        if reader.read(&mut first).await? == 0 {
+            return Ok(None);
+        }
+        // Idle streams are valid. Once a packet begins, partial progress cannot
+        // extend its absolute completion deadline indefinitely.
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            let mut length = [0u8; 4];
+            length[0] = first[0];
+            reader.read_exact(&mut length[1..]).await?;
+            let meta = u32::from_be_bytes(length) as usize;
+            let binary = reader.read_u32().await? as usize;
+            ensure!(
+                meta > 0 && meta <= limit && binary <= binary_limit && meta + binary <= limit,
+                "packet too large"
+            );
+            let barrier = reader.read_u64().await?;
+            let reservation = if reserve {
+                Some(budget(meta + binary).await?)
+            } else {
+                None
+            };
+            let mut bytes = vec![0; meta];
+            reader.read_exact(&mut bytes).await?;
+            let value: Value = serde_json::from_slice(&bytes)?;
+            ensure!(value.is_object(), "invalid packet");
+            ensure!(
+                binary == 0 || value["type"] == "frame",
+                "unexpected binary payload"
+            );
+            let mut payload = vec![0; binary];
+            reader.read_exact(&mut payload).await?;
+            Ok(Some(Self {
+                value,
+                payload,
+                barrier,
+                reservation,
+            }))
         })
+        .await?
     }
     pub fn bytes(&self) -> usize {
         self.payload.len() + self.value.to_string().len()
@@ -146,6 +182,47 @@ async fn budget(bytes: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn handshake_rejects_large_or_binary_headers_before_reading_a_body() {
+        for (meta, binary) in [(8193u32, 0u32), (32, 1), (16 * 1024 * 1024, 0)] {
+            let mut header = Vec::new();
+            header.extend(meta.to_be_bytes());
+            header.extend(binary.to_be_bytes());
+            assert!(Packet::read_header(&mut header.as_slice())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("packet too large"));
+        }
+        let mut bytes = Vec::new();
+        Packet::new(serde_json::json!({"op":"auth","device_id":"test"}), 0)
+            .unwrap()
+            .write(&mut bytes)
+            .await
+            .unwrap();
+        assert_eq!(
+            Packet::read_header(&mut bytes.as_slice())
+                .await
+                .unwrap()
+                .value["op"],
+            "auth"
+        );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn packet_deadline_starts_with_first_byte_but_idle_is_not_eof() {
+        let (mut writer, mut reader) = tokio::io::duplex(32);
+        let task = tokio::spawn(async move { Packet::read_optional(&mut reader).await });
+        tokio::time::advance(std::time::Duration::from_secs(60)).await;
+        assert!(!task.is_finished());
+        writer.write_all(&[0]).await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::advance(std::time::Duration::from_secs(16)).await;
+        assert!(task.await.unwrap().is_err());
+        assert!(Packet::read_optional(&mut &b""[..])
+            .await
+            .unwrap()
+            .is_none());
+    }
     #[tokio::test]
     async fn publisher_control_limit_rejects_large_partial_lines() {
         let data = vec![b'a'; 65 * 1024];

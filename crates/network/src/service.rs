@@ -87,6 +87,8 @@ pub struct Service {
     endpoint: quinn::Endpoint,
     state: Mutex<State>,
     slots: Arc<Semaphore>,
+    handshake_slots: Arc<Semaphore>,
+    management_slots: Arc<Semaphore>,
     diagnostics: Diagnostics,
     _lock: fs::File,
 }
@@ -136,6 +138,8 @@ impl Service {
                 media: HashMap::new(),
             }),
             slots: Arc::new(Semaphore::new(64)),
+            handshake_slots: Arc::new(Semaphore::new(16)),
+            management_slots: Arc::new(Semaphore::new(16)),
             diagnostics,
             _lock: lock,
         }))
@@ -274,19 +278,18 @@ impl Service {
         let service = self.clone();
         let incoming = tokio::spawn(async move {
             while let Some(incoming) = service.endpoint.accept().await {
-                let Ok(permit) = service.slots.clone().try_acquire_owned() else {
+                let Ok(permit) = service.handshake_slots.clone().try_acquire_owned() else {
                     incoming.refuse();
                     continue;
                 };
                 let service = service.clone();
                 tokio::spawn(async move {
-                    let _permit = permit;
                     match within(Instant::now() + TIMEOUT, "incoming TLS handshake", async {
                         incoming.await
                     })
                     .await
                     {
-                        Ok(connection) => service.accept(connection).await,
+                        Ok(connection) => service.accept(connection, Some(permit)).await,
                         Err(error) => service.diagnostics.record(
                             "handshake_failed",
                             None,
@@ -301,7 +304,7 @@ impl Service {
             if !same_user(&socket) {
                 continue;
             }
-            let Ok(permit) = self.slots.clone().try_acquire_owned() else {
+            let Ok(permit) = self.management_slots.clone().try_acquire_owned() else {
                 continue;
             };
             let service = self.clone();
@@ -314,10 +317,14 @@ impl Service {
             }
         }
     }
-    async fn accept(self: Arc<Self>, connection: Connection) {
+    async fn accept(
+        self: Arc<Self>,
+        connection: Connection,
+        permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    ) {
         let result = tokio::time::timeout(TIMEOUT, async {
             let (mut send, mut recv) = connection.accept_bi().await?;
-            let request = Packet::read(&mut recv).await?.value;
+            let request = Packet::read_header(&mut recv).await?.value;
             let cert = identity::remote_certificate(&connection)?;
             let id = match request["op"].as_str() {
                 Some("auth") => {
@@ -355,8 +362,15 @@ impl Service {
         .await
         .map_err(anyhow::Error::from)
         .and_then(|r| r);
+        drop(permit);
         match result {
-            Ok(id) => self.connected(connection, id).await,
+            Ok(id) => {
+                if let Ok(_permit) = self.slots.clone().try_acquire_owned() {
+                    self.connected(connection, id).await;
+                } else {
+                    connection.close(1u32.into(), b"trusted connection limit");
+                }
+            }
             Err(error) => {
                 self.diagnostics
                     .record("authentication_failed", None, Some(&format!("{error:#}")));
@@ -448,9 +462,13 @@ impl Service {
         )
         .await?;
         ensure!(
-            within(deadline, "read authentication", Packet::read(&mut recv))
-                .await?
-                .value["ok"]
+            within(
+                deadline,
+                "read authentication",
+                Packet::read_header(&mut recv)
+            )
+            .await?
+            .value["ok"]
                 == true,
             "authentication rejected"
         );
@@ -495,7 +513,7 @@ impl Service {
         mut send: SendStream,
         mut recv: RecvStream,
     ) -> Result<()> {
-        let head = tokio::time::timeout(TIMEOUT, Packet::read(&mut recv))
+        let head = tokio::time::timeout(TIMEOUT, Packet::read_header(&mut recv))
             .await??
             .value;
         match head["op"].as_str() {
@@ -1108,6 +1126,38 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn saturated_remote_admission_cannot_starve_local_management() {
+        let (root, service) = test_service();
+        let _untrusted = service
+            .handshake_slots
+            .clone()
+            .acquire_many_owned(16)
+            .await
+            .unwrap();
+        let _trusted = service.slots.clone().acquire_many_owned(64).await.unwrap();
+        let running = service.clone();
+        let task = tokio::spawn(async move { running.run().await });
+        let socket = root.path().join("n/control.sock");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !socket.exists() {
+                tokio::task::yield_now().await;
+            }
+            let stream = UnixStream::connect(&socket).await.unwrap();
+            let (read, mut write) = stream.into_split();
+            framing::json(&mut write, &json!({"op":"status"}))
+                .await
+                .unwrap();
+            let response = framing::line(&mut BufReader::new(read)).await.unwrap();
+            assert_eq!(response["device_id"], service.id());
+        })
+        .await
+        .expect("local status must remain usable under remote saturation");
+        task.abort();
+        service.endpoint.close(0u32.into(), b"test complete");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn closed_local_callers_cancel_queued_dials_without_waiting_for_timeout() {
         let (_root, service) = test_service();
         let (_remote_root, remote) = test_service();
@@ -1182,7 +1232,7 @@ mod tests {
         let accepting = remote.clone();
         let server = tokio::spawn(async move {
             let connection = accepting.endpoint.accept().await.unwrap().await.unwrap();
-            accepting.accept(connection).await;
+            accepting.accept(connection, None).await;
         });
         let recovered =
             tokio::time::timeout(Duration::from_secs(3), service.connection(&peer.device_id))
