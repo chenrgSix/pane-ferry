@@ -17,3 +17,6 @@ bundle="src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app"
 # installed; an unsealed bundle fails macOS strict verification.
 codesign --force --deep --sign - "$bundle"
 codesign --verify --deep --strict "$bundle"
+# Helpers live in Resources; verify their app seals explicitly as well.
+codesign --verify --deep --strict "$bundle/Contents/Resources/PaneFerryWindowHost.app"
+codesign --verify --deep --strict "$bundle/Contents/Resources/PaneFerryNode.app"

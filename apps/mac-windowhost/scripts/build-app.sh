@@ -26,5 +26,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-printf '已生成 %s（本机开发包，未签名/公证）。\n' "$APP"
+codesign --force --sign - --identifier local.lanremoteapp.windowhost "$APP"
+codesign --verify --deep --strict "$APP"
+printf '已生成 %s（本机临时签名开发包，未公证）。\n' "$APP"
 printf '通过启动器或带 --native-peer --native-state --native-helper --app 参数启动 Contents/MacOS/PaneFerryWindowHost。\n'
