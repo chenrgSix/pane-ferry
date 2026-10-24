@@ -894,7 +894,10 @@ fn launch(
                 &disp,
                 "-screen",
                 "0",
-                "4096x2160x24",
+                // Tall/portrait clients may have a minimum height above 2160.
+                // The backing desktop accommodates either frame dimension;
+                // each published frame still has the independent 8 MP budget.
+                "4096x4096x24",
                 "-dpi",
                 &dpi,
                 "-nolisten",
@@ -1035,6 +1038,15 @@ fn launch(
 }
 
 fn wait_for_window(session: &Arc<Mutex<Session>>) -> Result<()> {
+    {
+        let mut s = session.lock().unwrap();
+        if s.controller {
+            bail!("session already controlled")
+        }
+        if let Some(backend) = &mut s.backend {
+            backend.retry_window_adjustments();
+        }
+    }
     let started = Instant::now();
     loop {
         {
@@ -1081,7 +1093,8 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
         bail!("session already controlled")
     };
     s.controller = true;
-    if let Some(backend) = &s.backend {
+    if let Some(backend) = &mut s.backend {
+        backend.retry_window_adjustments();
         backend.prepare_input();
         backend.refresh_capture();
     }
@@ -1347,20 +1360,28 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 continue;
                             }
                             let controlled = s.controller;
-                            let window_count = if controlled {
-                                s.backend
-                                    .as_ref()
-                                    .map(|b| b.windows().values().filter(|w| w.visible).count())
+                            let (window_count, unavailable_reason) = if controlled {
+                                (
+                                    s.backend.as_ref().map(|b| {
+                                        b.windows().values().filter(|w| w.visible).count()
+                                    }),
+                                    None,
+                                )
                             } else {
-                                s.scan_windows()
-                                    .ok()
-                                    .map(|windows| windows.iter().filter(|w| w.visible).count())
+                                match s.scan_windows() {
+                                    Ok(windows) => {
+                                        (Some(windows.iter().filter(|w| w.visible).count()), None)
+                                    }
+                                    Err(error) => {
+                                        (None, Some(request_error::code(&error.to_string())))
+                                    }
+                                }
                             };
                             if s.has_exited()? {
                                 continue;
                             }
                             sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,
-                                "controlled":controlled,"window_count":window_count,
+                                "controlled":controlled,"window_count":window_count,"unavailable_reason":unavailable_reason,
                                 "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"},
                                 "monitor_id":s.desktop_monitor}));
                         }

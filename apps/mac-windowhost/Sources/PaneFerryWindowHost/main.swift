@@ -604,6 +604,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
+            if ["window_size_unavailable", "window_resize_failed"].contains(code) {
+                stopRecovery()
+                alert(code == "window_size_unavailable" ? "应用窗口的尺寸约束超出采集范围，原会话已保留。" : "应用窗口未接受尺寸调整，请调整窗口设置后重新连接。")
+                return
+            }
             if ["wayland_binary_clipboard_unavailable", "wayland_cut_unavailable"].contains(code) {
                 clipboardFailed()
                 alert(code == "wayland_cut_unavailable" ? "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。" : "当前 Wayland 窗口仅支持文字剪贴板。")

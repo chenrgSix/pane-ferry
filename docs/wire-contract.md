@@ -12,7 +12,7 @@
 接管从 window.list 返回的 id 仍使用 app.launch，不允许客户端传 PID、显示号、认证文件或任意 XID 作为接入目标。服务端注册并复核 XRes 客户 PID、同 UID、进程启动时间、可执行身份和选中窗口，仅该主窗口及关联弹窗进入会话。同 PID 的其他主窗口不属于这个会话。session_id 非空时从远程会话区重连，避免重复接管。
 客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口的原生应用缩放保持原值；ChatGPT 页面高清通过下述独立租约启用。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
-客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled,window_count?:number|null}]}，只返回尚未退出的会话，不抢占控制权。window_count 为当前可见窗口数；0 表示进程虽仍在运行但没有可列出的窗口，null 表示暂时无法确认。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
+客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled,window_count?:number|null,unavailable_reason?:null|string}]}，只返回尚未退出的会话，不抢占控制权。window_count 为当前可见窗口数；0 表示进程虽仍在运行但没有可列出的窗口，null 表示暂时无法确认。unavailable_reason 为扫描失败的稳定错误码，缺失或 null 表示未发现错误；客户端应结束该会话的“启动中”状态并显示本地映射提示，保留原会话供重试。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
 
 display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，不表示 X11 采集。白名单配置 existing 时，app.launch 接入经批准的现有进程窗口，不新建应用；协议和 native 后端值保持不变。重复请求复用该进程会话。PID、Xauthority 等接入参数不属于客户端协议，进程退出或身份变化后不得继续输入或捕获。
@@ -46,6 +46,8 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 新建自有实例使用不连接桌面 IM daemon 的 GTK/Qt 输入上下文，组合仍在控制端完成；现有进程的输入法环境不被修改。普通 X11 应用保持快速路径；Firefox 对新剪贴板快照增加 16ms 广告时间，并为快捷键转换保留 4ms 节奏，提前读取也会计入交付状态。selection 的读取确认不等同于编辑器的语义提交确认，客户端不得将其解释为网页已经接受输入。
 服务端 error {code,message}，无敏感数据。会话退出 session.exited。
+
+X11 原窗口超出每边 4096 / 800 万像素预算时，按 WM_NORMAL_HINTS 的最小、最大、基准、增量和宽高比约束寻找可采集尺寸。独立 Xvfb 画布为 4096×4096，扣除窗口装饰后的范围也参与约束；画布大小不提高单帧预算。无可行尺寸返回 `window_size_unavailable`；窗口管理器在两秒内未接受调整返回 `window_resize_failed`，不会无限重复 resize。两种失败都保留应用进程与会话；显式 launch/resume 可重新尝试，普通扫描不重置超时。
 
 私有 X11 应用会话在已出现过的最后一个非 popup 窗口被确认销毁、连续成功扫描 1 秒未出现替代窗口后结束，即使应用进程仍在运行。最小化、隐藏、临时扫描遗漏但 XID 仍存在，以及扫描失败都不构成退出。只回收该私有会话拥有的资源；已有桌面窗口仍使用原进程和指定根窗口的存活判定，整桌面会话不使用空应用窗口判定。已结束会话从 session.list 隐去；Mac 接收端收到退出或重连终态后退出宿主。
 

@@ -35,6 +35,8 @@ HexHub 的 `HexHub.desktop` / `/opt/hexhub/HexHub` 入口自动采用 `desktop_s
 
 新启动需要观察到可见窗口才返回成功。产生窗口前退出返回 `application_start_failed`；十秒内仍无窗口返回 `application_window_pending`，保留会话和请求 ID，稍后可安全重试。程序退出码为零并不代表窗口已创建（单实例应用转交请求也会正常退出）。
 
+窗口已创建但超出采集预算时，X11 后端遵守应用的标准尺寸约束求解合法尺寸；约束无解或窗口管理器未接受调整分别返回 `window_size_unavailable` / `window_resize_failed`。启动器同时读取会话的 `unavailable_reason`，结束“启动中”并显示原因，原进程仍保留。此规则适用于所有 X11 应用，不按名称或窗口标题匹配。
+
 ## 窗口与范围
 
 Agent 保存启动时的图形桌面 DISPLAY / Xauthority；环境不可用时，从当前用户的 systemd manager 和已有显式配置定位授权的本地显示。发现只读窗口属性、进程身份和图标，**不截取窗口内容、不改尺寸、不激活窗口、不发送键鼠**。自己的独立虚拟桌面不重复列为原桌面窗口。

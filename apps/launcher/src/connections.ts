@@ -22,7 +22,7 @@ export function connections(
     if (session.mode === "desktop") continue;
     // An application can remain alive in the tray after its last window closes.
     // Keep it out of the window list until a visible window returns.
-    if (session.window_count === 0) continue;
+    if (session.window_count === 0 || session.unavailable_reason) continue;
     const window = windows.find(w => w.session_id === session.session_id)
       || windows.find(w => !w.session_id && w.id === session.app_id);
     // Session metadata can outlive the desktop window inventory during an

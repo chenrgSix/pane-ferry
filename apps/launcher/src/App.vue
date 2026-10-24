@@ -174,12 +174,20 @@ function scheduleStartupPoll() {
 }
 function reconcileStarting(sent: Endpoint, remote: SessionInfo[]) {
   const target = endpointKey(sent);
-  const ready: StartingApp[] = [], ended: StartingApp[] = [];
+  const ready: StartingApp[] = [], ended: StartingApp[] = [], failed: string[] = [];
   startingApps.value = startingApps.value.flatMap(item => {
     if (item.endpoint !== target) return [item];
     const matching = remote.filter(session => session.app_id === item.appId && session.mode !== "desktop");
     if (matching.some(session => (session.window_count ?? 0) > 0)) {
       ready.push(item);
+      attempts.resolve(item.requestKey);
+      return [];
+    }
+    const unavailable = matching.find(session => session.unavailable_reason)?.unavailable_reason;
+    if (unavailable) {
+      const message = unavailable === "window_size_unavailable" ? "窗口尺寸约束超出采集范围"
+        : unavailable === "window_resize_failed" ? "窗口未接受尺寸调整" : "窗口暂不可用";
+      failed.push(`${item.name}：${message}，原会话已保留，可调整后重试。`);
       attempts.resolve(item.requestKey);
       return [];
     }
@@ -195,6 +203,7 @@ function reconcileStarting(sent: Endpoint, remote: SessionInfo[]) {
     if (!ready.length) notice.value = "";
     error.value = `${ended.map(item => item.name).join("、")}启动后未产生窗口，会话已结束；可以再次打开。`;
   }
+  if (failed.length) { notice.value = ""; error.value = failed.join("；"); }
   if (currentStarting.value.length) scheduleStartupPoll();
   else stopStartupPoll();
 }

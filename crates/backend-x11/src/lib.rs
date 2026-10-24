@@ -8,6 +8,7 @@ use std::{
     path::Path,
     process::{Command, Stdio},
     sync::Arc,
+    time::Instant,
 };
 use x11rb::{
     connection::Connection,
@@ -22,6 +23,7 @@ mod damage;
 mod inventory;
 mod related_windows;
 mod shared_capture;
+mod window_size;
 pub use controller_copy::CopiedText;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
@@ -65,6 +67,7 @@ pub struct Backend {
     damage: RefCell<damage::Damage>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
     desktop_geometry: Option<Box<dyn DesktopGeometry>>,
+    size_adjustments: HashMap<u32, window_size::Adjustment>,
 }
 impl Backend {
     pub fn is_xwayland(&self) -> Result<bool> {
@@ -171,6 +174,7 @@ impl Backend {
             "_NET_WM_STATE_MAXIMIZED_VERT",
             "_NET_MOVERESIZE_WINDOW",
             "_NET_WM_PID",
+            "_NET_FRAME_EXTENTS",
             "_NET_SUPPORTING_WM_CHECK",
             "WM_CLASS",
             "CLIPBOARD",
@@ -211,6 +215,7 @@ impl Backend {
             damage,
             desktop_input: None,
             desktop_geometry: None,
+            size_adjustments: HashMap::new(),
         })
     }
     pub fn set_scale_factor(&mut self, scale: u8) -> Result<()> {
@@ -413,6 +418,9 @@ impl Backend {
     pub fn includes_window(&self, id: u32) -> bool {
         self.windows.contains_key(&id) && self.belongs_to_process(id)
     }
+    pub fn retry_window_adjustments(&mut self) {
+        self.size_adjustments.clear();
+    }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
         let wm = self
             .prop(self.root, "_NET_SUPPORTING_WM_CHECK", AtomEnum::WINDOW)
@@ -424,6 +432,7 @@ impl Backend {
             None
         };
         let ids = self.window_ids()?;
+        self.size_adjustments.retain(|id, _| ids.contains(id));
         let stacking: HashMap<u32, u32> = self
             .conn
             .query_tree(self.root)?
@@ -444,6 +453,7 @@ impl Backend {
         // Unmapping/withdrawing a window is not destruction. Keep known XIDs
         // until the server confirms they no longer exist, including cached menus.
         let mut out = Vec::new();
+        let mut size_error = None;
         for id in ids {
             if !self.belongs_to_process(id) {
                 continue;
@@ -460,26 +470,30 @@ impl Backend {
             // Unmapped toolkit helpers are not application windows. Retain a
             // hidden XID only after it has actually been shown to this client.
             if a.map_state != MapState::VIEWABLE && !self.windows.contains_key(&id) {
+                self.size_adjustments.remove(&id);
                 continue;
             }
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
             if paneferry_protocol::dimensions(g.width.into(), g.height.into()).is_err() {
-                // A restored maximized app can initially exceed the frame
-                // budget (the virtual desktop is larger than one allowed frame).
-                // Normalize it instead of silently losing its only window.
-                let width = f64::from(g.width.min(4096));
-                let height = f64::from(g.height.min(2160));
-                let fit = (8_000_000.0 / (width * height)).sqrt().min(1.0);
-                self.resize_window(
+                // The WM enforces minimums, increments and aspect constraints.
+                // Repeatedly requesting an impossible height never makes this
+                // window discoverable. Keep errors separate from slow startup.
+                let adjustment = self.fit_oversized_window(
                     id,
-                    (width * fit) as u32,
-                    (height * fit) as u32,
+                    (g.width.into(), g.height.into()),
                     a.override_redirect,
-                )?;
+                );
+                if let Err(error) = adjustment {
+                    if self.root_window == Some(id) {
+                        return Err(error);
+                    }
+                    size_error = Some(error);
+                }
                 continue;
             }
+            self.size_adjustments.remove(&id);
             let pos = self
                 .conn
                 .translate_coordinates(id, self.root, 0, 0)?
@@ -541,6 +555,11 @@ impl Backend {
             }
             out.push(w);
         }
+        if out.is_empty() {
+            if let Some(error) = size_error {
+                return Err(error);
+            }
+        }
         if self.windows.values().any(|old| {
             old.visible
                 && !out
@@ -552,6 +571,48 @@ impl Backend {
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
         self.damage.borrow_mut().sync(&self.conn, &self.windows)?;
         Ok(out)
+    }
+    fn fit_oversized_window(&mut self, id: u32, current: (u32, u32), popup: bool) -> Result<()> {
+        let hints = x11rb::properties::WmSizeHints::get_normal_hints(&self.conn, id)?
+            .reply()
+            .map_err(|_| anyhow::anyhow!("window_size_unavailable"))?
+            .unwrap_or_default();
+        let mut bounds = (4096, 4096);
+        if self.existing_display.is_none() {
+            let screen = self.conn.get_geometry(self.root)?.reply()?;
+            let frame: Vec<u32> = self
+                .prop(id, "_NET_FRAME_EXTENTS", AtomEnum::CARDINAL)
+                .ok()
+                .and_then(|reply| reply.value32().map(|values| values.take(4).collect()))
+                .unwrap_or_default();
+            let (horizontal, vertical) = if frame.len() == 4 {
+                (
+                    frame[0].saturating_add(frame[1]),
+                    frame[2].saturating_add(frame[3]),
+                )
+            } else {
+                (0, 0)
+            };
+            bounds = (
+                u32::from(screen.width).saturating_sub(horizontal),
+                u32::from(screen.height).saturating_sub(vertical),
+            );
+        }
+        let target =
+            window_size::fit(current, bounds, &hints).context("window_size_unavailable")?;
+        let now = Instant::now();
+        let send = match self.size_adjustments.get_mut(&id) {
+            Some(request) => request.update(target, now).map_err(anyhow::Error::msg)?,
+            None => {
+                self.size_adjustments
+                    .insert(id, window_size::Adjustment::new(target, now));
+                true
+            }
+        };
+        if send {
+            self.resize_window(id, target.0, target.1, popup)?;
+        }
+        Ok(())
     }
     fn next_event(&self) -> Result<Option<x11rb::protocol::Event>> {
         for _ in 0..256 {

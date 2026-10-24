@@ -17,6 +17,8 @@ pub fn code(message: &str) -> &'static str {
         "desktop_geometry_fixed" => "desktop_geometry_fixed",
         "desktop_close_unavailable" => "desktop_close_unavailable",
         "resolution_limited" => "resolution_limited",
+        "window_size_unavailable" => "window_size_unavailable",
+        "window_resize_failed" => "window_resize_failed",
         "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
         "wayland_bridge_failed" => "wayland_bridge_failed",
         "wayland_bridge_outdated" => "wayland_bridge_outdated",

@@ -26,6 +26,7 @@ export type SessionInfo = {
   mode?: "app" | "desktop" | null;
   monitor_id?: string | null;
   window_count?: number | null;
+  unavailable_reason?: string | null;
 };
 
 export const endpointKey = (endpoint: Endpoint) => JSON.stringify({transport:"quic", deviceId:endpoint.peerId});

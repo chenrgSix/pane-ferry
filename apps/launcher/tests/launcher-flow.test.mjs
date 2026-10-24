@@ -226,6 +226,26 @@ test("a pending launch whose session exits stops claiming it is still starting",
   } finally { mounted.unmount(); }
 });
 
+test("a delayed window constraint failure stops startup polling without relaunching the app", async () => {
+  let reason = null;
+  const mounted = mount(storage(), {
+    list_sessions: () => [{ ...session("slow", "firefox", 228), window_count: reason ? null : 0, unavailable_reason: reason }],
+    launch_app: () => { throw { message: "等待窗口", retrySameRequest: true, code: "application_window_pending" }; },
+  });
+  try {
+    await settled(mounted.state);
+    await mounted.state.launch(app);
+    assert.equal(mounted.state.currentStarting.length, 1);
+    reason = "window_size_unavailable";
+    await waitUntil(() => mounted.state.currentStarting.length === 0);
+    assert.match(mounted.state.error, /尺寸约束/);
+    assert.equal(mounted.state.notice, "");
+    assert.equal(mounted.state.isStarting("firefox"), false);
+    assert.equal(mounted.state.runningConnections.length, 0);
+    assert.equal(actions(mounted).filter(call => call.command === "launch_app").length, 1);
+  } finally { mounted.unmount(); }
+});
+
 test("whole desktop connects only the selected monitor and resumes its detached session", async () => {
   const monitors = [
     { id: "eDP-1", name: "内置屏幕", width: 2880, height: 1800, primary: true },
