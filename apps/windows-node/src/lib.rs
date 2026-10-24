@@ -98,6 +98,26 @@ impl Client {
         ensure!(self.state.lock().unwrap().sharing, "sharing_disabled");
         Ok(())
     }
+    fn retire_exited(&mut self) {
+        let sessions: Vec<_> = self
+            .state
+            .lock()
+            .unwrap()
+            .sessions
+            .iter()
+            .map(|(id, s)| (id.clone(), s.target.clone()))
+            .collect();
+        for (id, target) in sessions {
+            if self
+                .system
+                .geometry(&target)
+                .is_err_and(|error| public_error(&error) == "session_exited")
+            {
+                // Retain request tombstones: retrying an old launch cannot acquire a new window.
+                self.state.lock().unwrap().sessions.remove(&id);
+            }
+        }
+    }
     fn metadata(&self) -> Value {
         let g = self.geometry.as_ref().unwrap();
         json!({"window_id":1,"parent_id":null,"title":g.title,"role":"toplevel","x":0,"y":0,"width":g.width,"height":g.height,"visible":g.visible,"scale_factor":1,"geometry_revision":self.revision})
@@ -182,6 +202,7 @@ impl Client {
             }
             Request::Windows => {
                 self.shared()?;
+                self.retire_exited();
                 let targets = self.system.windows()?;
                 let mut windows = Vec::new();
                 let mut approved = HashMap::new();
@@ -209,6 +230,7 @@ impl Client {
             }
             Request::Sessions => {
                 self.shared()?;
+                self.retire_exited();
                 let sessions: Vec<_> = {
                     let s = self.state.lock().unwrap();
                     s.sessions
