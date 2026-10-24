@@ -71,7 +71,9 @@ pub struct Invitation {
     token: String,
     expires: u64,
 }
+#[derive(Clone, Serialize, Deserialize)]
 struct Pending {
+    claimed: Option<(String, String)>,
     token: String,
     expires: u64,
 }
@@ -141,6 +143,12 @@ impl Service {
             peer.validate()?;
             ensure!(id == &peer.device_id && id != &identity.id, "invalid peer");
         }
+        let pending: Option<Pending> = if config.state.join("invitation.json").exists() {
+            identity::read::<Option<Pending>>(&config.state.join("invitation.json"))?
+                .filter(|p| p.expires >= now() && p.expires <= now() + 600)
+        } else {
+            None
+        };
         let endpoint = quinn::Endpoint::server(identity.server()?, config.listen)?;
         let diagnostics = Diagnostics::new(&config.state);
         Ok(Arc::new(Self {
@@ -149,7 +157,7 @@ impl Service {
             endpoint,
             state: Mutex::new(State {
                 peers,
-                pending: None,
+                pending,
                 quotas: HashMap::new(),
                 connections: HashMap::new(),
                 dialers: HashMap::new(),
@@ -184,10 +192,15 @@ impl Service {
             uuid::Uuid::new_v4().simple()
         );
         let expires = now() + 300;
-        self.state.lock().unwrap().pending = Some(Pending {
+        let pending = Some(Pending {
             token: token.clone(),
             expires,
+            claimed: None,
         });
+        let mut state = self.state.lock().unwrap();
+        identity::save(&self.config.state.join("invitation.json"), &pending)?;
+        state.pending = pending;
+        drop(state);
         Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&Invitation {
             version: 2,
             peer: self.local_peer(),
@@ -272,6 +285,19 @@ impl Service {
     }
     pub fn revoke(&self, id: &str) -> Result<()> {
         let mut state = self.state.lock().unwrap();
+        if state
+            .pending
+            .as_ref()
+            .and_then(|p| p.claimed.as_ref())
+            .is_some_and(|(peer, _)| peer == id)
+        {
+            // Clear recovery before revoking trust: a crash cannot resurrect it.
+            identity::save(
+                &self.config.state.join("invitation.json"),
+                &Option::<Pending>::None,
+            )?;
+            state.pending = None;
+        }
         let mut peers = state.peers.clone();
         peers.remove(id);
         identity::save(&self.config.state.join("peers.json"), &peers)?;
@@ -337,6 +363,46 @@ impl Service {
             }
         }
     }
+    fn accept_pair(&self, peer: Peer, token: &str) -> Result<String> {
+        peer.validate()?;
+        ensure!(peer.device_id != self.id(), "cannot pair with self");
+        let mut state = self.state.lock().unwrap();
+        let mut pending = state.pending.clone().context("pairing disabled")?;
+        ensure!(
+            pending.expires >= now() && pending.token == token,
+            "invalid invitation"
+        );
+        let claim = (peer.device_id.clone(), peer.certificate.clone());
+        ensure!(
+            pending
+                .claimed
+                .as_ref()
+                .is_none_or(|previous| previous == &claim),
+            "invitation already claimed"
+        );
+        ensure!(
+            state
+                .peers
+                .get(&peer.device_id)
+                .is_none_or(|old| old.certificate == peer.certificate),
+            "device identity changed"
+        );
+        ensure!(
+            state.peers.contains_key(&peer.device_id) || state.peers.len() < PEER_LIMIT,
+            "too many peers"
+        );
+        pending.claimed = Some(claim);
+        // Persist the claim first so a lost acknowledgment or restart can retry
+        // the same authenticated identity, without authorizing a second peer.
+        identity::save(&self.config.state.join("invitation.json"), &Some(&pending))?;
+        state.pending = Some(pending);
+        let id = peer.device_id.clone();
+        let mut peers = state.peers.clone();
+        peers.insert(id.clone(), peer);
+        identity::save(&self.config.state.join("peers.json"), &peers)?;
+        state.peers = peers;
+        Ok(id)
+    }
     async fn accept(
         self: Arc<Self>,
         connection: Connection,
@@ -358,19 +424,10 @@ impl Service {
                     peer.validate()?;
                     // Use the authenticated connection's observed address for reverse dialing.
                     peer.address = connection.remote_address().to_string();
-                    {
-                        let mut state = self.state.lock().unwrap();
-                        let pending = state.pending.as_ref().context("pairing disabled")?;
-                        ensure!(
-                            pending.expires >= now()
-                                && request["token"].as_str() == Some(&pending.token),
-                            "invalid invitation"
-                        );
-                        state.pending = None;
-                    }
-                    let id = peer.device_id.clone();
-                    self.persist_peer(peer)?;
-                    id
+                    self.accept_pair(
+                        peer,
+                        request["token"].as_str().context("missing invitation")?,
+                    )?
                 }
                 _ => bail!("unauthorized operation"),
             };
@@ -950,13 +1007,12 @@ impl Service {
         let socket = UnixStream::connect(&self.config.publisher).await?;
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
-        framing::json(&mut write, &json!({"version":1,"type":"hello"})).await?;
-        framing::line(&mut read).await?;
-        framing::json(&mut write, &json!({"version":1,"type":"node.info"})).await?;
-        ensure!(
-            framing::line(&mut read).await?["sharing_enabled"] == true,
-            "sharing disabled"
-        );
+        tokio::time::timeout(Duration::from_secs(1), async {
+            framing::json(&mut write, &json!({"version":1,"type":"hello"})).await?;
+            framing::line(&mut read).await?;
+            check_sharing(&mut read, &mut write).await
+        })
+        .await??;
         let mut command = tokio::process::Command::new(agent);
         if head["op"] == "bulk-upload" {
             command.arg("clipboard-upload");
@@ -981,7 +1037,7 @@ impl Service {
         let mut input = child.stdin.take().unwrap();
         let mut output = child.stdout.take().unwrap();
         send.set_priority(-10)?;
-        tokio::time::timeout(Duration::from_secs(300), async {
+        let transfer = tokio::time::timeout(Duration::from_secs(300), async {
             let upload = async {
                 tokio::io::copy(&mut recv, &mut input).await?;
                 input.shutdown().await?;
@@ -1005,9 +1061,16 @@ impl Service {
             send.write_u32(0).await?;
             send.finish()?;
             Ok::<_, anyhow::Error>(())
-        })
-        .await??;
-        Ok(())
+        });
+        let result = tokio::select! {
+            result = transfer => result.map_err(anyhow::Error::from).and_then(|r| r),
+            result = watch_sharing(&mut read, &mut write) => result,
+        };
+        if result.is_err() {
+            let _ = child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+        }
+        result
     }
     async fn bulk_client<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
         self: &Arc<Self>,
@@ -1156,6 +1219,27 @@ fn allowed_request(value: &Value) -> bool {
         )
 }
 
+async fn check_sharing<R: tokio::io::AsyncBufRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    read: &mut R,
+    write: &mut W,
+) -> Result<()> {
+    framing::json(write, &json!({"version":1,"type":"node.info"})).await?;
+    ensure!(
+        framing::line(read).await?["sharing_enabled"] == true,
+        "sharing disabled"
+    );
+    Ok(())
+}
+async fn watch_sharing<R: tokio::io::AsyncBufRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    read: &mut R,
+    write: &mut W,
+) -> Result<()> {
+    loop {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::timeout(Duration::from_secs(1), check_sharing(read, write)).await??;
+    }
+}
+
 /// A success terminator prevents truncated/failed bulk commands from looking
 /// like successful EOF to the existing clipboard implementation.
 pub async fn receive_bulk<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
@@ -1200,6 +1284,30 @@ mod tests {
         (root, service)
     }
 
+    #[tokio::test]
+    async fn lost_pair_ack_can_retry_same_identity_but_not_after_revoke() {
+        let (root, service) = test_service();
+        let (_other_root, other) = test_service();
+        let invitation: Invitation =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(service.invite().unwrap()).unwrap())
+                .unwrap();
+        let peer = other.local_peer();
+        service
+            .accept_pair(peer.clone(), &invitation.token)
+            .unwrap();
+        service
+            .accept_pair(peer.clone(), &invitation.token)
+            .unwrap();
+        let persisted: Option<Pending> =
+            identity::read(&root.path().join("n/invitation.json")).unwrap();
+        assert_eq!(persisted.unwrap().claimed.unwrap().0, peer.device_id);
+        let (_third_root, third) = test_service();
+        assert!(service
+            .accept_pair(third.local_peer(), &invitation.token)
+            .is_err());
+        service.revoke(&peer.device_id).unwrap();
+        assert!(service.accept_pair(peer, &invitation.token).is_err());
+    }
     #[tokio::test(start_paused = true)]
     async fn queued_dials_share_one_deadline_instead_of_serial_timeouts() {
         let (_root, service) = test_service();
@@ -1398,6 +1506,23 @@ mod tests {
             .unwrap();
         assert!(!merge.current(&frame(2, 5)));
         assert!(merge.current(&frame(4, 5)));
+    }
+    #[tokio::test]
+    async fn bulk_guard_observes_stop_sharing_without_waiting_for_transfer_eof() {
+        let mut replies =
+            BufReader::new(&b"{\"sharing_enabled\":true}\n{\"sharing_enabled\":false}\n"[..]);
+        let mut requests = Vec::new();
+        let start = Instant::now();
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            watch_sharing(&mut replies, &mut requests),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("sharing disabled"));
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert_eq!(requests.iter().filter(|&&b| b == b'\n').count(), 2);
     }
     #[tokio::test]
     async fn truncated_bulk_has_no_success_terminator() {
