@@ -3,8 +3,8 @@ import json
 import socket
 import subprocess
 import time
-from pathlib import Path
 from wire import STATE, request
+from runtime import helper_binary
 
 
 def action(op, **fields):
@@ -28,8 +28,8 @@ def ensure():
     except (OSError, ValueError):
         pass
     info = request(None, 'node.info', local=True)
-    binary = Path.home() / '.local/bin/paneferry-network'
-    agent = Path.home() / '.local/bin/paneferry-agent'
+    binary = helper_binary('paneferry-network')
+    agent = helper_binary('paneferry-agent')
     process = subprocess.Popen([str(binary), 'serve', '--state', str(STATE / 'network'),
         '--publisher', str(STATE / 'agent.sock'), '--device-id', info['device_id'],
         '--name', info.get('name', 'Ubuntu'), '--bulk-agent', str(agent)],

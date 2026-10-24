@@ -7,6 +7,7 @@ cargo test --workspace
 python3 tests/e2e/desktop_authorization_unit.py
 python3 tests/e2e/desktop_monitor_unit.py
 python3 tests/e2e/linux_install_safety.py
+python3 tests/e2e/linux_runtime_unit.py
 python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then

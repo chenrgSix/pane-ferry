@@ -18,6 +18,7 @@ from gi.repository import Gtk, GLib, Gio, GdkPixbuf
 from wire import STATE, Wire, peers, private, request, save, message
 from windowhost import Viewer
 import network
+from runtime import start_agent
 
 
 def ensure_service():
@@ -25,11 +26,7 @@ def ensure_service():
         wire = Wire(local=True); wire.close(); return
     except (OSError, EOFError):
         pass
-    agent = Path.home() / '.local/bin/paneferry-agent'
-    if not agent.is_file():
-        raise ValueError('agent_unavailable')
-    subprocess.Popen([str(agent), 'serve'], stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    start_agent()
     for _ in range(50):
         try:
             wire = Wire(local=True); wire.close(); return
