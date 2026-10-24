@@ -2116,10 +2116,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "paneferry-platform"
+version = "0.1.1"
+dependencies = [
+ "libc",
+ "sha2",
+ "tokio",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "paneferry-transport"
 version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
+ "paneferry-platform",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
