@@ -37,5 +37,11 @@ python3 tests/e2e/deb_package_check.py dist/paneferry_0.1.1-1_amd64.deb
 - 普通用户从已安装的桌面入口打开窗渡，实际 GTK 界面显示“Ubuntu · 发布与接收已就绪”，Agent 与网络组件从 `/usr/lib/paneferry/` 启动。
 - `systemd-analyze verify` 用户服务检查通过；容器内实际启动使用无 systemd 用户管理器时的兼容路径。
 - Ubuntu 上的原生 QUIC 路由和 GTK 接收回归通过，覆盖真实图像、键鼠、文本/图片/文件剪贴板、关联窗口、重连和设备隔离。
+- 由相同载荷制作 `0.1.1-0` 测试旧包，通过 GDebi 升级到最终 `0.1.1-1`，再图形重装一次；Agent、网络进程 PID、设备身份文件哈希和用户配置哨兵均保持。
+- 图形卸载显示“Removal finished”；程序、桌面入口和用户服务文件移除，用户身份与配置保留，既有后台进程未被安装器结束。`apt-get check` 通过。
+- `dpkg --verify paneferry` 安装文件校验通过；已安装 LICENSE 的 SHA-256 与仓库官方文本一致。官方容器默认过滤大部分文档，测试中仅为 `/usr/share/doc/paneferry/*` 放开文档保留后重装验证，宿主系统未修改。
+- 宿主正式 Agent 在整个测试前后保持同一 PID，测试容器随后清理。
+
+[图形安装完成截图](validation-artifacts/2026-10-24-deb-installed.png) · [普通用户 GUI 就绪截图](validation-artifacts/2026-10-24-deb-manager.png)
 
 这验证了 Ubuntu 中的真实图形安装与启动，但不等同于 GNOME App Center 的完整认证流程、所有桌面环境或全部既有应用的跨机回归。宿主 Ubuntu 正式 Agent 和正在运行的用户应用不参与安装测试。
