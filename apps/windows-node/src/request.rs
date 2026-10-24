@@ -26,6 +26,8 @@ pub enum Request {
         #[serde(default)]
         feedback: bool,
     },
+    #[serde(rename = "video.keyframe")]
+    KeyFrame { window_id: u32 },
     #[serde(rename = "app.launch")]
     Launch {
         app_id: String,

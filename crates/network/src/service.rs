@@ -2,8 +2,9 @@ use crate::{
     diagnostics::Diagnostics,
     framing::{self, Packet},
     identity::{self, Identity, Peer},
+    media_queue::MediaQueue,
 };
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use paneferry_platform::ipc::{bind, same_user, LocalStream as UnixStream};
 use quinn::{Connection, RecvStream, SendStream};
@@ -74,9 +75,24 @@ struct Pending {
     token: String,
     expires: u64,
 }
+struct DeviceQuota {
+    media: Arc<Semaphore>,
+    control: Arc<Semaphore>,
+    bulk: Arc<Semaphore>,
+}
+impl Default for DeviceQuota {
+    fn default() -> Self {
+        Self {
+            media: Arc::new(Semaphore::new(64 * 1024 * 1024)),
+            control: Arc::new(Semaphore::new(16 * 1024 * 1024)),
+            bulk: Arc::new(Semaphore::new(2)),
+        }
+    }
+}
 struct State {
     peers: HashMap<String, Peer>,
     pending: Option<Pending>,
+    quotas: HashMap<String, Arc<DeviceQuota>>,
     connections: HashMap<String, Vec<Connection>>,
     dialers: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
     media: HashMap<(usize, String), mpsc::Sender<Packet>>,
@@ -89,6 +105,7 @@ pub struct Service {
     slots: Arc<Semaphore>,
     handshake_slots: Arc<Semaphore>,
     management_slots: Arc<Semaphore>,
+    bulk_slots: Arc<Semaphore>,
     diagnostics: Diagnostics,
     _lock: fs::File,
 }
@@ -133,6 +150,7 @@ impl Service {
             state: Mutex::new(State {
                 peers,
                 pending: None,
+                quotas: HashMap::new(),
                 connections: HashMap::new(),
                 dialers: HashMap::new(),
                 media: HashMap::new(),
@@ -140,6 +158,7 @@ impl Service {
             slots: Arc::new(Semaphore::new(64)),
             handshake_slots: Arc::new(Semaphore::new(16)),
             management_slots: Arc::new(Semaphore::new(16)),
+            bulk_slots: Arc::new(Semaphore::new(8)),
             diagnostics,
             _lock: lock,
         }))
@@ -257,6 +276,7 @@ impl Service {
         peers.remove(id);
         identity::save(&self.config.state.join("peers.json"), &peers)?;
         state.peers = peers;
+        state.quotas.remove(id);
         if let Some(list) = state.connections.remove(id) {
             for c in list {
                 c.close(1u32.into(), b"device revoked");
@@ -489,8 +509,9 @@ impl Service {
                     if tasks.len() >= 128 || !self.trusted(&id,&identity::remote_certificate(&connection).unwrap_or_default()) { connection.close(1u32.into(),b"device limit or revoked"); break "device limit or revoked".into(); }
                     let service = self.clone(); let conn = connection.clone();
                     let peer = id.clone();
+                    let quota = self.state.lock().unwrap().quotas.entry(id.clone()).or_default().clone();
                     tasks.spawn(async move {
-                        if let Err(error) = service.clone().stream(conn,send,recv).await {
+                        if let Err(error) = service.clone().stream(conn,send,recv,quota).await {
                             service.diagnostics.record("stream_ended", Some(&peer), Some(&format!("{error:#}")));
                         }
                     });
@@ -512,6 +533,7 @@ impl Service {
         connection: Connection,
         mut send: SendStream,
         mut recv: RecvStream,
+        quota: Arc<DeviceQuota>,
     ) -> Result<()> {
         let head = tokio::time::timeout(TIMEOUT, Packet::read_header(&mut recv))
             .await??
@@ -521,7 +543,7 @@ impl Service {
                 let channel = head["channel"].as_str().context("missing channel")?;
                 uuid::Uuid::parse_str(channel)?;
                 let socket = UnixStream::connect(&self.config.publisher).await?;
-                self.publish(connection, send, recv, socket, channel.to_owned())
+                self.publish(connection, send, recv, socket, channel.to_owned(), quota)
                     .await
             }
             Some("media") => {
@@ -537,7 +559,10 @@ impl Service {
                 send.finish()?;
                 let result = async {
                     loop {
-                        let packet = Packet::read(&mut recv).await?;
+                        let Some(packet) = Packet::read_media(&mut recv, &quota.media).await?
+                        else {
+                            return Ok(());
+                        };
                         ensure!(
                             packet.value["type"] == "frame"
                                 && packet.value["window_id"] == head["window_id"],
@@ -549,12 +574,27 @@ impl Service {
                     Ok::<(), anyhow::Error>(())
                 }
                 .await;
-                let _ = sender
-                    .send(Packet::new(json!({"type":"media.failed"}), 0)?)
-                    .await;
+                if result.is_err() {
+                    let _ = sender.try_send(Packet::new(
+                        json!({"type":"media.failed","window_id":head["window_id"]}),
+                        0,
+                    )?);
+                }
                 result
             }
-            Some("bulk-upload" | "bulk-download") => self.bulk_server(send, recv, &head).await,
+            Some("bulk-upload" | "bulk-download") => {
+                let _device = quota
+                    .bulk
+                    .clone()
+                    .try_acquire_owned()
+                    .context("device bulk limit")?;
+                let _global = self
+                    .bulk_slots
+                    .clone()
+                    .try_acquire_owned()
+                    .context("bulk limit")?;
+                self.bulk_server(send, recv, &head).await
+            }
             _ => bail!("unknown operation"),
         }
     }
@@ -674,55 +714,108 @@ impl Service {
         mut recv: RecvStream,
         socket: UnixStream,
         channel: String,
+        quota: Arc<DeviceQuota>,
     ) -> Result<()> {
         send.set_priority(10)?;
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
-        let mut media: HashMap<u64, mpsc::Sender<Packet>> = HashMap::new();
+        let mut media: HashMap<u64, MediaQueue> = HashMap::new();
+        let mut serial = 0u64;
         let mut workers = JoinSet::new();
         let mut barrier = 0u64;
+        let (key_tx, mut key_rx) = mpsc::channel::<u64>(64);
         let input = async {
             loop {
-                let packet = Packet::read(&mut recv).await?;
-                ensure!(
-                    packet.payload.is_empty() && allowed_request(&packet.value),
-                    "request not allowed"
-                );
-                framing::json(&mut write, &packet.value).await?;
+                // Keep the partially read packet alive while servicing refreshes.
+                let packet = Packet::read_control(&mut recv, &quota.control);
+                tokio::pin!(packet);
+                loop {
+                    tokio::select! {
+                        packet = &mut packet => {
+                            let packet = packet?;
+                            ensure!(packet.payload.is_empty() && allowed_request(&packet.value), "request not allowed");
+                            tokio::time::timeout(TIMEOUT, framing::json(&mut write, &packet.value)).await??;
+                            break;
+                        }
+                        Some(id) = key_rx.recv() => {
+                            tokio::time::timeout(TIMEOUT, framing::json(&mut write, &json!({"version":1,"type":"video.keyframe","window_id":id}))).await??;
+                        }
+                    }
+                }
             }
             #[allow(unreachable_code)]
             Ok::<(), anyhow::Error>(())
         };
+        let mut refresh = tokio::time::interval(Duration::from_millis(500));
+        let mut supports_refresh = false;
         let output = async {
             loop {
-                tokio::select! {
-                    value = framing::line(&mut read) => {
-                        let value = value?;
-                        if value["type"] == "frame" {
-                            let window = value["window_id"].as_u64().context("missing window")?;
-                            if !media.contains_key(&window) {
-                                ensure!(media.len() < 64,"too many windows");
-                                let (tx,mut rx) = mpsc::channel::<Packet>(2); media.insert(window,tx);
-                                let connection = connection.clone(); let channel = channel.clone();
-                                workers.spawn(async move {
-                                    let (mut send,_recv) = connection.open_bi().await?; send.set_priority(0)?;
-                                    Packet::new(json!({"op":"media","channel":channel,"window_id":window}),0)?.write(&mut send).await?;
-                                    while let Some(packet) = rx.recv().await { tokio::time::timeout(TIMEOUT,packet.write(&mut send)).await??; }
-                                    send.finish()?; Ok::<_,anyhow::Error>(())
-                                });
+                // Timer/worker completion must not cancel a partial JSON line.
+                let next = framing::line(&mut read);
+                tokio::pin!(next);
+                loop {
+                    tokio::select! {
+                        value = &mut next => {
+                            let value = value?;
+                            if value["type"] == "hello" {
+                                supports_refresh = value["capabilities"].as_array().is_some_and(|caps| caps.iter().any(|c| c == "video.keyframe"));
                             }
-                            let mut packet = Packet::new(value,barrier)?; packet.reserve().await?;
-                            // Keep H.264 dependencies in order. Backpressure the
-                            // producer instead of ending the session when the
-                            // video stream cannot keep up; the agent coalesces
-                            // unencoded frames while this bounded queue waits.
-                            media[&window].send(packet).await.map_err(|_|anyhow!("media stream ended"))?;
-                        } else {
-                            barrier = barrier.checked_add(1).context("sequence overflow")?;
-                            tokio::time::timeout(TIMEOUT,Packet::new(value,barrier)?.write(&mut send)).await??;
+                            if value["type"] == "frame" {
+                                let window = value["window_id"].as_u64().context("missing window")?;
+                                ensure!(media.contains_key(&window) || media.len() < 64, "too many active windows");
+                                let slot = media.entry(window).or_default();
+                                let packet = Packet::new(value,barrier)?;
+                                if !slot.accepts(&packet) { break; }
+                                if slot.sender.is_none() {
+                                    serial = serial.checked_add(1).context("media generation overflow")?;
+                                    slot.serial = serial;
+                                    let generation = serial;
+                                    let (tx,mut rx) = mpsc::channel::<Packet>(2); slot.sender = Some(tx);
+                                    let connection = connection.clone(); let channel = channel.clone();
+                                    slot.worker = Some(workers.spawn(async move {
+                                        let result = async {
+                                            let (mut send,_recv) = within(Instant::now()+TIMEOUT, "open media", connection.open_bi()).await?;
+                                            send.set_priority(0)?;
+                                            within(Instant::now()+TIMEOUT, "media header", Packet::new(json!({"op":"media","channel":channel,"window_id":window}),0)?.write(&mut send)).await?;
+                                            while let Some(packet) = rx.recv().await { tokio::time::timeout(TIMEOUT,packet.write(&mut send)).await??; }
+                                            send.finish()?; Ok::<_,anyhow::Error>(())
+                                        }.await;
+                                        (window, generation, result)
+                                    }));
+                                }
+                                // Never wait on an individual window here. Lost P
+                                // frames trigger keyframe gating, not broken GOPs.
+                                slot.enqueue(packet, &quota.media);
+                                ensure!(supports_refresh || !slot.needs_keyframe(), "publisher upgrade required for media recovery");
+                            } else {
+                                match value["type"].as_str() {
+                                    Some("window.destroyed") => { if let Some(id) = value["window_id"].as_u64() { media.remove(&id); } },
+                                    Some("session.exited") => media.clear(),
+                                    Some("session.snapshot") => media.clear(),
+                                    _ => {}
+                                }
+                                barrier = barrier.checked_add(1).context("sequence overflow")?;
+                                tokio::time::timeout(TIMEOUT,Packet::new(value,barrier)?.write(&mut send)).await??;
+                            }
+                            break;
+                        }
+                        _ = refresh.tick() => {
+                            if supports_refresh {
+                                for (&id, slot) in &media {
+                                    if slot.needs_keyframe() { let _ = key_tx.try_send(id); }
+                                }
+                            }
+                        }
+                        worker = workers.join_next(), if !workers.is_empty() => {
+                            match worker.context("media worker ended")? {
+                                Ok((window, generation, _result)) => {
+                                    if let Some(slot) = media.get_mut(&window).filter(|s| s.serial == generation) { slot.failed(); }
+                                },
+                                Err(error) if error.is_cancelled() => {},
+                                Err(error) => return Err(error.into()),
+                            }
                         }
                     }
-                    worker = workers.join_next(), if !workers.is_empty() => { worker.context("media worker ended")???; bail!("media stream ended"); }
                 }
             }
             #[allow(unreachable_code)]
@@ -775,6 +868,14 @@ impl Service {
             result = &mut local_input => return result,
             result = setup => result?,
         };
+        let quota = self
+            .state
+            .lock()
+            .unwrap()
+            .quotas
+            .entry(peer.to_owned())
+            .or_default()
+            .clone();
         let (tx, mut rx) = mpsc::channel::<Packet>(8);
         let (control_tx, mut control_rx) = mpsc::channel::<Result<Packet>>(8);
         let key = (connection.stable_id(), channel.clone());
@@ -789,7 +890,7 @@ impl Service {
             };
             let control = async {
                 loop {
-                    let packet = Packet::read(&mut recv).await;
+                    let packet = Packet::read_control(&mut recv, &quota.control).await;
                     let ended = packet.is_err();
                     control_tx.send(packet).await?;
                     // Deliver EOF after the final control event. Returning here
@@ -800,7 +901,6 @@ impl Service {
             };
             let output = async {
                 let mut merge = Merge::default(); let mut pending: Vec<Packet> = Vec::new();
-                let mut media_failure = None;
                 loop {
                     tokio::select! {
                         biased;
@@ -809,13 +909,12 @@ impl Service {
                             merge.barrier = packet.barrier; merge.observe(&packet.value)?;
                             let value = merge.deliver(packet); framing::json(&mut write,&value).await?;
                         }
-                        _ = tokio::time::sleep_until(media_failure.unwrap_or_else(||tokio::time::Instant::now()+TIMEOUT)), if media_failure.is_some() => bail!("media failed"),
                         packet = rx.recv(), if pending.len() < 8 => {
                             let packet = packet.context("media ended")?;
                             if packet.value["type"] == "media.failed" {
-                                // The producer closes media when its control stream ends.
-                                // Let ordered control drain (including session.exited) first.
-                                media_failure.get_or_insert(tokio::time::Instant::now()+TIMEOUT);
+                                // A single media stream may reset independently.
+                                // Its publisher restarts at an IDR; control and
+                                // other windows must remain usable meanwhile.
                             } else {
                                 ensure!(packet.value["type"] == "frame", "invalid media"); pending.push(packet);
                             }
@@ -966,9 +1065,16 @@ impl Merge {
             }
             Some("window.created" | "window.metadata" | "window.destroyed") => {
                 if let Some(id) = value["window_id"].as_u64() {
+                    if value["type"] == "window.destroyed" {
+                        self.windows.remove(&id);
+                        return Ok(());
+                    }
+                    if value["type"] == "window.metadata" && !self.windows.contains_key(&id) {
+                        return Ok(());
+                    }
                     ensure!(
                         self.windows.contains_key(&id) || self.windows.len() < 128,
-                        "window history limit"
+                        "active window limit"
                     );
                     let previous =
                         self.windows
@@ -1025,6 +1131,7 @@ fn allowed_request(value: &Value) -> bool {
                     | "video.enable"
                     | "video.configure"
                     | "video.feedback"
+                    | "video.keyframe"
                     | "app.launch"
                     | "desktop.start"
                     | "session.resume"
@@ -1248,6 +1355,21 @@ mod tests {
             .unwrap();
     }
 
+    #[test]
+    fn retired_windows_do_not_consume_live_window_quota() {
+        let mut merge = Merge::default();
+        for id in 1..=512 {
+            merge.barrier += 1;
+            merge
+                .observe(&json!({"type":"window.created","window_id":id,"geometry_revision":1}))
+                .unwrap();
+            merge.barrier += 1;
+            merge
+                .observe(&json!({"type":"window.destroyed","window_id":id}))
+                .unwrap();
+            assert!(merge.windows.is_empty());
+        }
+    }
     #[test]
     fn late_frames_cannot_revive_windows_or_cross_geometry_changes() {
         let mut merge = Merge {

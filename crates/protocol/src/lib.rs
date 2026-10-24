@@ -36,6 +36,8 @@ pub enum Request {
     },
     #[serde(rename = "video.configure")]
     ConfigureVideo { max_fps: u8 },
+    #[serde(rename = "video.keyframe")]
+    KeyFrame { window_id: u32 },
     #[serde(rename = "video.feedback")]
     VideoFeedback { frame_id: u64 },
     #[serde(rename = "app.list")]
@@ -156,6 +158,7 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
                 bail!("max_fps must be between 1 and 90")
             }
         }
+        Request::KeyFrame { window_id: 0 } => bail!("invalid window_id"),
         Request::VideoFeedback { frame_id } if *frame_id == 0 => bail!("invalid frame_id"),
         _ => {}
     }

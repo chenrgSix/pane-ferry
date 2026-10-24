@@ -56,7 +56,7 @@ final class Client {
                 DispatchQueue.global().async {
                     do {
                         guard let hello=try wire.read(),hello["type"] as? String == "hello",hello.count==2 else { throw NodeError.invalid_request }
-                        wire.send(["type":"hello","capabilities":["native.h264","video.qos","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"],"video_max_fps":90])
+                        wire.send(["type":"hello","capabilities":["native.h264","video.keyframe","video.qos","node.info","platform.macos","input.key.logical","input.text.commit","clipboard.inline","session.resume","session.list","app.discovery","window.list"],"video_max_fps":90])
                         while let request=try wire.read() {
                             let finished=DispatchSemaphore(value:0)
                             Task { @MainActor in
@@ -183,7 +183,7 @@ final class Client {
         // treated as input or executable/path arguments.
         let schemas:[String:Set<String>] = [
             "node.info":[],"permissions.request":[],"sharing.set":["enabled"],"app.list":[],"window.list":[],"session.list":[],
-            "video.enable":["codec","max_fps","feedback"],"video.configure":["max_fps"],"video.feedback":["frame_id"],
+            "video.enable":["codec","max_fps","feedback"],"video.configure":["max_fps"],"video.feedback":["frame_id"],"video.keyframe":["window_id"],
             "app.launch":["app_id","request_id","backend","attach","scale_factor"],"session.resume":["session_id"],"session.detach":[],
             "window.focus":["window_id"],"window.close.request":["window_id"],"window.configure":["window_id","width","height"],
             "input.pointer":["window_id","x","y","button","pressed"],"input.key.logical":["window_id","key","pressed"],
@@ -223,6 +223,9 @@ final class Client {
             guard let rate,let feedback else { throw NodeError.invalid_request }
             client.rate.configure(cap:rate,feedback:feedback)
             client.video=true;client.wire.send(["type":"video.ready","codec":"h264","max_fps":rate])
+        case "video.keyframe":
+            guard let id=request["window_id"] as? UInt32,let session=client.session,owns(session,client),session.member(id) != nil,let capture=client.captures[id] else { throw NodeError.window_unavailable }
+            capture.requestKeyframe()
         case "video.configure":
             guard client.video,let rate=validVideoRate(request["max_fps"]) else { throw NodeError.invalid_request }
             client.rate.configure(cap:rate)

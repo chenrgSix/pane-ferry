@@ -44,6 +44,7 @@ pub struct Packet {
     pub payload: Vec<u8>,
     pub barrier: u64,
     reservation: Option<tokio::sync::OwnedSemaphorePermit>,
+    peer_reservation: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 impl Packet {
     pub fn new(mut value: Value, barrier: u64) -> Result<Self> {
@@ -70,13 +71,26 @@ impl Packet {
             payload,
             barrier,
             reservation: None,
+            peer_reservation: None,
         })
     }
     pub async fn reserve(&mut self) -> Result<()> {
         if self.reservation.is_none() {
-            self.reservation = Some(budget(self.bytes()).await?);
+            self.reservation = Some(budget(self.bytes(), false, None).await?.0);
         }
         Ok(())
+    }
+    pub fn try_reserve(&mut self, peer: &std::sync::Arc<tokio::sync::Semaphore>) -> bool {
+        let bytes = self.bytes() as u32;
+        let Ok(global) = budget_pool(false).try_acquire_many_owned(bytes) else {
+            return false;
+        };
+        let Ok(local) = peer.clone().try_acquire_many_owned(bytes) else {
+            return false;
+        };
+        self.reservation = Some(global);
+        self.peer_reservation = Some(local);
+        true
     }
     pub fn restore(mut self) -> Value {
         if self.value["type"] == "frame" {
@@ -106,12 +120,26 @@ impl Packet {
             .ok_or_else(|| anyhow::anyhow!("connection closed"))
     }
     pub async fn read_optional<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Self>> {
-        Self::read_bounded(reader, MAX, 12 * 1024 * 1024, true).await
+        Self::read_bounded(reader, MAX, 12 * 1024 * 1024, true, false, None).await
     }
     /// Before authentication (and for stream headers), never allocate from the
     /// media pool or accept a frame-sized metadata/body declaration.
     pub async fn read_header<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        Self::read_bounded(reader, 8192, 0, false)
+        Self::read_bounded(reader, 8192, 0, false, true, None)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("connection closed"))
+    }
+    pub async fn read_media<R: AsyncRead + Unpin>(
+        reader: &mut R,
+        peer: &std::sync::Arc<tokio::sync::Semaphore>,
+    ) -> Result<Option<Self>> {
+        Self::read_bounded(reader, MAX, 12 * 1024 * 1024, true, false, Some(peer)).await
+    }
+    pub async fn read_control<R: AsyncRead + Unpin>(
+        reader: &mut R,
+        peer: &std::sync::Arc<tokio::sync::Semaphore>,
+    ) -> Result<Self> {
+        Self::read_bounded(reader, MAX, 0, true, true, Some(peer))
             .await?
             .ok_or_else(|| anyhow::anyhow!("connection closed"))
     }
@@ -120,6 +148,8 @@ impl Packet {
         limit: usize,
         binary_limit: usize,
         reserve: bool,
+        control: bool,
+        peer: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
     ) -> Result<Option<Self>> {
         let mut first = [0u8; 1];
         if reader.read(&mut first).await? == 0 {
@@ -138,10 +168,11 @@ impl Packet {
                 "packet too large"
             );
             let barrier = reader.read_u64().await?;
-            let reservation = if reserve {
-                Some(budget(meta + binary).await?)
+            let (reservation, peer_reservation) = if reserve {
+                let (global, local) = budget(meta + binary, control, peer).await?;
+                (Some(global), local)
             } else {
-                None
+                (None, None)
             };
             let mut bytes = vec![0; meta];
             reader.read_exact(&mut bytes).await?;
@@ -158,6 +189,7 @@ impl Packet {
                 payload,
                 barrier,
                 reservation,
+                peer_reservation,
             }))
         })
         .await?
@@ -167,21 +199,63 @@ impl Packet {
     }
 }
 
-async fn budget(bytes: usize) -> Result<tokio::sync::OwnedSemaphorePermit> {
-    static BUDGET: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+fn budget_pool(control: bool) -> std::sync::Arc<tokio::sync::Semaphore> {
+    static MEDIA: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
         std::sync::OnceLock::new();
-    Ok(tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        BUDGET
-            .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(128 * 1024 * 1024)))
-            .clone()
-            .acquire_many_owned(bytes as u32),
-    )
-    .await??)
+    static CONTROL: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    let (pool, size) = if control {
+        (&CONTROL, 32 * 1024 * 1024)
+    } else {
+        (&MEDIA, 128 * 1024 * 1024)
+    };
+    pool.get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(size)))
+        .clone()
+}
+async fn budget(
+    bytes: usize,
+    control: bool,
+    peer: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
+) -> Result<(
+    tokio::sync::OwnedSemaphorePermit,
+    Option<tokio::sync::OwnedSemaphorePermit>,
+)> {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        // Per-device quota first: a busy device must not hold global permits
+        // while it waits for its own packets to drain.
+        let local = match peer {
+            Some(peer) => Some(peer.clone().acquire_many_owned(bytes as u32).await?),
+            None => None,
+        };
+        Ok((
+            budget_pool(control)
+                .acquire_many_owned(bytes as u32)
+                .await?,
+            local,
+        ))
+    })
+    .await?
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn control_and_media_have_independent_budgets() {
+        assert!(!std::sync::Arc::ptr_eq(
+            &budget_pool(false),
+            &budget_pool(true)
+        ));
+        let peer = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+        let mut packet = Packet::new(
+            serde_json::json!({"type":"frame","codec":"h264","data":"YQ=="}),
+            0,
+        )
+        .unwrap();
+        assert!(!packet.try_reserve(&peer));
+        let control = std::sync::Arc::new(tokio::sync::Semaphore::new(1024));
+        assert!(budget(32, true, Some(&control)).await.is_ok());
+        assert_eq!(control.available_permits(), 1024);
+    }
     #[tokio::test]
     async fn handshake_rejects_large_or_binary_headers_before_reading_a_body() {
         for (meta, binary) in [(8193u32, 0u32), (32, 1), (16 * 1024 * 1024, 0)] {

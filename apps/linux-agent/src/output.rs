@@ -20,6 +20,7 @@ const EVENT_LIMIT: usize = 256;
 enum Pending {
     EnableVideo(u8, bool),
     ConfigureVideo(u8),
+    KeyFrame(u32),
     Message(Value, String),
     Frame(Window, Arc<crate::video::Frame>, String),
 }
@@ -131,6 +132,9 @@ impl Output {
     pub fn configure_video(&self, max_fps: u8) -> Result<()> {
         self.push(Pending::ConfigureVideo(max_fps))
     }
+    pub fn keyframe(&self, id: u32) -> Result<()> {
+        self.push(Pending::KeyFrame(id))
+    }
     pub fn video_feedback(&self, frame_id: u64) {
         self.qos
             .lock()
@@ -178,6 +182,11 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos
                 qos.lock()
                     .unwrap()
                     .configure(max_fps, feedback, Instant::now());
+                continue;
+            }
+            Pending::KeyFrame(id) => {
+                frames.remove(&id);
+                encoders.remove(&id);
                 continue;
             }
             Pending::ConfigureVideo(max_fps) => {

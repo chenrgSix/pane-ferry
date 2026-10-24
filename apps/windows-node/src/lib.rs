@@ -247,6 +247,15 @@ impl Client {
                 self.send(write, json!({"type":"session.list","sessions":values}))
                     .await?;
             }
+            Request::KeyFrame { window_id } => {
+                self.shared()?;
+                ensure!(window_id == 1, "window_unavailable");
+                let (_, target) = self
+                    .session
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("session_expired"))?;
+                self.system.keyframe(target)?;
+            }
             Request::Video {
                 codec,
                 max_fps,
@@ -450,7 +459,7 @@ pub async fn client(
         geometry: None,
         revision: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":30})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.keyframe","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":30})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {

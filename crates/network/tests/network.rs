@@ -44,7 +44,7 @@ async fn node(name: &str) -> (tempfile::TempDir, Arc<Service>) {
                                 }
                             }
                             for n in 0..10 {
-                                if framing::json(&mut write,&json!({"type":"frame","version":1,"seq":n+3,"window_id":1,"geometry_revision":1,"codec":"h264","data":"YWJj","stream_id":1,"frame":n})).await.is_err() { return; }
+                                if framing::json(&mut write,&json!({"type":"frame","version":1,"seq":n+3,"window_id":1,"geometry_revision":1,"codec":"h264","data":"YWJj","stream_id":1,"key_frame":n == 0,"frame":n})).await.is_err() { return; }
                                 tokio::time::sleep(Duration::from_millis(5)).await;
                             }
                             json!({"type":"clipboard.data","version":1,"seq":13,"text":name})

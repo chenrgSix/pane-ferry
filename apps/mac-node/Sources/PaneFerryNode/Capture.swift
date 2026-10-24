@@ -9,6 +9,7 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private let queue = DispatchQueue(label: "paneferry.encode", qos: .userInteractive)
     private let rawLock = NSLock()
+    private var latest: CVPixelBuffer?
     private var newest: CVPixelBuffer?, scheduled = false, stopped = false, reportedFailure = false
     private var lastCaptureAt: TimeInterval = 0
     private var encoder: VTCompressionSession?
@@ -48,8 +49,14 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try await stream?.updateConfiguration(config())
     }
     func updateRate() async throws { try await stream?.updateConfiguration(config()) }
+    func requestKeyframe() {
+        queue.async { [self] in
+            if let encoder=encoder { VTCompressionSessionInvalidate(encoder) }; encoder=nil
+            if let image=rawLock.withLock({ stopped ? nil : latest }) { encode(image) }
+        }
+    }
     func stop() {
-        rawLock.lock(); stopped=true; newest=nil; rawLock.unlock()
+        rawLock.lock(); stopped=true; newest=nil; latest=nil; rawLock.unlock()
         if let stream=stream { Task { try? await stream.stopCapture() } }; stream=nil
         queue.async { [self] in if let encoder=encoder { VTCompressionSessionInvalidate(encoder) }; encoder=nil }
     }
@@ -69,7 +76,7 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         let now=ProcessInfo.processInfo.systemUptime
         if lastCaptureAt > 0 && now-lastCaptureAt < rate.interval(now:now)*0.9 { rawLock.unlock(); return }
         lastCaptureAt=now
-        newest=image
+        newest=image; latest=image
         let schedule = !scheduled; scheduled=true; rawLock.unlock()
         if schedule { queue.async { [self] in drain() } }
     }

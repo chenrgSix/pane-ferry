@@ -66,6 +66,9 @@ impl WindowSystem for Fixture {
         observed().lock().unwrap().attached += 1;
         Ok(())
     }
+    fn keyframe(&mut self, _target: &Target) -> Result<()> {
+        Ok(())
+    }
     fn frame(&mut self, _: &Target) -> Result<Option<VideoFrame>> {
         if !self.attached || self.next >= self.frames.len() {
             return Ok(None);

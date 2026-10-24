@@ -296,6 +296,13 @@ impl WindowSystem for Desktop {
         self.capture = Some(capture::Capture::new(hwnd(target))?);
         Ok(())
     }
+    fn keyframe(&mut self, target: &Target) -> Result<()> {
+        validate(target)?;
+        self.encoder = None;
+        self.pending.clear();
+        self.capture = Some(capture::Capture::new(hwnd(target))?);
+        Ok(())
+    }
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>> {
         validate(target)?;
         let geometry = self.geometry(target)?;

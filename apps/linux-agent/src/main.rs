@@ -1193,6 +1193,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     if video::available() {
         capabilities.push("native.h264");
         capabilities.push("video.qos");
+        capabilities.push("video.keyframe");
     }
     send(
         &mut out,
@@ -1301,7 +1302,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 last_window_action = Instant::now();
             }
             let request_window = match &req {
-                Request::Configure { window_id, .. }
+                Request::KeyFrame { window_id }
+                | Request::Configure { window_id, .. }
                 | Request::PageScale { window_id, .. }
                 | Request::Text { window_id, .. } => Some(*window_id),
                 _ => None,
@@ -1640,6 +1642,13 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 width,
                                 height,
                             } => b.configure(window_id, width, height)?,
+                            Request::KeyFrame { window_id } => {
+                                if !b.windows().get(&window_id).is_some_and(|w| w.visible) {
+                                    bail!("window unavailable");
+                                }
+                                out.keyframe(window_id)?;
+                                b.refresh_capture();
+                            }
                             Request::Focus { window_id } => b.focus(window_id)?,
                             Request::Close { window_id } => b.close(window_id)?,
                             Request::Pointer {
