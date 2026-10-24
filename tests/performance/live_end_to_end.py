@@ -22,7 +22,7 @@ def replace(source, before, after):
     return source.replace(before, after)
 
 
-def build(destination):
+def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     source = destination / 'Sources'
     shutil.copytree(ROOT / 'apps/mac-windowhost/Sources/PaneFerryWindowHost', source,
                     dirs_exist_ok=True)
@@ -60,8 +60,14 @@ def build(destination):
                       'override func keyDown(with event: NSEvent) {',
                       'func insertText(_ string: Any, replacementRange: NSRange) {'):
         text = replace(text, signature, signature + '\n        guard Probe.injecting else { return }')
+    if probe_source.name == 'PopupProbe.swift':
+        for signature in ('override func rightMouseDown(with event: NSEvent) {',
+                          'override func otherMouseDown(with event: NSEvent) {',
+                          'override func mouseMoved(with event: NSEvent) {',
+                          'override func scrollWheel(with event: NSEvent) {'):
+            text = replace(text, signature, signature + '\n        guard Probe.injecting else { return }; ')
     surface.write_text(text)
-    shutil.copy2(HERE / 'LiveProbe.swift', source / 'Probe.swift')
+    shutil.copy2(probe_source, source / 'Probe.swift')
     contents = destination / 'PaneFerry Live Probe.app/Contents'
     binary = contents / 'MacOS/PaneFerryLiveProbe'
     binary.parent.mkdir(parents=True, exist_ok=True)

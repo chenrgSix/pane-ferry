@@ -1,5 +1,31 @@
 # Mac ↔ Ubuntu 全链路延迟测量
 
+## 已授权实际应用的右键菜单
+
+`popup_end_to_end.py` 用于用户明确授权的实际应用（例如 IDEA），不使用 GTK 计数夹具。
+先确认源端运行桥接版本 3、应用没有待处理对话框，观察画面后选择不会执行操作的右键位置。
+探针保留原源窗口尺寸与 DPI，仅注入右键和 Escape；不提交文字、不选择菜单操作、不读剪贴板。
+它编译当前 WindowHost 的临时副本，使用原有 QUIC、VideoToolbox 和 AppKit 路径，不修改安装包。
+
+```sh
+python3 tests/performance/popup_end_to_end.py --build-dir /tmp/popup-probe --build-only
+python3 tests/performance/popup_end_to_end.py --build-dir /tmp/popup-probe \
+  --peer PAIRED_DEVICE_ID --state /absolute/network-state --helper /absolute/paneferry-network \
+  --app APPROVED_WINDOW_ID --output /tmp/popup-result.json --command-file /tmp/popup-command.json
+```
+
+探针创建 `/tmp/popup-result.json.state.json`，报告 ready、实际尺寸、父子关系、显示区域及窗口样式。
+观察主窗口后，原子写入命令文件，例如 `{"serial":1,"action":"preview","x":200,"y":200}`；
+x/y 为源视频像素坐标，不能照抄未经观察的示例。preview 保持测试菜单供视觉检查；
+`{"serial":2,"action":"close"}` 仅用 Escape 关闭该菜单。随后用新 serial、action:run、相同坐标及
+samples:30 开始正式测试；每轮两次预热后测指定次数。临时命令文件只由测试操作者写入。
+
+每个样本必须等到本次新开的、属于所选主窗口的无边框菜单实际绘制完成；普通主窗口帧不会结束计时。
+当前菜单关闭后才能触发下一次输入，超时、菜单仍带标题栏或意外已有子窗口会终止测试并报告失败。
+正式结果强制核对 H.264 与硬件解码。预览与失败尝试不能混入成功样本。
+数据只代表该应用右键菜单打开的延迟，包括临时窗口的采集和编码器启动；不能外推成打字、滚动或所有操作的延迟。
+终点仍为 AppKit 绘制返回，未包括最终桌面合成、显示扫描与面板响应。
+
 ## 当前版本：已部署 Agent 的 Wayland/QUIC 实测
 
 `live_end_to_end.py` 构建当前 WindowHost 的临时计时副本，连接已配对的生产网络服务和
