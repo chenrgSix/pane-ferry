@@ -19,6 +19,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-install-test-') as temporary:
         'share/applications/io.lanremoteapp.launcher.desktop': 'Exec=paneferry\n',
         'share/icons/hicolor/128x128/apps/icon.png': 'fixture',
         'systemd/remoteapp-agent.service': 'fixture',
+        'share/doc/paneferry/LICENSE': (root/'LICENSE').read_text(),
         'share/gnome-shell/extensions/paneferry@local/metadata.json': '{}',
     }.items():
         path = package/name
@@ -52,5 +53,6 @@ with tempfile.TemporaryDirectory(prefix='paneferry-install-test-') as temporary:
     assert calls.read_text().splitlines() == [
         '--user is-active --quiet remoteapp-agent.service', '--user daemon-reload'], calls.read_text()
     assert (task_home/'.local/share/gnome-shell/extensions/paneferry@local/metadata.json').exists()
+    assert (task_home/'.local/share/doc/paneferry/LICENSE').read_bytes() == (root/'LICENSE').read_bytes()
     assert '保存工作' in installed.stdout and '下次登录' in installed.stdout
-print('PASS: active service blocks non-deferred installation before writes; deferred update preserves the old binary inode and never stops or restarts applications')
+print('PASS: active service blocks non-deferred installation before writes; deferred update preserves the old binary inode, installs LICENSE, and never stops or restarts applications')
