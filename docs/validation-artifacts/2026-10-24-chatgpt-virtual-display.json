@@ -1282,7 +1282,8 @@
     "native select tested; arbitrary system dialogs not tested",
     "shared desktop input seat; not host pointer/focus isolation",
     "helper SIGKILL or desktop exit cannot guarantee original geometry",
-    "local and LAN verification, not CI"
+    "local and LAN verification, not CI",
+    "Formal hotplug briefly changes EasyTier window height; steady state and final geometry unchanged"
   ],
   "packaged_host": {
     "before": {
@@ -1495,5 +1496,536 @@
     "ubuntu_release": "built and exercised on isolated Agent",
     "helper_sha256": "bd0eb3e78529a49656574412b26f835485988cd1415be2faff7358edf43f8ca2",
     "agent_sha256": "712ce378b754e15cb18387461a0af1df644d6586ce0e48b757b8766d3bdcde09"
+  },
+  "deployment": {
+    "status": "installed and verified after explicit restart/reopen approval",
+    "upgrade": {
+      "session": "1c1a7d70b5f8b91dc536276e688442dd",
+      "reopened": [
+        {
+          "name": "安全中心",
+          "backend": "native",
+          "display": 147,
+          "scale_factor": 2,
+          "seq": 3,
+          "session_id": "21ccf48c1b2b1af151de06c2dbdc4b20",
+          "type": "session.started",
+          "version": 1
+        },
+        {
+          "name": "HexHub",
+          "backend": "native",
+          "display": 148,
+          "scale_factor": 2,
+          "seq": 4,
+          "session_id": "4e4525889d5599f41f3371851916e5a5",
+          "type": "session.started",
+          "version": 1
+        },
+        {
+          "name": "文件",
+          "backend": "native",
+          "display": 149,
+          "scale_factor": 2,
+          "seq": 5,
+          "session_id": "7ab688e186f0f4381e6f19c0031c3ae6",
+          "type": "session.started",
+          "version": 1
+        },
+        {
+          "name": "飞书",
+          "backend": "native",
+          "display": 157,
+          "scale_factor": 2,
+          "seq": 6,
+          "session_id": "8080c34d8c999727402d436162ef88ed",
+          "type": "session.started",
+          "version": 1
+        }
+      ],
+      "sessions": [
+        {
+          "app_id": "window-0-820738-7862967-52428804",
+          "backend": "native",
+          "controlled": false,
+          "display": 0,
+          "mode": "app",
+          "monitor_id": null,
+          "session_id": "1c1a7d70b5f8b91dc536276e688442dd",
+          "window_count": 1
+        },
+        {
+          "app_id": "desktop-7e1c7787b40b9add30462cb98591cc5e",
+          "backend": "native",
+          "controlled": false,
+          "display": 147,
+          "mode": "app",
+          "monitor_id": null,
+          "session_id": "21ccf48c1b2b1af151de06c2dbdc4b20",
+          "window_count": 2
+        },
+        {
+          "app_id": "desktop-42df698f9ec95ea96c7f0b8200cf68b0",
+          "backend": "native",
+          "controlled": false,
+          "display": 148,
+          "mode": "app",
+          "monitor_id": null,
+          "session_id": "4e4525889d5599f41f3371851916e5a5",
+          "window_count": 1
+        },
+        {
+          "app_id": "desktop-7555bb9449a5864f77422679bda01516",
+          "backend": "native",
+          "controlled": false,
+          "display": 149,
+          "mode": "app",
+          "monitor_id": null,
+          "session_id": "7ab688e186f0f4381e6f19c0031c3ae6",
+          "window_count": 1
+        },
+        {
+          "app_id": "desktop-1b238899d3e13a85f1c01dc0dd5b74d1",
+          "backend": "native",
+          "controlled": false,
+          "display": 157,
+          "mode": "app",
+          "monitor_id": null,
+          "session_id": "8080c34d8c999727402d436162ef88ed",
+          "window_count": 1
+        }
+      ],
+      "agent_pid": 1249191,
+      "chatgpt_pid": 820738
+    },
+    "packaged_host": {
+      "before": {
+        "pid": 820738,
+        "started": 7862967,
+        "target": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "lease": false
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        },
+        "other_windows": {
+          "2687925323": [
+            7443,
+            10485763,
+            510,
+            228,
+            900,
+            564
+          ],
+          "2687925321": [
+            7414,
+            null,
+            490,
+            162,
+            940,
+            700
+          ],
+          "2687925324": [
+            13111,
+            37748739,
+            560,
+            65,
+            800,
+            931
+          ],
+          "2687925322": [
+            7482,
+            12582922,
+            1680,
+            210,
+            112,
+            112
+          ],
+          "2687925325": [
+            6098,
+            4194323,
+            1515,
+            6,
+            16,
+            16
+          ]
+        },
+        "other_native": {
+          "37748739": [
+            560,
+            65,
+            800,
+            931
+          ]
+        }
+      },
+      "scaled": {
+        "seconds": 3.058,
+        "pid": 820738,
+        "started": 7862967,
+        "target": {
+          "bounds": [
+            1968,
+            48,
+            2940,
+            1618
+          ],
+          "zoom": "",
+          "pageZoom": "2",
+          "priority": "important",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            1968,
+            48,
+            2940,
+            1618
+          ],
+          "lease": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ],
+          "Meta-0": [
+            1920,
+            0,
+            1.0,
+            0,
+            false
+          ]
+        },
+        "other_windows": {
+          "2687925323": [
+            7443,
+            10485763,
+            510,
+            228,
+            900,
+            564
+          ],
+          "2687925321": [
+            7414,
+            null,
+            490,
+            162,
+            940,
+            700
+          ],
+          "2687925324": [
+            13111,
+            37748739,
+            560,
+            65,
+            800,
+            931
+          ],
+          "2687925322": [
+            7482,
+            12582922,
+            1680,
+            210,
+            112,
+            112
+          ],
+          "2687925325": [
+            6098,
+            4194323,
+            1515,
+            6,
+            16,
+            16
+          ]
+        },
+        "other_native": {
+          "37748739": [
+            560,
+            65,
+            800,
+            931
+          ]
+        }
+      },
+      "after": {
+        "pid": 820738,
+        "started": 7862967,
+        "target": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "lease": false
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        },
+        "other_windows": {
+          "2687925323": [
+            7443,
+            10485763,
+            510,
+            228,
+            900,
+            564
+          ],
+          "2687925321": [
+            7414,
+            null,
+            490,
+            162,
+            940,
+            700
+          ],
+          "2687925324": [
+            13111,
+            37748739,
+            560,
+            65,
+            800,
+            931
+          ],
+          "2687925322": [
+            7482,
+            12582922,
+            1680,
+            210,
+            112,
+            112
+          ],
+          "2687925325": [
+            6098,
+            4194323,
+            1515,
+            6,
+            16,
+            16
+          ]
+        },
+        "other_native": {
+          "37748739": [
+            560,
+            65,
+            800,
+            931
+          ]
+        }
+      },
+      "settled": {
+        "pid": 820738,
+        "started": 7862967,
+        "target": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "lease": false
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        },
+        "other_windows": {
+          "2687925323": [
+            7443,
+            10485763,
+            510,
+            228,
+            900,
+            564
+          ],
+          "2687925321": [
+            7414,
+            null,
+            490,
+            162,
+            940,
+            700
+          ],
+          "2687925324": [
+            13111,
+            37748739,
+            560,
+            65,
+            800,
+            931
+          ],
+          "2687925322": [
+            7482,
+            12582922,
+            1680,
+            210,
+            112,
+            112
+          ],
+          "2687925325": [
+            6098,
+            4194323,
+            1515,
+            6,
+            16,
+            16
+          ]
+        },
+        "other_native": {
+          "37748739": [
+            560,
+            65,
+            800,
+            931
+          ]
+        }
+      },
+      "session": "1c1a7d70b5f8b91dc536276e688442dd",
+      "input_authorization": [
+        "ready"
+      ]
+    },
+    "appkit": "formal QUIC, actual H.264 2940x1610, two automatic reconnects, unchanged NSWindow/frame, exact final target restoration",
+    "hotplug_reaction": {
+      "application": "EasyTier",
+      "note": "Actual X11 geometry briefly changes despite unchanged physical monitor layout; cannot promise zero transient changes to all other windows. Early packaged checks failed on this condition; stable state and recovery passed.",
+      "samples": [
+        {
+          "seconds": 0.136,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        },
+        {
+          "seconds": 0.309,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        },
+        {
+          "seconds": 0.557,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            950
+          ]
+        },
+        {
+          "seconds": 0.933,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        },
+        {
+          "seconds": 1.108,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        },
+        {
+          "seconds": 1.265,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        },
+        {
+          "seconds": 1.426,
+          "native_bounds": [
+            560,
+            65,
+            800,
+            931
+          ]
+        }
+      ]
+    },
+    "cleanup": "test main closed; preview services, pairing and credentials removed; current rotated input authorization retained privately; formal ChatGPT and 4 reopened apps alive",
+    "limits": "shared desktop seat and compositor; not complete host UI/input isolation"
+  },
+  "publisher_death_stability": {
+    "result": "passed",
+    "baseline": [
+      709,
+      107,
+      900,
+      650
+    ],
+    "samples": 30,
+    "note": "additional post-recovery samples retained exact target geometry and original monitor layout"
   }
 }
