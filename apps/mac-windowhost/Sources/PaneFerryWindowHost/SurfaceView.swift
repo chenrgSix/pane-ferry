@@ -12,6 +12,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     var controllerPasteEnabled = true
     var controllerCopyEnabled = true
     var controllerCutEnabled = false
+    var remoteClipboardShortcuts = false
     var requestControllerPaste: (() -> Void)?
     var readControllerClipboard: () -> String? = { NSPasteboard.general.string(forType: .string) }
     private var markedText = NSAttributedString(string: "")
@@ -158,6 +159,7 @@ final class SurfaceView: NSView, NSTextInputClient {
         return window?.convertToScreen(rect) ?? .zero
     }
     @objc func paste(_ sender: Any?) {
+        if remoteClipboardShortcuts { remoteShortcut(118); return }
         if let request = requestControllerPaste {
             inputContext?.discardMarkedText(); unmarkText(); releaseKeyboard(); request(); return
         }
@@ -167,15 +169,21 @@ final class SurfaceView: NSView, NSTextInputClient {
         transmit?(["type": "clipboard.paste", "window_id": remoteID, "text": text])
     }
     @objc func copy(_ sender: Any?) {
+        if remoteClipboardShortcuts { remoteShortcut(99); return }
         guard controllerCopyEnabled else { NSSound.beep(); return }
         releaseKeyboard()
         transmit?(["type": "clipboard.copy", "window_id": remoteID, "request_id": UUID().uuidString])
     }
     @objc func cut(_ sender: Any?) {
+        if remoteClipboardShortcuts { remoteShortcut(120); return }
         releaseKeyboard()
         guard controllerCutEnabled else { NSSound.beep(); return }
         inputContext?.discardMarkedText(); unmarkText()
         transmit?(["type": "clipboard.cut", "window_id": remoteID, "request_id": UUID().uuidString])
+    }
+    private func remoteShortcut(_ symbol: UInt32) {
+        inputContext?.discardMarkedText(); unmarkText(); releaseKeyboard()
+        key(0xffe3, true); key(symbol, true); key(symbol, false); key(0xffe3, false)
     }
     private func syncModifiers(_ flags: NSEvent.ModifierFlags) {
         var target = Set<UInt32>()

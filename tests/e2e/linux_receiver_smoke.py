@@ -27,8 +27,8 @@ sample=pipeline.get_by_name('out').emit('try-pull-sample',5*Gst.SECOND)
 assert sample,'video fixture encoder unavailable'
 buffer=sample.get_buffer();raw=buffer.extract_dup(0,buffer.get_size());pipeline.set_state(Gst.State.NULL)
 class PublisherFixture:
-    def __init__(self, path, qos=False):
-        self.qos=qos
+    def __init__(self, path, qos=False, remote_only=False):
+        self.qos=qos; self.remote_only=remote_only
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(path));self.listener.listen()
         self.events=[];self.connections=[];self.members={42:dict(window_id=42,title='fixture',width=640,height=480,geometry_revision=1,scale_factor=1)}
         threading.Thread(target=self.serve,daemon=True).start()
@@ -51,7 +51,7 @@ class PublisherFixture:
         try:
             for line in wire:
                 event=json.loads(line);kind=event['type'];self.events.append(event)
-                if kind=='hello':send('hello',capabilities=['native.h264','input.key.logical']+(['video.qos'] if self.qos else []),**({'video_max_fps':75} if self.qos else {}))
+                if kind=='hello':send('hello',capabilities=['native.h264','input.key.logical']+(['video.qos'] if self.qos else [])+(['clipboard.remote-only'] if self.remote_only else []),**({'video_max_fps':75} if self.qos else {}))
                 elif kind=='video.enable':send('video.ready',codec='h264')
                 elif kind=='session.resume':
                     send('session.snapshot',windows=list(self.members.values()))
@@ -73,7 +73,7 @@ class PublisherFixture:
             try:sock.shutdown(socket.SHUT_RDWR)
             except OSError:pass
 stop=threading.Event();network_processes=[]
-fixture=PublisherFixture(path,qos=True);other_path=Path(temporary.name)/'other.sock';other=PublisherFixture(other_path)
+fixture=PublisherFixture(path,qos=True);other_path=Path(temporary.name)/'other.sock';other=PublisherFixture(other_path,remote_only=True)
 events,connections=fixture.events,fixture.connections
 binary=root/'target/debug/paneferry-network'
 def manage(directory,**body):
@@ -173,6 +173,13 @@ try:
     other_viewer=Viewer(app,other_peer,'other fixture',session_id='fixture')
     until(lambda:other_viewer.ready and other_viewer.pixels is not None)
     assert not other_viewer.qos_supported and '固定 60 fps' in other_viewer.rate_label.get_text()
+    assert other_viewer.remote_clipboard_shortcuts
+    for key, pressed in [(Gdk.KEY_Control_L, True), (Gdk.KEY_c, True), (Gdk.KEY_c, False), (Gdk.KEY_Control_L, False)]:
+        other_viewer.key(SimpleNamespace(keyval=key, state=Gdk.ModifierType.CONTROL_MASK), pressed)
+    until(lambda:len([e for e in other.events if e['type']=='input.key.logical'])==4)
+    assert not any(e['type'].startswith('clipboard.') for e in other.events), 'Windows remote-only copy must not access the controller clipboard'
+    assert not other_viewer.pressed and other_viewer.copy_request is None
+
     assert viewer.members is not other_viewer.members and viewer.window_id==other_viewer.window_id==42
     viewer.send(type='input.key.logical',key='F2',pressed=True)
     viewer.send(type='input.key.logical',key='F2',pressed=False)

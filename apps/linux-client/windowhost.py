@@ -165,6 +165,7 @@ class Viewer:
         self.presented_frame_id = None
         if owner is None:
             self.max_fps = 60; self.configured_fps = None; self.qos_supported = False
+            self.remote_clipboard_shortcuts = False
             self.publisher_max_fps = 90; self.refresh_millihz = 0; self.monitor_timer = None
             self.pending_feedback = None; self.feedback_timer = None; self.last_feedback_at = 0
             self.last_feedback_id = 0
@@ -435,7 +436,7 @@ class Viewer:
     def key(self, event, pressed):
         name = Gdk.keyval_name(event.keyval) or ''
         control = event.state & Gdk.ModifierType.CONTROL_MASK
-        if pressed and control and name.lower() in ('c', 'x', 'v'):
+        if pressed and control and name.lower() in ('c', 'x', 'v') and not self.owner.remote_clipboard_shortcuts:
             self.release_keys()
             if name.lower() == 'v':
                 if self.copy_request:
@@ -492,6 +493,7 @@ class Viewer:
                 if 'input.key.logical' not in wire.capabilities or 'native.h264' not in wire.capabilities:
                     raise ValueError('protocol_error')
                 self.qos_supported = 'video.qos' in wire.capabilities
+                self.remote_clipboard_shortcuts = 'clipboard.remote-only' in wire.capabilities
                 self.publisher_max_fps = wire.video_max_fps
                 self.max_fps = automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
                 if self.qos_supported:
@@ -568,6 +570,8 @@ class Viewer:
                             if video: video.close()
                         if len(retired) > 128: raise ValueError('protocol_error')
                         self.on_ui(self.apply_members, catalog, epoch)
+                    elif kind == 'session.exited':
+                        raise ValueError('session_exited')
                     elif kind == 'clipboard.inline.data':
                         if wid in catalog: self.on_ui(self.members[wid].copied, event)
                     elif kind == 'error':

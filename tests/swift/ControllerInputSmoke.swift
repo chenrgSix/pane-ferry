@@ -5,6 +5,7 @@ struct ControllerInputSmoke {
     static func main() {
         _ = NSApplication.shared
         verifyShortcutRelease()
+        verifyRemoteClipboardShortcuts()
         verifyCut()
         verifyLogicalViewport()
         verifyRealtimeHover()
@@ -143,6 +144,23 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close detaches once; remote destruction stays local")
+    }
+
+    private static func verifyRemoteClipboardShortcuts() {
+        let surface = SurfaceView(frame: .zero)
+        surface.remoteID = 1; surface.remoteClipboardShortcuts = true
+        var sent: [[String: Any]] = []
+        surface.transmit = { sent.append($0) }
+        surface.readControllerClipboard = { preconditionFailure("remote-only shortcuts must not read the local clipboard") }
+        surface.requestControllerPaste = { preconditionFailure("remote-only paste must not upload the local clipboard") }
+        surface.copy(nil); surface.cut(nil); surface.paste(nil)
+        precondition(sent.count == 12 && sent.allSatisfy { $0["type"] as? String == "input.key" })
+        for (index, symbol) in [UInt32(99), 120, 118].enumerated() {
+            let keys = Array(sent[index*4..<(index+1)*4])
+            precondition(keys.map { $0["keysym"] as! UInt32 } == [0xffe3, symbol, symbol, 0xffe3])
+            precondition(keys.map { $0["pressed"] as! Bool } == [true, true, false, false])
+        }
+        print("PASS: Windows copy/cut/paste shortcuts stay in the remote clipboard and release modifiers")
     }
 
     private static func verifyHiddenSourceWindow() {

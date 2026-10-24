@@ -625,6 +625,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if code != "desktop_authorization_pending" { NSSound.beep() }
                 return
             }
+            if ["input_focus_required", "input_unavailable", "input_unsupported"].contains(code) {
+                let notice = code == "input_focus_required" ? "请在远端前台打开所选窗口；弹窗需另行处理" : code == "input_unavailable" ? "远端未接受输入，请检查应用权限" : "此按键暂不支持"
+                if let host = activeHost() { host.inputNotice = notice; host.window.subtitle = notice }
+                NSSound.beep(); return
+            }
             if code == "window_unavailable" { return }
             if code == "session_controlled", recovering { connectionLost(); return }
             if ["session_expired", "session_exited"].contains(code) {
@@ -774,6 +779,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.controllerPasteEnabled = capabilities.contains("clipboard.paste")
         host.surface.controllerCopyEnabled = capabilities.contains("clipboard.copy")
         host.surface.controllerCutEnabled = capabilities.contains("clipboard.cut")
+        host.surface.remoteClipboardShortcuts = capabilities.contains("clipboard.remote-only")
         host.revision = rev
         host.scaleMode = object["scale_mode"] as? String ?? "unknown"
         host.pageScaleSupported = object["page_scale_supported"] as? Bool ?? false

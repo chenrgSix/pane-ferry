@@ -141,7 +141,10 @@ MESSAGES = {
     'desktop_locked': '远端桌面已锁定，解锁后重连。',
     'clipboard_invalid': '剪贴板格式不可用或超过 8 MiB / 256 项限制。',
     'clipboard_copy_failed': '应用没有提供选中的内容。',
-    'capture_failed': 'Mac 窗口采集失败，请检查录屏权限。',
+    'capture_failed': '远端窗口采集或编码失败，请检查发布端状态。',
+    'input_focus_required': '请在远端前台打开所选窗口；弹窗需另行处理。',
+    'input_unavailable': '远端未接受输入，请检查应用权限。',
+    'input_unsupported': '此按键暂不支持。',
     'window_unavailable': '原窗口暂时不可用，请刷新后重试。',
 }
 
