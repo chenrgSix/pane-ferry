@@ -10,7 +10,7 @@
 新版 app.list 从 GIO 每次发现已安装桌面应用，并追加自定义入口。响应另有 discovery_supported:true、discovery_error:null|code；每项有 source:"desktop"|"custom" 和 icon_png:null|base64。图标仅为受限 PNG，应用图标最多 12KiB / 96px；控制端检查格式头、尺寸和长度。客户端不接收可执行路径或 argv；旧 Agent 没有 discovery_supported 时，新启动器明确提示需要更新。自动应用最多 512 个，自定义配置最多 256 个，控制响应行仍限制 16MiB。
 客户端 window.list，服务端 window.list {windows:[{id,app_id:null|string,window_id,name,title,icon_png,minimized,controlled,session_id:null|string}],unavailable_reason:null|code}。最多 128 个当前用户的 X11/XWayland 窗口及已启用 GNOME 桥接的原生 Wayland 窗口。app_id 是核验后的目录关联，不用标题猜测。只读查询不得截屏、改变焦点/尺寸或发送输入；单个窗口图标不超过 16KiB / 128px。自己的独立虚拟桌面和已接收的远程窗口不重复发布。
 接管从 window.list 返回的 id 仍使用 app.launch，不允许客户端传 PID、显示号、认证文件或任意 XID 作为接入目标。服务端注册并复核 XRes 客户 PID、同 UID、进程启动时间、可执行身份和选中窗口，仅该主窗口及关联弹窗进入会话。同 PID 的其他主窗口不属于这个会话。session_id 非空时从远程会话区重连，避免重复接管。
-客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口沿用原应用缩放，不在重连时改变。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
+客户端 app.launch {app_id,request_id,backend:"native",attach?:bool,scale_factor?:1|2}；服务端 session.started {session_id,backend,display,scale_factor}。scale_factor 缺省为 1，是新实例的界面缩放偏好，不是固定分辨率，也不保证工具包实际采用。独立会话在启动前设置工具包参数；已有窗口的原生应用缩放保持原值；ChatGPT 页面高清通过下述独立租约启用。attach 默认 true，保留直接 WindowHost 启动并推流的兼容行为；启动器使用 attach:false，仅幂等创建会话，不占控制权，再以 session.resume 附着 WindowHost，避免连接交接竞争。相同 request_id 在已有控制端在线时仍返回同一会话；已退出会话的请求 ID 返回错误，不重新启动。
 客户端 session.resume {session_id}；服务端 session.snapshot {session_id,windows:[完整 window.created 数据]}。
 客户端 session.list；服务端 session.list {sessions:[{session_id,app_id,backend,display,controlled,window_count?:number|null}]}，只返回尚未退出的会话，不抢占控制权。window_count 为当前可见窗口数；0 表示进程虽仍在运行但没有可列出的窗口，null 表示暂时无法确认。native controlled 为 true 时客户端应先从原宿主断开；原宿主关闭/断线后可从新启动器重新列出并附着。
 客户端 session.detach，退出桥接但保留远端会话。
@@ -24,9 +24,9 @@ display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，�
 视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
 
-声明 `window.page-scale` 的 Agent 接受 `window.page-scale {window_id,scale:1|2}`，仅已接管的受支持 ChatGPT XWayland 主窗口可用。2 表示当前页面布局倍率的两倍，1 结束本次租约并恢复原值；不改变原生 `scale_factor`。需要显式操作，不在连接/重连时自动开启。远端不能提供 URL、调试端口、JavaScript、PID 或启动参数，也不能借此重启应用。
+声明 `window.page-scale` 的 Agent 接受 `window.page-scale {window_id,scale:1|2}`，仅已接管的受支持 ChatGPT XWayland 主窗口可用。2 表示当前页面布局倍率的两倍，1 结束本次租约并恢复原值；不改变原生 `scale_factor`。Mac WindowHost 在连接/重连取得支持的可见目标主窗口元数据后自动请求 2；每个窗口每次连接只尝试一次，菜单可在本次连接内手动关闭。远端不能提供 URL、调试端口、JavaScript、PID 或启动参数，也不能借此重启应用。
 
-窗口元数据另有 `page_scale_supported:bool`、`page_scale_factor:1|2` 和 `presentation_scale_factor:1|2`；最后一项是源密度乘页面租约倍率，用于新版 Mac 的逻辑尺寸换算。其他窗口保持各自密度；实际捕获宽高、几何版本和帧验证继续生效。页面支持标记仅表示候选适配器，实际开启仍需验证调试入口、布局和唯一目标。`page_scale_*` 错误带窗口号，只拒绝本次操作。正常关闭、传输断开和发布器退出会恢复租约，不保留高清设置至下次连接。详见[ChatGPT 页面高清](chatgpt-page-scale.md)。
+窗口元数据另有 `page_scale_supported:bool`、`page_scale_factor:1|2` 和 `presentation_scale_factor:1|2`；最后一项是源密度乘页面租约倍率，用于新版 Mac 的逻辑尺寸换算。其他窗口保持各自密度；实际捕获宽高、几何版本和帧验证继续生效。页面支持标记仅表示候选适配器，实际开启仍需验证调试入口、布局和唯一目标。`page_scale_*` 错误带窗口号，只拒绝本次操作。正常关闭、传输断开和发布器退出会恢复租约；下次连接由控制端重新申请，Agent 不跨连接保留租约。详见[ChatGPT 页面高清](chatgpt-page-scale.md)。
 
 Linux 应用窗口的显式 window.focus 也用于恢复已最小化或隐藏的受控窗口；普通输入不隐式恢复隐藏窗口。Mac 接收端保留隐藏主窗口的本地恢复入口，等待源端 visible:true 后恢复输入。隐藏的菜单与子窗口不创建恢复占位页。
 Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。

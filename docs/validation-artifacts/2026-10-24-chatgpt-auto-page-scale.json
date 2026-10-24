@@ -1,0 +1,195 @@
+{
+  "date": "2026-10-24",
+  "change": "Enable ChatGPT page scale automatically on initial takeover and every reconnect; restore on detach",
+  "scope": "Selected prepared ChatGPT main window; existing Agent lease checks and restoration unchanged",
+  "appkit_live": {
+    "decoded_pixels": [
+      2940,
+      1610
+    ],
+    "logical_points": [
+      1470,
+      805
+    ],
+    "automatic_reconnects": 2,
+    "same_nswindow_and_frame": true,
+    "scale_never_compounded": true,
+    "explicit_detach": true
+  },
+  "source_observer": {
+    "samples": 407,
+    "lease_sequence": [
+      [
+        "",
+        false
+      ],
+      [
+        "2",
+        true
+      ],
+      [
+        "",
+        false
+      ],
+      [
+        "2",
+        true
+      ],
+      [
+        "",
+        false
+      ],
+      [
+        "2",
+        true
+      ],
+      [
+        "",
+        false
+      ]
+    ],
+    "before": {
+      "bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "inner": [
+        1470,
+        809
+      ],
+      "dpr": 1,
+      "zoom": "",
+      "pageZoom": "",
+      "priority": "",
+      "login": true,
+      "native_bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "lease": false
+    },
+    "after": {
+      "bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "inner": [
+        1470,
+        809
+      ],
+      "dpr": 1,
+      "zoom": "",
+      "pageZoom": "",
+      "priority": "",
+      "login": true,
+      "native_bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "lease": false
+    },
+    "same_process_witness_unchanged": true,
+    "other_observed_windows_unchanged": true,
+    "other_window_count": 4
+  },
+  "installed_app": {
+    "source_before": {
+      "bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "inner": [
+        1470,
+        809
+      ],
+      "dpr": 1,
+      "zoom": "",
+      "pageZoom": "",
+      "priority": "",
+      "login": true,
+      "native_bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "lease": false
+    },
+    "source_scaled": {
+      "bounds": [
+        240,
+        90,
+        2940,
+        1618
+      ],
+      "inner": [
+        2940,
+        1618
+      ],
+      "dpr": 1,
+      "zoom": "",
+      "pageZoom": "2",
+      "priority": "important",
+      "login": true,
+      "native_bounds": [
+        240,
+        90,
+        2940,
+        1618
+      ],
+      "lease": true
+    },
+    "source_after": {
+      "bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "inner": [
+        1470,
+        809
+      ],
+      "dpr": 1,
+      "zoom": "",
+      "pageZoom": "",
+      "priority": "",
+      "login": true,
+      "native_bounds": [
+        240,
+        90,
+        1470,
+        809
+      ],
+      "lease": false
+    },
+    "same_process_witness_unchanged": true,
+    "other_windows_unchanged": true,
+    "codesign_strict_deep": "passed",
+    "launcher_bundle_rebuilt_in_place": true,
+    "chatgpt_restarted": false,
+    "ubuntu_agent_restarted": false
+  },
+  "checks": {
+    "scripts/check.sh": "passed",
+    "apps/launcher/scripts/build-macos.sh": "passed",
+    "tests/e2e/live_page_scale_smoke.py": "passed",
+    "installed_host": "passed: actual source 2940x1618; initial private check assumed harness height 1610 and was corrected after measurement"
+  },
+  "limits": [
+    "Existing prepared-runtime/layout requirements still apply.",
+    "Failed adaptation is reported once per connection; reconnect or explicit menu action can retry.",
+    "Existing embedded-page/input validation was not repeated for this controller-only default change.",
+    "Local and LAN validation, not CI."
+  ]
+}

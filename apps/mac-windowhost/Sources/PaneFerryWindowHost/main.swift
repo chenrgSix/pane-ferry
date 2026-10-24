@@ -239,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var statusItem: NSStatusItem?
     var rateMenuItem: NSMenuItem?
     var capabilities = Set<String>()
+    private var pageScaleAttempted = Set<UInt32>()
     var videoFPS = 60
     var displayHz = 60
     var publisherMaxVideoFPS = maximumVideoFPS
@@ -333,8 +334,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
     @objc func togglePageScale() {
         guard let host = activeHost(), host.pageScaleSupported, capabilities.contains("window.page-scale") else { return }
+        pageScaleAttempted.insert(host.id)
         host.fixedPixels = nil
         send(["type": "window.page-scale", "window_id": host.id, "scale": host.pageScale == 2 ? 1 : 2])
+    }
+    private func automaticallyEnablePageScale(_ host: HostedWindow) {
+        guard connected, ready, !recovering, session != nil,
+              capabilities.contains("window.page-scale"), host.pageScaleSupported,
+              host.remoteVisible, !host.popup, !host.relatedWindow, !host.desktopMode,
+              pageScaleAttempted.insert(host.id).inserted else { return }
+        // Once per connection: metadata updates must neither retry a failed
+        // adapter nor undo a manual opt-out. Reconnect starts a fresh lease.
+        guard host.pageScale == 1 else { return }
+        host.fixedPixels = nil
+        send(["type": "window.page-scale", "window_id": host.id, "scale": 2])
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(togglePageScale) {
@@ -416,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static func reconnectDelay(_ attempt: Int) -> TimeInterval { [1, 2, 4, 8, 15][min(max(0, attempt), 4)] }
     func pauseConnection() {
         connected = false; ready = false; transport.disconnect()
+        pageScaleAttempted.removeAll()
         handshakeTimer?.invalidate(); handshakeTimer = nil
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil
         clipboardDeferred.removeAll(); clipboardBusy = false; clipboardReading = false; clipboardCopyGate = ClipboardCopyGate()
@@ -773,6 +787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if justCreated, visible, ["toplevel", "desktop"].contains(object["role"] as? String ?? "") {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
+        automaticallyEnablePageScale(host)
     }
     func attachParents() {
         for (id, parentID) in parents where id != parentID {

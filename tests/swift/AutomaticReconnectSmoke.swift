@@ -51,8 +51,77 @@ struct AutomaticReconnectSmoke {
         return icon
     }
 
+    static func verifyAutomaticPageScale() {
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        let app = AppDelegate(options: Options(app: "chatgpt-fixture", session: nil,
+            native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: "/tmp/fixture", helper: "/tmp/fixture/bridge")), clipboard: board)
+        defer { app.stopRecovery(); for host in app.windows.values { host.closeLocally() } }
+        var sent: [[String: Any]] = []; app.wireSink = { sent.append($0) }
+        var sequence = 0
+        func receive(_ object: [String: Any]) {
+            sequence += 1
+            var message = object; message["session_id"] = "page-scale"; message["seq"] = sequence
+            app.receive(Incoming(object: message, image: nil))
+        }
+        func window(_ id: Int, supported: Bool = true, visible: Bool = true, role: String = "toplevel", parent: Int? = nil, scale: Int = 1) -> [String: Any] {
+            var value: [String: Any] = ["type": "window.created", "window_id": id, "width": 640 * scale, "height": 480 * scale,
+                "geometry_revision": 1, "scale_factor": 1, "page_scale_factor": scale, "presentation_scale_factor": scale,
+                "page_scale_supported": supported, "visible": visible, "role": role]
+            if let parent { value["parent_id"] = parent }
+            return value
+        }
+        func scales() -> [[String: Any]] { sent.filter { $0["type"] as? String == "window.page-scale" } }
+        let hello = Incoming(object: ["type": "hello", "capabilities": ["native.h264", "window.page-scale"]], image: nil)
+        app.receive(hello)
+        precondition(scales().isEmpty, "hello cannot scale an unattached window")
+        receive(["type": "session.started"])
+        receive(window(42))
+        precondition(scales().count == 1 && scales()[0]["window_id"] as? UInt32 == 42 && scales()[0]["scale"] as? Int == 2,
+                     "first takeover must automatically enable the selected ChatGPT window")
+        // Repeated unscaled metadata also models a rejected/failed adapter.
+        receive(window(42)); receive(window(42, scale: 2)); receive(window(42))
+        precondition(scales().count == 1, "pending, failed or ended leases must not cause automatic retry loops")
+        receive(window(43, supported: false))
+        receive(window(44, role: "popup"))
+        receive(window(45, parent: 42))
+        var desktop = window(46); desktop["surface_type"] = "desktop"; receive(desktop)
+        receive(window(47, visible: false))
+        precondition(scales().count == 1, "other apps, popups, related windows, desktops and hidden windows must not be scaled")
+        receive(window(47))
+        precondition(scales().count == 2 && scales().last?["window_id"] as? UInt32 == 47,
+                     "a hidden candidate can enable once it becomes visible")
+        let host = app.windows[42]!
+        receive(window(42, scale: 2))
+        NSApp.activate(ignoringOtherApps: true); host.window.makeKeyAndOrderFront(nil)
+        let deadline = Date().addingTimeInterval(2)
+        while NSApp.keyWindow !== host.window, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            while let event = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
+        precondition(NSApp.keyWindow === host.window)
+        app.togglePageScale()
+        precondition(scales().last?["scale"] as? Int == 1)
+        let manualCount = scales().count
+        receive(window(42)); receive(window(42))
+        precondition(scales().count == manualCount, "manual disable lasts for the current connection")
+        let frame = host.window.frame
+        app.pauseConnection(); app.recovering = true; app.connected = true; app.lastSequence = 0; sequence = 0
+        app.receive(hello)
+        precondition(scales().count == manualCount, "reconnect must wait for the new authoritative snapshot")
+        receive(["type": "session.snapshot", "windows": [window(42), window(43, supported: false)]])
+        precondition(scales().count == manualCount + 1 && scales().last?["scale"] as? Int == 2,
+                     "reconnect automatically enables a fresh lease even after manual disable")
+        precondition(app.windows[42] === host && host.window.frame == frame)
+        app.pauseConnection(); app.connected = true; app.recovering = true; app.lastSequence = 0; sequence = 0
+        app.receive(Incoming(object: ["type": "hello", "capabilities": ["native.h264"]], image: nil))
+        receive(["type": "session.snapshot", "windows": [window(42)]])
+        precondition(scales().count == manualCount + 1, "older peers without page-scale capability remain compatible")
+        print("PASS: ChatGPT automatic 2x on takeover/reconnect, target/capability/visibility guards, no metadata retry loop, manual disable until reconnect")
+    }
+
     static func main() throws {
         _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular); NSApp.finishLaunching()
         let icon = try verifyIcons()
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
@@ -174,6 +243,7 @@ struct AutomaticReconnectSmoke {
         launch.session = "known"; launch.ready = false; launch.receive(hello)
         precondition(sent.last?["type"] as? String == "session.resume" && sent.last?["session_id"] as? String == "known")
         launch.stopRecovery()
+        verifyAutomaticPageScale()
         print("PASS: real transport subprocess loss automatically resumes the same NSWindow/session, resets stream sequence, preserves resolution, drops offline input and stops on quit; launch idempotence")
         print("PASS: bounded Ubuntu PNG with alpha over fragmented stdin; non-PNG/oversized icons rejected; application Dock icon survives reconnect")
         print("PASS: shared Ubuntu authorization state stays scoped to the session, survives frame metadata, clears on readiness and does not block reconnect")
