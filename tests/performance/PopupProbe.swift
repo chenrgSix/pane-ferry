@@ -51,6 +51,9 @@ enum Probe {
             ["id": host.id, "parent": delegate?.parents[host.id] as Any? ?? NSNull(),
              "kind": host.presentation?.kind ?? "unknown", "visible": host.window.isVisible,
              "remote_visible": host.remoteVisible, "borderless": host.window.styleMask == .borderless,
+             "visible_rect": rect(host.surface.visibleRect), "document_rect": rect(host.surface.bounds),
+             "local_scroll": host.surface.scrollOverflowLocally,
+             "work_area": host.window.screen.map { rect($0.visibleFrame) } ?? [],
              "width": host.surface.remoteWidth, "height": host.surface.remoteHeight,
              "scale": host.rendering.scale, "frame": rect(host.window.frame),
              "source_rect": host.presentation.map { rect($0.rect) } ?? [],
@@ -74,6 +77,15 @@ enum Probe {
             let file = directory.appendingPathComponent("window-\(host.id).png")
             try data.write(to: file, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            if let viewport = host.overflowViewport,
+               let bitmap = viewport.bitmapImageRepForCachingDisplay(in: viewport.bounds) {
+                viewport.cacheDisplay(in: viewport.bounds, to: bitmap)
+                if let data = bitmap.representation(using: .png, properties: [:]) {
+                    let visible = directory.appendingPathComponent("window-\(host.id)-viewport.png")
+                    try data.write(to: visible, options: .atomic)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: visible.path)
+                }
+            }
         }
         state()
         let metadata = try Data(contentsOf: URL(fileURLWithPath: output + ".state.json"))
@@ -103,6 +115,37 @@ enum Probe {
         serial = nextSerial
         if request["action"] as? String == "snapshot", ["ready", "preview"].contains(phase) {
             do { try snapshot() } catch { finish(error: "snapshot export failed") }
+            return
+        }
+        if request["action"] as? String == "scroll", ["ready", "preview"].contains(phase),
+           let id = request["window_id"] as? UInt32, let host = app.windows[id], host.surface.scrollOverflowLocally,
+           let delta = request["delta"] as? Int32, abs(Int64(delta)) <= 2000,
+           let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0),
+           let event = NSEvent(cgEvent: cg) {
+            injecting = true; host.surface.scrollWheel(with: event); injecting = false
+            return
+        }
+        if ["hover", "wheel"].contains(request["action"] as? String ?? ""), ["ready", "preview"].contains(phase),
+           let id = request["window_id"] as? UInt32, let host = app.windows[id],
+           let x = request["x"] as? Double, let y = request["y"] as? Double,
+           x.isFinite, y.isFinite, x >= 0, y >= 0, x < Double(host.surface.remoteWidth), y < Double(host.surface.remoteHeight) {
+            let rect = host.surface.imageRect
+            let point = CGPoint(x: rect.minX + x / Double(host.surface.remoteWidth) * rect.width,
+                                y: rect.minY + y / Double(host.surface.remoteHeight) * rect.height)
+            guard host.surface.visibleRect.contains(point) else { return }
+            if request["action"] as? String == "wheel" {
+                guard !host.surface.scrollOverflowLocally else { return }
+                let button = (request["up"] as? Bool ?? false) ? 4 : 5
+                for pressed in [true, false] {
+                    app.send(["type": "input.pointer", "window_id": id, "x": Int(x), "y": Int(y),
+                              "button": button, "pressed": pressed])
+                }
+                return
+            }
+            let event = NSEvent.mouseEvent(with: .mouseMoved, location: host.surface.convert(point, to: nil), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 0, pressure: 0)!
+            injecting = true; host.surface.mouseMoved(with: event); injecting = false
             return
         }
         if request["action"] as? String == "stop" { finish(error: "stopped by operator"); return }
