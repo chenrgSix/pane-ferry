@@ -38,3 +38,5 @@ Mac 在父窗口无匹配画面、隐藏、最小化、销毁或关系成环时�
 需要 Agent、Mac WindowHost 和 GNOME 扩展一起更新。扩展包版本 2、运行时桥接版本 3 才提供完整类型信息。GNOME 会缓存已经导入的扩展模块，[50.1 扩展管理器源码](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/extensionSystem.js)明确说明同一登录中不能加载不同版本。用户保存工作、重新登录 Ubuntu 后应核对 `bridge_version:3`；不能把文件安装或 `ReloadExtension` 成功当作新版已运行，也不能为更新自动注销用户桌面。
 
 本次开发期间的真实原桌面 IDEA 弹窗视觉验收及部署后延迟测量尚未完成。隔离 GNOME 和本地 AppKit 结果不能替代这两项。
+
+2026-10-25 部署状态：`f158a34` 对应 Mac WindowHost 已更新到本机启动器内嵌包及开发资源模板，严格签名校验通过；二进制 SHA-256 为 `de1f1e7674a089600d9738c2ced14b59fc1ec993cb4209a68e7db7cb0eb8d178`。旧包已保留在本机诊断目录的 `deployment-20261025-f158a34/`。远端 SSH 复用登录在中断期间失效，Agent 和扩展尚未部署此修复；不能将此前隔离测试成功解释成用户桌面已更新。
