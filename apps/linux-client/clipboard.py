@@ -8,6 +8,16 @@ from wire import STATE, private
 
 MAX = 8 * 1024 * 1024
 generation = 0
+watched_board = None
+
+
+def watch(board):
+    global watched_board
+    if watched_board is board: return
+    if watched_board is not None: return
+    watched_board = board
+    board.connect('owner-change', lambda *_: begin_copy())
+
 
 
 def begin_copy():

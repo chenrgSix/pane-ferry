@@ -136,6 +136,16 @@ class Wire:
         self.socket.close()
 
 
+# Same explicit terminal rejections as transport::Error::retry_same_request.
+TERMINAL_LAUNCH_ERRORS = frozenset((
+    'existing_process_unavailable', 'existing_process_mismatch', 'existing_window_unavailable',
+    'application_multiple_windows', 'application_start_failed', 'wayland_bridge_unavailable',
+    'wayland_bridge_outdated', 'wayland_capture_unavailable', 'session_expired', 'session_exited',
+    'request_id_conflict', 'app_not_approved', 'desktop_application_unavailable',
+    'desktop_secrets_unavailable', 'session_limit', 'request_history_limit',
+))
+
+
 def request(peer_id, kind, expected=None, local=False, **fields):
     wire = Wire(peer_id, local=local)
     try:

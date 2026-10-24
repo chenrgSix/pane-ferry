@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from wire import TERMINAL_LAUNCH_ERRORS
 """Single 窗渡 PaneFerry entry: local publishing and remote native windows."""
 import atexit
 import hashlib
@@ -297,11 +298,18 @@ class Manager(Gtk.Application):
         def start():
             try:
                 response = request(peer, 'app.launch', 'session.started', app_id=app['id'], request_id=request_id, backend='native', attach=False)
-                self.pending_launches.pop(key, None);save(self.launch_store, self.pending_launches)
+                GLib.idle_add(self.clear_pending_launch, key, request_id)
                 GLib.idle_add(self.open_viewer, peer, app['name'], response['session_id'])
             except (OSError, ValueError, EOFError) as error:
+                if str(error) in TERMINAL_LAUNCH_ERRORS:
+                    GLib.idle_add(self.clear_pending_launch, key, request_id)
                 GLib.idle_add(self.set_notice, message(error))
         threading.Thread(target=start, daemon=True).start()
+
+    def clear_pending_launch(self, key, request_id):
+        if self.pending_launches.get(key) == request_id:
+            self.pending_launches.pop(key, None); save(self.launch_store, self.pending_launches)
+        return False
 
     def open_viewer(self, peer, name, session_id=None, app_id=None):
         self.viewers = [v for v in self.viewers if not v.closed.is_set()]
