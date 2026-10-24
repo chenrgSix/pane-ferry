@@ -1,0 +1,26 @@
+name: Windows publisher
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Build and test publisher without controlling the runner desktop
+        shell: pwsh
+        run: ./scripts/check-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paneferry-windows-preview
+          path: |
+            target/release/paneferry-windows.exe
+            target/release/paneferry-network.exe
+            docs/windows-publishing.md
+          if-no-files-found: error

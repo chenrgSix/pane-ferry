@@ -56,3 +56,13 @@ Catalog 来自该 Linux 用户安装的桌面入口，以及可选的 ~/.config/
 GNOME 50 原生 Wayland 使用合成器窗口身份、同 UID/进程启动时间及独占租约；接入仍使用服务端生成的 app_id。只采集选定主窗口和明确 transient 关联窗口，PipeWire 原图按 crop 元数据去除 padding/阴影后进入同一 H.264 输出。输入仍经共享 RemoteDesktop Portal 授权。原生路径当前只支持主动文本复制/粘贴；二进制剪贴板和剪切分别返回 `wayland_binary_clipboard_unavailable`、`wayland_cut_unavailable`，拒绝发生在删除内容前。
 
 `resolution_limited` 带 window_id 时只拒绝该窗口的尺寸请求，连接和当前画面继续保留；未带窗口号时表示现有原窗口超出采集范围，需要先缩小。`wayland_bridge_unavailable` / `wayland_bridge_failed` / `wayland_capture_unavailable` / `desktop_locked` 中止本次控制连接并明确提示，保留原进程与会话，不自动创建替代浏览器配置。限制与实测记录见[像素、缩放与 Wayland](window-resolution.md)。
+## Windows 单窗口发布扩展（开发预览）
+
+Windows 发布器继续使用 RWP/1 与 RWN/2，hello 声明 `platform.windows`、`native.h264`、`input.key.logical`、`input.text.commit`、`clipboard.remote-only`、`window.list`、`session.list`、`session.resume`，报告 `video_max_fps:30`。首版不声明 `video.qos` 或跨设备剪贴板能力。
+
+- `app.list` 返回空列表；用户通过 `window.list` 获取当前已登录桌面的可见窗口 ID，再以 `app.launch {app_id:窗口目录ID,...}` 准备/附着现有窗口，不启动新进程。`attach:false`、request_id 去重及单控制端规则保持不变。
+- 会话 `display:0` 为兼容占位，不是 Windows 显示器或桌面编号。每个会话的公开 `window_id:1` 只在该设备/会话内有效，不传递原始 HWND。源应用缩放保持原值，`scale_factor:1` 是当前协议的像素映射基准，不宣称读取到了 Windows 实际 DPI。
+- 兼容 Mac 的 `input.key {keysym,pressed}` 和 Ubuntu 的 `input.key.logical {key,pressed}`。后者的 `key` 使用既有 GDK/X11 符号名称，如 `Control_L`、`Return`、`a`；Windows 将其映射为本机虚拟键，Control 不转换成 Mac Command。文字仍通过 `input.text.commit` 提交。
+- `clipboard.remote-only` 表示接收端复制/剪切/粘贴快捷键作为普通 Control+C/X/V 发给源窗口，只操作源设备剪贴板。能力出现时不能读取、上传或覆盖接收端系统剪贴板；未出现时保持既有剪贴板协议。
+- `input_focus_required`、`input_unavailable`、`input_unsupported` 是可显示的输入错误，不代表应用退出。`session.exited` 表示源窗口身份失效；断网仅结束控制连接，恢复仍附着原会话。
+- 控制请求限制为 64 KiB，已提交文本继续受公共 8 KiB 限制。视频仍遵循 Annex B、SPS/PPS/IDR、12 MiB 包上限和 geometry_revision 规则。标题变化不重置几何版本；尺寸/可见性变化不能继续交付旧版本画面。

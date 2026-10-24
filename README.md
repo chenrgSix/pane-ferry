@@ -30,12 +30,17 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。原生连接默认监听 UDP 42424，面向局域网；不自动配置公网映射。
 
+**Windows 发布端（源码开发预览，待实机验收）：** 已加入当前登录桌面的单窗口发布器，复用设备配对与 QUIC，供 Mac / Ubuntu 接收。当前提供命令行入口，不含 Windows 接收端和安装器；构建步骤与验证边界见 [Windows 发布指南](docs/windows-publishing.md)。
+
 ## 仓库
 
 - `apps/linux-agent`：用户级发布器、私有本机接口、持久图形会话。
 - `apps/launcher`：Tauri 2 + Vue/TypeScript 设备与应用启动器。
 - `apps/mac-windowhost`：Swift/AppKit 原生窗口宿主。
 - `apps/mac-node`：Mac 本机窗口发布、H.264 编码和输入执行辅助组件。
+- `apps/windows-node`：Windows 当前桌面单窗口发布入口（开发预览）。
+- `crates/backend-windows`：Windows 窗口身份、WGC 采集、Media Foundation 编码与输入。
+- `crates/platform`：Unix / Windows 本机 IPC 与私有文件存储。
 - `apps/linux-client`：同一个 Ubuntu 产品中的 GTK 管理界面、输入法和窗口接收组件。
 - `crates/network`：两端共用的 QUIC、配对、设备路由和二进制流组件。
 - `crates/`：协议、传输和 Linux 后端等 Rust 组件。
