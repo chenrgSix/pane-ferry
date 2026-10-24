@@ -1,0 +1,67 @@
+{
+  "commit": "6ca4383b84300b50c1d3e355165ad4de4d647dd0",
+  "route_interface": "utun4",
+  "endpoint": "context menu AppKit draw completion",
+  "injection": "SurfaceView rightMouseDown",
+  "formal_samples": 60,
+  "warmup_samples": 2,
+  "expected_popup_pixels": [
+    790,
+    1868
+  ],
+  "root_pixels": [
+    2800,
+    1936
+  ],
+  "total": {
+    "count": 60,
+    "median_ms": 323.635333,
+    "p95_nearest_rank_ms": 387.659083,
+    "min_ms": 257.888125,
+    "max_ms": 500.849417
+  },
+  "stages": {
+    "input_write": {
+      "count": 60,
+      "median_ms": 0.189104,
+      "p95_nearest_rank_ms": 1.301792,
+      "min_ms": 0.046333,
+      "max_ms": 1.587833
+    },
+    "response": {
+      "count": 60,
+      "median_ms": 278.7609585,
+      "p95_nearest_rank_ms": 358.580084,
+      "min_ms": 218.154,
+      "max_ms": 468.398875
+    },
+    "decode": {
+      "count": 60,
+      "median_ms": 33.314687500000005,
+      "p95_nearest_rank_ms": 39.852125,
+      "min_ms": 23.678667,
+      "max_ms": 42.0445
+    },
+    "main_thread": {
+      "count": 60,
+      "median_ms": 6.5199165,
+      "p95_nearest_rank_ms": 10.650917,
+      "min_ms": 0.740667,
+      "max_ms": 12.00375
+    },
+    "draw": {
+      "count": 60,
+      "median_ms": 2.2746665,
+      "p95_nearest_rank_ms": 11.213125,
+      "min_ms": 1.0835,
+      "max_ms": 16.443416
+    }
+  },
+  "direct_old_version_comparison": false,
+  "all_borderless": true,
+  "all_hardware_decoded": true,
+  "excluded_observation": {
+    "error": "session_controlled",
+    "frames": 0
+  }
+}

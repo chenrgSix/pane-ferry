@@ -44,3 +44,5 @@
 - ignored 表示测试未在该轮默认门禁执行，不能算通过；Ubuntu native_encoder 已另外显式执行。Windows 原生编译/桌面、GitHub hosted CI、正式部署和生产端到端性能仍未验收。
 
 日志保留于本机 `/tmp/paneferry-audit-full-local.log`、`/tmp/paneferry-audit-full-ubuntu.log`、`/tmp/paneferry-audit-network-final.log`、`/tmp/paneferry-audit-final-ubuntu-delta.log`，临时目录日志不作为仓库长期证据；上面的命令和用例已纳入版本控制，可重复执行。
+
+后续已按用户要求部署 `6ca4383b` 到 Ubuntu 并更新 Mac 接收端，完成真实 IDEA 菜单 60 次端到端测量；部署摘要、显示证据、延迟及验收范围见[部署实测记录](performance/2026-10-25-audit-deployment-idea-latency.md)。该后续结果不改变上述审查阶段的历史执行范围。
