@@ -116,12 +116,8 @@ impl Output {
     pub fn message(&self, value: Value, session: &str) -> Result<()> {
         self.push(Pending::Message(value, session.into()))
     }
-    pub fn frame(&self, window: &Window, image: CapturedImage, session: &str) -> Result<()> {
-        self.push(Pending::Frame(
-            window.clone(),
-            Arc::new(image),
-            session.into(),
-        ))
+    pub fn frame(&self, window: &Window, image: Arc<CapturedImage>, session: &str) -> Result<()> {
+        self.push(Pending::Frame(window.clone(), image, session.into()))
     }
     pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
         self.push(Pending::EnableVideo(max_fps, feedback))
@@ -392,12 +388,12 @@ mod tests {
             ..image
         };
         output.enable_video(60, false).unwrap();
-        output.frame(&window, image, &session).unwrap();
+        output.frame(&window, Arc::new(image), &session).unwrap();
         let video = read();
         assert_eq!(video["codec"], "h264");
         assert!(video.get("png").is_none());
         changed.data[0] = 125;
-        output.frame(&window, changed, &session).unwrap();
+        output.frame(&window, Arc::new(changed), &session).unwrap();
         let moving = read();
         assert_eq!(moving["codec"], "h264");
         assert_eq!(moving["stream_id"], video["stream_id"]);

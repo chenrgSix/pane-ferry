@@ -183,7 +183,7 @@ pub fn inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
 }
 struct Stream {
     capture: PipeWireCapture,
-    image: Option<CapturedImage>,
+    image: Option<Arc<CapturedImage>>,
     dirty: bool,
     started: Instant,
 }
@@ -260,7 +260,7 @@ impl Backend {
                         window.geometry_revision += 1;
                     }
                 }
-                stream.image = Some(image);
+                stream.image = Some(Arc::new(image));
                 stream.dirty = true;
             }
             if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
@@ -464,7 +464,7 @@ impl WindowBackend for Backend {
                 .get(&id)
                 .is_some_and(|s| s.dirty && s.image.is_some())
     }
-    fn capture(&self, window: &Window) -> Result<CapturedImage> {
+    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>> {
         let mut streams = self.streams.borrow_mut();
         let stream = streams
             .get_mut(&window.window_id)
@@ -474,15 +474,7 @@ impl WindowBackend for Backend {
             bail!("frame pending")
         }
         stream.dirty = false;
-        Ok(CapturedImage {
-            width: image.width,
-            height: image.height,
-            data: image.data.clone(),
-            bpp: image.bpp,
-            pad: image.pad,
-            little: image.little,
-            masks: image.masks,
-        })
+        Ok(Arc::clone(image))
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         let info = self.known(id)?;

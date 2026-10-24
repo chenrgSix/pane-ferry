@@ -140,7 +140,7 @@ pub fn monitors() -> Result<Vec<Monitor>> {
 
 struct Stream {
     capture: PipeWireCapture,
-    image: Option<CapturedImage>,
+    image: Option<Arc<CapturedImage>>,
     dirty: bool,
     started: Instant,
 }
@@ -214,7 +214,7 @@ impl Backend {
                 window.height = image.height;
                 window.geometry_revision += 1;
             }
-            stream.image = Some(image);
+            stream.image = Some(Arc::new(image));
             stream.dirty = true;
         }
         if stream.image.is_none() && stream.started.elapsed() > Duration::from_secs(8) {
@@ -339,7 +339,7 @@ impl WindowBackend for Backend {
                     .as_ref()
                     .is_some_and(|s| s.dirty && s.image.is_some()))
     }
-    fn capture(&self, window: &Window) -> Result<CapturedImage> {
+    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>> {
         self.known(window.window_id)?;
         let mut stream = self.stream.borrow_mut();
         let stream = stream.as_mut().context("frame pending")?;
@@ -348,15 +348,7 @@ impl WindowBackend for Backend {
             bail!("frame pending")
         }
         stream.dirty = false;
-        Ok(CapturedImage {
-            width: image.width,
-            height: image.height,
-            data: image.data.clone(),
-            bpp: image.bpp,
-            pad: image.pad,
-            little: image.little,
-            masks: image.masks,
-        })
+        Ok(Arc::clone(image))
     }
     fn configure(&self, _id: u32, _width: u32, _height: u32) -> Result<()> {
         bail!("desktop_geometry_fixed")

@@ -65,6 +65,8 @@ runtime_api! {
     sample_unref: unsafe extern "C" fn(Object) -> () => (core, c"gst_sample_unref"),
     size: unsafe extern "C" fn(Object) -> usize => (core, c"gst_buffer_get_size"),
     extract: unsafe extern "C" fn(Object, usize, Object, usize) -> usize => (core, c"gst_buffer_extract"),
+    map: unsafe extern "C" fn(Object, *mut MapInfo, c_uint) -> c_int => (core, c"gst_buffer_map"),
+    unmap: unsafe extern "C" fn(Object, *mut MapInfo) -> () => (core, c"gst_buffer_unmap"),
     crop_type: unsafe extern "C" fn() -> usize => (video, c"gst_video_crop_meta_api_get_type"),
     meta: unsafe extern "C" fn(Object, usize) -> *const VideoCropMeta => (core, c"gst_buffer_get_meta"),
     flags: unsafe extern "C" fn(Object) -> c_uint => (core, c"gst_buffer_get_flags"),
@@ -128,6 +130,79 @@ struct VideoCropMeta {
     y: c_uint,
     width: c_uint,
     height: c_uint,
+}
+
+// Public GstMapInfo ABI (gst/gstmemory.h), including GST_PADDING = 4.
+#[repr(C)]
+struct MapInfo {
+    memory: Object,
+    flags: c_uint,
+    data: *mut u8,
+    size: usize,
+    maxsize: usize,
+    user_data: [Object; 4],
+    reserved: [Object; 4],
+}
+struct ReadMap {
+    api: &'static Api,
+    buffer: Object,
+    info: MapInfo,
+}
+impl ReadMap {
+    // The caller keeps the sample/buffer alive until this mapping is dropped.
+    fn new(api: &'static Api, buffer: Object) -> Result<Self> {
+        let mut mapping = Self {
+            api,
+            buffer,
+            info: unsafe { std::mem::zeroed() },
+        };
+        if unsafe { (api.map)(buffer, &mut mapping.info, 1) } == 0 {
+            // A failed map must not be unmapped.
+            mapping.buffer = ptr::null_mut();
+            bail!("cannot map PipeWire frame")
+        }
+        Ok(mapping)
+    }
+    fn bytes(&self) -> Result<&[u8]> {
+        if self.info.data.is_null() || self.info.size > isize::MAX as usize {
+            bail!("invalid PipeWire mapping")
+        }
+        Ok(unsafe { std::slice::from_raw_parts(self.info.data, self.info.size) })
+    }
+}
+impl Drop for ReadMap {
+    fn drop(&mut self) {
+        if !self.buffer.is_null() {
+            unsafe { (self.api.unmap)(self.buffer, &mut self.info) };
+        }
+    }
+}
+
+fn copy_bgrx_crop(bytes: &[u8], width: usize, crop: [usize; 4]) -> Result<Vec<u8>> {
+    let [x, y, w, h] = crop;
+    let source_stride = width.checked_mul(4).context("invalid PipeWire stride")?;
+    let stride = w.checked_mul(4).context("invalid PipeWire crop")?;
+    let end = y
+        .checked_add(h)
+        .and_then(|rows| rows.checked_mul(source_stride));
+    if w == 0
+        || h == 0
+        || x.checked_add(w).is_none_or(|end| end > width)
+        || end.is_none_or(|end| end > bytes.len())
+    {
+        bail!("invalid PipeWire crop")
+    }
+    let start = y * source_stride + x * 4;
+    if w == width {
+        return Ok(bytes[start..start + stride * h].to_vec());
+    }
+    // Allocate once without clearing a whole frame before overwriting it.
+    let mut data = Vec::with_capacity(stride * h);
+    for row in 0..h {
+        let offset = start + row * source_stride;
+        data.extend_from_slice(&bytes[offset..offset + stride]);
+    }
+    Ok(data)
 }
 
 /// A single compositor-selected window, retaining original pixels and crop metadata.
@@ -319,17 +394,20 @@ impl PipeWireCapture {
             {
                 bail!("invalid PipeWire crop")
             }
-            let stride = frame_width as usize * 4;
-            let mut data = vec![0; stride * frame_height as usize];
-            for (row, target) in data.chunks_exact_mut(stride).enumerate() {
-                let offset = ((crop_y + top) as usize + row) * width as usize * 4
-                    + (crop_x + left) as usize * 4;
-                if unsafe { (self.api.extract)(buffer, offset, target.as_mut_ptr().cast(), stride) }
-                    != stride
-                {
-                    bail!("short PipeWire frame")
-                }
-            }
+            // Map once, copy only the cropped pixels, and release the PipeWire
+            // buffer immediately. The capture cache/output/encoder share this
+            // owned allocation, so a slow encoder never pins compositor buffers.
+            let mapping = ReadMap::new(self.api, buffer)?;
+            let data = copy_bgrx_crop(
+                mapping.bytes()?,
+                width as usize,
+                [
+                    (crop_x + left) as usize,
+                    (crop_y + top) as usize,
+                    frame_width as usize,
+                    frame_height as usize,
+                ],
+            )?;
             Ok(Some(CapturedImage {
                 width: frame_width,
                 height: frame_height,
@@ -547,6 +625,30 @@ mod tests {
     };
 
     #[test]
+    fn crop_copies_exact_pixels_without_padding_or_aliasing() {
+        let mut pixels: Vec<u8> = (0..6 * 5 * 4).map(|n| n as u8).collect();
+        let cropped = copy_bgrx_crop(&pixels, 6, [2, 1, 3, 2]).unwrap();
+        assert_eq!(
+            cropped,
+            [pixels[32..44].to_vec(), pixels[56..68].to_vec()].concat()
+        );
+        let full_rows = copy_bgrx_crop(&pixels, 6, [0, 2, 6, 2]).unwrap();
+        assert_eq!(full_rows, pixels[48..96]);
+        pixels.fill(0);
+        assert_eq!(cropped[0], 32);
+        assert_eq!(full_rows[0], 48);
+        for crop in [
+            [4, 0, 3, 1],
+            [0, 4, 6, 2],
+            [0, 0, 0, 1],
+            [0, usize::MAX, 1, 2],
+        ] {
+            assert!(copy_bgrx_crop(&pixels, 6, crop).is_err());
+        }
+        assert!(copy_bgrx_crop(&pixels[..47], 6, [0, 1, 6, 1]).is_err());
+    }
+
+    #[test]
     fn frame_wake_coalesces_and_rearms_without_losing_concurrent_notifications() {
         let wake = Arc::new(FrameWake::new().unwrap());
         let ready = |wake: &FrameWake| {
@@ -601,6 +703,9 @@ mod tests {
         let image = capture.pull_monitor().unwrap().unwrap();
         assert_eq!((image.width, image.height), (64, 48));
         drop(capture);
+        // Pixels remain owned and usable after mapping, sample and pipeline die.
+        assert_eq!(image.data.len(), 64 * 48 * 4);
+        assert!(image.data.iter().any(|b| *b != 0));
         wake.drain();
     }
 
