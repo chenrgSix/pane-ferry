@@ -44,6 +44,19 @@ impl State {
         }))
     }
 }
+fn release_controller(state: &mut State, id: &str, owner: uuid::Uuid, exited: bool) {
+    if let Some(session) = state
+        .sessions
+        .get_mut(id)
+        .filter(|s| s.controller == Some(owner))
+    {
+        session.controller = None;
+        if exited {
+            state.sessions.remove(id);
+        }
+    }
+}
+
 pub type Factory = fn() -> Result<Box<dyn WindowSystem>>;
 pub async fn serve(
     listener: LocalListener,
@@ -155,18 +168,25 @@ impl Client {
             Ok(())
         })();
         if let Err(error) = result {
-            self.state
-                .lock()
-                .unwrap()
-                .sessions
-                .get_mut(id)
-                .unwrap()
-                .controller = None;
-            if public_error(&error) == "session_exited" {
-                self.state.lock().unwrap().sessions.remove(id);
-            }
+            release_controller(
+                &mut self.state.lock().unwrap(),
+                id,
+                self.id,
+                public_error(&error) == "session_exited",
+            );
             self.system.detach();
             return Err(error);
+        }
+        if !self
+            .state
+            .lock()
+            .unwrap()
+            .sessions
+            .get(id)
+            .is_some_and(|s| s.controller == Some(self.id))
+        {
+            self.system.detach();
+            bail!("session_expired");
         }
         self.session = Some((id.into(), target));
         self.revision = 1;
@@ -496,5 +516,37 @@ pub async fn client(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod race_tests {
+    use super::*;
+    #[test]
+    fn attach_failure_cleanup_tolerates_retirement_and_never_clears_a_new_owner() {
+        let state = State::new("test".into(), true);
+        let mut state = state.lock().unwrap();
+        let failed = uuid::Uuid::new_v4();
+        // Another client retired the target while geometry/attach was running.
+        release_controller(&mut state, "s", failed, true);
+        let current = uuid::Uuid::new_v4();
+        state.sessions.insert(
+            "s".into(),
+            Session {
+                target: Target {
+                    id: "window".into(),
+                    handle: 1,
+                    pid: 1,
+                    started: 1,
+                    generation: 1,
+                    name: "test".into(),
+                },
+                controller: Some(current),
+            },
+        );
+        release_controller(&mut state, "s", failed, true);
+        assert_eq!(state.sessions["s"].controller, Some(current));
+        release_controller(&mut state, "s", current, true);
+        assert!(!state.sessions.contains_key("s"));
     }
 }
