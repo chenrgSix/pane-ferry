@@ -1,7 +1,6 @@
 //! Bounded H.264 output worker: a slow reader must not stall input.
 use crate::video_qos::VideoQos;
 use anyhow::{bail, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 #[cfg(test)]
 use paneferry_backend_x11::CapturedImage;
 use paneferry_protocol::Window;
@@ -15,6 +14,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "output_worker.rs"]
+mod worker;
+
 const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
@@ -23,12 +25,16 @@ enum Pending {
     KeyFrame(u32),
     Message(Value, String),
     Frame(Window, Arc<crate::video::Frame>, String),
-}
-struct CachedFrame {
-    window: Window,
-    image: Arc<crate::video::Frame>,
+    Encoded(worker::Encoded),
+    EncoderFailed { window: u32, generation: u64 },
 }
 impl Pending {
+    fn encoded_bytes(&self) -> usize {
+        match self {
+            Self::Encoded(packet) => packet.value["data"].as_str().map_or(0, str::len),
+            _ => 0,
+        }
+    }
     fn pixels(&self) -> usize {
         match self {
             Self::Frame(_, image, _) => image.pixels(),
@@ -46,12 +52,14 @@ impl Pending {
 struct Queue {
     events: VecDeque<Pending>,
     pixels: usize,
+    encoded_bytes: usize,
     closed: bool,
 }
 impl Queue {
     fn remove(&mut self, index: usize) -> Pending {
         let event = self.events.remove(index).unwrap();
         self.pixels -= event.pixels();
+        self.encoded_bytes -= event.encoded_bytes();
         event
     }
     fn push(&mut self, event: Pending) -> Result<()> {
@@ -75,10 +83,14 @@ impl Queue {
                 self.remove(index);
             }
         }
+        if self.encoded_bytes + event.encoded_bytes() > 32 * 1024 * 1024 {
+            bail!("encoded output budget exceeded")
+        }
         if self.events.len() >= EVENT_LIMIT {
             bail!("output queue full")
         }
         self.pixels += event.pixels();
+        self.encoded_bytes += event.encoded_bytes();
         self.events.push_back(event);
         Ok(())
     }
@@ -90,7 +102,10 @@ pub struct Output {
     qos: Arc<Mutex<VideoQos>>,
 }
 impl Output {
-    pub fn new(mut socket: UnixStream) -> Result<Self> {
+    pub fn new(socket: UnixStream) -> Result<Self> {
+        Self::with_factory(socket, worker::factory())
+    }
+    fn with_factory(mut socket: UnixStream, factory: worker::Factory) -> Result<Self> {
         socket.set_write_timeout(Some(Duration::from_secs(3)))?;
         let qos = Arc::new(Mutex::new(VideoQos::new(Instant::now())));
         let output = Self {
@@ -100,7 +115,7 @@ impl Output {
         };
         let shared = output.queue.clone();
         thread::spawn(move || {
-            let _ = write_loop(&mut socket, &shared, &qos);
+            let _ = write_loop(&mut socket, &shared, &qos, factory);
             let mut queue = shared.0.lock().unwrap();
             queue.closed = true;
             queue.events.clear();
@@ -155,12 +170,18 @@ impl Drop for Output {
         let _ = self.socket.shutdown(std::net::Shutdown::Both);
     }
 }
-fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos>>) -> Result<()> {
+fn write_loop(
+    socket: &mut UnixStream,
+    shared: &Shared,
+    qos: &Arc<Mutex<VideoQos>>,
+    factory: worker::Factory,
+) -> Result<()> {
+    let workers = worker::Pool::new(shared.clone(), factory);
     let mut sequence = 0u64;
-    let mut frames: HashMap<u32, CachedFrame> = HashMap::new();
+    let mut next_generation = 0u64;
+    let mut generations: HashMap<u32, u64> = HashMap::new();
+    let mut geometry: HashMap<u32, Value> = HashMap::new();
     let mut video = false;
-    let mut encoders: HashMap<u32, crate::video::Encoder> = HashMap::new();
-    let mut next_stream = 1;
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -177,47 +198,59 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos
         let (mut value, session) = match event {
             Pending::EnableVideo(max_fps, feedback) => {
                 video = true;
-                frames.clear();
-                encoders.clear();
+                generations.clear();
+                geometry.clear();
+                workers.reset()?;
                 qos.lock()
                     .unwrap()
                     .configure(max_fps, feedback, Instant::now());
-                continue;
-            }
-            Pending::KeyFrame(id) => {
-                frames.remove(&id);
-                encoders.remove(&id);
                 continue;
             }
             Pending::ConfigureVideo(max_fps) => {
                 if !video {
                     bail!("video not enabled")
                 }
-                frames.clear();
-                encoders.clear();
+                generations.clear();
+                geometry.clear();
+                workers.reset()?;
                 let mut state = qos.lock().unwrap();
                 let feedback = state.feedback_enabled();
                 state.configure(max_fps, feedback, Instant::now());
                 continue;
             }
+            Pending::KeyFrame(id) => {
+                next_generation += 1;
+                generations.insert(id, next_generation);
+                workers.forget(id)?;
+                continue;
+            }
             Pending::Message(value, session) => {
                 match value["type"].as_str() {
                     Some("session.snapshot" | "session.exited") => {
-                        frames.clear();
-                        encoders.clear();
+                        generations.clear();
+                        geometry.clear();
+                        workers.reset()?;
                     }
                     Some("window.destroyed") => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
-                        frames.remove(&id);
-                        encoders.remove(&id);
+                        generations.remove(&id);
+                        geometry.remove(&id);
+                        workers.forget(id)?;
                     }
-                    Some("window.metadata") => {
+                    Some("window.created" | "window.metadata") => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
-                        // Invalidate old pixels on every geometry change.
-                        frames.remove(&id);
-                        if value["visible"] == false {
-                            encoders.remove(&id);
+                        let shape = json!([
+                            value["geometry_revision"],
+                            value["width"],
+                            value["height"],
+                            value["visible"]
+                        ]);
+                        if value["type"] == "window.created" || geometry.get(&id) != Some(&shape) {
+                            next_generation += 1;
+                            generations.insert(id, next_generation);
+                            workers.forget(id)?;
                         }
+                        geometry.insert(id, shape);
                     }
                     _ => {}
                 }
@@ -227,57 +260,39 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos
                 if !video {
                     bail!("H.264 must be enabled before attaching")
                 }
-                if frames.get(&window.window_id).is_some_and(|old| {
-                    old.window.geometry_revision == window.geometry_revision
-                        && old.image.same_pixels(&image)
-                }) {
+                if !generations.contains_key(&window.window_id) {
+                    next_generation += 1;
+                    generations.insert(window.window_id, next_generation);
+                }
+                if generations.len() > 64 {
+                    bail!("video window limit")
+                }
+                let generation = generations[&window.window_id];
+                workers.frame(worker::Job {
+                    window,
+                    image,
+                    session,
+                    generation,
+                    fps: qos.lock().unwrap().cap(),
+                })?;
+                continue;
+            }
+            Pending::Encoded(mut encoded) => {
+                // Metadata/destroy can overtake an encoder. A fresh generation
+                // restarts with IDR; its predecessor can never appear afterward.
+                if generations.get(&encoded.window) != Some(&encoded.generation) {
                     continue;
                 }
-                let mut value = json!({"type":"frame", "window_id":window.window_id, "geometry_revision":window.geometry_revision,
-                    "width":window.width, "height":window.height});
-                let cap_fps = {
-                    let state = qos.lock().unwrap();
-                    state.cap()
-                };
-                if encoders.get(&window.window_id).is_none_or(|encoder| {
-                    encoder.width != image.width
-                        || encoder.height != image.height
-                        || encoder.format != image.format()
-                }) {
-                    encoders.remove(&window.window_id);
-                    let encoder = crate::video::Encoder::for_format(
-                        image.width,
-                        image.height,
-                        next_stream,
-                        cap_fps,
-                        image.format(),
-                    )?;
-                    next_stream += 1;
-                    encoders.insert(window.window_id, encoder);
-                }
-                let encoder = encoders.get_mut(&window.window_id).unwrap();
-                let packet = encoder.encode_frame(&image)?;
-                value["codec"] = json!("h264");
-                value["data"] = json!(STANDARD.encode(packet.bytes));
-                value["stream_id"] = json!(encoder.stream);
-                value["key_frame"] = json!(packet.keyframe);
-                value["encoded_width"] = json!(image.width + image.width % 2);
-                value["encoded_height"] = json!(image.height + image.height % 2);
                 if let Some(id) = qos.lock().unwrap().sent(Instant::now()) {
-                    value["frame_id"] = json!(id);
+                    encoded.value["frame_id"] = json!(id);
                 }
-                frames.remove(&window.window_id);
-                if frames
-                    .values()
-                    .map(|frame| frame.image.pixels())
-                    .sum::<usize>()
-                    + image.pixels()
-                    > PIXEL_BUDGET
-                {
-                    frames.clear();
+                (encoded.value, encoded.session)
+            }
+            Pending::EncoderFailed { window, generation } => {
+                if generations.get(&window) == Some(&generation) {
+                    bail!("video encoder failed")
                 }
-                frames.insert(window.window_id, CachedFrame { window, image });
-                (value, session)
+                continue;
             }
         };
         sequence += 1;
@@ -364,6 +379,94 @@ mod tests {
         assert!(queue
             .push(Pending::Message(json!({}), String::new()))
             .is_err());
+    }
+
+    #[test]
+    fn blocked_encoding_does_not_hold_control_or_other_worker_and_drops_retired_result() {
+        use std::{
+            io::{BufRead, BufReader},
+            sync::mpsc,
+        };
+        struct Slow {
+            entered: mpsc::Sender<()>,
+            release: Arc<(Mutex<bool>, Condvar)>,
+            first: bool,
+        }
+        impl worker::Codec for Slow {
+            fn encode(&mut self, job: &worker::Job) -> Result<Option<Value>> {
+                if job.window.window_id == 7 && self.first {
+                    self.first = false;
+                    self.entered.send(()).unwrap();
+                    let (lock, ready) = &*self.release;
+                    let released = lock.lock().unwrap();
+                    let (released, _) = ready
+                        .wait_timeout_while(released, Duration::from_secs(3), |v| !*v)
+                        .unwrap();
+                    assert!(*released, "test did not release encoder");
+                }
+                Ok(Some(
+                    json!({"type":"frame", "window_id":job.window.window_id, "data":"AA==", "generation":job.generation}),
+                ))
+            }
+            fn forget(&mut self, _: u32) {}
+            fn reset(&mut self) {}
+        }
+        let (entered, signal) = mpsc::channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate = release.clone();
+        let factory: worker::Factory = Arc::new(move || {
+            Box::new(Slow {
+                entered: entered.clone(),
+                release: gate.clone(),
+                first: true,
+            })
+        });
+        let (writer, reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(Duration::from_millis(750)))
+            .unwrap();
+        let output = Output::with_factory(writer, factory).unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut read = || {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        };
+        let Pending::Frame(mut window, image, session) = frame(1) else {
+            unreachable!()
+        };
+        output.enable_video(60, false).unwrap();
+        output
+            .message(json!({"type":"window.created", "window_id":7}), &session)
+            .unwrap();
+        assert_eq!(read()["type"], "window.created");
+        output.frame(&window, image.clone(), &session).unwrap();
+        signal.recv_timeout(Duration::from_secs(2)).unwrap();
+        output
+            .message(json!({"type":"clipboard.data", "text":"fixture"}), &session)
+            .unwrap();
+        assert_eq!(read()["type"], "clipboard.data");
+        window.window_id = 6;
+        output.frame(&window, image.clone(), &session).unwrap();
+        assert_eq!(read()["window_id"], 6);
+        output
+            .message(json!({"type":"window.destroyed", "window_id":7}), &session)
+            .unwrap();
+        assert_eq!(read()["type"], "window.destroyed");
+        output
+            .message(json!({"type":"window.created", "window_id":7}), &session)
+            .unwrap();
+        assert_eq!(read()["type"], "window.created");
+        window.window_id = 7;
+        output.frame(&window, image, &session).unwrap();
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        let current = read();
+        assert_eq!(current["window_id"], 7);
+        assert!(
+            current["generation"].as_u64().unwrap() > 1,
+            "late encoder output must not revive the destroyed generation"
+        );
     }
 
     #[test]
