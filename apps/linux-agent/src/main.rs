@@ -324,13 +324,18 @@ fn catalog_operation<T>(
     if STOP.load(Ordering::SeqCst) {
         bail!("agent stopping")
     }
-    current.sessions = work.sessions;
+    let retired = std::mem::replace(&mut current.sessions, work.sessions);
     current.requests = work.requests;
     current.desktop_requests = work.desktop_requests;
     current.running = work.running;
     current.wayland_running = work.wayland_running;
     current.desktop_apps = work.desktop_apps;
-    if !current.sharing {
+    let sharing = current.sharing;
+    drop(current);
+    // Last-owner Session drops may wait for child processes. Keep those waits
+    // outside the catalog lock too.
+    drop(retired);
+    if !sharing {
         bail!("sharing disabled")
     }
     result
