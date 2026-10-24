@@ -1,4 +1,5 @@
 use crate::{
+    diagnostics::Diagnostics,
     framing::{self, Packet},
     identity::{self, Identity, Peer},
 };
@@ -86,6 +87,7 @@ pub struct Service {
     endpoint: quinn::Endpoint,
     state: Mutex<State>,
     slots: Arc<Semaphore>,
+    diagnostics: Diagnostics,
     _lock: fs::File,
 }
 fn now() -> u64 {
@@ -121,6 +123,7 @@ impl Service {
             ensure!(id == &peer.device_id && id != &identity.id, "invalid peer");
         }
         let endpoint = quinn::Endpoint::server(identity.server()?, config.listen)?;
+        let diagnostics = Diagnostics::new(&config.state);
         Ok(Arc::new(Self {
             config,
             identity,
@@ -133,6 +136,7 @@ impl Service {
                 media: HashMap::new(),
             }),
             slots: Arc::new(Semaphore::new(64)),
+            diagnostics,
             _lock: lock,
         }))
     }
@@ -264,6 +268,7 @@ impl Service {
     }
     pub async fn run(self: Arc<Self>) -> Result<()> {
         let listener = bind(&self.config.state.join("control.sock"))?;
+        self.diagnostics.record("service_started", None, None);
         let service = self.clone();
         let routes = tokio::spawn(async move { service.routes().await });
         let service = self.clone();
@@ -276,8 +281,17 @@ impl Service {
                 let service = service.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    if let Ok(Ok(connection)) = tokio::time::timeout(TIMEOUT, incoming).await {
-                        service.accept(connection).await;
+                    match within(Instant::now() + TIMEOUT, "incoming TLS handshake", async {
+                        incoming.await
+                    })
+                    .await
+                    {
+                        Ok(connection) => service.accept(connection).await,
+                        Err(error) => service.diagnostics.record(
+                            "handshake_failed",
+                            None,
+                            Some(&format!("{error:#}")),
+                        ),
                     }
                 });
             }
@@ -343,7 +357,11 @@ impl Service {
         .and_then(|r| r);
         match result {
             Ok(id) => self.connected(connection, id).await,
-            Err(_) => connection.close(1u32.into(), b"authentication rejected"),
+            Err(error) => {
+                self.diagnostics
+                    .record("authentication_failed", None, Some(&format!("{error:#}")));
+                connection.close(1u32.into(), b"authentication rejected");
+            }
         }
     }
     async fn connection(self: &Arc<Self>, id: &str) -> Result<Connection> {
@@ -440,18 +458,30 @@ impl Service {
         Ok(pending)
     }
     async fn connected(self: Arc<Self>, connection: Connection, id: String) {
+        self.diagnostics.record(
+            "connection_opened",
+            Some(&id),
+            Some(&connection.remote_address().to_string()),
+        );
         let mut tasks = JoinSet::new();
-        loop {
+        let reason = loop {
             tokio::select! {
                 result = connection.accept_bi() => {
-                    let Ok((send,recv)) = result else { break; };
-                    if tasks.len() >= 128 || !self.trusted(&id,&identity::remote_certificate(&connection).unwrap_or_default()) { connection.close(1u32.into(),b"device limit or revoked"); break; }
+                    let (send,recv) = match result { Ok(streams) => streams, Err(error) => break error.to_string() };
+                    if tasks.len() >= 128 || !self.trusted(&id,&identity::remote_certificate(&connection).unwrap_or_default()) { connection.close(1u32.into(),b"device limit or revoked"); break "device limit or revoked".into(); }
                     let service = self.clone(); let conn = connection.clone();
-                    tasks.spawn(async move { let _ = service.stream(conn,send,recv).await; });
+                    let peer = id.clone();
+                    tasks.spawn(async move {
+                        if let Err(error) = service.clone().stream(conn,send,recv).await {
+                            service.diagnostics.record("stream_ended", Some(&peer), Some(&format!("{error:#}")));
+                        }
+                    });
                 }
                 _ = tasks.join_next(), if !tasks.is_empty() => {}
             }
-        }
+        };
+        self.diagnostics
+            .record("connection_closed", Some(&id), Some(&reason));
         tasks.abort_all();
         self.state
             .lock()
@@ -604,6 +634,10 @@ impl Service {
             }
         }
         .await;
+        if let Err(error) = &result {
+            self.diagnostics
+                .record("management_failed", None, Some(&format!("{error:#}")));
+        }
         if request["op"] == "bulk-upload" || request["op"] == "bulk-download" {
             return result.map(|_| ());
         }
@@ -681,6 +715,14 @@ impl Service {
         result
     }
     pub async fn receive(self: &Arc<Self>, peer: &str, socket: UnixStream) -> Result<()> {
+        let result = self.receive_route(peer, socket).await;
+        if let Err(error) = &result {
+            self.diagnostics
+                .record("route_ended", Some(peer), Some(&format!("{error:#}")));
+        }
+        result
+    }
+    async fn receive_route(self: &Arc<Self>, peer: &str, socket: UnixStream) -> Result<()> {
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
         let (requests_tx, mut requests) = mpsc::channel(1);
