@@ -6,7 +6,7 @@ use crate::{
     video::{FrameWake, PipeWireCapture},
 };
 use anyhow::{bail, Context, Result};
-use paneferry_backend_x11::{Backend as X11, CapturedImage, CopiedText, DesktopInput};
+use paneferry_backend_x11::{Backend as X11, CopiedText, DesktopInput};
 use paneferry_protocol::{read_line_limit, Window};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -140,7 +140,7 @@ pub fn monitors() -> Result<Vec<Monitor>> {
 
 struct Stream {
     capture: PipeWireCapture,
-    image: Option<Arc<CapturedImage>>,
+    image: Option<Arc<crate::video::Frame>>,
     dirty: bool,
     started: Instant,
 }
@@ -339,7 +339,7 @@ impl WindowBackend for Backend {
                     .as_ref()
                     .is_some_and(|s| s.dirty && s.image.is_some()))
     }
-    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>> {
+    fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {
         self.known(window.window_id)?;
         let mut stream = self.stream.borrow_mut();
         let stream = stream.as_mut().context("frame pending")?;

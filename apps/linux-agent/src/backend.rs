@@ -1,6 +1,6 @@
 //! The session owns capture/input implementations; transport and device leases stay shared.
 use anyhow::Result;
-use paneferry_backend_x11::{Backend as X11, CapturedImage, CopiedText};
+use paneferry_backend_x11::{Backend as X11, CopiedText};
 use paneferry_protocol::Window;
 use std::{collections::HashMap, sync::Arc};
 
@@ -16,7 +16,7 @@ pub trait WindowBackend: Send {
     fn pump_capture_events(&mut self, frame_due: bool) -> Result<()>;
     fn capture_pending(&self) -> bool;
     fn capture_needed(&self, window: u32) -> bool;
-    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>>;
+    fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>>;
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()>;
     fn focus(&self, id: u32) -> Result<()>;
     fn close(&self, id: u32) -> Result<()>;
@@ -71,8 +71,8 @@ impl WindowBackend for X11 {
     fn capture_needed(&self, window: u32) -> bool {
         X11::capture_needed(self, window)
     }
-    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>> {
-        X11::capture(self, window).map(Arc::new)
+    fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {
+        X11::capture(self, window).map(|image| Arc::new(image.into()))
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         X11::configure(self, id, width, height)

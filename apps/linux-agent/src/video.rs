@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use paneferry_backend_x11::CapturedImage;
 use std::{
     borrow::Cow,
+    cell::{Cell, RefCell},
     ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
     io::{Read, Write},
     os::{fd::AsRawFd, unix::net::UnixStream},
@@ -10,8 +11,14 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
+#[path = "video_frame.rs"]
+mod frame;
+use frame::{CropConverter, CropSpec};
+pub use frame::{Format, Frame};
+
 type Object = *mut c_void;
 type Destroy = unsafe extern "C" fn(Object);
+type WindowCrop = ([u32; 4], (u32, u32), f64);
 const MEMORY_READONLY: c_uint = 1 << 1;
 const BUFFER_DELTA_UNIT: c_uint = 1 << 13;
 const STATE_NULL: c_int = 1;
@@ -55,6 +62,10 @@ runtime_api! {
     state: unsafe extern "C" fn(Object, c_int) -> c_int => (core, c"gst_element_set_state"),
     unref: unsafe extern "C" fn(Object) -> () => (core, c"gst_object_unref"),
     free_error: unsafe extern "C" fn(Object) -> () => (glib, c"g_error_free"),
+    copy_region: unsafe extern "C" fn(Object, c_uint, usize, usize) -> Object => (core, c"gst_buffer_copy_region"),
+    parent_buffer: unsafe extern "C" fn(Object, Object) -> Object => (core, c"gst_buffer_add_parent_buffer_meta"),
+    mini_ref: unsafe extern "C" fn(Object) -> Object => (core, c"gst_mini_object_ref"),
+    mini_unref: unsafe extern "C" fn(Object) -> () => (core, c"gst_mini_object_unref"),
     wrap: unsafe extern "C" fn(c_uint, Object, usize, usize, usize, Object, Option<Destroy>) -> Object => (core, c"gst_buffer_new_wrapped_full"),
     push: unsafe extern "C" fn(Object, Object) -> c_int => (app, c"gst_app_src_push_buffer"),
     pull: unsafe extern "C" fn(Object, u64) -> Object => (app, c"gst_app_sink_try_pull_sample"),
@@ -183,6 +194,7 @@ impl Drop for ReadMap {
     }
 }
 
+#[cfg(test)]
 fn copy_bgrx_crop(bytes: &[u8], width: usize, crop: [usize; 4]) -> Result<Vec<u8>> {
     let [x, y, w, h] = crop;
     let source_stride = width.checked_mul(4).context("invalid PipeWire stride")?;
@@ -216,9 +228,12 @@ pub struct PipeWireCapture {
     pipeline: Object,
     sink: Object,
     signal: libc::c_ulong,
+    converter: RefCell<Option<CropConverter>>,
+    converter_window: Cell<Option<WindowCrop>>,
+    wake: Arc<FrameWake>,
 }
 /// All streams in one session share a single pollable wake. The appsink
-/// callback only marks readiness; pixel copies stay on the controller thread.
+/// callbacks only mark readiness; conversion runs on a GStreamer thread.
 pub struct FrameWake {
     reader: UnixStream,
     writer: Mutex<(UnixStream, bool)>,
@@ -259,12 +274,35 @@ unsafe extern "C" fn sample_ready(_sink: Object, data: Object) -> c_int {
 unsafe extern "C" fn release_wake(data: Object, _closure: Object) {
     drop(unsafe { Box::from_raw(data.cast::<Arc<FrameWake>>()) });
 }
+fn connect_wake(api: &'static Api, sink: Object, wake: Arc<FrameWake>) -> Result<libc::c_ulong> {
+    let data = Box::into_raw(Box::new(wake)).cast();
+    let callback = unsafe {
+        std::mem::transmute::<unsafe extern "C" fn(Object, Object) -> c_int, unsafe extern "C" fn()>(
+            sample_ready,
+        )
+    };
+    let signal = unsafe {
+        (api.signal_connect)(
+            sink,
+            c"new-sample".as_ptr(),
+            callback,
+            data,
+            Some(release_wake),
+            0,
+        )
+    };
+    if signal == 0 {
+        unsafe { release_wake(data, ptr::null_mut()) };
+        bail!("wayland_capture_unavailable")
+    }
+    Ok(signal)
+}
 // GStreamer objects are thread-safe. The session mutex serializes pull/drop;
 // the streaming thread is stopped before the final references are released.
 unsafe impl Send for PipeWireCapture {}
 impl PipeWireCapture {
     pub fn new(node: u32, wake: Arc<FrameWake>) -> Result<Self> {
-        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true"))?;
+        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
         Self::from_description(&description, wake)
     }
     fn from_description(description: &CStr, wake: Arc<FrameWake>) -> Result<Self> {
@@ -289,31 +327,14 @@ impl PipeWireCapture {
             pipeline,
             sink,
             signal: 0,
+            converter: RefCell::new(None),
+            converter_window: Cell::new(None),
+            wake: wake.clone(),
         };
         if sink.is_null() {
             bail!("wayland_capture_unavailable")
         }
-        let data = Box::into_raw(Box::new(wake)).cast();
-        let callback = unsafe {
-            std::mem::transmute::<
-                unsafe extern "C" fn(Object, Object) -> c_int,
-                unsafe extern "C" fn(),
-            >(sample_ready)
-        };
-        let signal = unsafe {
-            (api.signal_connect)(
-                sink,
-                c"new-sample".as_ptr(),
-                callback,
-                data,
-                Some(release_wake),
-                0,
-            )
-        };
-        if signal == 0 {
-            unsafe { release_wake(data, ptr::null_mut()) };
-            bail!("wayland_capture_unavailable")
-        }
+        let signal = connect_wake(api, sink, wake)?;
         let mut capture = capture;
         capture.signal = signal;
         if unsafe { (api.state)(pipeline, STATE_PLAYING) } == 0 {
@@ -326,21 +347,26 @@ impl PipeWireCapture {
         frame: [u32; 4],
         expected_buffer: (u32, u32),
         display_scale: f64,
-    ) -> Result<Option<CapturedImage>> {
+    ) -> Result<Option<Frame>> {
         self.pull_inner(Some((frame, expected_buffer, display_scale)))
     }
     /// A monitor stream has no window crop. Preserve its actual captured pixels;
     /// the caller updates geometry before publishing a frame after a mode change.
-    pub fn pull_monitor(&self) -> Result<Option<CapturedImage>> {
+    pub fn pull_monitor(&self) -> Result<Option<Frame>> {
         self.pull_inner(None)
     }
-    fn pull_inner(
-        &self,
-        window: Option<([u32; 4], (u32, u32), f64)>,
-    ) -> Result<Option<CapturedImage>> {
+    fn pull_inner(&self, window: Option<WindowCrop>) -> Result<Option<Frame>> {
+        if self.converter_window.get() != window {
+            self.converter.borrow_mut().take();
+            self.converter_window.set(window);
+        }
         let sample = unsafe { (self.api.pull)(self.sink, 0) };
         if sample.is_null() {
-            return Ok(None);
+            return self
+                .converter
+                .borrow()
+                .as_ref()
+                .map_or(Ok(None), |c| c.pull(0));
         }
         let result = (|| {
             let caps = unsafe { (self.api.sample_caps)(sample) };
@@ -416,29 +442,22 @@ impl PipeWireCapture {
             {
                 bail!("invalid PipeWire crop")
             }
-            // Map once, copy only the cropped pixels, and release the PipeWire
-            // buffer immediately. The capture cache/output/encoder share this
-            // owned allocation, so a slow encoder never pins compositor buffers.
-            let mapping = ReadMap::new(self.api, buffer)?;
-            let data = copy_bgrx_crop(
-                mapping.bytes()?,
-                width as usize,
-                [
-                    (crop_x + left) as usize,
-                    (crop_y + top) as usize,
-                    frame_width as usize,
-                    frame_height as usize,
-                ],
-            )?;
-            Ok(Some(CapturedImage {
-                width: frame_width,
-                height: frame_height,
-                data,
-                bpp: 32,
-                pad: 32,
-                little: true,
-                masks: (0xff0000, 0xff00, 0xff),
-            }))
+            let spec = CropSpec {
+                source_width: width as u32,
+                source_height: height as u32,
+                region: [crop_x + left, crop_y + top, frame_width, frame_height],
+            };
+            let mut converter = self.converter.borrow_mut();
+            if converter.as_ref().is_none_or(|c| c.spec != spec) {
+                let mut next = CropConverter::new(self.api, spec)?;
+                next.wake(self.wake.clone())?;
+                *converter = Some(next);
+            }
+            // Convert directly into an independent I420 pool buffer. Only that
+            // output is cached/queued; no cropped BGRx allocation is created.
+            let converter = converter.as_ref().unwrap();
+            converter.submit(buffer)?;
+            converter.pull(0)
         })();
         unsafe { (self.api.sample_unref)(sample) };
         result
@@ -501,6 +520,7 @@ pub struct Encoder {
     pub width: u32,
     pub height: u32,
     pub stream: u64,
+    pub format: Format,
     first_frame_fallback: Option<u8>,
 }
 pub struct Packet {
@@ -518,7 +538,17 @@ enum EncoderKind {
     OpenH264,
 }
 
+#[cfg(test)]
 fn pipeline(width: u32, height: u32, fps: u8, kind: EncoderKind) -> String {
+    pipeline_for_format(width, height, fps, kind, Format::Bgrx)
+}
+fn pipeline_for_format(
+    width: u32,
+    height: u32,
+    fps: u8,
+    kind: EncoderKind,
+    format: Format,
+) -> String {
     let bitrate = bitrate(width, height, fps);
     let encoder = match kind {
         // Slice threads finish one frame at a time: no frame-thread/lookahead
@@ -540,10 +570,13 @@ fn pipeline(width: u32, height: u32, fps: u8, kind: EncoderKind) -> String {
     let even_width = u64::from(width + width % 2);
     let even_height = u64::from(height + height % 2);
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
+    let input = match format {
+        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert ! video/x-raw,format=I420"),
+        Format::I420 => format!("caps=video/x-raw,format=I420,width={even_width},height={even_height},framerate={fps}/1"),
+    };
     format!(
         "appsrc name=source is-live=true format=time block=true max-buffers=1 \
-        caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 \
-        {padding}! videoconvert ! video/x-raw,format=I420 \
+        {input} \
         ! identity datarate={raw_rate} signal-handoffs=false \
         ! {encoder} \
         ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au \
@@ -551,21 +584,40 @@ fn pipeline(width: u32, height: u32, fps: u8, kind: EncoderKind) -> String {
     )
 }
 impl Encoder {
+    #[allow(dead_code)] // Used by the standalone quality_sample example.
     pub fn new(width: u32, height: u32, stream: u64) -> Result<Self> {
         Self::with_cap(width, height, stream, 60)
     }
+    #[allow(dead_code)] // Used by the standalone quality_sample example.
     pub fn with_cap(width: u32, height: u32, stream: u64, cap_fps: u8) -> Result<Self> {
+        Self::for_format(width, height, stream, cap_fps, Format::Bgrx)
+    }
+    pub fn for_format(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        format: Format,
+    ) -> Result<Self> {
         let api = api().context("H.264 components unavailable")?;
         if api.has_factory(c"x264enc") {
             if let Ok(mut encoder) =
-                Self::with_kind(width, height, stream, cap_fps, EncoderKind::X264)
+                Self::with_kind_format(width, height, stream, cap_fps, EncoderKind::X264, format)
             {
                 encoder.first_frame_fallback = Some(cap_fps);
                 return Ok(encoder);
             }
         }
-        Self::with_kind(width, height, stream, cap_fps, EncoderKind::OpenH264)
+        Self::with_kind_format(
+            width,
+            height,
+            stream,
+            cap_fps,
+            EncoderKind::OpenH264,
+            format,
+        )
     }
+    #[cfg(test)]
     fn with_kind(
         width: u32,
         height: u32,
@@ -573,10 +625,20 @@ impl Encoder {
         cap_fps: u8,
         kind: EncoderKind,
     ) -> Result<Self> {
+        Self::with_kind_format(width, height, stream, cap_fps, kind, Format::Bgrx)
+    }
+    fn with_kind_format(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        kind: EncoderKind,
+        format: Format,
+    ) -> Result<Self> {
         paneferry_protocol::dimensions(width, height)?;
         anyhow::ensure!((1..=90).contains(&cap_fps), "invalid video fps");
         let api = api().context("H.264 components unavailable")?;
-        let description = CString::new(pipeline(width, height, cap_fps, kind))?;
+        let description = CString::new(pipeline_for_format(width, height, cap_fps, kind, format))?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         let mut encoder = Self {
@@ -587,6 +649,7 @@ impl Encoder {
             width,
             height,
             stream,
+            format,
             first_frame_fallback: None,
         };
         if !error.is_null() {
@@ -608,7 +671,11 @@ impl Encoder {
         }
         Ok(encoder)
     }
+    #[allow(dead_code)] // Used by the standalone quality_sample example.
     pub fn encode(&mut self, image: &Arc<CapturedImage>) -> Result<Packet> {
+        self.encode_frame(&Frame::from_image(image.clone()))
+    }
+    pub fn encode_frame(&mut self, image: &Frame) -> Result<Packet> {
         let fallback = self.first_frame_fallback.take();
         match self.encode_inner(image) {
             Ok(packet) => Ok(packet),
@@ -619,12 +686,13 @@ impl Encoder {
                 if let Some(fps) =
                     fallback.filter(|_| image.width == self.width && image.height == self.height)
                 {
-                    *self = Self::with_kind(
+                    *self = Self::with_kind_format(
                         self.width,
                         self.height,
                         self.stream,
                         fps,
                         EncoderKind::OpenH264,
+                        self.format,
                     )?;
                     self.encode_inner(image)
                 } else {
@@ -633,35 +701,12 @@ impl Encoder {
             }
         }
     }
-    fn encode_inner(&mut self, image: &Arc<CapturedImage>) -> Result<Packet> {
-        if image.width != self.width || image.height != self.height {
+    fn encode_inner(&mut self, image: &Frame) -> Result<Packet> {
+        if image.width != self.width || image.height != self.height || image.format() != self.format
+        {
             bail!("video geometry changed")
         }
-        let pixels = Box::new(match image.bgrx()? {
-            Cow::Borrowed(_) => Pixels::Capture(image.clone()),
-            Cow::Owned(bytes) => Pixels::Converted(bytes),
-        });
-        let bytes = pixels.bytes();
-        let length = bytes.len();
-        let data = bytes.as_ptr().cast_mut().cast::<c_void>();
-        let owner = Box::into_raw(pixels).cast::<c_void>();
-        // READONLY forbids in-place mutation, so the capture cache can safely
-        // compare the same original bytes while GStreamer shares their storage.
-        let buffer = unsafe {
-            (self.api.wrap)(
-                MEMORY_READONLY,
-                data,
-                length,
-                0,
-                length,
-                owner,
-                Some(release_pixels),
-            )
-        };
-        if buffer.is_null() {
-            unsafe { release_pixels(owner) };
-            bail!("cannot wrap video frame")
-        }
+        let buffer = image.input_buffer(self.api)?;
         // Unlike the action signal, C appsrc consumes this reference even on error.
         if unsafe { (self.api.push)(self.source, buffer) } != 0 {
             bail!("H.264 input rejected")
@@ -809,7 +854,7 @@ mod tests {
     #[ignore = "requires Linux GStreamer videotestsrc; run explicitly on Ubuntu"]
     fn appsink_new_sample_wakes_poll_without_periodic_frame_scans() {
         let wake = Arc::new(FrameWake::new().unwrap());
-        let description = c"videotestsrc is-live=true ! video/x-raw,format=BGRx,width=64,height=48,framerate=30/1 ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true";
+        let description = c"videotestsrc is-live=true ! video/x-raw,format=BGRx,width=64,height=48,framerate=30/1 ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false";
         let capture = PipeWireCapture::from_description(description, wake.clone()).unwrap();
         let mut event = libc::pollfd {
             fd: wake.event_fd(),
@@ -818,12 +863,20 @@ mod tests {
         };
         assert_eq!(unsafe { libc::poll(&mut event, 1, 1000) }, 1);
         wake.drain();
-        let image = capture.pull_monitor().unwrap().unwrap();
+        let image = loop {
+            if let Some(image) = capture.pull_monitor().unwrap() {
+                break image;
+            }
+            assert_eq!(unsafe { libc::poll(&mut event, 1, 1000) }, 1);
+            wake.drain();
+        };
         assert_eq!((image.width, image.height), (64, 48));
         drop(capture);
         // Pixels remain owned and usable after mapping, sample and pipeline die.
-        assert_eq!(image.data.len(), 64 * 48 * 4);
-        assert!(image.data.iter().any(|b| *b != 0));
+        assert_eq!(image.format(), Format::I420);
+        let buffer = image.input_buffer(api().unwrap()).unwrap();
+        assert_eq!(unsafe { (api().unwrap().size)(buffer) }, 64 * 48 * 3 / 2);
+        unsafe { (api().unwrap().mini_unref)(buffer) };
         wake.drain();
     }
 

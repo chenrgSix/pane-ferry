@@ -20,9 +20,11 @@ Linux 开发包由 `bash scripts/build-linux.sh` 生成，包含双向使用的 
 
 ## 窗口视频流
 
-Mac 宿主与 Linux Agent 协商 H.264。Agent 的独立输出线程通过稳定 C API 运行时加载系统 GStreamer，使用 appsrc、videoconvert、编码器、h264parse、appsink；奇数宽高才插入 videobox 补边。优先采用 `x264enc` 的 ultrafast / zerolatency 模式，关闭 B 帧和 lookahead，以 4 个 slice 线程处理同一帧，避免帧线程排队。组件缺失、初始化失败或首帧失败时采用原有 OpenH264 屏幕模式；已经输出视频的流不会中途换编码器。无需新增 Python 编码进程，也不会自动安装插件。x264 是系统可选组件（通常由 `gstreamer1.0-plugins-ugly` 提供）。
+Mac 宿主与 Linux Agent 协商 H.264。Agent 的独立输出线程通过稳定 C API 运行时加载系统 GStreamer，使用 appsrc、编码器、h264parse、appsink；X11 的 BGRx 输入仍经 videoconvert，奇数宽高用 videobox 补边。PipeWire 输入使用下述已经转换的 I420 帧。优先采用 `x264enc` 的 ultrafast / zerolatency 模式，关闭 B 帧和 lookahead，以 4 个 slice 线程处理同一帧，避免帧线程排队。组件缺失、初始化失败或首帧失败时采用原有 OpenH264 屏幕模式；已经输出视频的流不会中途换编码器。无需新增 Python 编码进程，也不会自动安装插件。x264 是系统可选组件（通常由 `gstreamer1.0-plugins-ugly` 提供）。
 
-PipeWire 每帧仅做一次只读映射，将有效裁剪区域复制到自有缓冲后立即释放映射和 sample；采集缓存、输出队列、编码器共享同一 `Arc`，避免整帧清零、逐行反复映射和缓存到输出的再次克隆。慢速编码不会持有合成器的采集缓冲。缓冲共享遵循 [GStreamer 的 wrapped-buffer 生命周期约定](https://gstreamer.freedesktop.org/documentation/gstreamer/gstbuffer.html#gst_buffer_new_wrapped_full)，映射采用公开的 [GstMapInfo ABI](https://raw.githubusercontent.com/GStreamer/gstreamer/main/subprojects/gstreamer/gst/gstmemory.h)，不读取 GstBuffer 私有布局。
+PipeWire 不再生成裁剪后的 BGRx 中间图。Agent 校正 crop 的逻辑/像素单位并合并窗口边界后，通过 `videoconvertscale` 的 `converter-config` 显式指定源区域和同尺寸目标区域，直接生成 I420；奇数尺寸在转换时补黑边到偶数。已核对 Ubuntu 的 GStreamer 1.28.2：仅传 crop 元数据不会自动应用裁剪，因此不依赖这种行为。
+
+转换在 GStreamer 线程执行，输入只保留正在处理的一帧及最多一帧待处理数据，输出只保留最新转换结果；完成时唤醒控制循环，输入线程不等待颜色转换。浅拷贝只复制 GstBuffer 头，通过 parent-buffer meta 保持 PipeWire 缓冲租约直至转换结束。采集缓存、去重、输出队列和编码器共享独立 I420 缓冲，不让网络反压长期持有 PipeWire 原缓冲。窗口几何变化会废弃旧转换管线及排队结果，保留 HiDPI 校验、H.264 回退和元数据顺序。原始帧不再逐行复制，色彩转换本身仍生成输出像素；这不等于全链路零拷贝。实测与边界见 [裁剪转换优化](performance/2026-10-24-pipewire-crop.md)。
 
 输入循环先处理已排队的请求，再拉取到期的画面；连续输入期间至少每 100 ms 服务一次元数据和采集，文字粘贴、按键及按钮顺序保持不变。现有窗口的完整存活查询最多每 100 ms 一次；进程身份和输入目标/几何校验仍保留。
 

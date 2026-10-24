@@ -1,0 +1,193 @@
+{
+  "date": "2026-10-24",
+  "base_commit": "4a3d45c9016afb43ac20443a148237423b558d8a",
+  "cpu": "Intel Core i5-13400",
+  "gstreamer": "1.28.2",
+  "encoder": "x264 ultrafast/zerolatency, 4 slice threads, 60 fps timestamps, unchanged bitrate/QP",
+  "method": "4 rounds, AB/BA order, 5 warmup + 40 measured frames per variant per round; generated patterns; timing starts from an already available packed BGRx source buffer; no desktop/network/client timing",
+  "summary": [
+    {
+      "width": 1280,
+      "height": 720,
+      "baseline": {
+        "count": 160,
+        "submit_ms": {
+          "median": 0.34427599999999997,
+          "p95": 0.5454140000000001,
+          "mean": 0.36598329375
+        },
+        "prepare_ms": {
+          "median": 0.34427599999999997,
+          "p95": 0.5454140000000001,
+          "mean": 0.36598329375
+        },
+        "encode_ms": {
+          "median": 2.365922,
+          "p95": 2.9984550000000003,
+          "mean": 2.4390853
+        },
+        "total_ms": {
+          "median": 2.72629,
+          "p95": 3.634109,
+          "mean": 2.80506859375
+        },
+        "bytes": {
+          "median": 19495.5,
+          "p95": 37324,
+          "mean": 21232.6875
+        }
+      },
+      "direct": {
+        "count": 160,
+        "submit_ms": {
+          "median": 0.001845,
+          "p95": 0.005594,
+          "mean": 0.00237810625
+        },
+        "prepare_ms": {
+          "median": 1.4767655,
+          "p95": 1.714372,
+          "mean": 1.5027729375
+        },
+        "encode_ms": {
+          "median": 1.1025905,
+          "p95": 1.6185819999999997,
+          "mean": 1.15640313125
+        },
+        "total_ms": {
+          "median": 2.593839,
+          "p95": 3.2063989999999998,
+          "mean": 2.65917606875
+        },
+        "bytes": {
+          "median": 19495.5,
+          "p95": 37543,
+          "mean": 21286.4875
+        }
+      },
+      "median_reduction_percent": 4.858287269512784
+    },
+    {
+      "width": 2940,
+      "height": 1618,
+      "baseline": {
+        "count": 160,
+        "submit_ms": {
+          "median": 2.1659865,
+          "p95": 2.698523,
+          "mean": 2.21815046875
+        },
+        "prepare_ms": {
+          "median": 2.1659865,
+          "p95": 2.698523,
+          "mean": 2.21815046875
+        },
+        "encode_ms": {
+          "median": 11.368404000000002,
+          "p95": 13.214809,
+          "mean": 11.61718576875
+        },
+        "total_ms": {
+          "median": 13.646795000000001,
+          "p95": 15.455175,
+          "mean": 13.8353362375
+        },
+        "bytes": {
+          "median": 61392.5,
+          "p95": 97093,
+          "mean": 65637.85
+        }
+      },
+      "direct": {
+        "count": 160,
+        "submit_ms": {
+          "median": 0.0033940000000000003,
+          "p95": 0.006469,
+          "mean": 0.0037709625
+        },
+        "prepare_ms": {
+          "median": 7.216169,
+          "p95": 7.87146,
+          "mean": 7.29134693125
+        },
+        "encode_ms": {
+          "median": 4.5899125,
+          "p95": 6.4982549999999994,
+          "mean": 4.7383286875
+        },
+        "total_ms": {
+          "median": 11.827033499999999,
+          "p95": 14.023767,
+          "mean": 12.02967561875
+        },
+        "bytes": {
+          "median": 61392.5,
+          "p95": 97093,
+          "mean": 65637.85
+        }
+      },
+      "median_reduction_percent": 13.334717052612
+    },
+    {
+      "width": 4000,
+      "height": 2000,
+      "baseline": {
+        "count": 160,
+        "submit_ms": {
+          "median": 3.8632845,
+          "p95": 4.880909999999999,
+          "mean": 3.83613809375
+        },
+        "prepare_ms": {
+          "median": 3.8632845,
+          "p95": 4.880909999999999,
+          "mean": 3.83613809375
+        },
+        "encode_ms": {
+          "median": 19.769845,
+          "p95": 22.811963000000002,
+          "mean": 19.94591635
+        },
+        "total_ms": {
+          "median": 23.5525285,
+          "p95": 27.139044000000002,
+          "mean": 23.78205444375
+        },
+        "bytes": {
+          "median": 92505.5,
+          "p95": 145555,
+          "mean": 97754.9
+        }
+      },
+      "direct": {
+        "count": 160,
+        "submit_ms": {
+          "median": 0.004864,
+          "p95": 0.007686999999999999,
+          "mean": 0.0050258375
+        },
+        "prepare_ms": {
+          "median": 11.8427535,
+          "p95": 13.479725,
+          "mean": 12.0506656375
+        },
+        "encode_ms": {
+          "median": 7.733603,
+          "p95": 10.778012000000002,
+          "mean": 7.88750194375
+        },
+        "total_ms": {
+          "median": 19.7222055,
+          "p95": 23.417561,
+          "mean": 19.93816758125
+        },
+        "bytes": {
+          "median": 92505.5,
+          "p95": 145555,
+          "mean": 97754.9
+        }
+      },
+      "median_reduction_percent": 16.262895085765415
+    }
+  ]
+}

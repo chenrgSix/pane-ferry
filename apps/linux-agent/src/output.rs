@@ -2,6 +2,7 @@
 use crate::video_qos::VideoQos;
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
+#[cfg(test)]
 use paneferry_backend_x11::CapturedImage;
 use paneferry_protocol::Window;
 use serde_json::{json, Value};
@@ -20,11 +21,11 @@ enum Pending {
     EnableVideo(u8, bool),
     ConfigureVideo(u8),
     Message(Value, String),
-    Frame(Window, Arc<CapturedImage>, String),
+    Frame(Window, Arc<crate::video::Frame>, String),
 }
 struct CachedFrame {
     window: Window,
-    image: Arc<CapturedImage>,
+    image: Arc<crate::video::Frame>,
 }
 impl Pending {
     fn pixels(&self) -> usize {
@@ -116,7 +117,12 @@ impl Output {
     pub fn message(&self, value: Value, session: &str) -> Result<()> {
         self.push(Pending::Message(value, session.into()))
     }
-    pub fn frame(&self, window: &Window, image: Arc<CapturedImage>, session: &str) -> Result<()> {
+    pub fn frame(
+        &self,
+        window: &Window,
+        image: Arc<crate::video::Frame>,
+        session: &str,
+    ) -> Result<()> {
         self.push(Pending::Frame(window.clone(), image, session.into()))
     }
     pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
@@ -213,7 +219,8 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos
                     bail!("H.264 must be enabled before attaching")
                 }
                 if frames.get(&window.window_id).is_some_and(|old| {
-                    old.window.geometry_revision == window.geometry_revision && *old.image == *image
+                    old.window.geometry_revision == window.geometry_revision
+                        && old.image.same_pixels(&image)
                 }) {
                     continue;
                 }
@@ -224,20 +231,23 @@ fn write_loop(socket: &mut UnixStream, shared: &Shared, qos: &Arc<Mutex<VideoQos
                     state.cap()
                 };
                 if encoders.get(&window.window_id).is_none_or(|encoder| {
-                    encoder.width != image.width || encoder.height != image.height
+                    encoder.width != image.width
+                        || encoder.height != image.height
+                        || encoder.format != image.format()
                 }) {
                     encoders.remove(&window.window_id);
-                    let encoder = crate::video::Encoder::with_cap(
+                    let encoder = crate::video::Encoder::for_format(
                         image.width,
                         image.height,
                         next_stream,
                         cap_fps,
+                        image.format(),
                     )?;
                     next_stream += 1;
                     encoders.insert(window.window_id, encoder);
                 }
                 let encoder = encoders.get_mut(&window.window_id).unwrap();
-                let packet = encoder.encode(&image)?;
+                let packet = encoder.encode_frame(&image)?;
                 value["codec"] = json!("h264");
                 value["data"] = json!(STANDARD.encode(packet.bytes));
                 value["stream_id"] = json!(encoder.stream);
@@ -293,7 +303,7 @@ mod tests {
         };
         Pending::Frame(
             window,
-            Arc::new(CapturedImage {
+            Arc::new(crate::video::Frame::from(CapturedImage {
                 width: 1,
                 height: 1,
                 data: vec![0; 4],
@@ -301,7 +311,7 @@ mod tests {
                 pad: 32,
                 little: true,
                 masks: (0xff0000, 0xff00, 0xff),
-            }),
+            })),
             "session".into(),
         )
     }
@@ -388,12 +398,16 @@ mod tests {
             ..image
         };
         output.enable_video(60, false).unwrap();
-        output.frame(&window, Arc::new(image), &session).unwrap();
+        output
+            .frame(&window, Arc::new(image.into()), &session)
+            .unwrap();
         let video = read();
         assert_eq!(video["codec"], "h264");
         assert!(video.get("png").is_none());
         changed.data[0] = 125;
-        output.frame(&window, Arc::new(changed), &session).unwrap();
+        output
+            .frame(&window, Arc::new(changed.into()), &session)
+            .unwrap();
         let moving = read();
         assert_eq!(moving["codec"], "h264");
         assert_eq!(moving["stream_id"], video["stream_id"]);

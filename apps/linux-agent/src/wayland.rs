@@ -7,7 +7,7 @@ use crate::{
     ProcessIdentity,
 };
 use anyhow::{bail, Context, Result};
-use paneferry_backend_x11::{Backend as X11, CapturedImage, CopiedText, DesktopInput};
+use paneferry_backend_x11::{Backend as X11, CopiedText, DesktopInput};
 use paneferry_protocol::{read_line_limit, Window};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -183,7 +183,7 @@ pub fn inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
 }
 struct Stream {
     capture: PipeWireCapture,
-    image: Option<Arc<CapturedImage>>,
+    image: Option<Arc<crate::video::Frame>>,
     dirty: bool,
     started: Instant,
 }
@@ -464,7 +464,7 @@ impl WindowBackend for Backend {
                 .get(&id)
                 .is_some_and(|s| s.dirty && s.image.is_some())
     }
-    fn capture(&self, window: &Window) -> Result<Arc<CapturedImage>> {
+    fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {
         let mut streams = self.streams.borrow_mut();
         let stream = streams
             .get_mut(&window.window_id)
