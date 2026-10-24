@@ -12,18 +12,22 @@ pub fn wide(value: impl AsRef<OsStr>) -> Vec<u16> {
 }
 
 fn user_sid(process: HANDLE) -> io::Result<Vec<u8>> {
+    token_sid(process, TokenUser)
+}
+
+fn token_sid(process: HANDLE, class: TOKEN_INFORMATION_CLASS) -> io::Result<Vec<u8>> {
     unsafe {
         let mut token = ptr::null_mut();
         if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
             return Err(io::Error::last_os_error());
         }
         let mut length = 0;
-        GetTokenInformation(token, TokenUser, ptr::null_mut(), 0, &mut length);
+        GetTokenInformation(token, class, ptr::null_mut(), 0, &mut length);
         // Word-aligned storage for TOKEN_USER and its SID.
         let mut buffer = vec![0usize; (length as usize).div_ceil(size_of::<usize>())];
         let ok = GetTokenInformation(
             token,
-            TokenUser,
+            class,
             buffer.as_mut_ptr().cast(),
             length,
             &mut length,
@@ -32,12 +36,12 @@ fn user_sid(process: HANDLE) -> io::Result<Vec<u8>> {
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
-        let user = &*(buffer.as_ptr() as *const TOKEN_USER);
-        Ok(std::slice::from_raw_parts(
-            user.User.Sid.cast::<u8>(),
-            GetLengthSid(user.User.Sid) as usize,
-        )
-        .to_vec())
+        let sid = if class == TokenOwner {
+            (*(buffer.as_ptr() as *const TOKEN_OWNER)).Owner
+        } else {
+            (*(buffer.as_ptr() as *const TOKEN_USER)).User.Sid
+        };
+        Ok(std::slice::from_raw_parts(sid.cast::<u8>(), GetLengthSid(sid) as usize).to_vec())
     }
 }
 
@@ -146,7 +150,14 @@ pub fn check_private(path: &Path) -> io::Result<()> {
             return Err(io::Error::from_raw_os_error(status as i32));
         }
         let _descriptor = Descriptor(sd);
-        if owner.is_null() || dacl.is_null() || EqualSid(owner, sid.as_ptr().cast_mut().cast()) == 0
+        // An elevated token may create files owned by its default owner group.
+        // Accept only the current token's user/default owner; every grant must
+        // still name this user SID (never an Administrators/Everyone grant).
+        let default_owner = token_sid(GetCurrentProcess(), TokenOwner)?;
+        if owner.is_null()
+            || dacl.is_null()
+            || (EqualSid(owner, sid.as_ptr().cast_mut().cast()) == 0
+                && EqualSid(owner, default_owner.as_ptr().cast_mut().cast()) == 0)
         {
             return Err(io::Error::other("invalid owner or DACL"));
         }
