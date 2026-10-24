@@ -898,9 +898,6 @@ impl Backend {
         }
         if button != 0 && pressed {
             self.focus_for_input(id)?;
-            if let Some(scope) = &self.window_scope {
-                scope.record_input(id);
-            }
         }
         let point = self
             .conn
@@ -982,9 +979,6 @@ impl Backend {
         }
         if pressed {
             self.focus_for_input(id)?;
-            if let Some(scope) = &self.window_scope {
-                scope.record_input(id);
-            }
         }
         let code = self.keycode(keysym)?;
         if let Some(input) = &self.desktop_input {

@@ -10,7 +10,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
     },
-    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,16 +82,9 @@ struct Member {
     identity: Identity,
     parent: Option<u32>,
 }
-#[derive(Clone, Copy)]
-struct Interaction {
-    scope: u64,
-    window: u32,
-    at: Instant,
-}
 #[derive(Default)]
 struct Registry {
     claims: HashMap<(u16, u32), u64>,
-    input: HashMap<(u16, u32, u64, u64), Interaction>,
 }
 fn registry() -> &'static Mutex<Registry> {
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
@@ -105,11 +97,10 @@ pub(super) struct Scope {
     root: Identity,
     root_window: u32,
     members: HashMap<u32, Member>,
-    seen: HashMap<u32, bool>,
     retired: HashSet<u32>,
 }
 impl Scope {
-    pub fn new(display: u16, pid: u32, window: u32, initial: &[Candidate]) -> Result<Self> {
+    pub fn new(display: u16, pid: u32, window: u32, _initial: &[Candidate]) -> Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let root = Identity::read(pid)?.0;
         let token = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -131,7 +122,6 @@ impl Scope {
                 },
             )]
             .into(),
-            seen: initial.iter().map(|w| (w.id, w.visible)).collect(),
             retired: HashSet::new(),
         })
     }
@@ -150,20 +140,6 @@ impl Scope {
         // Accept that hint only after proving it is a live ancestor in this scope.
         (candidate.descendant_of(&self.root) && member.identity.descendant_of(&candidate))
             .then_some(claimed)
-    }
-    pub fn record_input(&self, window: u32) {
-        let mut registry = registry().lock().unwrap();
-        registry
-            .input
-            .retain(|_, input| input.at.elapsed() < Duration::from_secs(5));
-        registry.input.insert(
-            (self.display, self.root.pid, self.root.started, self.token),
-            Interaction {
-                scope: self.token,
-                window,
-                at: Instant::now(),
-            },
-        );
     }
     pub fn update(&mut self, candidates: &[Candidate]) {
         let live: HashMap<_, _> = candidates.iter().map(|w| (w.id, w.pid)).collect();
@@ -199,20 +175,11 @@ impl Scope {
                 }
             }
         }
-        let recent: Vec<_> = registry
-            .input
-            .iter()
-            .filter(|((display, pid, started, _), input)| {
-                (*display, *pid, *started) == (self.display, self.root.pid, self.root.started)
-                    && input.at.elapsed() < Duration::from_secs(5)
-            })
-            .map(|(_, input)| *input)
-            .collect();
-        // Without an explicit OS parent, simultaneous input from two sessions
-        // is ambiguous. Do not guess that the last device caused the popup.
-        let input = (recent.len() == 1)
-            .then(|| recent[0])
-            .filter(|i| i.scope == self.token);
+        // An absent XID has crossed an observed destruction boundary. Old
+        // network frames are rejected by the control watermark; a newly created
+        // window must independently pass identity + explicit-parent checks.
+        // Retain only still-live orphaned windows, never a lifetime ID counter.
+        self.retired.retain(|id| live.contains_key(id));
         // Iterate to admit nested explicit dialogs after their parent. A changed
         // XID or process is never silently rebound to an existing member.
         for _ in 0..16 {
@@ -221,7 +188,6 @@ impl Scope {
                 if self.members.contains_key(&c.id)
                     || self.members.len() >= 16
                     || self.retired.contains(&c.id)
-                    || self.retired.len() >= 128
                 {
                     continue;
                 }
@@ -233,19 +199,10 @@ impl Scope {
                 }
                 let current_member =
                     |id: &u32| live.get(id).is_some_and(|pid| self.contains(*id, *pid));
-                let explicit = c.parent.filter(current_member);
-                let appeared = c.visible && !self.seen.get(&c.id).copied().unwrap_or(false);
-                // Unparented helpers (including Feishu image previews) need a
-                // fresh interaction and the same executable, not just ancestry.
-                let inferred = input
-                    .filter(|i| {
-                        appeared
-                            && c.parent.is_none()
-                            && identity.executable == self.root.executable
-                            && current_member(&i.window)
-                    })
-                    .map(|i| i.window);
-                let Some(parent) = explicit.or(inferred) else {
+                // Input timing and executable equality are not ownership.
+                // Unrelated main windows and unparented previews need their own
+                // explicit selection, even when created by the same process.
+                let Some(parent) = c.parent.filter(current_member) else {
                     continue;
                 };
                 if registry
@@ -269,18 +226,12 @@ impl Scope {
                 break;
             }
         }
-        self.seen = candidates
-            .iter()
-            .take(512)
-            .map(|w| (w.id, w.visible))
-            .collect();
     }
 }
 impl Drop for Scope {
     fn drop(&mut self) {
         let mut registry = registry().lock().unwrap();
         registry.claims.retain(|_, owner| *owner != self.token);
-        registry.input.retain(|_, input| input.scope != self.token);
     }
 }
 
@@ -296,7 +247,7 @@ mod tests {
         }
     }
     #[test]
-    fn vanished_parents_retire_descendants_and_never_rebind_reused_ids() {
+    fn live_orphans_stay_excluded_but_new_ids_can_be_revalidated() {
         let root = window(1, None);
         let mut scope = Scope::new(61001, root.pid, root.id, &[root]).unwrap();
         let child = window(2, Some(1));
@@ -307,31 +258,44 @@ mod tests {
         assert!(!scope.contains(2, root.pid));
         assert!(!scope.contains(3, root.pid));
         scope.update(&[root, child, grandchild]);
-        assert!(!scope.contains(2, root.pid));
+        assert!(scope.contains(2, root.pid));
         assert!(!scope.contains(3, root.pid));
+        scope.update(&[root, child]);
+        scope.update(&[root, child, grandchild]);
+        assert!(scope.contains(3, root.pid));
         drop(scope);
         assert!(Scope::new(61001, root.pid, root.id, &[root]).is_ok());
     }
     #[test]
-    fn ambiguous_interactions_cannot_take_existing_or_new_windows() {
+    fn same_process_unparented_windows_never_expand_a_selected_scope() {
         let alpha = window(11, None);
         let beta = window(12, None);
         let preview = window(13, None);
         let mut a = Scope::new(61002, alpha.pid, alpha.id, &[alpha, beta]).unwrap();
         let mut b = Scope::new(61002, beta.pid, beta.id, &[alpha, beta]).unwrap();
-        b.record_input(beta.id);
         a.update(&[alpha, beta, preview]);
         b.update(&[alpha, beta, preview]);
         assert!(!a.contains(beta.id, beta.pid));
         assert!(!a.contains(preview.id, preview.pid));
-        assert!(b.contains(preview.id, preview.pid));
-        a.record_input(alpha.id);
+        assert!(!b.contains(preview.id, preview.pid));
         let ambiguous = window(14, None);
         a.update(&[alpha, beta, preview, ambiguous]);
         b.update(&[alpha, beta, preview, ambiguous]);
         assert!(!a.contains(preview.id, preview.pid));
         assert!(!a.contains(ambiguous.id, ambiguous.pid));
         assert!(!b.contains(ambiguous.id, ambiguous.pid));
+    }
+    #[test]
+    fn sequential_dialogs_do_not_exhaust_a_lifetime_budget() {
+        let root = window(1, None);
+        let mut scope = Scope::new(61004, root.pid, root.id, &[root]).unwrap();
+        for id in 2..=513 {
+            scope.update(&[root, window(id, Some(root.id))]);
+            assert!(scope.contains(id, root.pid));
+            scope.update(&[root]);
+            assert_eq!(scope.members.len(), 1);
+            assert!(scope.retired.is_empty());
+        }
     }
     #[test]
     fn kernel_identity_rejects_reuse_and_clipboard_delegation_outside_scope() {

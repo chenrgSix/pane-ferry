@@ -30,14 +30,21 @@ else:
     windows['DiscoveryDialog'].set_transient_for(windows['DiscoveryAlpha'])
     windows['DiscoveryDialog'].set_destroy_with_parent(True)
     def open_preview(window, event):
+        if event.keyval == Gdk.KEY_F3:
+            helpers.append(subprocess.Popen([sys.executable, __file__, str(path.with_suffix('.unrelated.json')), '--child']))
+            return True
         if event.keyval != Gdk.KEY_F2:
             return False
         if not any(p.poll() is None for p in helpers):
-            helpers.append(subprocess.Popen([sys.executable, __file__, str(path.with_suffix('.child.json')), '--child']))
+            helpers.append(subprocess.Popen([sys.executable, __file__, str(path.with_suffix('.child.json')), '--child', '--parent', str(window.get_window().get_xid())]))
         return True
     for window in windows.values():
         window.connect('key-press-event', open_preview)
 for window in windows.values():
+    if child and '--parent' in sys.argv:
+        window.realize()
+        parent = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), int(sys.argv[sys.argv.index('--parent')+1]))
+        window.get_window().set_transient_for(parent)
     window.show_all()
 
 

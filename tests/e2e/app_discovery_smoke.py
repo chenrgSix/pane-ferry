@@ -55,6 +55,8 @@ class Peer:
         self.file = self.socket.makefile('rwb')
         self.send(type='hello')
         assert self.until('hello')['version'] == 1
+        self.send(type='video.enable', codec='h264')
+        assert self.until('video.ready')['codec'] == 'h264'
 
     def send(self, **data):
         self.file.write(json.dumps(dict(data, version=1)).encode()+b'\n')
@@ -104,6 +106,11 @@ try:
                    XMODIFIERS='@im=none', QT_IM_MODULE='compose')
         for key in ('LC_ALL', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'SESSION_MANAGER'):
             env.pop(key, None)
+        # An unset address lets GIO discover the real logged-in user's bus.
+        # Keep GNOME inventory and activations inside the fixture's own bus.
+        env['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=' + str(root/'bus')
+        start(['dbus-daemon', '--session', '--nofork', '--address='+env['DBUS_SESSION_BUS_ADDRESS']], env)
+        wait(lambda: (root/'bus').exists(), 'private session bus ready')
         start(['Xvfb', f':{display}', '-screen', '0', '1600x900x24', '-nolisten', 'tcp', '-auth', str(authority)], env)
         wait(lambda: Path(f'/tmp/.X11-unix/X{display}').exists(), 'Xvfb ready')
         wm_log = root/'openbox.log'
@@ -182,7 +189,7 @@ try:
         selected.send(type='clipboard.paste', window_id=alpha, text=replacement)
         wait(lambda: json.loads(state.read_text())['DiscoveryAlpha']['text'] == replacement, 'selected-window explicit paste')
         # A second controller owns Beta. Both scopes see the same processes,
-        # but the unparented helper belongs only to the last interacting scope.
+        # but only the explicit transient parent authorizes the helper.
         beta = Peer(sock)
         beta_session = beta.request('app.launch', 'session.started', app_id=windows['DiscoveryBeta']['id'],
                                     request_id='take-beta', backend='native')['session_id']
@@ -200,6 +207,15 @@ try:
         wait(lambda: json.loads(child_state.read_text())['DiscoveryPreview']['text'] == '跨进程预览🙂', 'child text delivery')
         beta.send(type='input.key', window_id=preview, keysym=ord('x'), pressed=True)
         assert beta.until('error')['code'] == 'window_unavailable', 'another session gained preview input'
+        # A same-executable child with no parent must not be inferred from the
+        # input that just opened it. It remains separately selectable.
+        selected.send(type='input.key', window_id=alpha, keysym=0xffc0, pressed=True)
+        selected.send(type='input.key', window_id=alpha, keysym=0xffc0, pressed=False)
+        unrelated_state = state.with_suffix('.unrelated.json')
+        unrelated = wait(lambda: json.loads(unrelated_state.read_text())['DiscoveryPreview'] if unrelated_state.exists() else None,
+                         'same-executable unparented child')['id']
+        selected.send(type='input.key', window_id=unrelated, keysym=ord('x'), pressed=True)
+        assert selected.until('error')['code'] == 'window_unavailable', 'input timing widened the shared scope'
         # An unrelated process forges both hints; the XRes PID and OS ancestry
         # must still prevent capture and input. This is on the private Xvfb only.
         spoof_state = root/'spoof.json'
@@ -234,7 +250,7 @@ try:
         launch = Peer(sock)
         started = launch.request('app.launch', 'session.started', app_id=app['id'], request_id='desktop-test', backend='native')
         frame = launch.until('frame')
-        assert frame.get('png') and started['session_id']
+        assert frame.get('codec') == 'h264' and frame.get('data') and started['session_id']
         launch.send(type='input.text.commit', window_id=frame['window_id'], text='终端输入中文🙂')
         launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=True)
         launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=False)
@@ -271,7 +287,7 @@ try:
         assert fixture.poll() is None, 'Agent killed an existing process'
         print('PASS: real localized desktop discovery, theme/SVG PNG icons, XDG overrides/Hidden/NoDisplay/TryExec, live refresh, discovered launch')
         print('PASS: read-only window inventory, stable IDs, same-PID window scope with dialogs, unrelated input rejection, scoped Unicode and explicit copy/paste, target close and existing-process survival')
-        print('PASS: real unparented child-process preview discovery/input/close, reconnect membership and simultaneous session isolation')
+        print('PASS: explicit child-process preview discovery/input/close; same-executable unparented windows excluded; reconnect and simultaneous session isolation')
         print('PASS: app launch reuses detached session across scale preferences, rejects occupied session, detects early exit and preserves delayed startup')
 finally:
     stop_children()
