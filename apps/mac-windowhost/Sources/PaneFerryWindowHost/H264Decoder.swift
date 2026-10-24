@@ -6,7 +6,7 @@ import VideoToolbox
 
 enum VideoDecodeError: Error { case invalidFrame, decoder(OSStatus) }
 
-/// One decoder per window. All access units are decoded in order on the QUIC bridge reader;
+/// One decoder per window. All access units are decoded in order on its bounded video worker;
 /// only decoded display images may be coalesced. Dropping a P-frame would corrupt later frames.
 final class H264Decoder {
     private(set) var hardwareAccelerated = false

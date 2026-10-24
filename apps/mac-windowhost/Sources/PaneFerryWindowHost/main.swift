@@ -76,6 +76,67 @@ final class RWPTransport {
     private var failure: TransportFailure?
     private var queuedPixels = 0
     private let writer = DispatchQueue(label: "paneferry.rwp.writer")
+    private var decodeQueue: VideoDecodeQueue!
+    private var decodeGeneration: UInt64 = 0
+    private var decodeMembers: [UInt32: UInt64] = [:]
+    private var decodeGeometry: [UInt32: String] = [:]
+    init(decode: ((VideoDecodeQueue.Job) throws -> CGImage?)? = nil) {
+        decodeQueue = VideoDecodeQueue { [weak self] job, result, hardware in
+            self?.decoded(job, result: result, hardware: hardware)
+        }
+        decodeQueue.decodeOverride = decode
+    }
+    private func decoded(_ job: VideoDecodeQueue.Job, result: Result<CGImage?, Error>, hardware: Bool) {
+        lock.lock()
+        guard !closed, decodeMembers[job.window] == job.generation,
+              decodeGeometry[job.window] == videoGeometry(job.object) else { lock.unlock(); return }
+        do {
+            let image = try result.get()
+            var lightweight = job.object
+            lightweight["decode_completed_ns"] = DispatchTime.now().uptimeNanoseconds
+            lightweight["hardware_decoder"] = hardware
+            try enqueueLocked(Incoming(object: lightweight, image: image))
+            lock.unlock()
+        } catch {
+            lock.unlock(); fail("视频解码失败，已停止接收。", retryable: false); disconnect()
+        }
+    }
+    private func videoGeometry(_ value: [String: Any]) -> String {
+        ["geometry_revision", "width", "height", "visible"].map { String(describing: value[$0] ?? true) }.joined(separator: "/")
+    }
+    private func invalidateDecode(for object: [String: Any]) {
+        let type = object["type"] as? String ?? ""
+        lock.lock()
+        if type == "session.snapshot" || type == "session.exited" {
+            decodeMembers.removeAll(); decodeGeometry.removeAll()
+            for value in object["windows"] as? [[String: Any]] ?? [] {
+                if let number = unsignedInteger(value["window_id"]), number <= UInt32.max {
+                    decodeGeneration &+= 1; decodeMembers[UInt32(number)] = decodeGeneration
+                    decodeGeometry[UInt32(number)] = videoGeometry(value)
+                }
+            }
+            lock.unlock(); decodeQueue.reset(); return
+        }
+        var invalidated: UInt32?
+        if let number = unsignedInteger(object["window_id"]), number <= UInt32.max {
+            let id = UInt32(number)
+            if type == "window.destroyed" {
+                decodeMembers.removeValue(forKey: id); decodeGeometry.removeValue(forKey: id); invalidated = id
+            } else if type == "window.created" {
+                decodeGeneration &+= 1; decodeMembers[id] = decodeGeneration
+                decodeGeometry[id] = videoGeometry(object); invalidated = id
+            } else if type == "window.metadata", decodeMembers[id] != nil {
+                // Geometry can change without a new H.264 stream. Decode all
+                // queued references, but reject obsolete display results below.
+                if object["visible"] as? Bool == false && decodeGeometry[id] != videoGeometry(object) {
+                    decodeGeneration &+= 1; decodeMembers[id] = decodeGeneration; invalidated = id
+                }
+                decodeGeometry[id] = videoGeometry(object)
+            }
+        }
+        lock.unlock()
+        if let id = invalidated { decodeQueue.invalidate(id) }
+    }
     var alive: Bool { process.isRunning }
     var onDiagnostic: ((String) -> Void)?
 
@@ -102,6 +163,9 @@ final class RWPTransport {
     }
     private func enqueue(_ value: Incoming) throws {
         lock.lock(); defer { lock.unlock() }
+        try enqueueLocked(value)
+    }
+    private func enqueueLocked(_ value: Incoming) throws {
         // Frame coalescing preserves control-event ordering: remove older queued frame, append newest.
         if value.object["type"] as? String == "frame", let id = value.object["window_id"] as? NSNumber {
             inbox.removeAll { $0.object["type"] as? String == "frame" && ($0.object["window_id"] as? NSNumber) == id }
@@ -118,7 +182,6 @@ final class RWPTransport {
     }
     private func readLoop() {
         var buffer = Data()
-        var videoDecoders: [UInt32: H264Decoder] = [:]
         var videoPixels: [UInt32: Int] = [:]
         var members=Set<UInt32>()
         do {
@@ -148,13 +211,13 @@ final class RWPTransport {
                         if eventType == "window.destroyed" { members.remove(id) }
                         if eventType == "frame" && !members.contains(id) { continue }
                     }
-                    if ["session.snapshot", "session.exited"].contains(object["type"] as? String ?? "") { videoDecoders.removeAll(); videoPixels.removeAll() }
+                    invalidateDecode(for: object)
+                    if ["session.snapshot", "session.exited"].contains(eventType) { videoPixels.removeAll() }
                     if object["type"] as? String == "window.destroyed" ||
                         (object["type"] as? String == "window.metadata" && (object["visible"] as? Bool) == false),
                         let id = unsignedInteger(object["window_id"]), id <= UInt32.max {
-                        videoDecoders.removeValue(forKey: UInt32(id)); videoPixels.removeValue(forKey: UInt32(id))
+                        videoPixels.removeValue(forKey: UInt32(id))
                     }
-                    var image: CGImage?
                     if object["type"] as? String == "frame" {
                         guard let w = object["width"] as? Int, let h = object["height"] as? Int,
                               w > 0, h > 0, w <= 4096, h <= 4096, w * h <= maximumPixels
@@ -170,14 +233,15 @@ final class RWPTransport {
                             throw HostError.message("视频解码像素总量超限")
                         }
                         videoPixels[windowID] = w * h
-                        if videoDecoders[windowID] == nil {
-                            guard videoDecoders.count < 64 else { throw HostError.message("视频窗口数量超限") }
-                            videoDecoders[windowID] = H264Decoder()
-                        }
-                        image = try videoDecoders[windowID]?.decode(data, streamID: stream, width: w, height: h, encodedWidth: ew, encodedHeight: eh)
+                        lock.lock(); let generation = decodeMembers[windowID]; lock.unlock()
+                        guard let generation else { continue }
+                        var lightweight = object; lightweight.removeValue(forKey: "data")
+                        lightweight["received_ns"] = DispatchTime.now().uptimeNanoseconds
+                        try decodeQueue.submit(VideoDecodeQueue.Job(window: windowID, generation: generation, stream: stream,
+                            width: w, height: h, encodedWidth: ew, encodedHeight: eh, data: data, object: lightweight))
+                    } else {
+                        try enqueue(Incoming(object: object, image: nil))
                     }
-                    var lightweight = object; lightweight.removeValue(forKey: "data")
-                    try enqueue(Incoming(object: lightweight, image: image))
                 }
                 guard buffer.count <= maximumLine else { throw HostError.message("协议消息未终止或过大") }
             }
@@ -217,6 +281,7 @@ final class RWPTransport {
     func disconnect() {
         lock.lock(); let wasClosed = closed; closed = true; writes.removeAll(); lock.unlock()
         if wasClosed { return }
+        decodeQueue.close()
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
         if process.isRunning { process.terminate() }

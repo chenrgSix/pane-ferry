@@ -31,12 +31,10 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     replacements = [
         ('let line = buffer.prefix(upTo: newline)',
          'let probeReceived = Probe.now()\n                    let line = buffer.prefix(upTo: newline)'),
-        ('try enqueue(Incoming(object: lightweight, image: image))',
-         '''lightweight["received"] = probeReceived
-                    lightweight["decoded"] = Probe.now()
-                    lightweight["wire_bytes"] = length + 1
-                    if let id = unsignedInteger(object["window_id"]) { lightweight["hardware_decoder"] = videoDecoders[UInt32(id)]?.hardwareAccelerated ?? false }
-                    try enqueue(Incoming(object: lightweight, image: image))'''),
+        ('lightweight["received_ns"] = DispatchTime.now().uptimeNanoseconds',
+         'lightweight["received_ns"] = probeReceived; lightweight["wire_bytes"] = length + 1'),
+        ('lightweight["hardware_decoder"] = hardware',
+         'lightweight["hardware_decoder"] = hardware; lightweight["received"] = job.object["received_ns"]; lightweight["decoded"] = lightweight["decode_completed_ns"]'),
         ('do { try input.fileHandleForWriting.write(contentsOf: next) }',
          'do { let start = Probe.now(); try input.fileHandleForWriting.write(contentsOf: next); Probe.written(next, start: start, end: Probe.now()) }'),
         ('host.present(image, mediaMode: "H.264 视频")',
