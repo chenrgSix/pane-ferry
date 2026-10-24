@@ -72,10 +72,10 @@ func targetPointerEvent(_ event:CGEvent,windowID:UInt32,frame:CGRect,location:CG
     setLocation(event,location)
     return event
 }
-func windowMouseEvent(_ type:NSEvent.EventType,windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEventFlags,button:CGMouseButton,number:Int,pressure:Float) -> CGEvent? {
+func windowMouseEvent(_ type:NSEvent.EventType,windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEventFlags,button:CGMouseButton,number:Int,pressure:Float,clickCount:Int=1) -> CGEvent? {
     let base=CGPoint(x:location.x,y:frame.height-location.y)
     guard let native=NSEvent.mouseEvent(with:type,location:base,modifierFlags:NSEvent.ModifierFlags(rawValue:UInt(flags.rawValue)),
-        timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:Int(windowID),context:nil,eventNumber:number,clickCount:1,pressure:pressure),
+        timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:Int(windowID),context:nil,eventNumber:number,clickCount:clickCount,pressure:pressure),
         let event=native.cgEvent else { return nil }
     event.setIntegerValueField(.mouseEventButtonNumber,value:Int64(button.rawValue))
     event.setIntegerValueField(.mouseEventSubtype,value:3)
@@ -89,6 +89,21 @@ func windowScrollEvent(windowID:UInt32,frame:CGRect,location:CGPoint,flags:CGEve
     event.setIntegerValueField(windowField,value:Int64(windowID));event.flags=flags
     return targetPointerEvent(event,windowID:windowID,frame:frame,location:location)
 }
+struct MouseClickSequence {
+    private var serial=0, lastButton=0, lastCount=0
+    private var lastTime:TimeInterval = -Double.infinity
+    private var lastPoint=CGPoint.zero
+    private var held=[Int:(number:Int,count:Int)]()
+    mutating func event(button:Int, pressed:Bool, point:CGPoint, now:TimeInterval, interval:TimeInterval) -> (number:Int,count:Int)? {
+        if !pressed { return held.removeValue(forKey:button) }
+        if let existing=held[button] { return existing }
+        serial=serial%Int(Int32.max)+1
+        let repeated=button==lastButton && now>=lastTime && now-lastTime<=interval && hypot(point.x-lastPoint.x,point.y-lastPoint.y)<=4
+        let count=repeated ? min(3,lastCount+1):1
+        lastButton=button;lastCount=count;lastTime=now;lastPoint=point
+        held[button]=(serial,count);return held[button]
+    }
+}
 final class PublishedWindow {
     var target:Target
     let parentID:UInt32?, rootApplication:NSRunningApplication
@@ -96,6 +111,7 @@ final class PublishedWindow {
     var width:Int, height:Int
     var keys=Set<String>(), buttons=Set<Int>()
     var pointerSerial=0
+    var clicks=MouseClickSequence()
     var lastFrame:CGRect
     init(_ target:Target,parentID:UInt32? = nil,rootApplication:NSRunningApplication? = nil) {
         self.target=target;self.parentID=parentID;self.rootApplication=rootApplication ?? target.application
@@ -174,7 +190,12 @@ final class PublishedWindow {
         let mouse:CGMouseButton = active==3 ? .right : active==2 ? .center : .left
         let type:NSEvent.EventType = button==0 ? (active==1 ? .leftMouseDragged : active==3 ? .rightMouseDragged : active==2 ? .otherMouseDragged : .mouseMoved)
             : button==1 ? (pressed ? .leftMouseDown:.leftMouseUp) : button==3 ? (pressed ? .rightMouseDown:.rightMouseUp) : (pressed ? .otherMouseDown:.otherMouseUp)
-        guard let event=windowMouseEvent(type,windowID:target.window.windowID,frame:lastFrame,location:point,flags:flags,button:mouse,number:pointerSerial,pressure:pressed || (button==0 && active != 0) ? 1:0) else { throw NodeError.input_unsupported }
+        let click:(number:Int,count:Int)
+        if button>0 {
+            guard let value=clicks.event(button:button,pressed:pressed,point:point,now:ProcessInfo.processInfo.systemUptime,interval:NSEvent.doubleClickInterval) else { return }
+            click=value
+        } else { click=(pointerSerial,0) }
+        guard let event=windowMouseEvent(type,windowID:target.window.windowID,frame:lastFrame,location:point,flags:flags,button:mouse,number:click.number,pressure:pressed || (button==0 && active != 0) ? 1:0,clickCount:click.count) else { throw NodeError.input_unsupported }
         event.postToPid(target.application.processIdentifier)
         if button>0 { if pressed { buttons.insert(button) } else { buttons.remove(button) } }
     }

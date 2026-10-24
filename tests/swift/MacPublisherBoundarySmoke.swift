@@ -30,6 +30,16 @@ import Darwin
         precondition(dimensions(2560,1664));precondition(identifier("window-42"))
         for value in ["", "../Safari", "a;id",String(repeating:"a",count:101)] { precondition(!identifier(value)) }
         for (w,h) in [(0,1),(4096,4096),(4097,1),(-1,100)] { precondition(!dimensions(w,h)) }
+        let cache=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:cache) }
+        let pinned=UUID().uuidString, expired=UUID().uuidString
+        for id in [pinned,expired] {
+            try privateDirectory(cache.appendingPathComponent(id))
+            try Data([1]).write(to:cache.appendingPathComponent(id).appendingPathComponent("file"))
+        }
+        try prepareClipboardCache(cache,incoming:1,protecting:[pinned],now:Date().addingTimeInterval(8*86400))
+        precondition(FileManager.default.fileExists(atPath:cache.appendingPathComponent(pinned).path))
+        precondition(!FileManager.default.fileExists(atPath:cache.appendingPathComponent(expired).path))
         var data=Data([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,10,0,0,0,10])
         try checkPNG(data);data[16]=127
         do {try checkPNG(data);fatalError("oversized image accepted")} catch NodeError.clipboard_invalid {}
@@ -40,6 +50,16 @@ import Darwin
         let getLocation=unsafeBitCast(dlsym(UnsafeMutableRawPointer(bitPattern:-2),"CGEventGetWindowLocation")!,to:GetWindowLocation.self)
         precondition(native.windowNumber==42 && event.location==CGPoint(x:-696,y:250) && getLocation(event)==point)
         precondition(native.modifierFlags.contains(.shift) && native.eventNumber==17)
+        var clicks=MouseClickSequence()
+        for index in 1...3 {
+            let down=clicks.event(button:1,pressed:true,point:.zero,now:Double(index)*0.1,interval:0.5)!
+            let up=clicks.event(button:1,pressed:false,point:.zero,now:Double(index)*0.1+0.01,interval:0.5)!
+            precondition(down.number==up.number && down.count==index && up.count==index)
+        }
+        precondition(clicks.event(button:1,pressed:false,point:.zero,now:1,interval:0.5)==nil)
+        precondition(clicks.event(button:1,pressed:true,point:CGPoint(x:50,y:0),now:0.4,interval:0.5)!.count==1)
+        let double=windowMouseEvent(.leftMouseDown,windowID:42,frame:frame,location:point,flags:[],button:.left,number:18,pressure:1,clickCount:2)!
+        precondition(NSEvent(cgEvent:double)!.clickCount==2)
         let scrollEvent=windowScrollEvent(windowID:42,frame:frame,location:point,flags:[],vertical:3,horizontal:0)!
         let scroll=NSEvent(cgEvent:scrollEvent)!
         precondition(scroll.windowNumber==42 && scroll.scrollingDeltaY==3 && getLocation(scrollEvent)==point)
