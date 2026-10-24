@@ -2,6 +2,17 @@ import AppKit
 import Darwin
 @main struct MacPublisherBoundarySmoke {
     static func main() throws {
+        var sockets=[Int32](repeating:0,count:2)
+        precondition(socketpair(AF_UNIX,SOCK_STREAM,0,&sockets)==0)
+        let blocked=Wire(sockets[0])
+        let started=ProcessInfo.processInfo.systemUptime
+        precondition(blocked.send(["type":"frame","data":String(repeating:"a",count:2*1024*1024)]))
+        // The peer intentionally never reads; a second control send and finish
+        // must not wait for the socket's three-second write timeout.
+        precondition(blocked.send(["type":"window.destroyed","window_id":1]))
+        blocked.finish()
+        precondition(ProcessInfo.processInfo.systemUptime-started<1)
+        Darwin.close(sockets[1])
         let first=WindowInteraction(session:"a",window:1,at:100),second=WindowInteraction(session:"b",window:2,at:101)
         precondition(uniqueRecentInteraction([first],now:102)?.window==1)
         precondition(uniqueRecentInteraction([first,second],now:102)==nil, "ambiguous multi-device input must not guess popup ownership")

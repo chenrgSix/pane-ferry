@@ -37,6 +37,8 @@ final class Wire {
     private let lock = NSLock()
     private var ended = false, sequence: UInt64 = 0
     private var buffer = Data()
+    private let writer = DispatchQueue(label: "paneferry.publisher.writer")
+    private var pending = [Data](), queuedBytes = 0, writing = false
     init(_ fd: Int32) {
         self.fd = fd
         var yes: Int32 = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout.size(ofValue: yes)))
@@ -52,16 +54,38 @@ final class Wire {
         var body = message; body["version"] = 1; body["seq"] = sequence; body["session_id"] = session
         guard var data = try? JSONSerialization.data(withJSONObject: body), data.count < wireLimit else { return false }
         data.append(10)
-        let success = data.withUnsafeBytes { bytes -> Bool in
-            var offset = 0
-            while offset < bytes.count {
-                let count = Darwin.send(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
-                if count <= 0 { return false }; offset += count
-            }
-            return true
+        guard pending.count < 128, queuedBytes + data.count <= 32 * 1024 * 1024 else {
+            ended=true; pending.removeAll(); shutdown(fd, SHUT_RDWR); return false
         }
-        if !success { ended = true; shutdown(fd, SHUT_RDWR) }
-        return success
+        queuedBytes += data.count; pending.append(data)
+        if !writing { writing=true; writer.async { [self] in drain() } }
+        return true
+    }
+    private func drain() {
+        while true {
+            lock.lock()
+            guard !ended, !pending.isEmpty else { pending.removeAll(); queuedBytes=0; writing=false; lock.unlock(); return }
+            let data=pending.removeFirst(); lock.unlock()
+            let deadline=ProcessInfo.processInfo.systemUptime+3
+            let success=data.withUnsafeBytes { bytes -> Bool in
+                var offset=0
+                while offset<bytes.count {
+                    if ProcessInfo.processInfo.systemUptime >= deadline { return false }
+                    let count=Darwin.send(fd,bytes.baseAddress!.advanced(by:offset),bytes.count-offset,MSG_DONTWAIT)
+                    if count>0 { offset+=count; continue }
+                    if count<0 && errno==EINTR { continue }
+                    if count<0 && (errno==EAGAIN || errno==EWOULDBLOCK) {
+                        var descriptor=pollfd(fd:fd,events:Int16(POLLOUT),revents:0)
+                        if poll(&descriptor,1,100)<0 && errno != EINTR { return false }
+                        continue
+                    }
+                    return false
+                }
+                return true
+            }
+            lock.lock(); queuedBytes-=data.count; lock.unlock()
+            if !success { finish() }
+        }
     }
     func read() throws -> [String: Any]? {
         while true {
