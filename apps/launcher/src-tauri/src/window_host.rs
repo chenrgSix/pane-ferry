@@ -73,6 +73,58 @@ fn write_new(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
     file.sync_all()
 }
 
+// A one-day grace period covers prepare→spawn and older hosts without leases.
+// Running executable paths pin their entire immutable generation.
+fn collect_generations(
+    directory: &Path,
+    current: &Path,
+    running: &[PathBuf],
+    now: std::time::SystemTime,
+) -> std::io::Result<()> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.len() != 64
+            || !name.bytes().all(|b| b.is_ascii_hexdigit())
+            || !entry.file_type()?.is_dir()
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path == current || running.iter().any(|binary| binary.starts_with(&path)) {
+            continue;
+        }
+        entries.push((path, entry.metadata()?.modified()?));
+    }
+    entries.sort_by_key(|(_, modified)| *modified);
+    let mut count = entries.len();
+    for (path, modified) in entries {
+        let age = now.duration_since(modified).unwrap_or_default();
+        if age.as_secs() >= 86400 && (age.as_secs() > 7 * 86400 || count > 32) {
+            fs::remove_dir_all(path)?;
+            count -= 1;
+        }
+    }
+    Ok(())
+}
+fn collect_idle_generations(directory: &Path, current: &Path) {
+    // Failure to inspect running processes means no deletion, never guessing.
+    if let Ok(output) = std::process::Command::new("/bin/ps")
+        .args(["-axo", "comm="])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(paths) = String::from_utf8(output.stdout) {
+                let running: Vec<_> = paths.lines().map(|p| PathBuf::from(p.trim())).collect();
+                let _ =
+                    collect_generations(directory, current, &running, std::time::SystemTime::now());
+            }
+        }
+    }
+}
+
 /// Dock and application switching read bundle identity before AppKit starts.
 /// Give each remote application its own immutable local bundle, without editing
 /// the installed package or rewriting a running host during an application update.
@@ -161,6 +213,8 @@ fn prepare_inner(
         {
             return Err("invalid cached bundle contents".into());
         }
+        fs::File::open(&generation)?.set_modified(std::time::SystemTime::now())?;
+        collect_idle_generations(directory, &generation);
         return Ok(bundle.join(EXECUTABLE));
     }
     // The lock serializes both threads and separate launchers. Publish only a
@@ -181,6 +235,7 @@ fn prepare_inner(
         write_new(&staged.join(FALLBACK_ICON), &icon, 0o600)?;
         write_new(&staged.join("Contents/Info.plist"), &info, 0o600)?;
         fs::rename(&staging, &generation)?;
+        collect_idle_generations(directory, &generation);
         Ok(bundle.join(EXECUTABLE))
     })();
     if result.is_err() {
@@ -192,6 +247,25 @@ fn prepare_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_collection_preserves_current_running_and_recent_generations() {
+        let root = std::env::temp_dir().join(format!("paneferry-gc-{}", std::process::id()));
+        private_directory(&root).unwrap();
+        let paths: Vec<_> = (1..=4).map(|n| root.join(format!("{n:064x}"))).collect();
+        for path in &paths {
+            private_directory(path).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        for path in &paths[..3] {
+            fs::File::open(path)
+                .unwrap()
+                .set_modified(now - std::time::Duration::from_secs(8 * 86400))
+                .unwrap();
+        }
+        collect_generations(&root, &paths[0], &[paths[1].join(EXECUTABLE)], now).unwrap();
+        assert!(paths[0].exists() && paths[1].exists() && !paths[2].exists() && paths[3].exists());
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn names_are_bundle_metadata_and_safe_paths_with_isolated_immutable_generations() {
         let root = std::env::temp_dir().join(format!("paneferry-bundle-{}", std::process::id()));
