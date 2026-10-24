@@ -2,6 +2,7 @@
 import base64
 import json
 import math
+import cairo
 import queue
 import threading
 import time
@@ -219,7 +220,9 @@ class Viewer:
                                      max(1,int(self.presentation['height'])) if self.overlay else 650)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.notice = Gtk.Label(label='正在连接 ' + name)
-        self.view = Gtk.DrawingArea(); self.view.set_can_focus(True)
+        self.view = Gtk.DrawingArea(); self.view.set_can_focus(not self.passive)
+        if self.passive:
+            self.window.connect('realize', lambda widget: widget.get_window().input_shape_combine_region(cairo.Region(),0,0))
         self.box.pack_start(self.notice, False, False, 0)
         if self.overlay: self.notice.set_no_show_all(True); self.notice.hide()
         self.rate_label = None
@@ -356,7 +359,7 @@ class Viewer:
         self.window.set_title(str(value.get('title', self.name))[:512] + ' · ' + self.name)
         self.ready = True
         self.status('已连接 · H.264 · ' + ('关闭此窗口仅断开连接' if self is self.owner else '关闭此窗口将关闭远程预览'))
-        if value.get('visible', True): self.window.show_all()
+        if value.get('visible', True) and not self.overlay: self.window.show_all()
         else: self.window.hide()
         self.allocated(self.view, self.view.get_allocation())
         return False
@@ -423,7 +426,14 @@ class Viewer:
         self.layout_overlays()
 
     def layout_overlays(self):
-        for wid, metadata in getattr(self, 'catalog', {}).items():
+        catalog=getattr(self,'catalog',{})
+        def depth(wid):
+            count=0
+            while catalog.get(wid,{}).get('parent_id') is not None:
+                count+=1;wid=catalog[wid]['parent_id']
+            return count
+        for wid in sorted(catalog,key=depth):
+            metadata=catalog[wid]
             viewer = self.members.get(wid); parent = self.members.get(metadata.get('parent_id'))
             if not viewer or not viewer.overlay or not parent or not parent.view.get_window(): continue
             origin = parent.view.get_window().get_origin()[-2:]
@@ -431,6 +441,8 @@ class Viewer:
             sx,sy = allocation.width/source['width'],allocation.height/source['height']
             viewer.window.move(round(origin[0]+(target['x']-source['x'])*sx),round(origin[1]+(target['y']-source['y'])*sy))
             viewer.window.resize(max(1,round(target['width']*sx)),max(1,round(target['height']*sy)))
+            if metadata.get('visible',True) and parent.window.get_visible(): viewer.window.show_all()
+            else: viewer.window.hide()
 
     def invalidate(self, text):
         self.qos_supported = False
