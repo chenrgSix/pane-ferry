@@ -74,3 +74,23 @@ x264 的这一场景包更大，需真实链路验证，不能仅用编码耗时
 旧二进制备份：Ubuntu `/tmp/paneferry-agent-before-latency-20261024`，SHA-256：`712ce378b754e15cb18387461a0af1df644d6586ce0e48b757b8766d3bdcde09`。如需回滚，保存当时 Agent 独立会话中的工作后，再原子替换并重启服务；此路径位于临时目录，不作为长期发布包。
 
 原始基准、探针、两轮复测与统计保存在任务本机 `~/.codex/diagnostics/paneferry-idea-20261024/`，汇总为 `fix-comparison-summary.json`。没有把用户窗口画面或原始请求日志提交仓库。
+
+## 后续断线恢复修复（同日）
+
+后续异常中断时，Mac 网络进程仍存活，但对同一设备的路由请求排队且没有发出新的握手包；新建独立 QUIC 探针可以连到同一 Ubuntu。首次触发连接关闭的原因未被旧版本记录，不能倒推出是 IDEA、Agent 崩溃或多个窗口同时开启导致。
+
+`7cd9ab4` 为每次连接建立设置覆盖排队、TLS、认证流和认证读写的统一 15 秒截止时间，关闭尚未注册的失败连接，并在本地调用方关闭时取消它的排队请求。`580d1cc` 增加有限大小、私有权限的网络故障日志，不记录业务请求、画面或剪贴板。Mac 部署后实际路由 hello 约 35 ms，设备恢复连接。
+
+IDEA 复测还暴露了另一个画面阻塞：窗口资源缩放为 2×，Mutter 的 VideoCrop 持续报告 1470×809，而 CPU 合成的完整图像实际为 2940×1618。旧校验丢掉了所有新帧；仅重建采集流没有修复，按 1× 截取则会只显示左上角。这两个实验方案均未保留。`537029f` 对照当前逻辑窗口尺寸识别两种裁剪单位，校正范围后直接复制完整原始像素，并继续检查源 buffer 边界和拒绝其他过期尺寸。没有缩放图片，也没有改变输入坐标转换。
+
+该行为与当前机器 Mutter 50.1 的 [窗口流裁剪路径](https://github.com/GNOME/mutter/blob/50.1/src/backends/meta-screen-cast-window-stream-src.c) 和 [窗口 CPU 合成路径](https://github.com/GNOME/mutter/blob/50.1/src/compositor/meta-window-actor.c) 相符；实机确认对象是当前 IDEA / README 预览，不代表所有桌面环境均已验收。
+
+验证结果：
+
+- 网络修复后完整 `scripts/check.sh` 通过，包含 Rust、前端、Swift、原生 QUIC/H.264、剪贴板和自动重连检查。
+- 最终采集修复在 Ubuntu 通过 28 项 Agent 单元测试及显式运行的 4 项原生 GStreamer 测试；release 构建、格式和 diff 检查通过。保留原有两个未使用函数警告。
+- 当前 IDEA 恢复完整 2940×1618 画面，点击和滚动有效；静止不发帧与活动时能收到新帧分别确认。
+- 关闭 Mac 会话、确认 GNOME 已释放临时显示器后，重新接管同一会话通过。
+- 保留 Mac 窗口进程并终止/重启网络进程，原窗口最终自动恢复，IDEA 输入与画面再次通过；此过程不是瞬时恢复，现有 QUIC 旧连接超时为 30 秒，未测得精确的恢复总时长。
+
+最终 Ubuntu Agent PID 2258536，服务 NRestarts=0，SHA-256 `c57e14987002760e41087b7e11f06e3d87a7d000e0e6acb74d440d1aebe9b0ab`；本次修复前备份为 `/tmp/paneferry-agent-before-reconnect-20261024`。Mac 网络进程 PID 63562，签名后二进制 SHA-256 `bdcdee18e2618cca1e9af0c3dd02a307b41062fde595bb2c594674f701d965b1`。源 IDEA PID 1546582 始终保留，没有重启项目。诊断证据保存在上述目录的 `disconnect/` 下，未提交原始窗口数据。
