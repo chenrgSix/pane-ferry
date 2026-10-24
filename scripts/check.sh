@@ -19,6 +19,10 @@ fi
 if command -v npm >/dev/null; then
   (cd apps/launcher && npm ci && npm test && npm run build)
 fi
+# This is a separate workspace excluded from the root Cargo.toml. Frontend
+# checks alone do not compile the launcher commands, storage or process code.
+cargo fmt --manifest-path apps/launcher/src-tauri/Cargo.toml -- --check
+cargo test --locked --manifest-path apps/launcher/src-tauri/Cargo.toml
 if [[ $(uname -s) == Darwin ]]; then
   (cd apps/mac-node && swift build)
   python3 tests/e2e/mac_publisher_boundaries.py

@@ -1058,7 +1058,11 @@ pub async fn receive_bulk<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWr
 mod tests {
     use super::*;
     fn test_service() -> (tempfile::TempDir, Arc<Service>) {
+        // macOS Unix socket paths must stay short; Windows has no /tmp.
+        #[cfg(unix)]
         let root = tempfile::tempdir_in("/tmp").unwrap();
+        #[cfg(not(unix))]
+        let root = tempfile::tempdir().unwrap();
         let service = Service::new(Config {
             state: root.path().join("n"),
             publisher: root.path().join("p.sock"),
