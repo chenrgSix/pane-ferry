@@ -261,6 +261,7 @@ final class Client {
                 AXUIElementPerformAction(button as! AXUIElement,kAXPressAction as CFString)
             case "window.configure":
                 guard let width=request["width"] as? Int,let height=request["height"] as? Int,dimensions(width,height),session.windows.values.filter({$0 !== member}).reduce(0,{$0+$1.width*$1.height})+width*height<=16_000_000 else { throw NodeError.invalid_request }
+                if member.width == width && member.height == height { return }
                 let window=try member.axWindow();var size=CGSize(width:max(160,width/2),height:max(100,height/2))
                 guard let value=AXValueCreate(.cgSize,&size),AXUIElementSetAttributeValue(window,kAXSizeAttribute as CFString,value) == .success else { throw NodeError.window_unavailable }
                 _ = member.valid();member.width=width;member.height=height;member.revision+=1

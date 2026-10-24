@@ -9,12 +9,14 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private let queue = DispatchQueue(label: "paneferry.encode", qos: .userInteractive)
     private let rawLock = NSLock()
-    private var latest: CVPixelBuffer?
-    private var newest: CVPixelBuffer?, scheduled = false, stopped = false, reportedFailure = false
+    private var latest: (CVPixelBuffer, UInt64)?
+    private var reconfiguring = false
+    private var newest: (CVPixelBuffer, UInt64)?, scheduled = false, stopped = false, reportedFailure = false
     private var lastCaptureAt: TimeInterval = 0
     private var encoder: VTCompressionSession?
     private var encodedSize = CGSize.zero
     private var encoderCap = 0
+    private var encodedRevision: UInt64 = 0
     private var frameNumber: Int64 = 0
     private var streamID = UInt64.random(in: 1...UInt64.max)
     let wire: Wire, session: String, windowID: UInt32, rate: VideoRateController
@@ -45,6 +47,8 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         return result
     }
     func update(width: Int, height: Int, revision: UInt64) async throws {
+        rawLock.withLock { reconfiguring=true; newest=nil; latest=nil }
+        defer { rawLock.withLock { reconfiguring=false } }
         metadataLock.withLock { self.width=width; self.height=height; self.revision=revision }
         try await stream?.updateConfiguration(config())
     }
@@ -52,7 +56,7 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func requestKeyframe() {
         queue.async { [self] in
             if let encoder=encoder { VTCompressionSessionInvalidate(encoder) }; encoder=nil
-            if let image=rawLock.withLock({ stopped ? nil : latest }) { encode(image) }
+            if let image=rawLock.withLock({ stopped ? nil : latest }) { encode(image.0, expectedRevision:image.1) }
         }
     }
     func stop() {
@@ -71,12 +75,13 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         guard type == .screen, sampleBuffer.isValid, let image=sampleBuffer.imageBuffer,
               let attachments=CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo:Any]],
               attachments.first?[.status] as? Int == SCFrameStatus.complete.rawValue else { return }
+        let capturedRevision=metadataLock.withLock { revision }
         rawLock.lock()
-        guard !stopped else { rawLock.unlock(); return }
+        guard !stopped && !reconfiguring else { rawLock.unlock(); return }
         let now=ProcessInfo.processInfo.systemUptime
         if lastCaptureAt > 0 && now-lastCaptureAt < rate.interval(now:now)*0.9 { rawLock.unlock(); return }
         lastCaptureAt=now
-        newest=image; latest=image
+        newest=(image,capturedRevision); latest=newest
         let schedule = !scheduled; scheduled=true; rawLock.unlock()
         if schedule { queue.async { [self] in drain() } }
     }
@@ -84,22 +89,25 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         while true {
             rawLock.lock(); let image=newest; newest=nil
             if image == nil || stopped { scheduled=false; rawLock.unlock(); return }; rawLock.unlock()
-            encode(image!)
+            encode(image!.0, expectedRevision:image!.1)
         }
     }
-    private func encode(_ image: CVPixelBuffer) {
+    func encode(_ image: CVPixelBuffer, expectedRevision: UInt64? = nil) {
         let w=CVPixelBufferGetWidth(image), h=CVPixelBufferGetHeight(image)
         metadataLock.lock(); let width=width, height=height, revision=revision; metadataLock.unlock()
+        guard expectedRevision == nil || expectedRevision == revision else { return }
         guard w == width+width%2, h == height+height%2, dimensions(width,height) else { return }
         let cap=rate.maximum()
-        if encodedSize != CGSize(width:w,height:h) || encoder == nil || encoderCap != cap {
+        if encodedSize != CGSize(width:w,height:h) || encoder == nil || encoderCap != cap || encodedRevision != revision {
             if let encoder=encoder { VTCompressionSessionInvalidate(encoder) }; encoder=nil
             streamID=UInt64.random(in:1...UInt64.max); frameNumber=0
             let result=VTCompressionSessionCreate(allocator:nil,width:Int32(w),height:Int32(h),codecType:kCMVideoCodecType_H264,
                 encoderSpecification:[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder:true] as CFDictionary,
                 imageBufferAttributes:nil,compressedDataAllocator:nil,outputCallback:{ refcon,_,status,_,sample in
-                    guard status == noErr, let refcon=refcon, let sample=sample else { return }
-                    Unmanaged<WindowCapture>.fromOpaque(refcon).takeUnretainedValue().output(sample)
+                    guard let refcon=refcon else { return }
+                    let capture=Unmanaged<WindowCapture>.fromOpaque(refcon).takeUnretainedValue()
+                    guard status == noErr, let sample=sample else { capture.reportFailure(); return }
+                    capture.output(sample)
                 },refcon:Unmanaged.passUnretained(self).toOpaque(),compressionSessionOut:&encoder)
             guard result == noErr, let encoder=encoder else { reportFailure(); return }
             for (key,value) in [(kVTCompressionPropertyKey_RealTime,kCFBooleanTrue as Any),
@@ -108,28 +116,28 @@ final class WindowCapture: NSObject, SCStreamOutput, SCStreamDelegate {
                                 (kVTCompressionPropertyKey_AverageBitRate,NSNumber(value:min(48_000_000,max(4_000_000,w*h*6*cap/60))) as Any),
                                 (kVTCompressionPropertyKey_MaxKeyFrameInterval,NSNumber(value:cap) as Any),
                                 (kVTCompressionPropertyKey_ExpectedFrameRate,NSNumber(value:cap) as Any)] {
-                VTSessionSetProperty(encoder,key:key,value:value as CFTypeRef)
+                guard VTSessionSetProperty(encoder,key:key,value:value as CFTypeRef) == noErr else { reportFailure(); return }
             }
             guard VTCompressionSessionPrepareToEncodeFrames(encoder) == noErr else { reportFailure(); return }
             encodedSize=CGSize(width:w,height:h)
-            encoderCap=cap
+            encoderCap=cap; encodedRevision=revision
         }
         // Metadata is embedded with the frame's submission, never read from a
         // later resize in the asynchronous encoder callback.
         let info=FrameInfo(width:width,height:height,revision:revision,stream:streamID)
         pendingInfo=info
         if let encoder=encoder {
-            VTCompressionSessionEncodeFrame(encoder,imageBuffer:image,presentationTimeStamp:CMTime(value:frameNumber,timescale:Int32(cap)),
+            let submitted=VTCompressionSessionEncodeFrame(encoder,imageBuffer:image,presentationTimeStamp:CMTime(value:frameNumber,timescale:Int32(cap)),
                 duration:CMTime(value:1,timescale:Int32(cap)),frameProperties:frameNumber == 0 ? [kVTEncodeFrameOptionKey_ForceKeyFrame:true] as CFDictionary : nil,
                 sourceFrameRefcon:nil,infoFlagsOut:nil)
-            VTCompressionSessionCompleteFrames(encoder,untilPresentationTimeStamp:.invalid)
+            guard submitted == noErr, VTCompressionSessionCompleteFrames(encoder,untilPresentationTimeStamp:.invalid) == noErr else { reportFailure(); return }
         }
         frameNumber += 1
     }
     private struct FrameInfo { let width:Int, height:Int; let revision:UInt64, stream:UInt64 }
     private var pendingInfo: FrameInfo?
     private func output(_ sample: CMSampleBuffer) {
-        guard let info=pendingInfo, let format=sample.formatDescription, let block=sample.dataBuffer else { return }
+        guard let info=pendingInfo, let format=sample.formatDescription, let block=sample.dataBuffer else { reportFailure(); return }
         let attachments=CMSampleBufferGetSampleAttachmentsArray(sample,createIfNecessary:false) as? [[CFString:Any]]
         let keyframe=attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool != true
         var result=Data()
