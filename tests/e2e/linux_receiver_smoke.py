@@ -75,7 +75,7 @@ class PublisherFixture:
 stop=threading.Event();network_processes=[]
 fixture=PublisherFixture(path,qos=True);other_path=Path(temporary.name)/'other.sock';other=PublisherFixture(other_path,remote_only=True)
 events,connections=fixture.events,fixture.connections
-binary=root/'target/debug/paneferry-network'
+binary=Path(os.environ.get('CARGO_TARGET_DIR', root/'target'))/'debug/paneferry-network'
 def manage(directory,**body):
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(10);client.connect(str(directory/'control.sock'))
@@ -216,8 +216,15 @@ try:
     old_epoch=viewer.epoch
     child.image(viewer.pixels,old_epoch,child.revision,object())
     assert child.pending_image is None, 'closed window accepted a late decoded image'
+    # The same XID can be reused after a destruction boundary; history is not a live quota.
+    for _ in range(130):
+        viewer.send(type='input.key.logical',key='F2',pressed=True)
+        viewer.send(type='input.key.logical',key='F2',pressed=False)
+        until(lambda:43 in viewer.members and viewer.members[43].pixels is not None)
+        viewer.members[43].close()
+        until(lambda:43 not in viewer.members)
     other_viewer.close();viewer.close();until(lambda:viewer.closed.is_set())
-    assert [e['window_id'] for e in events if e['type']=='window.close.request']==[43]
+    assert [e['window_id'] for e in events if e['type']=='window.close.request']==[43]*131
     assert not any(e['type']=='window.close.request' for e in other.events), 'main close unexpectedly closed a remote window'
     print('Native QUIC: PASS: real GTK image, H.264/SPS bounds, IM/keys/pointer, text/image/file clipboard and reconnect without replay')
     print('Native QUIC: PASS: associated windows, per-window input and child close, native-window retention on reconnect, late-frame rejection, three paired devices with identical session/window IDs')

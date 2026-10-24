@@ -29,9 +29,11 @@ def bounds(width, height):
 def check_sps(data, width, height):
     """Validate SPS before permitting a decoder to allocate picture buffers."""
     units = data.replace(b'\0\0\0\1', b'\0\0\1').split(b'\0\0\1')
+    found = False
     for unit in units:
         if not unit or unit[0] & 31 != 7:
             continue
+        found = True
         payload = unit[1:].replace(b'\0\0\3', b'\0\0')
         bits = ''.join(f'{value:08b}' for value in payload)
         offset = 0
@@ -48,25 +50,31 @@ def check_sps(data, width, height):
                 if count > 24:
                     raise ValueError('invalid_video')
             return (1 << count) - 1 + read(count)
-        profile = read(8); read(16); ue()
+        profile = read(8); read(16)
+        if ue() > 31: raise ValueError('invalid_video')
         if profile not in (66, 77, 88):
             raise ValueError('invalid_video')
-        ue(); order = ue()
+        if ue() > 12: raise ValueError('invalid_video')
+        order = ue()
         if order == 0:
-            ue()
+            if ue() > 12: raise ValueError('invalid_video')
         elif order == 1:
             read(1); ue(); ue()
-            for _ in range(min(ue(), 256)):
-                ue()
+            count = ue()
+            if count > 255: raise ValueError('invalid_video')
+            for _ in range(count): ue()
         elif order > 2:
             raise ValueError('invalid_video')
-        if ue() > 16:
-            raise ValueError('invalid_video')
+        references = ue()
+        if references > 16: raise ValueError('invalid_video')
         read(1)
         w = (ue() + 1) * 16; h = (ue() + 1) * 16
         frame = read(1)
         if not frame:
             read(1); h *= 2
+        # Cropping cannot justify allocating an enormous coded picture/DPB.
+        if w > ((width + 15) // 16) * 16 or h > ((height + 31) // 32) * 32 or w > 4096 or h > 4096 or w*h > 8_200_000 or w*h*max(1,references) > 32_000_000:
+            raise ValueError('invalid_video')
         read(1)
         if read(1):
             left, right, top, bottom = ue(), ue(), ue(), ue()
@@ -75,6 +83,11 @@ def check_sps(data, width, height):
         if (w, h) != (width, height) or not bounds(w, h):
             raise ValueError('invalid_video')
 
+    return found
+
+def parameter_sets(data):
+    return tuple(unit for unit in data.replace(b'\0\0\0\1', b'\0\0\1').split(b'\0\0\1') if unit and unit[0] & 31 in (7, 8))
+
 
 class Video:
     def __init__(self, receive):
@@ -82,7 +95,7 @@ class Video:
         if not Gst.ElementFactory.find(decoder):
             raise ValueError('video_decoder_unavailable')
         self.receive = receive
-        self.stream = None; self.size = None
+        self.stream = None; self.size = None; self.parameters = ()
         self.frame_ids = {}; self.frame_ids_lock = threading.Lock(); self.next_pts = 0
         self.pipeline = Gst.parse_launch('appsrc name=source is-live=true format=time block=true max-buffers=4 '
             'caps=video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! ' + decoder +
@@ -98,17 +111,22 @@ class Video:
         data = base64.b64decode(event['data'], validate=True)
         if len(data) > 12 * 1024 * 1024 or not data.startswith((b'\0\0\1', b'\0\0\0\1')):
             raise ValueError('invalid_video')
-        if event['stream_id'] != self.stream:
-            if not event.get('key_frame'):
+        params = parameter_sets(data)
+        sps = check_sps(data, width + width % 2, height + height % 2)
+        units = data.replace(b'\0\0\0\1', b'\0\0\1').split(b'\0\0\1')
+        idr = any(unit and unit[0] & 31 == 5 for unit in units)
+        new_stream = event['stream_id'] != self.stream
+        if new_stream or (params and params != self.parameters):
+            if not event.get('key_frame') or not idr or not sps or not any(unit[0] & 31 == 8 for unit in params):
                 raise ValueError('invalid_video')
-            check_sps(data, width + width % 2, height + height % 2)
-            # Flush the previous GOP and discard queued decoded images on resize.
+        if event.get('key_frame') and not idr:
+            raise ValueError('invalid_video')
+        if new_stream:
             self.pipeline.set_state(Gst.State.READY)
             self.pipeline.set_state(Gst.State.PLAYING)
             with self.frame_ids_lock: self.frame_ids.clear(); self.next_pts = 0
             self.stream = event['stream_id']
-        elif event.get('key_frame'):
-            check_sps(data, width + width % 2, height + height % 2)
+        if params: self.parameters = params
         self.size = width, height
         frame_id = event.get('frame_id')
         if frame_id is not None and (type(frame_id) is not int or not 0 < frame_id < 2**64):
@@ -150,6 +168,7 @@ class Video:
 
 class Viewer:
     def __init__(self, application, peer_id, name, session_id=None, app_id=None, owner=None):
+        clipboard.watch(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
         self.owner = owner or self
         self.application = application
         self.members = {} if owner is None else owner.members
@@ -483,7 +502,6 @@ class Viewer:
 
     def run(self):
         attempt = 0
-        retired = set()
         while not self.closed.is_set():
             self.epoch += 1; epoch = self.epoch
             wire = None; sender_stop = threading.Event(); sender = None
@@ -511,7 +529,6 @@ class Viewer:
                 if snapshot['session_id'] != self.session_id or not snapshot.get('windows'):
                     raise ValueError('session_exited')
                 catalog = self.validate_windows(snapshot['windows'])
-                if retired.intersection(catalog): raise ValueError('protocol_error')
                 self.on_ui(self.apply_members, catalog, epoch)
                 self.on_ui(self.refresh_video_rate)
                 attempt = 0
@@ -550,7 +567,6 @@ class Viewer:
                             video.stamp = stamp
                         video.push(event)
                     elif kind in ('window.created', 'window.metadata'):
-                        if wid in retired: continue
                         if kind == 'window.metadata' and wid not in catalog: continue
                         if wid in catalog and event.get('geometry_revision', 0) < catalog[wid]['geometry_revision']: continue
                         updated = dict(catalog); updated[wid] = event
@@ -565,10 +581,9 @@ class Viewer:
                             if descendants <= removed: break
                             removed |= descendants
                         for key in removed:
-                            catalog.pop(key, None); retired.add(key)
+                            catalog.pop(key, None)
                             video = self.videos.pop(key, None)
                             if video: video.close()
-                        if len(retired) > 128: raise ValueError('protocol_error')
                         self.on_ui(self.apply_members, catalog, epoch)
                     elif kind == 'session.exited':
                         raise ValueError('session_exited')
