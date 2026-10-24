@@ -19,6 +19,11 @@ enum Probe {
     static var preview = false
     static var serial = -1
     static var finishing = false
+    static var menuRect: CGRect?
+    static var baseline: [UInt8]?
+    static var menuReference: [UInt8]?
+    static var sceneClosed = false
+    static var sceneMode: Bool { rootID.flatMap { delegate?.windows[$0]?.sessionMode } == true }
     static var expectedPopup: (width: Int, height: Int)?
     static var windowsBeforeInput = Set<UInt32>()
     static var ignoredPopupIDs = Set<UInt32>()
@@ -50,7 +55,7 @@ enum Probe {
         let windows: [[String: Any]] = delegate?.windows.values.map { host in
             ["id": host.id, "parent": delegate?.parents[host.id] as Any? ?? NSNull(),
              "kind": host.presentation?.kind ?? "unknown", "visible": host.window.isVisible,
-             "remote_visible": host.remoteVisible, "borderless": host.window.styleMask == .borderless,
+             "remote_visible": host.remoteVisible, "application_scene": host.sessionMode, "borderless": host.window.styleMask == .borderless,
              "visible_rect": rect(host.surface.visibleRect), "document_rect": rect(host.surface.bounds),
              "local_scroll": host.surface.scrollOverflowLocally,
              "work_area": host.window.screen.map { rect($0.visibleFrame) } ?? [],
@@ -99,7 +104,7 @@ enum Probe {
         state()
         if phase == "opening", now() - phaseStarted > 8_000_000_000 { finish(error: "no matching popup draw"); return }
         if phase == "closing" {
-            if let id = openedID, app.windows[id]?.window.isVisible == true {
+            if sceneMode ? !sceneClosed : (openedID.flatMap { app.windows[$0]?.window.isVisible } == true) {
                 if now() - phaseStarted > 5_000_000_000 { finish(error: "test menu did not close") }
                 return
             }
@@ -158,7 +163,20 @@ enum Probe {
             finish(error: "an existing related window must be closed before the test"); return
         }
         point = CGPoint(x: x, y: y); preview = request["action"] as? String == "preview"
-        if !preview {
+        if sceneMode {
+            guard let values = request["menu_rect"] as? [Double], values.count == 4,
+                  values.allSatisfy({ $0.isFinite }), values[0] >= 0, values[1] >= 0,
+                  values[2] >= 8, values[3] >= 8,
+                  values[0] + values[2] <= Double(root.surface.remoteWidth),
+                  values[1] + values[3] <= Double(root.surface.remoteHeight) else {
+                finish(error: "scene probe requires an observed menu_rect ROI in source pixels"); return
+            }
+            let roi = CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+            if menuRect != roi { menuReference = nil }
+            menuRect = roi
+            if !preview && menuReference == nil { finish(error: "preview the observed menu ROI before timing"); return }
+            expectedPopup = nil
+        } else if !preview {
             guard let width = request["popup_width"] as? Int, let height = request["popup_height"] as? Int,
                   width > 0, height > 0 else {
                 finish(error: "run requires observed popup_width and popup_height in stream pixels"); return
@@ -178,6 +196,7 @@ enum Probe {
         let event = NSEvent.mouseEvent(with: .rightMouseDown, location: location, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber,
             context: nil, eventNumber: count + 1, clickCount: 1, pressure: 1)!
+        if sceneMode { baseline = host.surface.image.flatMap { signature($0) } }
         count += 1; phase = "opening"; phaseStarted = now()
         windowsBeforeInput = Set(delegate?.windows.keys ?? Dictionary<UInt32, HostedWindow>().keys)
         lock.lock(); current = ["count": count, "start": phaseStarted, "warmup": count <= 2,
@@ -187,6 +206,10 @@ enum Probe {
     }
     static func closeMenu() {
         guard let id = rootID, let host = delegate?.windows[id] else { return }
+        if sceneMode && phase == "preview", let image = host.surface.image {
+            menuReference = signature(image) // Use the inspected, fully painted preview.
+        }
+        sceneClosed = false
         phase = "closing"; phaseStarted = now()
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber,
@@ -203,8 +226,53 @@ enum Probe {
         if frames.count > 64 { frames.removeAll() }
         var value = object; value["selected"] = now(); frames[ObjectIdentifier(image)] = value
     }
+    static func signature(_ image: CGImage) -> [UInt8]? {
+        guard let roi = menuRect, let crop = image.cropping(to: roi) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 16 * 16 * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: 16, height: 16, bitsPerComponent: 8,
+                bytesPerRow: 16 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+            return true
+        }
+        return drawn ? bytes : nil
+    }
+    static func distance(_ one: [UInt8], _ two: [UInt8]) -> Double {
+        guard one.count == two.count && !one.isEmpty else { return .infinity }
+        return Double(zip(one, two).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(one.count)
+    }
+    static func drewScene(_ image: CGImage, completed: UInt64) {
+        guard ["opening", "closing"].contains(phase), let frame = frames[ObjectIdentifier(image)],
+              unsignedInteger(frame["window_id"]) == rootID.map(UInt64.init),
+              let received = unsignedInteger(frame["received"]), received >= phaseStarted,
+              let baseline, let pixels = signature(image) else { return }
+        let changed = distance(pixels, baseline)
+        if phase == "closing" {
+            let separation = menuReference.map { distance($0, baseline) } ?? 12
+            if changed < max(2, separation * 0.2) { sceneClosed = true }
+            return
+        }
+        if let reference = menuReference, !preview {
+            let separation = distance(reference, baseline)
+            guard separation > 3, changed > separation * 0.5,
+                  distance(pixels, reference) < max(2, separation * 0.25) else { return }
+        } else {
+            guard changed > 3 else { return }
+            menuReference = pixels
+        }
+        lock.lock(); guard let pending = current else { lock.unlock(); return }
+        var row = frame; pending.forEach { row[$0] = $1 }; row["draw_end"] = completed
+        row["detection"] = "composed menu ROI matched preview"; row["menu_rect"] = menuRect.map { rect($0) }
+        row["baseline_distance"] = changed; row["scene_window_count"] = delegate?.windows.count
+        rows.append(row); current = nil; lock.unlock()
+        openedID = rootID
+        if preview { phase = "preview"; state() }
+        else { phase = "drawn"; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { closeMenu() } }
+    }
     static func drew(_ image: CGImage) {
         let completed = now()
+        if sceneMode { drewScene(image, completed: completed); return }
         guard phase == "opening", let frame = frames[ObjectIdentifier(image)],
               let received = unsignedInteger(frame["received"]), received >= phaseStarted,
               let number = unsignedInteger(frame["window_id"]), number <= UInt32.max,
@@ -237,6 +305,11 @@ enum Probe {
             "endpoint": "context menu AppKit draw completion", "injection": "SurfaceView rightMouseDown",
             "source_geometry": "normal attach; no benchmark resolution override", "phase": phase,
             "ignored_popup_count": ignoredPopupIDs.count]
+        if sceneMode {
+            result["source_geometry"] = "fixed application scene canvas"
+            result["detection"] = "observed menu ROI compared with preview and closed baseline"
+            result["menu_rect"] = menuRect.map { rect($0) }
+        }
         if let expected = expectedPopup { result["expected_popup_pixels"] = [expected.width, expected.height] }
         if let error { result["error"] = error }
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
