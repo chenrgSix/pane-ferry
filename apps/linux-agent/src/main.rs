@@ -85,6 +85,7 @@ struct Session {
     exited: bool,
     existing: Option<ProcessIdentity>,
     root_window: Option<u32>,
+    last_existing_window_check: Option<Instant>,
     private_authority: Option<PathBuf>,
     secrets_bus: Option<session_bus::SecretsBus>,
     wayland: bool,
@@ -204,7 +205,14 @@ impl Session {
     fn has_exited(&mut self) -> Result<bool> {
         if let Some(existing) = &self.existing {
             self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
-            if let Some(window) = self.root_window {
+            // Input backends still validate the target/geometry for every event.
+            // Full compositor inventory is only a liveness check: do not put
+            // several synchronous list RPCs in front of every wheel/key event.
+            if let Some(window) = self.root_window.filter(|_| {
+                self.last_existing_window_check
+                    .is_none_or(|last| last.elapsed() >= IDLE_SCAN_INTERVAL)
+            }) {
+                self.last_existing_window_check = Some(Instant::now());
                 self.exited |= self
                     .backend
                     .as_ref()
@@ -532,6 +540,7 @@ fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mute
         page_scale: None,
         page_scale_authority: None,
         window_lifetime: Default::default(),
+        last_existing_window_check: None,
         id: id.clone(),
         app_id: format!("screen-{monitor_id}"),
         display: 0,
@@ -699,6 +708,7 @@ fn launch(
             page_scale: None,
             page_scale_authority: None,
             window_lifetime: Default::default(),
+            last_existing_window_check: None,
             id: id.clone(),
             app_id: app_id.into(),
             display: 0,
@@ -809,6 +819,7 @@ fn launch(
             page_scale: None,
             page_scale_authority: Some(PathBuf::from(&existing.xauthority)),
             window_lifetime: Default::default(),
+            last_existing_window_check: None,
             id: id.clone(),
             app_id: app_id.into(),
             display: existing.display,
@@ -845,6 +856,7 @@ fn launch(
         page_scale: None,
         page_scale_authority: None,
         window_lifetime: Default::default(),
+        last_existing_window_check: None,
         id: id.clone(),
         app_id: app_id.into(),
         display,
@@ -1226,7 +1238,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         Ok(None) => {}
                     }
                     text_pending = b.text_pending();
-                    b.pump_capture_events(last_capture.elapsed() >= out.frame_interval())?;
+                    // Drain readiness without copying pixels. Requests already
+                    // queued (or waking poll) must run before a due frame pull.
+                    b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
                     capture_pending = visible_capture_pending(b.as_ref());
                 }
@@ -1663,11 +1677,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         }
         // A queued input takes precedence over a new capture, including when
         // damage events keep the screen continuously dirty.
-        if pending_request.is_none() && last_scan.elapsed() < Duration::from_millis(100) {
-            if let Ok(request) = rx.try_recv() {
-                pending_request = Some(request);
-                continue;
-            }
+        if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed()) {
+            continue;
         }
         let frame_interval = out.frame_interval();
         if capture_pending && last_capture.elapsed() >= frame_interval {
@@ -1833,6 +1844,7 @@ mod tests {
             page_scale: None,
             page_scale_authority: None,
             window_lifetime: Default::default(),
+            last_existing_window_check: None,
             id: "existing-session".into(),
             app_id: "test-app".into(),
             display: 101,

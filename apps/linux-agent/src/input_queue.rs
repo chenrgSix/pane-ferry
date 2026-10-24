@@ -9,6 +9,22 @@ use std::{
     time::Duration,
 };
 
+/// Give queued requests priority, including a barrier retained by coalesce().
+/// Under continuous input, service metadata/capture at least every 100 ms.
+pub fn defer_maintenance(
+    receiver: &Receiver<Request>,
+    pending: &mut Option<Request>,
+    since_scan: Duration,
+) -> bool {
+    if since_scan >= Duration::from_millis(100) {
+        return false;
+    }
+    if pending.is_none() {
+        *pending = receiver.try_recv().ok();
+    }
+    pending.is_some()
+}
+
 /// Wait for either request readiness, X11 events or the next metadata/frame
 /// deadline. The wake socket is nonblocking; the channel remains authoritative.
 pub fn receive(
@@ -86,6 +102,47 @@ pub fn coalesce(
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    #[test]
+    fn queued_input_precedes_capture_but_cannot_starve_maintenance() {
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(Request::Key {
+                window_id: 1,
+                keysym: 42,
+                pressed: false,
+            })
+            .unwrap();
+        let mut pending = Some(Request::Key {
+            window_id: 1,
+            keysym: 42,
+            pressed: true,
+        });
+        assert!(defer_maintenance(
+            &receiver,
+            &mut pending,
+            Duration::from_millis(20)
+        ));
+        assert!(matches!(
+            pending.take(),
+            Some(Request::Key { pressed: true, .. })
+        ));
+        assert!(defer_maintenance(
+            &receiver,
+            &mut pending,
+            Duration::from_millis(30)
+        ));
+        assert!(matches!(pending, Some(Request::Key { pressed: false, .. })));
+        assert!(!defer_maintenance(
+            &receiver,
+            &mut pending,
+            Duration::from_millis(100)
+        ));
+        assert!(matches!(
+            pending.take(),
+            Some(Request::Key { pressed: false, .. })
+        ));
+        assert!(!defer_maintenance(&receiver, &mut pending, Duration::ZERO));
+    }
     #[test]
     fn readiness_wakes_requests_and_preserves_messages_after_coalesced_signals() {
         use std::{io::Write, thread, time::Instant};
