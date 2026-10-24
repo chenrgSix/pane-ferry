@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import select
+import time
 import stat
 import threading
 import uuid
@@ -64,10 +66,11 @@ class Wire:
         self.socket = socket.socket(socket.AF_UNIX)
         self.socket.settimeout(15)
         self.socket.connect(str(STATE / 'agent.sock' if local else route(peer_id)))
-        self.reader = self.socket.makefile('rb', buffering=65536)
+        self.socket.setblocking(False)
+        self.buffer = bytearray()
         self.lock = threading.Lock()
         self.send(type='hello')
-        hello = self.read()
+        hello = self.read(timeout=15)
         if hello.get('type') != 'hello':
             raise ValueError('invalid_hello')
         self.capabilities = hello.get('capabilities', [])
@@ -79,22 +82,46 @@ class Wire:
         if len(data) > LIMIT:
             raise ValueError('message_too_large')
         with self.lock:
-            self.socket.sendall(data)
+            deadline = time.monotonic() + 15
+            remaining = memoryview(data)
+            while remaining:
+                wait = deadline - time.monotonic()
+                if wait <= 0 or not select.select([], [self.socket], [], wait)[1]:
+                    raise TimeoutError('connection_lost')
+                try: count = self.socket.send(remaining)
+                except BlockingIOError: continue
+                if not count: raise EOFError('connection_lost')
+                remaining = remaining[count:]
 
-    def read(self):
-        line = self.reader.readline(LIMIT + 1)
-        if not line:
-            raise EOFError('connection_lost')
-        if len(line) > LIMIT or not line.endswith(b'\n'):
-            raise ValueError('invalid_message')
-        value = json.loads(line)
-        if value.get('version') != 1:
-            raise ValueError('protocol_version')
-        return value
+    def read(self, timeout=None):
+        # A quiet desktop has no frames. Bound requests and partial messages,
+        # not the lifetime of an idle streaming connection.
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        partial_deadline = time.monotonic() + 15 if self.buffer else None
+        while True:
+            newline = self.buffer.find(b'\n')
+            if newline >= 0:
+                if newline >= LIMIT: raise ValueError('invalid_message')
+                line = bytes(self.buffer[:newline]); del self.buffer[:newline + 1]
+                value = json.loads(line)
+                if not isinstance(value, dict) or value.get('version') != 1:
+                    raise ValueError('protocol_version')
+                return value
+            if len(self.buffer) >= LIMIT: raise ValueError('invalid_message')
+            limits = [limit for limit in (deadline, partial_deadline) if limit is not None]
+            wait = min(limits) - time.monotonic() if limits else None
+            if wait is not None and wait <= 0: raise TimeoutError('connection_lost')
+            if not select.select([self.socket], [], [], wait)[0]: raise TimeoutError('connection_lost')
+            try: chunk = self.socket.recv(min(65536, LIMIT - len(self.buffer)))
+            except BlockingIOError: continue
+            if not chunk: raise EOFError('connection_lost')
+            if partial_deadline is None: partial_deadline = time.monotonic() + 15
+            self.buffer.extend(chunk)
 
     def until(self, kind):
+        deadline = time.monotonic() + 15
         for _ in range(64):
-            value = self.read()
+            value = self.read(timeout=max(0, deadline - time.monotonic()))
             if value.get('type') == 'error':
                 raise ValueError(value.get('code', 'remote_error'))
             if value.get('type') == kind:
@@ -106,7 +133,7 @@ class Wire:
             self.socket.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
-        self.reader.close(); self.socket.close()
+        self.socket.close()
 
 
 def request(peer_id, kind, expected=None, local=False, **fields):
