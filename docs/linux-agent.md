@@ -80,7 +80,7 @@ GNOME 50 的 RecordWindow 使用显示器大小的缓冲区；原生 Wayland 目
 
 首次安装扩展时，GNOME 可能直到下次登录才发现它。不要为自动验收注销桌面；注销会退出用户应用。Agent 的独立会话也不持久化，重启服务前须保存工作。普通 X11 路径在扩展未启用时保持可用，但原桌面的尺寸请求仍可能被窗口管理器限制。
 
-升级扩展同样需要下一次 GNOME 登录：当前登录缓存已经导入的 JavaScript 模块，`ReloadExtension` 不能保证加载磁盘上的新代码。扩展版本 2 / 桥接版本 3 增加通用菜单、提示框类型及堆叠次序；应更新 Agent、Mac WindowHost 和扩展，并在用户自行保存工作、重新登录 Ubuntu 后核对 `bridge_version:3`。旧桥接仍可连接，但不会具备完整的浮层展示语义。相关协议见[窗口元数据](wire-contract.md)。
+升级扩展需要下一次 GNOME 登录：GNOME 50 的 D-Bus `ReloadExtension` 明确返回“不支持”，当前登录也缓存已导入的 JavaScript 模块。扩展版本 3 / 桥接版本 4 增加可选的单流应用会话画面；应更新 Agent、Mac WindowHost 和扩展，再由用户保存工作、重新登录 Ubuntu，核对实际返回 `bridge_version:4`。不要自动注销或仅凭磁盘版本宣称生效。桥接版本 3 仍支持原分窗口模式，但新模式会明确拒绝旧扩展。相关协议见[窗口元数据](wire-contract.md)。
 
 应用会话画面使用桥接版本 4，建立固定输出上的受限合成场景并只发送一个流；为可选模式，详见[应用会话画面](application-scene.md)。
 
