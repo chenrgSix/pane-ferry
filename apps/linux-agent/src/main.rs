@@ -69,6 +69,7 @@ mod launch_policy;
 mod output;
 mod request_error;
 mod session_bus;
+mod session_lifecycle;
 mod video;
 mod video_qos;
 mod wayland;
@@ -87,6 +88,7 @@ struct Session {
     secrets_bus: Option<session_bus::SecretsBus>,
     wayland: bool,
     desktop_monitor: Option<String>,
+    window_lifetime: session_lifecycle::WindowLifetime,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
@@ -128,6 +130,25 @@ fn existing_unavailable_reason(app: &App) -> Option<&'static str> {
     None
 }
 impl Session {
+    fn scan_windows(&mut self) -> Result<Vec<Window>> {
+        let Some(backend) = self.backend.as_mut() else {
+            return Ok(vec![]);
+        };
+        let now = Instant::now();
+        let windows = match backend.scan() {
+            Ok(windows) => windows,
+            Err(error) => {
+                self.window_lifetime.scan_failed(now);
+                return Err(error);
+            }
+        };
+        if self.existing.is_none() && self.desktop_monitor.is_none() {
+            self.exited |= self
+                .window_lifetime
+                .observe(&windows, now, |id| backend.existing_window_exists(id));
+        }
+        Ok(windows)
+    }
     fn has_exited(&mut self) -> Result<bool> {
         if let Some(existing) = &self.existing {
             self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
@@ -145,6 +166,24 @@ impl Session {
                 .transpose()?
                 .flatten()
                 .is_some();
+        }
+        if !self.exited
+            && !self.controller
+            && self.existing.is_none()
+            && self.desktop_monitor.is_none()
+            && self.window_lifetime.scan_due(Instant::now())
+        {
+            // Detached sessions must also disappear from discovery after their
+            // last window closes. A failed scan is not evidence of exit.
+            let _ = self.scan_windows();
+        }
+        if self.exited {
+            if let Some(backend) = self.backend.take() {
+                backend.release_all();
+            }
+            for mut child in self.children.drain(..).rev() {
+                stop_child(&mut child);
+            }
         }
         Ok(self.exited)
     }
@@ -434,6 +473,7 @@ fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mute
     let backend = desktop::Backend::connect(monitor, st.desktop_input.lease(), &desktop)?;
     let id = random_id()?;
     let session = Arc::new(Mutex::new(Session {
+        window_lifetime: Default::default(),
         id: id.clone(),
         app_id: format!("screen-{monitor_id}"),
         display: 0,
@@ -598,6 +638,7 @@ fn launch(
             wayland::Backend::connect(target.clone(), st.desktop_input.lease(), &desktop)?;
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            window_lifetime: Default::default(),
             id: id.clone(),
             app_id: app_id.into(),
             display: 0,
@@ -705,6 +746,7 @@ fn launch(
         }
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
+            window_lifetime: Default::default(),
             id: id.clone(),
             app_id: app_id.into(),
             display: existing.display,
@@ -738,6 +780,7 @@ fn launch(
         .context("no display available")?;
     let id = random_id()?;
     let mut s = Session {
+        window_lifetime: Default::default(),
         id: id.clone(),
         app_id: app_id.into(),
         display,
@@ -926,13 +969,7 @@ fn wait_for_window(session: &Arc<Mutex<Session>>) -> Result<()> {
             if s.has_exited()? {
                 bail!("application exited before creating a window")
             }
-            if s.backend
-                .as_mut()
-                .context("native backend unavailable")?
-                .scan()?
-                .iter()
-                .any(|window| window.visible)
-            {
+            if s.scan_windows()?.iter().any(|window| window.visible) {
                 return Ok(());
             }
         }
@@ -1220,16 +1257,18 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                                 continue;
                             }
                             let controlled = s.controller;
-                            let window_count = s.backend.as_mut().and_then(|backend| {
-                                if controlled {
-                                    Some(backend.windows().values().filter(|w| w.visible).count())
-                                } else {
-                                    backend
-                                        .scan()
-                                        .ok()
-                                        .map(|windows| windows.iter().filter(|w| w.visible).count())
-                                }
-                            });
+                            let window_count = if controlled {
+                                s.backend
+                                    .as_ref()
+                                    .map(|b| b.windows().values().filter(|w| w.visible).count())
+                            } else {
+                                s.scan_windows()
+                                    .ok()
+                                    .map(|windows| windows.iter().filter(|w| w.visible).count())
+                            };
+                            if s.has_exited()? {
+                                continue;
+                            }
                             sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,
                                 "controlled":controlled,"window_count":window_count,
                                 "mode":if s.desktop_monitor.is_some() {"desktop"} else {"app"},
@@ -1436,11 +1475,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         let new = acquire(session)?;
                         {
                             let mut s = new.0.lock().unwrap();
-                            let windows = if let Some(b) = s.backend.as_mut() {
-                                b.scan()?
-                            } else {
-                                vec![]
-                            };
+                            let windows = s.scan_windows()?;
                             known = windows.iter().cloned().map(|w| (w.window_id, w)).collect();
                             let values: Vec<_> = windows
                                 .iter()
@@ -1572,8 +1607,23 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
-            let exited = s.has_exited()?;
-            if exited {
+            let windows = if !s.has_exited()? && scan_due {
+                match s.scan_windows() {
+                    Ok(windows) => windows,
+                    Err(error) => {
+                        let code = request_error::code(&error.to_string());
+                        send(&mut out, json!({"type":"error","code":code}), &sid)?;
+                        // Capture/bridge failures only detach this controller.
+                        break;
+                    }
+                }
+            } else {
+                s.backend
+                    .as_ref()
+                    .map(|b| b.windows().values().cloned().collect())
+                    .unwrap_or_default()
+            };
+            if s.has_exited()? {
                 if !exit_notified {
                     for mut c in s.children.drain(..).rev() {
                         stop_child(&mut c);
@@ -1597,20 +1647,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                 }
-                let windows = if scan_due {
-                    match b.scan() {
-                        Ok(windows) => windows,
-                        Err(error) => {
-                            let code = request_error::code(&error.to_string());
-                            send(&mut out, json!({"type":"error","code":code}), &sid)?;
-                            // End only this controller connection. The original
-                            // application and retained session remain available.
-                            break;
-                        }
-                    }
-                } else {
-                    b.windows().values().cloned().collect()
-                };
                 for id in known.keys().filter(|id| !b.windows().contains_key(id)) {
                     send(
                         &mut out,
@@ -1695,6 +1731,7 @@ mod tests {
             .spawn()
             .unwrap();
         let session = Arc::new(Mutex::new(Session {
+            window_lifetime: Default::default(),
             id: "existing-session".into(),
             app_id: "test-app".into(),
             display: 101,

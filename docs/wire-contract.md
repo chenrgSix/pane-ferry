@@ -23,6 +23,8 @@ display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，�
 窗口元数据另带 scale_factor:1|2，旧端缺失时按 1；所有 width/height 都是实际渲染像素，Mac 逻辑窗口点数与它们分开管理。
 视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
+
+Linux 应用窗口的显式 window.focus 也用于恢复已最小化或隐藏的受控窗口；普通输入不隐式恢复隐藏窗口。Mac 接收端保留隐藏主窗口的本地恢复入口，等待源端 visible:true 后恢复输入。隐藏的菜单与子窗口不创建恢复占位页。
 Mac 宿主红色关闭按钮只执行 session.detach 并退出宿主，不发送 window.close.request；后者保留为显式结束远端窗口的底层接口。用户也可在远端程序画面内选择关闭/退出。
 window.configure 是合法像素尺寸的请求，不是成功确认。宿主默认按内容区 points × backingScaleFactor 计算，并按比例限制到 4096×2160 / 800 万像素预算。自动和手动模式均按成功解码图像的宽高比显示，远端回包不改变本机窗口大小。未匹配时留边，标题区分实际接收、目标、预算限制及等待/拒绝状态；旧画面与新几何不一致时不发送新点击。WM 内部窗口和从未显示过的辅助窗口不发布；已显示窗口隐藏后仍保留身份。迟到的隐藏/销毁窗口请求返回 window_unavailable，宿主等待元数据更新，不连续弹阻塞对话框。
 input.pointer {window_id,x,y,button:0..7,pressed:bool}。button 0 只移动，4/5 滚轮。Mac 宿主立即传递有效鼠标移动；仅在本机发送队列尚未写出时，以同一窗口的最新连续移动覆盖旧坐标，点击、滚轮和释放保持顺序。
@@ -34,6 +36,8 @@ clipboard.paste {window_id,text} 由控制端主动粘贴触发。clipboard.copy
 
 新建自有实例使用不连接桌面 IM daemon 的 GTK/Qt 输入上下文，组合仍在控制端完成；现有进程的输入法环境不被修改。普通 X11 应用保持快速路径；Firefox 对新剪贴板快照增加 16ms 广告时间，并为快捷键转换保留 4ms 节奏，提前读取也会计入交付状态。selection 的读取确认不等同于编辑器的语义提交确认，客户端不得将其解释为网页已经接受输入。
 服务端 error {code,message}，无敏感数据。会话退出 session.exited。
+
+私有 X11 应用会话在已出现过的最后一个非 popup 窗口被确认销毁、连续成功扫描 1 秒未出现替代窗口后结束，即使应用进程仍在运行。最小化、隐藏、临时扫描遗漏但 XID 仍存在，以及扫描失败都不构成退出。只回收该私有会话拥有的资源；已有桌面窗口仍使用原进程和指定根窗口的存活判定，整桌面会话不使用空应用窗口判定。已结束会话从 session.list 隐去；Mac 接收端收到退出或重连终态后退出宿主。
 
 已退出的原进程返回 existing_process_unavailable；已结束/回收的会话返回 session_exited / session_expired。明确拒绝启动后，启动器可清除待确认请求 ID，再由用户触发新启动；网络错误、超时与未知 request_failed 必须保留 ID。客户端只显示本地映射的错误码解释，不显示任意服务端详情。
 
