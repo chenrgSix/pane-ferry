@@ -1,0 +1,78 @@
+{
+  "product_commit": "e7261544f32b033df482b4871a51d3ecb71db142",
+  "probe_commit": "05364079cf7f025a0eae058884d7069df1d64af9",
+  "route_interface": "utun4",
+  "bridge_version": 4,
+  "extension_package_version": 3,
+  "endpoint": "context menu AppKit draw completion",
+  "injection": "SurfaceView rightMouseDown",
+  "formal_samples": 60,
+  "warmup_samples": 2,
+  "root_pixels": [
+    2940,
+    1618
+  ],
+  "scale": 2,
+  "menu_rect": [
+    500,
+    600,
+    220,
+    240
+  ],
+  "total": {
+    "count": 60,
+    "median_ms": 221.521792,
+    "p95_nearest_rank_ms": 258.699083,
+    "min_ms": 167.443875,
+    "max_ms": 275.404334
+  },
+  "stages": {
+    "input_write": {
+      "count": 60,
+      "median_ms": 1.076146,
+      "p95_nearest_rank_ms": 1.508791,
+      "min_ms": 0.07425,
+      "max_ms": 2.278834
+    },
+    "response": {
+      "count": 60,
+      "median_ms": 194.9267505,
+      "p95_nearest_rank_ms": 229.722833,
+      "min_ms": 143.332792,
+      "max_ms": 248.758708
+    },
+    "decode": {
+      "count": 60,
+      "median_ms": 16.2473125,
+      "p95_nearest_rank_ms": 21.007,
+      "min_ms": 9.365959,
+      "max_ms": 23.081958
+    },
+    "main_thread": {
+      "count": 60,
+      "median_ms": 4.9601665,
+      "p95_nearest_rank_ms": 10.70075,
+      "min_ms": 0.039625,
+      "max_ms": 11.705541
+    },
+    "draw": {
+      "count": 60,
+      "median_ms": 2.8156045,
+      "p95_nearest_rank_ms": 8.723917,
+      "min_ms": 0.985375,
+      "max_ms": 16.093875
+    }
+  },
+  "all_hardware_decoded": true,
+  "all_single_scene_window": true,
+  "strict_same_condition_comparison": false,
+  "display_checks": {
+    "native_menu_scroll": true,
+    "nested_menu": true,
+    "single_mac_window": true
+  },
+  "excluded_observation": {
+    "reason": "manual preview probe reached lifetime timeout after inspection; no formal samples",
+    "formal_samples": 0
+  }
+}
