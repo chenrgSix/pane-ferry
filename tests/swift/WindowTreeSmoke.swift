@@ -159,6 +159,12 @@ import AppKit
         let bitmap=reused.surface.bitmapImageRepForCachingDisplay(in:reused.surface.bounds)!
         reused.surface.cacheDisplay(in:reused.surface.bounds,to:bitmap)
         precondition(app.pendingVideoFeedbackID==1, "feedback follows the actual AppKit draw")
+        let delayedVideo = pixels(40, 40)
+        app.receive(Incoming(object:["type":"input.authorization", "session_id":"fixture", "seq":6, "state":"ready"], image:nil))
+        app.receive(Incoming(object:["type":"frame", "window_id":99, "session_id":"fixture", "seq":5, "geometry_revision":1, "frame_id":2], image:delayedVideo))
+        precondition(reused.surface.image === delayedVideo, "control overtaking decode must not suppress a still-current frame")
+        app.receive(Incoming(object:["type":"frame", "window_id":99, "session_id":"fixture", "seq":4, "geometry_revision":1], image:pixels(40,40)))
+        precondition(reused.surface.image === delayedVideo, "older video from the same window is still rejected")
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
         print("PASS: source-relative nested overlays, fractional density, letterboxing, screen bounds, native overflow scrolling, bottom-item input, nested scroll anchors, passive tooltip hit testing, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")

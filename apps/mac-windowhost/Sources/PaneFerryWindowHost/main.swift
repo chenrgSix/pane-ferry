@@ -102,7 +102,7 @@ final class RWPTransport {
         }
     }
     private func videoGeometry(_ value: [String: Any]) -> String {
-        ["geometry_revision", "width", "height", "visible"].map { String(describing: value[$0] ?? true) }.joined(separator: "/")
+        "\(unsignedInteger(value["geometry_revision"]) ?? 0)/\(unsignedInteger(value["width"]) ?? 0)/\(unsignedInteger(value["height"]) ?? 0)/\((value["visible"] as? Bool) ?? true)"
     }
     private func invalidateDecode(for object: [String: Any]) {
         let type = object["type"] as? String ?? ""
@@ -303,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var childStacking: [UInt32: [UInt32]] = [:]
     var session: String?
     var lastSequence: UInt64 = 0
+    private var lastVideoSequence: [UInt32: UInt64] = [:]
     var ready = false
     var connected = true
     var recovering = false
@@ -745,7 +746,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         guard let currentSession = session, object["session_id"] as? String == currentSession else { return }
         guard let seq = unsignedInteger(object["seq"]) else { transport.disconnect(); return }
-        guard seq > lastSequence else { return }; lastSequence = seq
+        if type == "frame" {
+            guard let number = unsignedInteger(object["window_id"]), number <= UInt32.max else { return }
+            let id = UInt32(number)
+            guard seq > (lastVideoSequence[id] ?? 0) else { return }
+            lastVideoSequence[id] = seq
+            // Controls can overtake asynchronous video. Sequence order between
+            // decoded windows is not wire order; lifecycle/revision checks below
+            // still reject obsolete content.
+            lastSequence = max(lastSequence, seq)
+        } else {
+            guard seq > lastSequence else { return }; lastSequence = seq
+            if type == "session.snapshot" || type == "session.exited" { lastVideoSequence.removeAll() }
+            if type == "window.destroyed", let number = unsignedInteger(object["window_id"]), number <= UInt32.max {
+                lastVideoSequence.removeValue(forKey: UInt32(number))
+            }
+        }
         if type == "input.authorization" {
             let state = object["state"] as? String ?? "unavailable"
             switch state {
