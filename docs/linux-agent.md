@@ -20,13 +20,15 @@ Linux 开发包由 `bash scripts/build-linux.sh` 生成，包含双向使用的 
 
 ## 窗口视频流
 
-新版 Mac 宿主优先协商 H.264。Agent 的独立输出线程运行系统 GStreamer 的 appsrc、videoconvert、openh264enc、h264parse、appsink 管线，奇数宽高才插入 videobox 补边。通过稳定 C API 运行时加载 `libgstreamer-1.0.so.0` / `libgstapp-1.0.so.0`，视频编码不再依赖 Python GI 或原始帧 socketpair。只读像素缓冲由 Arc 租约保持至 GStreamer 释放，避免跨进程传帧、Python 缓冲拼接和再次填充 GstBuffer。identity 只按原 sequence/30 规则设置时间戳；颜色转换及编码器、码率、GOP、QP 上限、帧跳过策略保持不变。拉取编码结果有 2 秒超时，失败维持现有 PNG 回退；停止管线后释放缓冲及对象引用。不运行客户端提供的管线或命令。
+Mac 宿主与 Linux Agent 协商 H.264。Agent 的独立输出线程通过稳定 C API 运行时加载系统 GStreamer，使用 appsrc、videoconvert、编码器、h264parse、appsink；奇数宽高才插入 videobox 补边。优先采用 `x264enc` 的 ultrafast / zerolatency 模式，关闭 B 帧和 lookahead，以 4 个 slice 线程处理同一帧，避免帧线程排队。组件缺失、初始化失败或首帧失败时采用原有 OpenH264 屏幕模式；已经输出视频的流不会中途换编码器。无需新增 Python 编码进程，也不会自动安装插件。x264 是系统可选组件（通常由 `gstreamer1.0-plugins-ugly` 提供）。
 
-缓冲共享遵循 [GStreamer 的 wrapped-buffer 生命周期约定](https://gstreamer.freedesktop.org/documentation/gstreamer/gstbuffer.html#gst_buffer_new_wrapped_full)：数据保持只读，释放通知回收租约，不依赖私有结构体布局。`tests/performance/legacy_video_encoder.py` 仅用于与旧管线比较解码像素，不再作为运行时编码进程。
+PipeWire 每帧仅做一次只读映射，将有效裁剪区域复制到自有缓冲后立即释放映射和 sample；采集缓存、输出队列、编码器共享同一 `Arc`，避免整帧清零、逐行反复映射和缓存到输出的再次克隆。慢速编码不会持有合成器的采集缓冲。缓冲共享遵循 [GStreamer 的 wrapped-buffer 生命周期约定](https://gstreamer.freedesktop.org/documentation/gstreamer/gstbuffer.html#gst_buffer_new_wrapped_full)，映射采用公开的 [GstMapInfo ABI](https://raw.githubusercontent.com/GStreamer/gstreamer/main/subprojects/gstreamer/gst/gstmemory.h)，不读取 GstBuffer 私有布局。
 
-编码使用 OpenH264 屏幕模式、无 B 帧、关键帧加 P 帧；窗口改变大小、隐藏恢复或重连后从新的关键帧开始。仅在编码之前合并旧画面，已编码的依赖帧不丢弃。实际显示像素尺寸保持不变，奇数宽高为编码补至偶数，Mac 解码后裁掉补边。编码为有损 4:2:0，文本颜色精度与 PNG 不同。
+输入循环先处理已排队的请求，再拉取到期的画面；连续输入期间至少每 100 ms 服务一次元数据和采集，文字粘贴、按键及按钮顺序保持不变。现有窗口的完整存活查询最多每 100 ms 一次；进程身份和输入目标/几何校验仍保留。
 
-Agent 在 hello 中仅在组件可用时声明 `native.h264`；没有组件或编码失败时保留 PNG，Mac 副标题明确显示回退。视频经 QUIC 可靠流传输，不使用 WebRTC；不会配置 STUN、TURN、公网端口或更改防火墙。Ubuntu 已有组件在实机测试中可用，但其他 Linux 发行版需要自行安装运行依赖。
+编码保持原分辨率、按像素数和协商帧率计算的目标码率、QP 上限 28 与不跳帧策略。identity 按协商帧率生成固定帧时间戳。窗口改变大小、隐藏恢复或重连后从新的关键帧开始；只在编码前合并旧画面，已编码的依赖帧不丢弃。实际显示像素尺寸保持不变，奇数宽高补至偶数后由 Mac 裁掉补边。编码为有损 4:2:0；编码器变化仍需解码画质和真实桌面验证，不能只比较帧率。`tests/performance/legacy_video_encoder.py` 仅作为旧编码画质基准。
+
+Agent 仅在组件可用时声明 `native.h264`；当前视频链路要求 H.264，不再提供 PNG 回退。编码结果等待上限为 2 秒；管线出错会断开控制连接并释放按键。视频经 QUIC 可靠流传输，不使用 WebRTC；不会配置 STUN、TURN、公网端口或更改防火墙。不运行客户端提供的管线或命令。
 
 ## 接入现有 X11 窗口
 
