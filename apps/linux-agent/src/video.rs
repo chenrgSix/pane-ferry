@@ -93,16 +93,21 @@ impl Api {
             c"identity",
             c"videoconvert",
             c"videobox",
-            c"openh264enc",
             c"h264parse",
             c"appsink",
         ] {
-            let factory = unsafe { (self.factory)(name.as_ptr()) };
-            if factory.is_null() {
+            if !self.has_factory(name) {
                 return false;
             }
-            unsafe { (self.unref)(factory) };
         }
+        self.has_factory(c"x264enc") || self.has_factory(c"openh264enc")
+    }
+    fn has_factory(&self, name: &CStr) -> bool {
+        let factory = unsafe { (self.factory)(name.as_ptr()) };
+        if factory.is_null() {
+            return false;
+        }
+        unsafe { (self.unref)(factory) };
         true
     }
 }
@@ -463,6 +468,7 @@ pub struct Encoder {
     pub width: u32,
     pub height: u32,
     pub stream: u64,
+    first_frame_fallback: Option<u8>,
 }
 pub struct Packet {
     pub bytes: Vec<u8>,
@@ -473,8 +479,23 @@ fn bitrate(width: u32, height: u32, fps: u8) -> u32 {
     (u64::from(width) * u64::from(height) * 6 * u64::from(fps) / 60).clamp(4_000_000, 48_000_000)
         as u32
 }
-fn pipeline(width: u32, height: u32, fps: u8) -> String {
+#[derive(Clone, Copy)]
+enum EncoderKind {
+    X264,
+    OpenH264,
+}
+
+fn pipeline(width: u32, height: u32, fps: u8, kind: EncoderKind) -> String {
     let bitrate = bitrate(width, height, fps);
+    let encoder = match kind {
+        // Slice threads finish one frame at a time: no frame-thread/lookahead
+        // buffering. Keep the same resolution, bitrate and maximum quantizer.
+        EncoderKind::X264 => format!("x264enc name=encoder speed-preset=ultrafast tune=zerolatency \
+            threads=4 sliced-threads=true bframes=0 rc-lookahead=0 sync-lookahead=0 \
+            bitrate={} key-int-max={fps} qp-max=28 byte-stream=true", bitrate.div_ceil(1000)),
+        EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate \
+            bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28", bitrate * 2),
+    };
     let padding = if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         format!("! videobox right=-{} bottom=-{} ", width % 2, height % 2)
     } else {
@@ -486,24 +507,43 @@ fn pipeline(width: u32, height: u32, fps: u8) -> String {
     let even_width = u64::from(width + width % 2);
     let even_height = u64::from(height + height % 2);
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
-    format!("appsrc name=source is-live=true format=time block=true max-buffers=1 \
+    format!(
+        "appsrc name=source is-live=true format=time block=true max-buffers=1 \
         caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 \
         {padding}! videoconvert ! video/x-raw,format=I420 \
         ! identity datarate={raw_rate} signal-handoffs=false \
-        ! openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate \
-        bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28 \
+        ! {encoder} \
         ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au \
-        ! appsink name=sink sync=false max-buffers=1 drop=false", bitrate * 2)
+        ! appsink name=sink sync=false max-buffers=1 drop=false"
+    )
 }
 impl Encoder {
     pub fn new(width: u32, height: u32, stream: u64) -> Result<Self> {
         Self::with_cap(width, height, stream, 60)
     }
     pub fn with_cap(width: u32, height: u32, stream: u64, cap_fps: u8) -> Result<Self> {
+        let api = api().context("H.264 components unavailable")?;
+        if api.has_factory(c"x264enc") {
+            if let Ok(mut encoder) =
+                Self::with_kind(width, height, stream, cap_fps, EncoderKind::X264)
+            {
+                encoder.first_frame_fallback = Some(cap_fps);
+                return Ok(encoder);
+            }
+        }
+        Self::with_kind(width, height, stream, cap_fps, EncoderKind::OpenH264)
+    }
+    fn with_kind(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        kind: EncoderKind,
+    ) -> Result<Self> {
         paneferry_protocol::dimensions(width, height)?;
         anyhow::ensure!((1..=90).contains(&cap_fps), "invalid video fps");
         let api = api().context("H.264 components unavailable")?;
-        let description = CString::new(pipeline(width, height, cap_fps))?;
+        let description = CString::new(pipeline(width, height, cap_fps, kind))?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         let mut encoder = Self {
@@ -514,6 +554,7 @@ impl Encoder {
             width,
             height,
             stream,
+            first_frame_fallback: None,
         };
         if !error.is_null() {
             unsafe { (api.free_error)(error) };
@@ -535,6 +576,31 @@ impl Encoder {
         Ok(encoder)
     }
     pub fn encode(&mut self, image: &Arc<CapturedImage>) -> Result<Packet> {
+        let fallback = self.first_frame_fallback.take();
+        match self.encode_inner(image) {
+            Ok(packet) => Ok(packet),
+            Err(error) => {
+                // Some installed plugins fail only during first-frame caps
+                // negotiation. Retry on a fresh software pipeline before any
+                // packet has entered the stream, never midway through a GOP.
+                if let Some(fps) =
+                    fallback.filter(|_| image.width == self.width && image.height == self.height)
+                {
+                    *self = Self::with_kind(
+                        self.width,
+                        self.height,
+                        self.stream,
+                        fps,
+                        EncoderKind::OpenH264,
+                    )?;
+                    self.encode_inner(image)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+    fn encode_inner(&mut self, image: &Arc<CapturedImage>) -> Result<Packet> {
         if image.width != self.width || image.height != self.height {
             bail!("video geometry changed")
         }
@@ -711,10 +777,37 @@ mod tests {
 
     #[test]
     fn ninety_fps_timestamps_fit_identity_datarate_at_maximum_resolution() {
-        let description = pipeline(4000, 2000, 90);
+        let description = pipeline(4000, 2000, 90, EncoderKind::X264);
         assert!(description.contains("framerate=90/1"));
         assert!(description.contains("datarate=1080000000"));
         assert!(1_080_000_000 < i32::MAX);
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer x264/OpenH264; run explicitly on Ubuntu"]
+    fn first_frame_failure_falls_back_without_changing_stream_or_retaining_pixels() {
+        let image = Arc::new(CapturedImage {
+            width: 128,
+            height: 64,
+            data: vec![96; 128 * 64 * 4],
+            bpp: 32,
+            pad: 32,
+            little: true,
+            masks: (0xff0000, 0xff00, 0xff),
+        });
+        let mut encoder = Encoder::with_kind(128, 64, 7, 60, EncoderKind::X264).unwrap();
+        encoder.first_frame_fallback = Some(60);
+        // Simulate a plugin that was found/constructed but cannot accept input.
+        unsafe {
+            (encoder.api.state)(encoder.pipeline, STATE_NULL);
+        }
+        let first = encoder.encode(&image).unwrap();
+        assert!(first.keyframe);
+        assert_eq!(encoder.stream, 7);
+        assert!(encoder.first_frame_fallback.is_none());
+        assert!(!encoder.encode(&image).unwrap().keyframe);
+        drop(encoder);
+        assert_eq!(Arc::strong_count(&image), 1);
     }
 
     #[test]
