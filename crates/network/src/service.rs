@@ -20,10 +20,38 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     sync::{mpsc, Semaphore},
     task::JoinSet,
+    time::Instant,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const PEER_LIMIT: usize = 32;
+
+async fn within<T, E: Into<anyhow::Error>>(
+    deadline: Instant,
+    stage: &'static str,
+    future: impl std::future::Future<Output = std::result::Result<T, E>>,
+) -> Result<T> {
+    tokio::time::timeout_at(deadline, future)
+        .await
+        .with_context(|| format!("{stage} timed out"))?
+        .map_err(Into::into)
+        .with_context(|| stage)
+}
+
+// A cancelled/failed authentication must not leave an unregistered connection
+// alive. Registered connections are shared by independent window streams.
+struct PendingConnection {
+    connection: Connection,
+    registered: bool,
+}
+impl Drop for PendingConnection {
+    fn drop(&mut self) {
+        if !self.registered {
+            self.connection
+                .close(1u32.into(), b"connection setup cancelled or failed");
+        }
+    }
+}
 #[derive(Clone)]
 pub struct Config {
     pub state: PathBuf,
@@ -185,31 +213,17 @@ impl Service {
                 "device identity changed"
             );
         }
-        let connection = tokio::time::timeout(
-            TIMEOUT,
-            self.endpoint.connect_with(
-                self.identity.client(&peer.certificate)?,
-                address.parse()?,
-                "lan-remoteapp",
-            )?,
-        )
-        .await??;
-        ensure!(
-            identity::remote_certificate(&connection)? == peer.certificate,
-            "certificate mismatch"
-        );
-        let (mut send, mut recv) = connection.open_bi().await?;
-        Packet::new(
-            json!({"op":"pair", "token":invite.token,"peer":self.local_peer()}),
-            0,
-        )?
-        .write(&mut send)
-        .await?;
-        let answer = tokio::time::timeout(TIMEOUT, Packet::read(&mut recv)).await??;
-        ensure!(answer.value["ok"] == true, "pairing rejected");
-        send.finish()?;
+        let mut pending = self
+            .dial(
+                &peer,
+                json!({"op":"pair", "token":invite.token,"peer":self.local_peer()}),
+                Instant::now() + TIMEOUT,
+            )
+            .await?;
+        let connection = pending.connection.clone();
         self.persist_peer(peer.clone())?;
         self.register(&peer.device_id, &connection)?;
+        pending.registered = true;
         let service = self.clone();
         let id = peer.device_id.clone();
         tokio::spawn(async move {
@@ -333,16 +347,29 @@ impl Service {
         }
     }
     async fn connection(self: &Arc<Self>, id: &str) -> Result<Connection> {
+        // One budget includes queueing, TLS, stream credit and authentication.
+        // Concurrent callers must not each wait for all earlier 15s attempts.
+        let deadline = Instant::now() + TIMEOUT;
         let dialer = {
             let mut state = self.state.lock().unwrap();
             ensure!(state.peers.contains_key(id), "unpaired device");
+            if let Some(connection) = state
+                .connections
+                .get(id)
+                .and_then(|list| list.iter().rev().find(|c| c.close_reason().is_none()))
+            {
+                return Ok(connection.clone());
+            }
             state
                 .dialers
                 .entry(id.to_owned())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
-        let _dial = dialer.lock().await;
+        let _dial = within(deadline, "wait for peer dial", async {
+            Ok::<_, anyhow::Error>(dialer.lock().await)
+        })
+        .await?;
         let peer = {
             let state = self.state.lock().unwrap();
             let peer = state.peers.get(id).context("unpaired device")?.clone();
@@ -355,32 +382,12 @@ impl Service {
             }
             peer
         };
-        let connection = tokio::time::timeout(
-            TIMEOUT,
-            self.endpoint.connect_with(
-                self.identity.client(&peer.certificate)?,
-                peer.address.parse()?,
-                "lan-remoteapp",
-            )?,
-        )
-        .await??;
-        ensure!(
-            identity::remote_certificate(&connection)? == peer.certificate,
-            "certificate mismatch"
-        );
-        let (mut send, mut recv) = connection.open_bi().await?;
-        Packet::new(json!({"op":"auth","device_id":self.id()}), 0)?
-            .write(&mut send)
+        let mut pending = self
+            .dial(&peer, json!({"op":"auth","device_id":self.id()}), deadline)
             .await?;
-        ensure!(
-            tokio::time::timeout(TIMEOUT, Packet::read(&mut recv))
-                .await??
-                .value["ok"]
-                == true,
-            "authentication rejected"
-        );
-        send.finish()?;
+        let connection = pending.connection.clone();
         self.register(id, &connection)?;
+        pending.registered = true;
         let service = self.clone();
         let remote = id.to_owned();
         let clone = connection.clone();
@@ -388,6 +395,49 @@ impl Service {
             service.connected(clone, remote).await;
         });
         Ok(connection)
+    }
+    async fn dial(
+        &self,
+        peer: &Peer,
+        request: Value,
+        deadline: Instant,
+    ) -> Result<PendingConnection> {
+        let connection = within(
+            deadline,
+            "TLS handshake",
+            self.endpoint.connect_with(
+                self.identity.client(&peer.certificate)?,
+                peer.address.parse()?,
+                "lan-remoteapp",
+            )?,
+        )
+        .await?;
+        let pending = PendingConnection {
+            connection,
+            registered: false,
+        };
+        let connection = &pending.connection;
+        ensure!(
+            identity::remote_certificate(connection)? == peer.certificate,
+            "certificate mismatch"
+        );
+        let (mut send, mut recv) =
+            within(deadline, "open authentication stream", connection.open_bi()).await?;
+        within(
+            deadline,
+            "write authentication",
+            Packet::new(request, 0)?.write(&mut send),
+        )
+        .await?;
+        ensure!(
+            within(deadline, "read authentication", Packet::read(&mut recv))
+                .await?
+                .value["ok"]
+                == true,
+            "authentication rejected"
+        );
+        send.finish()?;
+        Ok(pending)
     }
     async fn connected(self: Arc<Self>, connection: Connection, id: String) {
         let mut tasks = JoinSet::new();
@@ -631,18 +681,50 @@ impl Service {
         result
     }
     pub async fn receive(self: &Arc<Self>, peer: &str, socket: UnixStream) -> Result<()> {
-        let connection = self.connection(peer).await?;
+        let (read, mut write) = socket.into_split();
+        let mut read = BufReader::new(read);
+        let (requests_tx, mut requests) = mpsc::channel(1);
+        // Watch the local caller while dialing as well as while streaming.
+        // A closed window/expired RPC cancels its queued attempt immediately.
+        // Buffer a bounded number of requests without replaying any of them.
+        let local_input = async {
+            loop {
+                let value = framing::line(&mut read).await?;
+                requests_tx.send(value).await?;
+            }
+            #[allow(unreachable_code)]
+            Ok::<(), anyhow::Error>(())
+        };
+        tokio::pin!(local_input);
         let channel = uuid::Uuid::new_v4().to_string();
+        let deadline = Instant::now() + TIMEOUT;
+        let setup = async {
+            let connection = self.connection(peer).await?;
+            let (mut send, recv) =
+                within(deadline, "open control stream", connection.open_bi()).await?;
+            send.set_priority(10)?;
+            within(
+                deadline,
+                "write control header",
+                Packet::new(json!({"op":"rwp","channel":channel}), 0)?.write(&mut send),
+            )
+            .await?;
+            Ok::<_, anyhow::Error>((connection, send, recv))
+        };
+        let (connection, mut send, mut recv) = tokio::select! {
+            result = &mut local_input => return result,
+            result = setup => result?,
+        };
         let (tx, mut rx) = mpsc::channel::<Packet>(8);
         let (control_tx, mut control_rx) = mpsc::channel::<Result<Packet>>(8);
         let key = (connection.stable_id(), channel.clone());
         self.state.lock().unwrap().media.insert(key.clone(), tx);
         let result = async {
-            let (mut send,mut recv) = connection.open_bi().await?; send.set_priority(10)?;
-            Packet::new(json!({"op":"rwp","channel":channel}),0)?.write(&mut send).await?;
-            let (read,mut write) = socket.into_split(); let mut read = BufReader::new(read);
             let input = async {
-                loop { let value = framing::line(&mut read).await?; Packet::new(value,0)?.write(&mut send).await?; }
+                loop {
+                    let value = requests.recv().await.context("local input ended")?;
+                    within(Instant::now()+TIMEOUT, "write control request", Packet::new(value,0)?.write(&mut send)).await?;
+                }
                 #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
             };
             let control = async {
@@ -689,7 +771,7 @@ impl Service {
                 }
                 #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
             };
-            tokio::select! { r = input => r, r = output => r, r = control => r }
+            tokio::select! { r = &mut local_input => r, r = input => r, r = output => r, r = control => r }
         }.await;
         self.state.lock().unwrap().media.remove(&key);
         result
@@ -933,6 +1015,143 @@ pub async fn receive_bulk<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWr
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn test_service() -> (tempfile::TempDir, Arc<Service>) {
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let service = Service::new(Config {
+            state: root.path().join("n"),
+            publisher: root.path().join("p.sock"),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            name: "test".into(),
+            device_id: None,
+            bulk_agent: None,
+        })
+        .unwrap();
+        (root, service)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queued_dials_share_one_deadline_instead_of_serial_timeouts() {
+        let (_root, service) = test_service();
+        let (_remote_root, remote) = test_service();
+        let peer = remote.local_peer();
+        let gate = Arc::new(tokio::sync::Mutex::new(()));
+        let held = gate.lock().await;
+        {
+            let mut state = service.state.lock().unwrap();
+            state.peers.insert(peer.device_id.clone(), peer.clone());
+            state.dialers.insert(peer.device_id.clone(), gate.clone());
+        }
+        let mut tasks = JoinSet::new();
+        for _ in 0..20 {
+            let service = service.clone();
+            let id = peer.device_id.clone();
+            tasks.spawn(async move { service.connection(&id).await });
+        }
+        tokio::task::yield_now().await;
+        tokio::time::advance(TIMEOUT + Duration::from_millis(1)).await;
+        while let Some(result) = tasks.join_next().await {
+            let error = result.unwrap().unwrap_err();
+            assert!(error.to_string().contains("wait for peer dial timed out"));
+        }
+        drop(held);
+        assert!(
+            gate.try_lock().is_ok(),
+            "expired waiters must release the gate"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn closed_local_callers_cancel_queued_dials_without_waiting_for_timeout() {
+        let (_root, service) = test_service();
+        let (_remote_root, remote) = test_service();
+        let peer = remote.local_peer();
+        let gate = Arc::new(tokio::sync::Mutex::new(()));
+        let _held = gate.lock().await;
+        {
+            let mut state = service.state.lock().unwrap();
+            state.peers.insert(peer.device_id.clone(), peer.clone());
+            state.dialers.insert(peer.device_id.clone(), gate.clone());
+        }
+        let mut tasks = JoinSet::new();
+        for _ in 0..20 {
+            let (socket, mut caller) = UnixStream::pair().unwrap();
+            let service = service.clone();
+            let id = peer.device_id.clone();
+            tasks.spawn(async move { service.receive(&id, socket).await });
+            framing::json(&mut caller, &json!({"version":1,"type":"hello"}))
+                .await
+                .unwrap();
+            drop(caller);
+        }
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(result) = tasks.join_next().await {
+                assert!(result.unwrap().is_err());
+            }
+        })
+        .await
+        .expect("closed clients must not remain queued behind the dial gate");
+        assert!(service.state.lock().unwrap().media.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stalled_auth_stream_is_closed_and_the_next_dial_recovers() {
+        let (_root, service) = test_service();
+        let (_remote_root, remote) = test_service();
+        let peer = remote.local_peer();
+        let mut config = remote.identity.server().unwrap();
+        let mut transport = quinn::TransportConfig::default();
+        transport.max_concurrent_bidi_streams(0u32.into());
+        config.transport_config(Arc::new(transport));
+        remote.endpoint.set_server_config(Some(config));
+        service.persist_peer(peer.clone()).unwrap();
+        let endpoint = remote.endpoint.clone();
+        let stalled = tokio::spawn(async move {
+            let connection = endpoint.accept().await.unwrap().await.unwrap();
+            connection.closed().await
+        });
+        let result = service
+            .dial(
+                &peer,
+                json!({"op":"auth","device_id":service.id()}),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(e) if e.to_string().contains("open authentication stream timed out"))
+        );
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), stalled)
+                .await
+                .unwrap()
+                .unwrap(),
+            quinn::ConnectionError::ApplicationClosed(_)
+        ));
+        assert!(!service.status()["peers"][0]["connected"].as_bool().unwrap());
+
+        remote
+            .endpoint
+            .set_server_config(Some(remote.identity.server().unwrap()));
+        remote.persist_peer(service.local_peer()).unwrap();
+        let accepting = remote.clone();
+        let server = tokio::spawn(async move {
+            let connection = accepting.endpoint.accept().await.unwrap().await.unwrap();
+            accepting.accept(connection).await;
+        });
+        let recovered =
+            tokio::time::timeout(Duration::from_secs(3), service.connection(&peer.device_id))
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(recovered.close_reason().is_none());
+        assert!(service.status()["peers"][0]["connected"].as_bool().unwrap());
+        recovered.close(0u32.into(), b"test complete");
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
     #[test]
     fn late_frames_cannot_revive_windows_or_cross_geometry_changes() {
         let mut merge = Merge {
