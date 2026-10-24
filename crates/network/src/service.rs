@@ -4,6 +4,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use paneferry_platform::ipc::{bind, same_user, LocalStream as UnixStream};
 use quinn::{Connection, RecvStream, SendStream};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,14 +12,12 @@ use std::{
     collections::HashMap,
     fs,
     net::SocketAddr,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
     sync::{mpsc, Semaphore},
     task::JoinSet,
 };
@@ -70,30 +69,16 @@ fn now() -> u64 {
 fn route_path(state: &Path, id: &str) -> PathBuf {
     state.join(format!("r-{id}.sock"))
 }
-fn bind(path: &Path) -> Result<UnixListener> {
-    if path.symlink_metadata().is_ok() {
-        ensure!(
-            path.symlink_metadata()?.file_type().is_socket(),
-            "invalid socket"
-        );
-        fs::remove_file(path)?;
-    }
-    let socket = UnixListener::bind(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(socket)
-}
-use std::os::unix::fs::FileTypeExt;
 impl Service {
     pub fn new(config: Config) -> Result<Arc<Self>> {
         paneferry_core::node::private_directory(&config.state)?;
         let lock_path = config.state.join("service.lock");
         ensure!(!lock_path.is_symlink(), "invalid service lock");
-        let lock = fs::OpenOptions::new()
+        let lock = paneferry_platform::storage::options()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .mode(0o600)
             .open(lock_path)?;
         lock.try_lock().context("network service already running")?;
         let identity = Identity::load(&config.state, config.device_id.as_deref())?;
@@ -578,11 +563,6 @@ impl Service {
         )
         .await
     }
-}
-fn same_user(socket: &UnixStream) -> bool {
-    socket
-        .peer_cred()
-        .is_ok_and(|cred| cred.uid() == unsafe { libc::geteuid() })
 }
 impl Service {
     async fn publish(

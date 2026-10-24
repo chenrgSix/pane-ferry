@@ -1,13 +1,7 @@
 //! Device and connection ownership shared by the management UI and publishers.
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs,
-    io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::Path,
-};
+use std::{collections::HashMap, fs, io::Write, path::Path};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct RemoteContext {
@@ -44,34 +38,25 @@ impl Connections {
     }
 }
 
-pub fn private_directory(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    if !fs::symlink_metadata(path)?.file_type().is_dir() {
-        bail!("invalid private directory")
-    }
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
+pub use paneferry_platform::storage::private_directory;
 pub fn device_id(directory: &Path) -> Result<String> {
     private_directory(directory)?;
     let lock_path = directory.join(".device-id.lock");
     if lock_path.is_symlink() {
         bail!("invalid identity lock")
     }
-    let lock = fs::OpenOptions::new()
+    let lock = paneferry_platform::storage::options()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(lock_path)?;
     lock.lock()?;
     let path = directory.join("device-id");
     // create_new avoids different identities when GUI and service start together.
-    match fs::OpenOptions::new()
+    match paneferry_platform::storage::options()
         .write(true)
         .create_new(true)
-        .mode(0o600)
         .open(&path)
     {
         Ok(mut file) => {
@@ -81,9 +66,7 @@ pub fn device_id(directory: &Path) -> Result<String> {
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error.into()),
     }
-    if !fs::symlink_metadata(&path)?.file_type().is_file() {
-        bail!("invalid device identity")
-    }
+    paneferry_platform::storage::check_private_file(&path)?;
     let value = fs::read_to_string(path)?;
     if uuid::Uuid::parse_str(&value).is_err() {
         bail!("invalid device identity")

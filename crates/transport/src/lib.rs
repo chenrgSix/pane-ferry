@@ -285,7 +285,7 @@ where
 }
 async fn request(endpoint: &Target, body: Value, expected: &str) -> Result<Value, Error> {
     tokio::time::timeout(Duration::from_secs(25), async {
-        let socket = tokio::net::UnixStream::connect(&endpoint.socket)
+        let socket = paneferry_platform::ipc::LocalStream::connect(&endpoint.socket)
             .await
             .map_err(|_| Error::Connection)?;
         let (read, mut write) = socket.into_split();

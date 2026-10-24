@@ -10,13 +10,7 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    io::Write,
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
-    path::Path,
-    sync::Arc,
-};
+use std::{fs, io::Write, path::Path, sync::Arc};
 
 // Stable wire identifier across the PaneFerry rename; existing peers use it.
 pub const ALPN: &[u8] = b"lan-remoteapp/2";
@@ -55,30 +49,20 @@ impl Peer {
 pub fn save(path: &Path, value: &impl Serialize) -> Result<()> {
     let tmp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
-        let mut file = fs::OpenOptions::new()
+        let mut file = paneferry_platform::storage::options()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(&tmp)?;
         file.write_all(&serde_json::to_vec(value)?)?;
         file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        fs::File::open(path.parent().unwrap())?.sync_all()?;
+        paneferry_platform::storage::replace(&tmp, path)?;
         Ok(())
     })();
     let _ = fs::remove_file(tmp);
     result
 }
 pub fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    let info = fs::symlink_metadata(path)?;
-    ensure!(
-        info.file_type().is_file() && info.len() < 1024 * 1024,
-        "invalid private file"
-    );
-    ensure!(
-        info.uid() == unsafe { libc::geteuid() } && info.mode() & 0o077 == 0,
-        "unsafe private file permissions"
-    );
+    paneferry_platform::storage::check_private_file(path)?;
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 impl Identity {

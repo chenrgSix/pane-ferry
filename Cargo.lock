@@ -523,6 +523,7 @@ name = "paneferry-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "paneferry-platform",
  "paneferry-protocol",
  "serde",
  "serde_json",
@@ -537,6 +538,7 @@ dependencies = [
  "base64",
  "libc",
  "paneferry-core",
+ "paneferry-platform",
  "quinn",
  "rcgen",
  "rustls",
@@ -546,6 +548,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "paneferry-platform"
+version = "0.1.1"
+dependencies = [
+ "libc",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -562,6 +575,7 @@ name = "paneferry-transport"
 version = "0.1.1"
 dependencies = [
  "base64",
+ "paneferry-platform",
  "serde",
  "serde_json",
  "thiserror",

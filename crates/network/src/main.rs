@@ -3,12 +3,10 @@ use paneferry_network::{
     framing,
     service::{Config, Service},
 };
+use paneferry_platform::ipc::LocalStream as UnixStream;
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf};
-use tokio::{
-    io::{AsyncWriteExt, BufReader},
-    net::UnixStream,
-};
+use tokio::io::{AsyncWriteExt, BufReader};
 #[tokio::main]
 async fn main() {
     let failed = run().await.is_err();
@@ -34,8 +32,13 @@ async fn run() -> Result<()> {
         .get("--state")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                .join(".local/state/lan-remoteapp/network")
+            if cfg!(windows) {
+                PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default())
+                    .join("PaneFerry/network")
+            } else {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                    .join(".local/state/lan-remoteapp/network")
+            }
         });
     match command.as_str() {
         "serve" => {
@@ -50,6 +53,8 @@ async fn run() -> Result<()> {
                 name: options.get("--name").cloned().unwrap_or_else(|| {
                     if cfg!(target_os = "macos") {
                         "Mac".into()
+                    } else if cfg!(windows) {
+                        "Windows".into()
                     } else {
                         "Ubuntu".into()
                     }
