@@ -60,7 +60,7 @@ class PublisherFixture:
                 elif kind=='clipboard.inline.copy' and event['request_id']=='copy-error-legacy':send('error',code='clipboard_copy_failed')
                 elif kind=='clipboard.inline.copy':send('clipboard.inline.data',window_id=event['window_id'],request_id=event['request_id'],bundle=dict(kind='text',text='中文剪贴板 fixture'))
                 elif kind=='input.key.logical' and event['key']=='F2' and event['pressed'] and 43 not in self.members:
-                    self.members[43]=dict(window_id=43,parent_id=42,title='preview',width=640,height=480,geometry_revision=1,scale_factor=1)
+                    self.members[43]=dict(window_id=43,parent_id=42,title='preview',role='popup',width=640,height=480,geometry_revision=1,scale_factor=1,presentation=dict(x=200,y=100,width=320,height=240,kind='menu',order=1))
                     send('window.created',**self.members[43]);frame(43)
                 elif kind=='window.close.request' and event['window_id']==43:
                     self.members.pop(43,None);send('window.destroyed',window_id=43)
@@ -186,6 +186,11 @@ try:
     until(lambda:43 in viewer.members and viewer.members[43].pixels is not None)
     child=viewer.members[43]
     assert child.window.get_transient_for() is viewer.window and set(other_viewer.members)=={42}
+    assert child.overlay and not child.window.get_decorated() and not child.window.get_accept_focus()
+    assert not any(e['type']=='window.configure' and e.get('window_id')==43 for e in events), 'popup presentation must not resize the source'
+    allocation=viewer.view.get_allocation()
+    assert abs(child.window.get_size().width-allocation.width/2)<=2
+    assert abs(child.window.get_size().height-allocation.height/2)<=2
     child.im.emit('commit','preview child input')
     until(lambda:any(e['type']=='input.text.commit' and e['window_id']==43 for e in events))
     assert not any(e['type']=='input.text.commit' for e in other.events)

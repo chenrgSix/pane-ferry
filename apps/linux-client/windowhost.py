@@ -1,6 +1,7 @@
 """Ubuntu native window receiver. No browser canvas or whole-desktop stream."""
 import base64
 import json
+import math
 import queue
 import threading
 import time
@@ -24,6 +25,20 @@ def automatic_video_fps(refresh_millihz, publisher_max=90):
 
 def bounds(width, height):
     return type(width) is int and type(height) is int and 0 < width <= 4096 and 0 < height <= 4096 and width * height <= 8_000_000
+
+
+def presentation(value):
+    source = value.get('presentation')
+    if source is None:
+        source = dict(x=value.get('x',0), y=value.get('y',0), width=value['width'], height=value['height'],
+                      kind={'popup':'popup','dialog':'dialog'}.get(value.get('role'),'window'), order=0)
+    if not isinstance(source,dict) or source.get('kind') not in ('window','dialog','popup','menu','tooltip','passive'):
+        raise ValueError('protocol_error')
+    for key in ('x','y','width','height'):
+        item=source.get(key)
+        if type(item) not in (float,int) or not math.isfinite(item): raise ValueError('protocol_error')
+        if (key in ('x','y') and abs(item)>10_000_000) or (key in ('width','height') and not 0<item<=32768): raise ValueError('protocol_error')
+    return source
 
 
 def check_sps(data, width, height):
@@ -167,7 +182,7 @@ class Video:
 
 
 class Viewer:
-    def __init__(self, application, peer_id, name, session_id=None, app_id=None, owner=None):
+    def __init__(self, application, peer_id, name, session_id=None, app_id=None, owner=None, metadata=None):
         clipboard.watch(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
         self.owner = owner or self
         self.application = application
@@ -190,13 +205,23 @@ class Viewer:
             self.last_feedback_id = 0
         self.copy_request = None; self.waiting_paste = False; self.resize_timer = None
         self.last_requested = None; self.epoch = 0
-        self.window = Gtk.ApplicationWindow(application=application, title=name + ' · 连接中')
+        self.presentation = presentation(metadata) if metadata else dict(x=0,y=0,width=900,height=650,kind='window',order=0)
+        self.overlay = owner is not None and self.presentation['kind'] in ('popup','menu','tooltip','passive')
+        self.passive = self.presentation['kind'] in ('tooltip','passive')
+        self.window = Gtk.Window(type=Gtk.WindowType.POPUP) if self.overlay else Gtk.ApplicationWindow(application=application, title=name + ' · 连接中')
+        if self.overlay:
+            self.window.set_decorated(False); self.window.set_resizable(False)
+            self.window.set_accept_focus(False); self.window.set_focus_on_map(False)
+            self.window.set_skip_taskbar_hint(True); self.window.set_skip_pager_hint(True)
+            self.window.set_type_hint(Gdk.WindowTypeHint.TOOLTIP if self.passive else Gdk.WindowTypeHint.POPUP_MENU)
         self.window.set_wmclass('paneferry-receiver', 'PaneFerry')
-        self.window.set_default_size(900, 650)
+        self.window.set_default_size(max(1,int(self.presentation['width'])) if self.overlay else 900,
+                                     max(1,int(self.presentation['height'])) if self.overlay else 650)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.notice = Gtk.Label(label='正在连接 ' + name)
         self.view = Gtk.DrawingArea(); self.view.set_can_focus(True)
         self.box.pack_start(self.notice, False, False, 0)
+        if self.overlay: self.notice.set_no_show_all(True); self.notice.hide()
         self.rate_label = None
         if owner is None:
             self.rate_label = Gtk.Label(label='帧率：自动协商中')
@@ -222,8 +247,8 @@ class Viewer:
         self.view.connect('focus-out-event', self.focus_out)
         self.window.connect('delete-event', self.close)
         if owner is None:
-            self.window.connect('configure-event', lambda *_: self.refresh_video_rate() and False)
-        self.window.show_all(); self.view.grab_focus()
+            self.window.connect('configure-event', lambda *_: (self.layout_overlays(), self.refresh_video_rate(), False)[2])
+        if not self.overlay: self.window.show_all(); self.view.grab_focus()
         if owner is None:
             self.refresh_video_rate()
             self.monitor_timer = GLib.timeout_add_seconds(2, self.refresh_video_rate)
@@ -326,6 +351,7 @@ class Viewer:
     def metadata(self, value, epoch):
         if epoch != self.owner.epoch or self.closed.is_set():
             return False
+        self.presentation = presentation(value)
         self.window_id = value['window_id']; self.width = value['width']; self.height = value['height']; self.revision = value['geometry_revision']
         self.window.set_title(str(value.get('title', self.name))[:512] + ' · ' + self.name)
         self.ready = True
@@ -363,6 +389,7 @@ class Viewer:
             wid = value.get('window_id'); revision = value.get('geometry_revision')
             if type(wid) is not int or not 0 < wid <= 0xffffffff or wid in catalog or type(revision) is not int or not 0 < revision < 2**64 or not bounds(value.get('width'), value.get('height')):
                 raise ValueError('protocol_error')
+            presentation(value)
             pixels += value['width'] * value['height']; catalog[wid] = value
         if pixels > 16_000_000:
             raise ValueError('protocol_error')
@@ -386,12 +413,24 @@ class Viewer:
         for wid, metadata in catalog.items():
             viewer = self.members.get(wid)
             if viewer is None:
-                viewer = self if wid == self.window_id else type(self)(self.application, self.peer_id, self.name, session_id=self.session_id, owner=self)
+                viewer = self if wid == self.window_id else type(self)(self.application, self.peer_id, self.name, session_id=self.session_id, owner=self, metadata=metadata)
                 self.members[wid] = viewer
             viewer.metadata(metadata, epoch)
         for wid, metadata in catalog.items():
             parent = self.members.get(metadata.get('parent_id'))
             self.members[wid].window.set_transient_for(parent.window if parent else None)
+        self.catalog = catalog
+        self.layout_overlays()
+
+    def layout_overlays(self):
+        for wid, metadata in getattr(self, 'catalog', {}).items():
+            viewer = self.members.get(wid); parent = self.members.get(metadata.get('parent_id'))
+            if not viewer or not viewer.overlay or not parent or not parent.view.get_window(): continue
+            origin = parent.view.get_window().get_origin()[-2:]
+            allocation = parent.view.get_allocation(); source=parent.presentation; target=viewer.presentation
+            sx,sy = allocation.width/source['width'],allocation.height/source['height']
+            viewer.window.move(round(origin[0]+(target['x']-source['x'])*sx),round(origin[1]+(target['y']-source['y'])*sy))
+            viewer.window.resize(max(1,round(target['width']*sx)),max(1,round(target['height']*sy)))
 
     def invalidate(self, text):
         self.qos_supported = False
@@ -408,6 +447,8 @@ class Viewer:
         return False
 
     def allocated(self, widget, allocation):
+        self.owner.layout_overlays()
+        if self.overlay: return
         if self.resize_timer:
             GLib.source_remove(self.resize_timer)
         def resize():
@@ -423,7 +464,7 @@ class Viewer:
         self.resize_timer = GLib.timeout_add(100, resize)
 
     def pointer(self, event, button, pressed):
-        if not self.ready or not self.width:
+        if self.passive or not self.ready or not self.width:
             return True
         if pressed:
             self.view.grab_focus(); self.anchor = (int(event.x), int(event.y))
