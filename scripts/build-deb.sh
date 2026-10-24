@@ -27,7 +27,16 @@ install -m 644 apps/linux-agent/gnome-extension/* "$package/usr/share/gnome-shel
 install -m 644 apps/launcher/src-tauri/icons/icon.png "$package/usr/share/icons/hicolor/128x128/apps/io.lanremoteapp.launcher.png"
 install -m 644 LICENSE "$package/usr/share/doc/paneferry/LICENSE"
 install -m 644 LICENSE "$package/usr/share/doc/paneferry/copyright"
-install -m 644 docs/usage.md "$package/usr/share/doc/paneferry/usage.md"
+python3 - "$package/usr/share/doc/paneferry/usage.md" <<'PY'
+from pathlib import Path
+import posixpath, re, sys
+def online(match):
+    target = match[1]
+    if '://' in target or target.startswith('#'):
+        return match[0]
+    return '](' + 'https://github.com/chenrgSix/pane-ferry/blob/main/' + posixpath.normpath('docs/' + target) + ')'
+Path(sys.argv[1]).write_text(re.sub(r'\]\(([^)]+)\)', online, Path('docs/usage.md').read_text()))
+PY
 sed 's|ExecStart=%h/.local/bin/paneferry-agent serve|ExecStart=/usr/lib/paneferry/paneferry-agent serve|' \
   deploy/linux-user-service/remoteapp-agent.service > "$package/usr/lib/systemd/user/remoteapp-agent.service"
 cat > "$package/usr/bin/paneferry" <<'SH'

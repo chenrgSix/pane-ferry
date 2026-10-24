@@ -1,5 +1,7 @@
 # Linux Agent 开发版
 
+普通用户可直接使用[可双击安装的 Debian 包](debian-package.md)，安装、配对与日常使用见[使用教程](usage.md)。下方保留源码和用户目录安装说明。
+
 普通用户运行，不更改桌面全局缩放。X11 独立会话运行依赖：Xvfb、Openbox、xauth、dbus-run-session；应用发现另使用系统 Python GI、GIO/GioUnix、GTK3 和 GdkPixbuf。不会自动安装系统依赖、启用 linger、改 SSH 配置或防火墙。原生 Wayland 支持另需下述 GNOME 窗口扩展。
 
 HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-proxy` 和当前用户已登录的桌面总线；`paneferry-agent check` 会报告代理是否可用。该策略只开放 Secret Service，详见[应用启动兼容](application-discovery.md#启动)。

@@ -4,6 +4,13 @@
 
 首次提供 GitHub Release 安装包：Apple Silicon Mac 与 Ubuntu x86_64。安装、配对、双向使用及升级步骤见[使用教程](docs/usage.md)。
 
+### Ubuntu 安装包补充（Debian 修订 0.1.1-1）
+
+- 增加可由图形软件安装器打开的 `.deb`，声明依赖，安装菜单入口、GTK 界面、用户服务、GNOME 扩展和许可证。
+- GTK 界面按安装位置选择配套后台组件，兼容系统目录和原用户目录。
+- 安装、升级和卸载脚本不停止用户应用，也不修改用户配对；首次启动 GUI 才启动后台组件。
+- 这是追加到本 Release 的 Debian 包及 Linux 安装兼容补丁；原 Mac ZIP、Linux tar 包和 `v0.1.1` 标签保持原样。补充包的源码提交及实测记录见发布页和 [Debian 安装验证](docs/debian-package.md)。
+
 ### 功能与修复
 
 - 支持 Mac / Ubuntu 双向应用共享、设备邀请配对、QUIC 传输与 H.264 接收窗口。

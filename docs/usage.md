@@ -9,7 +9,7 @@
 | 设备 | 安装包 | 支持范围 |
 | --- | --- | --- |
 | Apple Silicon Mac | `paneferry-v0.1.1-macos-arm64.zip` | 要求 macOS 13 或更高；本次构建与门禁在 macOS 27.0.1 完成 |
-| Ubuntu x86_64 | `paneferry-v0.1.1-linux-x86_64.tar.gz` | 本次在 Ubuntu 26.04.1 / GNOME 50 构建；其他发行版、旧版 glibc 与桌面环境未验收 |
+| Ubuntu x86_64（推荐） | `paneferry_0.1.1-1_amd64.deb` | 本次在 Ubuntu 26.04.1 / GNOME 50 构建；其他发行版、旧版 glibc 与桌面环境未验收 |
 
 Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文件名`，将输出与 `SHA256SUMS` 中对应文件的值核对。不要将源码 ZIP 当作可直接运行的安装包。
 
@@ -21,9 +21,26 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 
 升级时先断开接收窗口并退出旧版本，再替换应用。原有设备身份和配对保留；临时签名可能导致共享组件权限需要重新授予。
 
-### Ubuntu
+### Ubuntu：双击安装（推荐）
 
-先登录 Ubuntu 图形桌面。在终端安装运行依赖：
+1. 下载 `paneferry_0.1.1-1_amd64.deb`，在“文件”中双击它。
+2. 使用“应用中心 / 软件安装”打开，点击“安装”，按系统提示输入本机管理员密码。包管理器会下载所需依赖，因此首次安装需要可用的软件源和网络。
+3. 安装完成后，在应用菜单搜索并打开 **窗渡 PaneFerry**。后台组件以当前登录用户身份启动，无需手动运行安装脚本或以 root 身份打开程序。
+4. 要接管原桌面 Wayland 窗口，在“扩展”中启用“窗渡 PaneFerry”。首次安装可能需要保存工作后注销、重新登录，让 GNOME 识别扩展；独立 X11 应用不需要这一步。
+
+如果双击没有进入安装器，右键选择“打开方式 → 应用中心 / 软件安装”，也可使用 GDebi。测试中的隔离 Ubuntu 26.04 桌面使用 GDebi 完成了文件管理器双击安装；这不代表所有应用中心版本都已实测。可选命令行安装方式是：
+
+```sh
+sudo apt install ./paneferry_0.1.1-1_amd64.deb
+```
+
+`.deb` 安装到系统目录，程序入口为 `/usr/bin/paneferry`，许可证在 `/usr/share/doc/paneferry/LICENSE`。安装、重装和升级不会主动停止正在运行的 Agent 或应用；保存工作并退出旧会话后，再重启用户服务或重新登录使用更新。卸载前也应保存并关闭应用，随后从软件管理器移除，或运行 `sudo apt remove paneferry`。卸载不会删除用户的配对、配置和数据。
+
+**从旧脚本版切换：** 旧版的用户级桌面入口和服务配置会优先于系统包，不建议直接混用。先保存独立应用中的工作，断开接收窗口并关闭旧管理界面；备份并移走 `~/.local/share/applications/io.lanremoteapp.launcher.desktop` 和 `~/.config/systemd/user/remoteapp-agent.service`，停止旧 Agent 后执行 `systemctl --user daemon-reload`，再打开 `/usr/bin/paneferry`。已有设备身份仍保留。旧用户目录的 GNOME 扩展也会优先于系统扩展，切换扩展版本需备份旧扩展目录并在保存工作后重新登录。普通脚本版升级仍可沿用下面的 tar 包方式。
+
+### Ubuntu：脚本安装包（保留兼容）
+
+`paneferry-v0.1.1-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
 
 ```sh
 sudo apt update
@@ -110,10 +127,10 @@ Agent 重启会结束其独立会话中的应用，之后需要重新打开，�
 首次使用需要在 Ubuntu 为现有 ChatGPT 准备本机控制入口。**先保存 ChatGPT 中的工作，该步骤可能重启整个 ChatGPT 应用。** 在终端用 `pgrep -af 'chatgpt|ChatGPT'` 查看进程，核对主进程 PID（不要选择带 `--type=renderer` 等参数的子进程），将下面的 `12345` 替换为实际值：
 
 ```sh
-~/.local/bin/paneferry-agent prepare-chatgpt 12345
+/usr/bin/paneferry-agent prepare-chatgpt 12345
 ```
 
-命令核验当前用户、准确可执行路径和启动参数，已准备的进程会直接返回；不支持的启动方式会拒绝处理。准备时沿用原 profile；添加的回环调试入口具有应用控制能力，应仅在可信本机使用。关闭 ChatGPT 后用普通方式重新启动，可能需要再次准备。
+上述命令以 `.deb` 安装为例；脚本版将 `/usr/bin/paneferry-agent` 换成 `~/.local/bin/paneferry-agent`。命令核验当前用户、准确可执行路径和启动参数，已准备的进程会直接返回；不支持的启动方式会拒绝处理。准备时沿用原 profile；添加的回环调试入口具有应用控制能力，应仅在可信本机使用。关闭 ChatGPT 后用普通方式重新启动，可能需要再次准备。
 
 准备完成后，在 Mac 的“运行中的窗口”连接目标 ChatGPT：
 
@@ -149,10 +166,10 @@ Mac 工作台的“整桌面”列出 Ubuntu 当前登录桌面的可用显示�
 | 远端应用重启后旧条目不能连接 | 刷新运行状态，选择新窗口；已退出的会话不能恢复 |
 | 升级提示服务正在运行 | 使用 `--defer-restart`，保存独立应用工作后再手动重启 Agent |
 
-Ubuntu 可用以下命令查看服务与依赖状态：
+Ubuntu 可用以下命令查看服务与依赖状态（脚本版将 `/usr/bin/paneferry-agent` 换成 `~/.local/bin/paneferry-agent`）：
 
 ```sh
-~/.local/bin/paneferry-agent check
+/usr/bin/paneferry-agent check
 systemctl --user status remoteapp-agent.service
 journalctl --user -u remoteapp-agent.service -n 60 --no-pager
 ```
