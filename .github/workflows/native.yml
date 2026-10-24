@@ -1,0 +1,42 @@
+name: Native Linux and macOS
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Native build and isolated desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libx11-dev libxtst-dev libxres-dev libxcomposite-dev libxdamage-dev libxfixes-dev python3-gi python3-gi-cairo python3-websocket gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav xvfb openbox xauth dbus-x11 xdg-dbus-proxy libei1
+      - name: Rust, Tauri, frontend and GTK receiver gates
+        run: ./scripts/check.sh
+      - name: X11 discovery ownership and native codec regression
+        run: |
+          python3 tests/e2e/app_discovery_smoke.py --agent target/debug/paneferry-agent
+          cargo test -p paneferry-agent video::tests::native_encoder_preserves_pixels_and_releases_capture_leases -- --ignored
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rust, Tauri, Swift and isolated AppKit gates
+        run: ./scripts/check.sh

@@ -1284,6 +1284,133 @@ mod tests {
         (root, service)
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stalled_window_keeps_control_and_other_window_live_then_recovers_static_picture() {
+        use base64::engine::general_purpose::STANDARD;
+        let (_root, service) = test_service();
+        let (_remote_root, remote) = test_service();
+        let dialing = remote
+            .endpoint
+            .connect_with(
+                remote
+                    .identity
+                    .client(&service.identity.certificate)
+                    .unwrap(),
+                service.address(),
+                "lan-remoteapp",
+            )
+            .unwrap();
+        let accepting = async { service.endpoint.accept().await.unwrap().await.unwrap() };
+        let (client, server) = tokio::join!(dialing, accepting);
+        let client = client.unwrap();
+        let (mut requests, mut controls) = client.open_bi().await.unwrap();
+        Packet::new(json!({"type":"hello","version":1}), 0)
+            .unwrap()
+            .write(&mut requests)
+            .await
+            .unwrap();
+        let (send, recv) = server.accept_bi().await.unwrap();
+        let (publisher, fixture) = UnixStream::pair().unwrap();
+        let quota = Arc::new(DeviceQuota::default());
+        let publishing = {
+            let service = service.clone();
+            let quota = quota.clone();
+            tokio::spawn(async move {
+                service
+                    .publish(server, send, recv, publisher, "test".into(), quota)
+                    .await
+            })
+        };
+        let (refreshed, refresh_seen) = tokio::sync::oneshot::channel();
+        let fixture = tokio::spawn(async move {
+            let (read, mut write) = fixture.into_split();
+            let mut read = BufReader::new(read);
+            framing::line(&mut read).await.unwrap();
+            framing::json(
+                &mut write,
+                &json!({"type":"hello","capabilities":["video.keyframe"]}),
+            )
+            .await
+            .unwrap();
+            for id in [1, 2] {
+                framing::json(
+                    &mut write,
+                    &json!({"type":"window.created","window_id":id,"geometry_revision":1}),
+                )
+                .await
+                .unwrap();
+            }
+            let data = STANDARD.encode(vec![0; 1024 * 1024]);
+            for n in 0..12 {
+                framing::json(&mut write,&json!({"type":"frame","window_id":1,"codec":"h264","data":data,"key_frame":n==0,"number":n})).await.unwrap();
+            }
+            framing::json(&mut write,&json!({"type":"frame","window_id":2,"codec":"h264","data":"YQ==","key_frame":true})).await.unwrap();
+            framing::json(
+                &mut write,
+                &json!({"type":"clipboard.data","text":"control-live"}),
+            )
+            .await
+            .unwrap();
+            let mut refreshed = Some(refreshed);
+            while let Ok(value) = framing::line(&mut read).await {
+                if value["type"] == "video.keyframe" && value["window_id"] == 1 {
+                    if let Some(notice) = refreshed.take() {
+                        let _ = notice.send(());
+                    }
+                    framing::json(&mut write,&json!({"type":"frame","window_id":1,"codec":"h264","data":"YQ==","key_frame":true,"recovery":true})).await.unwrap();
+                }
+            }
+        });
+        let mut stalled = None;
+        tokio::time::timeout(Duration::from_secs(8), async {
+            let mut other = false;
+            for _ in 0..2 {
+                let (send, mut read) = client.accept_bi().await.unwrap();
+                let header = Packet::read_header(&mut read).await.unwrap();
+                if header.value["window_id"] == 1 {
+                    stalled = Some((send, read));
+                } else {
+                    assert_eq!(Packet::read(&mut read).await.unwrap().value["window_id"], 2);
+                    other = true;
+                }
+            }
+            assert!(other);
+            loop {
+                if Packet::read(&mut controls).await.unwrap().value["text"] == "control-live" {
+                    break;
+                }
+            }
+            refresh_seen.await.unwrap();
+        })
+        .await
+        .expect("control and the second window must progress while window 1 is unread");
+        let (_, mut stalled) = stalled.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let packet = Packet::read(&mut stalled).await.unwrap();
+                if packet.value["recovery"] == true {
+                    assert_eq!(packet.value["key_frame"], true);
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("a static picture must recover through an explicit IDR request");
+        publishing.abort();
+        let _ = publishing.await;
+        fixture.abort();
+        let _ = fixture.await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while quota.media.available_permits() != 64 * 1024 * 1024 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled media workers must release quota");
+        client.close(0u32.into(), b"test complete");
+    }
+
     #[tokio::test]
     async fn lost_pair_ack_can_retry_same_identity_but_not_after_revoke() {
         let (root, service) = test_service();

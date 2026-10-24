@@ -10,6 +10,8 @@ python3 tests/e2e/linux_install_safety.py
 python3 tests/e2e/linux_runtime_unit.py
 python3 tests/e2e/wayland_capture_unit.py
 python3 -m py_compile apps/linux-client/*.py
+python3 tests/e2e/linux_wire_unit.py
+python3 tests/e2e/linux_receiver_boundaries.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then
   node tests/unit/virtual_output_lifecycle.mjs
@@ -26,6 +28,7 @@ cargo test --locked --manifest-path apps/launcher/src-tauri/Cargo.toml
 if [[ $(uname -s) == Darwin ]]; then
   (cd apps/mac-node && swift build)
   python3 tests/e2e/mac_publisher_boundaries.py
+  python3 tests/e2e/mac_encoder_generation.py
   (cd apps/mac-windowhost && swift build)
   python3 tests/e2e/windowhost_pipe_smoke.py
   python3 tests/e2e/controller_input_smoke.py
@@ -35,7 +38,7 @@ if [[ $(uname -s) == Darwin ]]; then
   python3 tests/e2e/h264_only_smoke.py
   python3 tests/e2e/native_transport_smoke.py
 else
-  cargo build -p paneferry-agent
+  cargo build -p paneferry-agent -p paneferry-network
   if command -v xvfb-run >/dev/null; then
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
   fi
