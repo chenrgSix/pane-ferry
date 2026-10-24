@@ -68,4 +68,10 @@ python3 tests/e2e/live_page_scale_smoke.py \
 
 `tests/e2e/page_scale_fixture.html` 是嵌入浏览器的本地夹具；在目标浏览器中打开本地 HTTP 地址后，可核验按钮、中文输入、同源导航和 iframe。真实系统输入仍需用户在 Ubuntu Portal 授权，不能用 CDP 点击冒充 Portal 输入通过。
 
-本轮使用独立 Agent/QUIC 路线验证，正式 Agent 和网络服务未切换。正式 Agent 保留四个其他应用会话，重启会结束这些独立应用；这不符合“只影响目标窗口”的边界。构建产物可供升级，不能把独立验证实例通过写成正式服务已升级。ChatGPT 保持已准备的回环调试启动方式；关闭后普通启动会再次需要准备。
+先用独立 Agent/QUIC 路线验证。随后按用户已给出的重启授权，原子替换并重启 Ubuntu 正式 Agent/网络组件，重新打开原来的 HexHub、安全中心、文件管理器和飞书，均沿用原 2× 启动配置并确认出现窗口；旧会话 ID 已变更，不宣称原有内存状态保留。旧二进制和重启清单备份在 Ubuntu `~/.local/state/lan-remoteapp/backups/page-scale-20261024/`。
+
+Mac 启动器开发包已重新构建并通过严格签名检查，配套网络组件已重启，原有配对保留。Ubuntu 配对地址从旧的 `10.0.1.66:42424` 更新为本次已核实可达的 `192.168.1.26:42424`。正式路线再次通过真实 AppKit 菜单、H.264 解码、显式恢复与自动重连测试，系统输入授权为 ready。
+
+测试浏览器标签和旁观窗口已关闭，独立测试服务/网络状态已清理。目标最后恢复到 (240,90)、1470×813，页面变量和根 zoom 均恢复原本缺失状态，没有残留租约；ChatGPT 原登录进程继续运行。共享服务的授权升级与页面缩放的单窗口范围是两个不同动作：隔离试验期间旁观窗口保持不变，升级期间四个独立应用按授权重新启动。
+
+构建产物：Mac 启动器位于 `apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app`；Ubuntu release 二进制副本位于 `dist/chatgpt-page-scale-20261024/linux/`，已核对与正式安装哈希一致。ChatGPT 保持已准备的回环调试启动方式；关闭后普通启动会再次需要准备。

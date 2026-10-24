@@ -903,5 +903,51 @@
     "frontend_passed": 32,
     "final_python_page_scale_tests": 3
   },
-  "production_services_upgraded": false
+  "production_services_upgraded": true,
+  "deployment": {
+    "bounds": [
+      240,
+      90,
+      1470,
+      813
+    ],
+    "pageZoom": "",
+    "rootZoom": "",
+    "leftoverLease": false,
+    "testBrowser": false,
+    "start_ticks": 7862967,
+    "agent_sha256": "8f2f909dec71879d36c51765cb2d28a735a71f5ca9787b1ca83a883c32c9e82f",
+    "network_sha256": "0466a76cd6131cf38ba59dace5c842067a6f776e2e857b5ba610298eadb4b6fa",
+    "restored_apps": [
+      {
+        "name": "HexHub",
+        "windows": 1,
+        "startup_scale": 2
+      },
+      {
+        "name": "安全中心",
+        "windows": 2,
+        "startup_scale": 2
+      },
+      {
+        "name": "文件",
+        "windows": 1,
+        "startup_scale": 2
+      },
+      {
+        "name": "飞书",
+        "windows": 1,
+        "startup_scale": 2
+      }
+    ],
+    "active_services": [
+      "active",
+      "active",
+      "active"
+    ],
+    "existing_pairing_preserved": true,
+    "production_appkit_test": "passed",
+    "production_input_authorization": "ready",
+    "old_sessions_replaced_with_reopened_apps": true
+  }
 }
