@@ -1,0 +1,830 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "initial_commit": "0e90121",
+  "initial_worktree": "clean",
+  "test_commit": "1c67f30",
+  "version_proof": {
+    "live_exe_target": "/usr/lib/chatgpt/ChatGPT",
+    "live_exe_sha256": "1391ebd71b4eda71684608c47a387aab54f0dcfe59832367fd9283bd8193ebf0",
+    "installed_exe_sha256": "1391ebd71b4eda71684608c47a387aab54f0dcfe59832367fd9283bd8193ebf0",
+    "live_asar_handles": [
+      {
+        "same_device_inode": true,
+        "size": 578643106
+      }
+    ],
+    "package_asar_sha256": "127889637eca45c38ab9dd0487043ad7d59c9c1c265551f1754e483ba24584a6"
+  },
+  "version": {
+    "sha256": "1391ebd71b4eda71684608c47a387aab54f0dcfe59832367fd9283bd8193ebf0",
+    "package_version": "26.1013.40934",
+    "runtime_version": "42.3.0"
+  },
+  "production_changes": false,
+  "eligible_per_window_fix": false,
+  "scope": "Three measured mechanisms only; not a universal X11 impossibility claim",
+  "experiments": {
+    "x11": {
+      "same_process_across_stages": true,
+      "logical_target": [
+        1200,
+        800
+      ],
+      "samples": [
+        {
+          "stage": "before",
+          "namespace_pid": 22,
+          "start_ticks": "6783798",
+          "xid": 8388611,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            null,
+            null
+          ],
+          "compositor_resource_scale": null,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "screen connected 3000x2000+0+0 0mm x 0mm"
+          ],
+          "source_png_sha256": "4f1763c0638cf225068f065404cedce4049642f669983ed641a21bfbd76b1b07"
+        },
+        {
+          "stage": "density-2x",
+          "namespace_pid": 22,
+          "start_ticks": "6783798",
+          "xid": 8388611,
+          "captured_pixels": [
+            2400,
+            1600
+          ],
+          "compositor_client": [
+            null,
+            null
+          ],
+          "compositor_resource_scale": null,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 2,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "screen connected 3000x2000+0+0 0mm x 0mm"
+          ],
+          "source_png_sha256": "c808d3af30a34b61236bda094ff8c1365394abb69f554c1dfd321dc89092f17c"
+        },
+        {
+          "stage": "restored",
+          "namespace_pid": 22,
+          "start_ticks": "6783798",
+          "xid": 8388611,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            null,
+            null
+          ],
+          "compositor_resource_scale": null,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "screen connected 3000x2000+0+0 0mm x 0mm"
+          ],
+          "source_png_sha256": "247341717c653ac136459391fb8d603f6555dd04649a85fdd25bb521b2669f50"
+        }
+      ],
+      "pixel_metrics": {
+        "before": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "density-2x": {
+          "source_pixels": [
+            2400,
+            1600
+          ],
+          "button_pixels": [
+            860,
+            742,
+            1540,
+            838
+          ],
+          "heading_pixels": [
+            962,
+            621,
+            1440,
+            673
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "restored": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "heading_difference_from_resampled_baseline_rgb_mae": 14.366189250080465,
+        "limits": "Fresh offline login UI; pixel bounds, not OCR or a readability score. Resampling is only a comparator."
+      }
+    },
+    "gnome": {
+      "same_process_across_stages": true,
+      "logical_target": [
+        1200,
+        800
+      ],
+      "samples": [
+        {
+          "stage": "before",
+          "namespace_pid": 300,
+          "start_ticks": "6771632",
+          "xid": 12582916,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": 96,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+3000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "247341717c653ac136459391fb8d603f6555dd04649a85fdd25bb521b2669f50"
+        },
+        {
+          "stage": "density-2x",
+          "namespace_pid": 300,
+          "start_ticks": "6771632",
+          "xid": 12582916,
+          "captured_pixels": [
+            2400,
+            1600
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 2,
+          "witness": {
+            "width": 700,
+            "height": 432,
+            "scale": 2,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": 192,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 6000x4000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+6000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "c808d3af30a34b61236bda094ff8c1365394abb69f554c1dfd321dc89092f17c"
+        },
+        {
+          "stage": "after-release",
+          "namespace_pid": 300,
+          "start_ticks": "6771632",
+          "xid": 12582916,
+          "captured_pixels": [
+            2560,
+            1640
+          ],
+          "compositor_client": [
+            1280,
+            820
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 350,
+            "height": 235,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": 96,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "c1b486518c0f4c9654a373a3f21ad21e16fac91466e6eb31bfc627e22c21d843"
+        },
+        {
+          "stage": "restored",
+          "namespace_pid": 300,
+          "start_ticks": "6771632",
+          "xid": 12582916,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 350,
+            "height": 235,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": 96,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+3000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "247341717c653ac136459391fb8d603f6555dd04649a85fdd25bb521b2669f50"
+        }
+      ],
+      "pixel_metrics": {
+        "before": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "density-2x": {
+          "source_pixels": [
+            2400,
+            1600
+          ],
+          "button_pixels": [
+            860,
+            742,
+            1540,
+            838
+          ],
+          "heading_pixels": [
+            962,
+            621,
+            1440,
+            673
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "restored": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "heading_difference_from_resampled_baseline_rgb_mae": 14.366189250080465,
+        "limits": "Fresh offline login UI; pixel bounds, not OCR or a readability score. Resampling is only a comparator."
+      }
+    },
+    "gnome-fixed": {
+      "same_process_across_stages": true,
+      "logical_target": [
+        1200,
+        800
+      ],
+      "samples": [
+        {
+          "stage": "before",
+          "namespace_pid": 297,
+          "start_ticks": "6779518",
+          "xid": 12582916,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+3000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "247341717c653ac136459391fb8d603f6555dd04649a85fdd25bb521b2669f50"
+        },
+        {
+          "stage": "density-2x",
+          "namespace_pid": 297,
+          "start_ticks": "6779518",
+          "xid": 12582916,
+          "captured_pixels": [
+            2400,
+            1600
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 2,
+          "witness": {
+            "width": 1400,
+            "height": 936,
+            "scale": 1,
+            "entry_width": 1400
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 6000x4000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+6000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "c32c653ce825b653dfcb4c8f258602f84250f63726f955af44e4d37a3ce7dbd1"
+        },
+        {
+          "stage": "after-release",
+          "namespace_pid": 297,
+          "start_ticks": "6779518",
+          "xid": 12582916,
+          "captured_pixels": [
+            2560,
+            1640
+          ],
+          "compositor_client": [
+            1280,
+            820
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "c1b486518c0f4c9654a373a3f21ad21e16fac91466e6eb31bfc627e22c21d843"
+        },
+        {
+          "stage": "restored",
+          "namespace_pid": 297,
+          "start_ticks": "6779518",
+          "xid": 12582916,
+          "captured_pixels": [
+            1200,
+            800
+          ],
+          "compositor_client": [
+            1200,
+            800
+          ],
+          "compositor_resource_scale": 1,
+          "witness": {
+            "width": 700,
+            "height": 450,
+            "scale": 1,
+            "entry_width": 700
+          },
+          "witness_text_preserved": true,
+          "xft_dpi": null,
+          "xrandr_outputs": [
+            "Meta-0 connected primary 3000x2000+0+0 (normal left inverted right x axis y axis) 0mm x 0mm",
+            "Meta-1 connected 4352x2432+3000+0 (normal left inverted right x axis y axis) 0mm x 0mm"
+          ],
+          "source_png_sha256": "247341717c653ac136459391fb8d603f6555dd04649a85fdd25bb521b2669f50"
+        }
+      ],
+      "pixel_metrics": {
+        "before": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "density-2x": {
+          "source_pixels": [
+            2400,
+            1600
+          ],
+          "button_pixels": [
+            1030,
+            771,
+            1370,
+            819
+          ],
+          "heading_pixels": [
+            1081,
+            710,
+            1320,
+            736
+          ],
+          "button_logical_size": [
+            170.0,
+            24.0
+          ],
+          "heading_logical_size": [
+            119.5,
+            13.0
+          ],
+          "button_logical_origin": [
+            515.0,
+            385.5
+          ]
+        },
+        "restored": {
+          "source_pixels": [
+            1200,
+            800
+          ],
+          "button_pixels": [
+            430,
+            371,
+            770,
+            419
+          ],
+          "heading_pixels": [
+            481,
+            310,
+            720,
+            336
+          ],
+          "button_logical_size": [
+            340.0,
+            48.0
+          ],
+          "heading_logical_size": [
+            239.0,
+            26.0
+          ],
+          "button_logical_origin": [
+            430.0,
+            371.0
+          ]
+        },
+        "heading_difference_from_resampled_baseline_rgb_mae": 0.0,
+        "limits": "Fresh offline login UI; pixel bounds, not OCR or a readability score. Resampling is only a comparator."
+      }
+    }
+  },
+  "mac_offscreen": {
+    "baseline": {
+      "source_pixels": [
+        1200,
+        800
+      ],
+      "encoded_pixels": [
+        1200,
+        800
+      ],
+      "content_points": [
+        1200,
+        800
+      ],
+      "backing_density": 2,
+      "image_rect_points": [
+        0,
+        0,
+        1200,
+        800
+      ],
+      "image_rect_backing_pixels": [
+        2400,
+        1600
+      ],
+      "enlargement": [
+        2,
+        2
+      ],
+      "decoded_packets": 6,
+      "first_packet": {
+        "decoded_pixels": [
+          1200,
+          800
+        ],
+        "encoded_bytes": 7048,
+        "hardware_decode": true,
+        "key_frame": true,
+        "max_fps": 60,
+        "packet": 0,
+        "rgb_mae_0_255": 0.3180364583333333,
+        "source_edge_pixels": 7077,
+        "source_edge_rgb_mae_0_255": 14.633743111487918
+      }
+    },
+    "redrawn": {
+      "source_pixels": [
+        2400,
+        1600
+      ],
+      "encoded_pixels": [
+        2400,
+        1600
+      ],
+      "content_points": [
+        1200,
+        800
+      ],
+      "backing_density": 2,
+      "image_rect_points": [
+        0,
+        0,
+        1200,
+        800
+      ],
+      "image_rect_backing_pixels": [
+        2400,
+        1600
+      ],
+      "enlargement": [
+        1,
+        1
+      ],
+      "decoded_packets": 6,
+      "first_packet": {
+        "decoded_pixels": [
+          2400,
+          1600
+        ],
+        "encoded_bytes": 20456,
+        "hardware_decode": true,
+        "key_frame": true,
+        "max_fps": 60,
+        "packet": 0,
+        "rgb_mae_0_255": 0.25341258680555556,
+        "source_edge_pixels": 15334,
+        "source_edge_rgb_mae_0_255": 10.95556714925438
+      }
+    },
+    "fixed_density": {
+      "source_pixels": [
+        2400,
+        1600
+      ],
+      "encoded_pixels": [
+        2400,
+        1600
+      ],
+      "content_points": [
+        1200,
+        800
+      ],
+      "backing_density": 2,
+      "image_rect_points": [
+        0,
+        0,
+        1200,
+        800
+      ],
+      "image_rect_backing_pixels": [
+        2400,
+        1600
+      ],
+      "enlargement": [
+        1,
+        1
+      ],
+      "decoded_packets": 6,
+      "first_packet": {
+        "decoded_pixels": [
+          2400,
+          1600
+        ],
+        "encoded_bytes": 15542,
+        "hardware_decode": true,
+        "key_frame": true,
+        "max_fps": 60,
+        "packet": 0,
+        "rgb_mae_0_255": 0.20525581597222223,
+        "source_edge_pixels": 7077,
+        "source_edge_rgb_mae_0_255": 14.747350572276389
+      }
+    }
+  },
+  "runtime_after": {
+    "processes": [
+      {
+        "name": "ChatGPT",
+        "pid": 14785,
+        "start_ticks": "5129"
+      },
+      {
+        "name": "GNOME",
+        "pid": 6098,
+        "start_ticks": "1234"
+      },
+      {
+        "name": "Agent",
+        "pid": 1619731,
+        "start_ticks": "2673791"
+      },
+      {
+        "name": "network",
+        "pid": 535589,
+        "start_ticks": "962872"
+      }
+    ],
+    "services": [
+      "active",
+      "active"
+    ],
+    "agent_sha256": "5985628ec389dbcddd4be02cb7ca08085d5cca0beeeb6f4ee442725c111d0a01",
+    "chatgpt_sha256": "1391ebd71b4eda71684608c47a387aab54f0dcfe59832367fd9283bd8193ebf0",
+    "remaining_probe_units": "",
+    "installed_extension_sha256": "8ad3e89ea5edc42cbd5959dc7e1f1182275107862caa0a239384c669c11929c6"
+  },
+  "checks": {
+    "mac_before": "scripts/check.sh exit 0: Rust 59 passed, 6 ignored; frontend 32 passed; Swift/AppKit/QUIC/H264 passed",
+    "mac_after": "same gate exit 0 and counts",
+    "linux_three_final_modes": "all exit 0, measured actual dimensions, PID/start identity retained",
+    "negative": {
+      "passed": [
+        "wrong_hash",
+        "overwrite",
+        "outside_namespace",
+        "metrics_overwrite"
+      ]
+    },
+    "hidpi": "PASS: private X11 96/192 DPI, GTK logical font heights {1: 19.0, 2: 19.0}, GTK and Xft pixels 1x/2x ({1: (604, 232), 2: (1144, 460)})",
+    "mac_decode": "3 source samples, 6 H264 packets each; dimensions preserved; unchanged SurfaceView reconstruction",
+    "python_syntax_and_git_diff_check": "passed"
+  },
+  "limits": [
+    "Fresh offline login UI only; not authenticated conversations or original process input validation.",
+    "--disable-gpu and inner --no-sandbox inside network/PID/IPC/filesystem isolation; no production startup flags changed.",
+    "GNOME extension changes were temporary copies; output placement was measured without assuming resource scale implied client redraw.",
+    "Output release transition mismatch recorded, not reported as restored until another explicit 1x configure.",
+    "No per-window fix, deployment, production performance, CI, real popup/transient or lifecycle-race acceptance."
+  ]
+}
