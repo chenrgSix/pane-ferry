@@ -58,6 +58,23 @@ enum Probe {
             try? data.write(to: URL(fileURLWithPath: output + ".state.json"), options: .atomic)
         }
     }
+    static func snapshot() throws {
+        // Explicit, local-only diagnostic export outside timed samples. These
+        // are decoded stream images, not a screenshot of the Mac desktop.
+        let directory = URL(fileURLWithPath: output + ".snapshot", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        for host in delegate?.windows.values ?? Dictionary<UInt32, HostedWindow>().values {
+            guard host.window.isVisible, let image = host.surface.image,
+                  let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
+            let file = directory.appendingPathComponent("window-\(host.id).png")
+            try data.write(to: file, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
+        state()
+        let metadata = try Data(contentsOf: URL(fileURLWithPath: output + ".state.json"))
+        try metadata.write(to: directory.appendingPathComponent("state.json"), options: .atomic)
+    }
     static func poll() {
         guard !finishing, let app = delegate else { return }
         if rootID == nil, let root = app.windows.values.first(where: { app.parents[$0.id] == nil && !$0.popup && $0.surface.image != nil }) {
@@ -80,6 +97,10 @@ enum Probe {
               let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let nextSerial = request["serial"] as? Int, nextSerial != serial else { return }
         serial = nextSerial
+        if request["action"] as? String == "snapshot", ["ready", "preview"].contains(phase) {
+            do { try snapshot() } catch { finish(error: "snapshot export failed") }
+            return
+        }
         if request["action"] as? String == "stop" { finish(error: "stopped by operator"); return }
         if phase == "preview", request["action"] as? String == "close" { closeMenu(); return }
         guard phase == "ready", let root = rootID.flatMap({ app.windows[$0] }),
