@@ -634,7 +634,7 @@ impl Service {
         let connection = self.connection(peer).await?;
         let channel = uuid::Uuid::new_v4().to_string();
         let (tx, mut rx) = mpsc::channel::<Packet>(8);
-        let (control_tx, mut control_rx) = mpsc::channel::<Packet>(8);
+        let (control_tx, mut control_rx) = mpsc::channel::<Result<Packet>>(8);
         let key = (connection.stable_id(), channel.clone());
         self.state.lock().unwrap().media.insert(key.clone(), tx);
         let result = async {
@@ -646,21 +646,37 @@ impl Service {
                 #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
             };
             let control = async {
-                loop { control_tx.send(Packet::read(&mut recv).await?).await?; }
+                loop {
+                    let packet = Packet::read(&mut recv).await;
+                    let ended = packet.is_err();
+                    control_tx.send(packet).await?;
+                    // Deliver EOF after the final control event. Returning here
+                    // races the output branch and can discard session.exited.
+                    if ended { std::future::pending::<()>().await; }
+                }
                 #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
             };
             let output = async {
                 let mut merge = Merge::default(); let mut pending: Vec<Packet> = Vec::new();
+                let mut media_failure = None;
                 loop {
                     tokio::select! {
+                        biased;
                         packet = control_rx.recv() => {
-                            let packet = packet.context("control ended")?; ensure!(packet.value["type"] != "frame" && packet.barrier == merge.barrier+1, "control ordering");
+                            let packet = packet.context("control ended")??; ensure!(packet.value["type"] != "frame" && packet.barrier == merge.barrier+1, "control ordering");
                             merge.barrier = packet.barrier; merge.observe(&packet.value)?;
                             let value = merge.deliver(packet); framing::json(&mut write,&value).await?;
                         }
+                        _ = tokio::time::sleep_until(media_failure.unwrap_or_else(||tokio::time::Instant::now()+TIMEOUT)), if media_failure.is_some() => bail!("media failed"),
                         packet = rx.recv(), if pending.len() < 8 => {
                             let packet = packet.context("media ended")?;
-                            ensure!(packet.value["type"] == "frame", "media failed"); pending.push(packet);
+                            if packet.value["type"] == "media.failed" {
+                                // The producer closes media when its control stream ends.
+                                // Let ordered control drain (including session.exited) first.
+                                media_failure.get_or_insert(tokio::time::Instant::now()+TIMEOUT);
+                            } else {
+                                ensure!(packet.value["type"] == "frame", "invalid media"); pending.push(packet);
+                            }
                         }
                     }
                     let mut i = 0;

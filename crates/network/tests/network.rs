@@ -27,6 +27,10 @@ async fn node(name: &str) -> (tempfile::TempDir, Arc<Service>) {
                     let response = match value["type"].as_str() {
                         Some("hello") => json!({"version":1,"type":"hello"}),
                         Some("app.list") => json!({"version":1,"type":"app.list","name":name}),
+                        Some("session.resume") if value["session_id"] == "ended" => {
+                            let _=framing::json(&mut write,&json!({"type":"session.exited","version":1,"session_id":"ended","seq":1})).await;
+                            return;
+                        }
                         Some("session.resume") => {
                             for event in [
                                 json!({"type":"session.snapshot"}),
@@ -193,5 +197,23 @@ async fn native_peer_cannot_change_local_sharing_or_prepare_ssh_routes() {
                 .unwrap()
                 .is_err()
         );
+    }
+}
+
+#[tokio::test]
+async fn terminal_control_event_is_delivered_before_eof() {
+    let (_a, a) = node("A").await;
+    let (_b, b) = node("B").await;
+    b.pair(&a.invite().unwrap(), &a.address().to_string())
+        .await
+        .unwrap();
+    for _ in 0..20 {
+        let result = request(
+            &b,
+            a.id(),
+            json!({"type":"session.resume","version":1,"session_id":"ended"}),
+        )
+        .await;
+        assert_eq!(result["type"], "session.exited");
     }
 }
