@@ -1,5 +1,38 @@
 # Mac ↔ Ubuntu 全链路延迟测量
 
+## 当前版本：已部署 Agent 的 Wayland/QUIC 实测
+
+`live_end_to_end.py` 构建当前 WindowHost 的临时计时副本，连接已配对的生产网络服务和
+已安装的 Agent。服务端不插桩、不使用 Xvfb。只将 `--app` 指向测试自有窗口，勿选择用户应用。
+需事先确认 Ubuntu 已登录 Wayland、安装 GTK 3 Python GI，并已授权 PaneFerry 输入。
+
+在 Ubuntu 的桌面用户环境启动 `wayland_latency_fixture.py`：
+
+```sh
+GDK_BACKEND=wayland python3 wayland_latency_fixture.py /tmp/fixture.jsonl 2940 1618 idle 2
+```
+
+最后的 `2` 是源显示器缩放；`idle` 可换成 `animated`（每 33 ms 重绘，小块变化）。从 Agent
+`window.list` 取标题 `PaneFerry Live Latency Fixture` 的 `wayland-...` ID。每轮重新启动夹具，
+确保画面计数从 0 开始；若跨 Agent 重启，夹具应由独立进程或独立 user unit 运行。
+
+```sh
+python3 tests/performance/live_end_to_end.py --build-dir /tmp/paneferry-live-probe --build-only
+python3 tests/performance/live_end_to_end.py --build-dir /tmp/paneferry-live-probe \
+  --peer PAIRED_DEVICE_ID --state /absolute/path/to/network-state \
+  --helper /absolute/path/to/paneferry-network --app wayland-PID-START-WINDOW \
+  --width 2940 --height 1618 --samples 40 --output /tmp/live-result.json
+```
+
+方向键与点击交错，各预热 2 次、正式采样 40 次；8 位视觉标记必须匹配才记录。每轮核对
+远端 JSONL 中的输入计数、输入种类、绘制尺寸与缩放，保留原始数据及失败轮次。
+总延迟为同一 Mac 单调时钟的 `(draw_end - start) / 1e6` ms，终点为实际 AppKit 绘制完成，
+不含硬件输入、macOS 合成、屏幕扫描和面板响应。`received` 是完整协议行开始解析的时间，
+不能当成首个网络字节到达时间。程序强制核验 H.264 与 VideoToolbox 硬件解码。
+运行后关闭测试窗口，清理自建进程；源码和已安装的 WindowHost 不会被修改。
+
+## 历史：隔离环境的 SSH/QUIC 对照
+
 > 历史实验复现：SSH/QUIC 对照基于 `c927116`（移除 SSH 前）的代码与夹具。请在该提交的独立检出中运行下列命令；当前产品已移除 SSH 适配器和密码助手，不再满足这些历史源码插桩位置。原始数据与结果保持不变。
 
 在 Mac 上运行，复用项目已建立、验证过主机密钥的 SSH 登录：
