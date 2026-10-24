@@ -99,7 +99,14 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if overlay { resizeTimer?.invalidate(); resizeTimer = nil }
         else { removeOverflowViewport() }
     }
-    func place(relativeTo parent: HostedWindow, available: Bool) {
+    func sceneDisplacement(relativeTo parent: HostedWindow) -> CGPoint {
+        guard let placement = presentation, let anchor = parent.presentation else { return .zero }
+        let rect = placement.relativeRect(to: anchor, in: parent.surface.imageRect)
+        let source = parent.window.convertToScreen(parent.surface.convert(rect, to: nil))
+        let displayed = window.convertToScreen(surface.convert(surface.imageRect, to: nil))
+        return CGPoint(x: displayed.minX - source.minX, y: displayed.maxY - source.maxY)
+    }
+    func place(relativeTo parent: HostedWindow, available: Bool, sceneOffset: CGPoint = .zero) {
         guard let placement = presentation, let anchor = parent.presentation, available,
               remoteVisible, parent.remoteVisible, parent.window.isVisible, !parent.window.isMiniaturized,
               let image = parent.surface.image, image.width == parent.surface.remoteWidth,
@@ -109,6 +116,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         }
         let rect = placement.relativeRect(to: anchor, in: parent.surface.imageRect)
         let content = parent.window.convertToScreen(parent.surface.convert(rect, to: nil))
+            .offsetBy(dx: sceneOffset.x, dy: sceneOffset.y)
         let viewport = popup ? (parent.window.screen ?? NSScreen.main).map {
             OverlayViewport(content: content, available: $0.visibleFrame)
         } : nil

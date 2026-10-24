@@ -832,6 +832,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !layingOutWindows else { return }
         layingOutWindows = true
         defer { layingOutWindows = false }
+        let ordered = windows.keys.sorted {
+            let a = windows[$0]?.presentation?.order ?? 0, b = windows[$1]?.presentation?.order ?? 0
+            return a == b ? $0 < $1 : a < b
+        }
+        // Some toolkits report every menu in a cascade as a direct transient
+        // of the same owner. Keep that explicitly scoped menu scene in one
+        // coordinate system when its first menu is shifted or locally scrolled.
+        // This changes presentation only, never authorization or parent IDs.
+        var menuAnchors: [UInt32: UInt32] = [:]
+        for id in ordered {
+            if let host = windows[id], host.popup, host.remoteVisible,
+               ["menu", "popup"].contains(host.presentation?.kind ?? ""),
+               let parent = parents[id], menuAnchors[parent] == nil {
+                menuAnchors[parent] = id
+            }
+        }
         var visited = Set<UInt32>(), visiting = Set<UInt32>()
         @discardableResult func place(_ id: UInt32) -> Bool {
             guard let child = windows[id] else { return false }
@@ -849,12 +865,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 child.window.parent?.removeChildWindow(child.window)
                 parent.window.addChildWindow(child.window, ordered: .above)
             }
-            child.place(relativeTo: parent, available: true)
+            var offset = CGPoint.zero
+            if child.popup, ["menu", "popup"].contains(child.presentation?.kind ?? ""),
+               let anchorID = menuAnchors[parentID], anchorID != id, place(anchorID),
+               let anchor = windows[anchorID] {
+                offset = anchor.sceneDisplacement(relativeTo: parent)
+            }
+            child.place(relativeTo: parent, available: true, sceneOffset: offset)
             return child.window.isVisible
-        }
-        let ordered = windows.keys.sorted {
-            let a = windows[$0]?.presentation?.order ?? 0, b = windows[$1]?.presentation?.order ?? 0
-            return a == b ? $0 < $1 : a < b
         }
         var stacking: [UInt32: [UInt32]] = [:]
         for id in ordered {

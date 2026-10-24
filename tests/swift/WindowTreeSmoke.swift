@@ -76,8 +76,14 @@ import AppKit
         // Reproduce a popup taller than the receiving work area. Keep readable
         // pixels, expose the bottom via a real AppKit clip view, and exercise
         // input after scrolling rather than merely testing a clamp formula.
-        let workArea = (root.window.screen ?? NSScreen.main!).visibleFrame
-        let tall = update(metadata(10, 1, "menu", CGRect(x: -450, y: 350, width: 200, height: 2000), 1))
+        let scrollRoot = update(metadata(20, nil, "window", CGRect(x: -600, y: 200, width: 1000, height: 500)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        scrollRoot.applyingRemote = true
+        scrollRoot.window.setContentSize(NSSize(width: 800, height: 600))
+        scrollRoot.window.setFrameOrigin(NSPoint(x: 100, y: 100))
+        scrollRoot.applyingRemote = false
+        let workArea = (scrollRoot.window.screen ?? NSScreen.main!).visibleFrame
+        let tall = update(metadata(10, 20, "menu", CGRect(x: -450, y: 350, width: 200, height: 2000), 1))
         let scroll = tall.overflowViewport!
         precondition(workArea.insetBy(dx: -1, dy: -1).contains(tall.window.frame), "overlay stays above Dock and below menu bar")
         precondition(abs(tall.surface.bounds.height - 1600) < 1 && abs(tall.surface.bounds.width - 160) < 1,
@@ -85,11 +91,14 @@ import AppKit
         precondition(scroll.hasVerticalScroller && !scroll.hasHorizontalScroller)
         precondition(scroll.contentView.bounds.minY == 0, "a new menu starts at its first item")
         let nested = update(metadata(11, 10, "menu", CGRect(x: -250, y: 900, width: 100, height: 40), 1))
+        let peer = update(metadata(12, 20, "menu", CGRect(x: -250, y: 900, width: 100, height: 40), 1, order: 1))
+        precondition(peer.window.frame == nested.window.frame, "flat and nested transient trees share the same source scene")
         let nestedBefore = nested.window.frame
         scroll.contentView.scroll(to: CGPoint(x: 0, y: 120)); scroll.reflectScrolledClipView(scroll.contentView)
         app.attachParents()
         precondition(abs(nested.window.frame.minY - nestedBefore.minY - 120) < 1,
                      "nested popup follows its scrolled source anchor")
+        precondition(peer.window.frame == nested.window.frame, "flat sibling menus follow the same viewport offset")
         let retained = scroll.contentView.bounds.origin
         tall.present(pixels(tall.surface.remoteWidth, tall.surface.remoteHeight), mediaMode: "fixture")
         app.attachParents()
@@ -110,14 +119,17 @@ import AppKit
         let bottomPress = messages.first { $0["type"] as? String == "input.pointer" && $0["pressed"] as? Bool == true }!
         precondition(bottomPress["window_id"] as? UInt32 == 10 && bottomPress["y"] as? Int == 1990,
                      "clicking the visible bottom item reaches that source row, not the top of the menu")
-        precondition(!messages.contains { ["window.focus", "window.configure"].contains($0["type"] as? String ?? "") })
+        precondition(!messages.contains {
+            [10, 11, 12].contains($0["window_id"] as? UInt32 ?? 0) &&
+                ["window.focus", "window.configure"].contains($0["type"] as? String ?? "")
+        }, "overlay layout/scroll never focuses or configures source popups")
         tall.applyRemoteVisibility(false); tall.applyRemoteVisibility(true); app.attachParents()
         precondition(scroll.contentView.bounds.minY == 0, "a hidden/reopened menu must not retain the previous bottom offset")
         // Shrinking back to an ordinary menu removes the viewport and stale offset.
-        _ = update(metadata(10, 1, "menu", CGRect(x: -450, y: 350, width: 200, height: 100), 1))
+        _ = update(metadata(10, 20, "menu", CGRect(x: -450, y: 350, width: 200, height: 100), 1))
         precondition(tall.overflowViewport == nil && tall.window.contentView === tall.surface && !tall.surface.scrollOverflowLocally)
         precondition(abs(tall.surface.bounds.height - 80) < 1)
-        for id: UInt32 in [10, 11] { app.windows.removeValue(forKey: id)?.closeLocally(); app.parents.removeValue(forKey: id) }
+        for id: UInt32 in [10, 11, 12, 20] { app.windows.removeValue(forKey: id)?.closeLocally(); app.parents.removeValue(forKey: id) }
         // Negative display origins and horizontal overflow use the same policy.
         let secondary = CGRect(x: -1600, y: -200, width: 1600, height: 900)
         let both = OverlayViewport(content: CGRect(x: -1700, y: -900, width: 2000, height: 1800), available: secondary)
