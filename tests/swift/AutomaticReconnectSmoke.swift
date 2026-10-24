@@ -98,7 +98,7 @@ struct AutomaticReconnectSmoke {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
             while let event = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
         }
-        precondition(NSApp.keyWindow === host.window)
+        precondition(NSApp.keyWindow === host.window, "expected root key window; allowed=\(host.window.canBecomeKey), visible=\(host.window.isVisible), active=\(NSApp.isActive), actual=\(String(describing: NSApp.keyWindow?.title))")
         app.togglePageScale()
         precondition(scales().last?["scale"] as? Int == 1)
         let manualCount = scales().count

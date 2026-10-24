@@ -7,6 +7,8 @@ resume, unchanged NSWindow, stream sequence reset and dropped offline input.
 from pathlib import Path
 import subprocess
 import tempfile
+import plistlib
+import shutil
 
 root = Path(__file__).resolve().parents[2]
 source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
@@ -53,9 +55,24 @@ sys.exit(255 if n==1 else 0)
     files = [str(path) for path in source.glob('*.swift') if path.name != 'main.swift']
     subprocess.run(['swiftc', '-module-cache-path', str(scratch/'modules'), *files, str(types),
                     str(root/'tests/swift/AutomaticReconnectSmoke.swift'), '-o', str(binary)], check=True, timeout=120)
-    result = subprocess.run([str(binary), str(scratch)], capture_output=True, text=True, timeout=25)
-    if result.returncode:
-        print(result.stdout, result.stderr[-4000:], flush=True)
+    # LaunchServices grants this AppKit fixture normal foreground activation.
+    # A bare subprocess may remain inactive on macOS even after activate(),
+    # making the key-window/menu assertions depend on the test runner's focus.
+    bundle = scratch/'ReconnectFixture.app'
+    executable = bundle/'Contents/MacOS/smoke'
+    executable.parent.mkdir(parents=True)
+    shutil.copy2(binary, executable)
+    (bundle/'Contents/Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleExecutable': 'smoke', 'CFBundleIdentifier': 'io.paneferry.tests.reconnect',
+        'CFBundlePackageType': 'APPL', 'CFBundleName': 'PaneFerry reconnect test'}))
+    stdout, stderr = scratch/'stdout', scratch/'stderr'
+    result = subprocess.run(['open', '-W', '-n', '--stdout', str(stdout), '--stderr', str(stderr),
+                             str(bundle), '--args', str(scratch)], timeout=25)
+    output = stdout.read_text() if stdout.exists() else ''
+    errors = stderr.read_text() if stderr.exists() else ''
+    passed = 'PASS: shared Ubuntu authorization state' in output
+    if result.returncode or not passed:
+        print(output, errors[-4000:], flush=True)
         print((scratch/'requests').read_text()[-4000:] if (scratch/'requests').exists() else 'no requests', flush=True)
-    assert result.returncode == 0, result.returncode
-    print(result.stdout, end='')
+    assert result.returncode == 0 and passed, (result.returncode, 'fixture did not complete')
+    print(output, end='')
