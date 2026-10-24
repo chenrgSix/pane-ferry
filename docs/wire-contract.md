@@ -24,7 +24,7 @@ display 为本地 X11 显示号，允许 0；原生 Wayland 使用 0 占位，�
 视频帧使用 frame 类型，包含 codec:"h264",data:base64,stream_id:u64,key_frame:bool,encoded_width,encoded_height；启用反馈时还包含 frame_id:u64。data 是 Annex B 对齐的单个 access unit；包最多 12 MiB，seq 仍按实际发送递增。encoded_width/height 仅允许在原尺寸为奇数时各补 1，解码前检查 SPS 尺寸一致，显示前裁掉补边。stream_id 在连接内标识每窗口的新编码流，流首包是含 SPS/PPS 的 IDR；重连、resize、切换帧率上限和隐藏恢复都重新发关键帧。P 帧必须按发送顺序解码，不能合并已编码的依赖包；可在编码前合并原始画面、解码后合并待显示图像。
 window.configure {window_id,width,height}；window.focus {window_id}；window.close.request {window_id}。
 
-声明 `window.page-scale` 的 Agent 接受 `window.page-scale {window_id,scale:1|2}`，仅已接管的受支持 ChatGPT XWayland 主窗口可用。2 表示当前页面布局倍率的两倍，1 结束本次租约并恢复原值；不改变原生 `scale_factor`。Mac WindowHost 在连接/重连取得支持的可见目标主窗口元数据后自动请求 2；每个窗口每次连接只尝试一次，菜单可在本次连接内手动关闭。远端不能提供 URL、调试端口、JavaScript、PID 或启动参数，也不能借此重启应用。
+声明 `window.page-scale` 的 Agent 接受 `window.page-scale {window_id,scale:1|2}`，仅已接管的受支持 ChatGPT XWayland 主窗口可用。2 表示当前页面布局倍率的两倍，同时移到同 GNOME 会话的私有虚拟显示器；1 结束本次租约、恢复原页面及窗口几何并移除虚拟显示器。1× 不创建输出，不改变原生 `scale_factor`。虚拟显示器不可用时拒绝本次 2× 请求，不保留部分修改。Mac WindowHost 在连接/重连取得支持的可见目标主窗口元数据后自动请求 2；每个窗口每次连接只尝试一次，菜单可在本次连接内手动关闭。远端不能提供 URL、调试端口、JavaScript、PID 或启动参数，也不能借此重启应用。
 
 窗口元数据另有 `page_scale_supported:bool`、`page_scale_factor:1|2` 和 `presentation_scale_factor:1|2`；最后一项是源密度乘页面租约倍率，用于新版 Mac 的逻辑尺寸换算。其他窗口保持各自密度；实际捕获宽高、几何版本和帧验证继续生效。页面支持标记仅表示候选适配器，实际开启仍需验证调试入口、布局和唯一目标。`page_scale_*` 错误带窗口号，只拒绝本次操作。正常关闭、传输断开和发布器退出会恢复租约；下次连接由控制端重新申请，Agent 不跨连接保留租约。详见[ChatGPT 页面高清](chatgpt-page-scale.md)。
 

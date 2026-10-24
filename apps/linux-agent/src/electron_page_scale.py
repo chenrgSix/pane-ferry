@@ -173,7 +173,7 @@ class XWindow:
         self.x.XSendEvent(self.d, self.root, 0, (1 << 19) | (1 << 20), C.byref(e))
         self.x.XSync(self.d, 0)
 
-    def restore(self):
+    def restore(self, clear_owner=True):
         if self.saved is None or self.prop('_PANEFERRY_PAGE_SCALE_OWNER') != self.owner:
             return
         self.geometry()  # PID/XID still belongs to our lease.
@@ -195,11 +195,116 @@ class XWindow:
             time.sleep(.05)
         if self.geometry() != self.saved:
             raise ValueError('page_scale_restore_incomplete')
-        self.x.XDeleteProperty(self.d, self.xid, self.atom('_PANEFERRY_PAGE_SCALE_OWNER'))
+        if clear_owner:
+            self.x.XDeleteProperty(self.d, self.xid, self.atom('_PANEFERRY_PAGE_SCALE_OWNER'))
         self.x.XSync(self.d, 0)
 
     def close(self):
         self.x.XCloseDisplay(self.d)
+
+
+class ParkingOutput:
+    """A same-session, 1x output; page CSS supplies the separate 2x density.
+
+    Only this D-Bus connection owns the output. Never apply a display config,
+    change physical monitor modes, or capture the monitor's contents.
+    """
+    CAST = 'org.gnome.Mutter.ScreenCast'
+    DISPLAY = 'org.gnome.Mutter.DisplayConfig'
+
+    def __init__(self):
+        import gi
+        gi.require_version('Gio', '2.0')
+        from gi.repository import Gio, GLib
+        self.Gio, self.GLib = Gio, GLib
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.path = None
+        self.connector = None
+
+    def call(self, bus, path, interface, method, args=None):
+        return self.bus.call_sync(bus, path, interface, method, args, None,
+                                 self.Gio.DBusCallFlags.NO_AUTO_START, 2000, None).unpack()
+
+    def state(self):
+        return self.call(self.DISPLAY, '/org/gnome/Mutter/DisplayConfig', self.DISPLAY, 'GetCurrentState')
+
+    @staticmethod
+    def placements(state):
+        return {spec[0]: tuple(m[:5]) for m in state[2] for spec in m[5]}
+
+    def open(self):
+        import fcntl
+        # Serialize our own creations. Concurrent foreign hotplug is rejected
+        # by the complete physical-connector diff before choosing a monitor.
+        runtime = Path('/run/user') / str(os.getuid())
+        fd = os.open(runtime / 'paneferry-page-parking.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise ValueError('page_scale_parking_unavailable')
+                    time.sleep(.05)
+            before = self.state()
+            connectors = {m[0][0] for m in before[1]}
+            original = self.placements(before)
+            if len(connectors) >= 8:
+                raise ValueError('page_scale_parking_unavailable')
+            self.path = self.call(self.CAST, '/org/gnome/Mutter/ScreenCast', self.CAST, 'CreateSession',
+                                  self.GLib.Variant('(a{sv})', ({},)))[0]
+            mode = {'size': self.GLib.Variant('(uu)', (4352, 2432)),
+                    'refresh-rate': self.GLib.Variant('d', 60),
+                    'is-preferred': self.GLib.Variant('b', True),
+                    'preferred-scale': self.GLib.Variant('d', 1)}
+            # In Mutter 50 the explicit mode creates the monitor synchronously
+            # in RecordVirtual; a successful reply precedes connector discovery.
+            self.call(self.CAST, self.path, self.CAST + '.Session', 'RecordVirtual',
+                      self.GLib.Variant('(a{sv})', ({'cursor-mode': self.GLib.Variant('u', 0),
+                                                   'modes': self.GLib.Variant('aa{sv}', [mode])},)))
+            self.call(self.CAST, self.path, self.CAST + '.Session', 'Start')
+            for _ in range(40):
+                state = self.state()
+                added = [m for m in state[1] if m[0][0] not in connectors]
+                positions = self.placements(state)
+                if any(positions.get(k) != v for k, v in original.items()) or len(added) != 1:
+                    raise ValueError('page_scale_parking_unavailable')
+                monitor = added[0]
+                current = [m for m in monitor[1] if m[6].get('is-current')]
+                position = positions.get(monitor[0][0])
+                if position and current:
+                    x, y, scale, transform, primary = position
+                    if (monitor[0][1] != 'MetaVendor' or tuple(current[0][1:3]) != (4352, 2432)
+                            or scale != 1 or transform != 0 or primary
+                            or x < 0 or y < 0 or x + 4352 > 32767 or y + 2432 > 32767):
+                        raise ValueError('page_scale_parking_unavailable')
+                    self.connector = monitor[0][0]
+                    self.position = position
+                    return x + 48, y + 48
+                time.sleep(.05)
+            raise ValueError('page_scale_parking_unavailable')
+        finally:
+            os.close(fd)
+
+    def check(self):
+        if self.placements(self.state()).get(self.connector) != self.position:
+            raise ValueError('page_scale_parking_lost')
+
+    def contains(self, bounds):
+        x, y, width, height = bounds
+        left, top = self.position[:2]
+        return left <= x and top <= y and x + width <= left + 4352 and y + height <= top + 2432
+
+    def close(self):
+        if self.path:
+            path, self.path = self.path, None
+            self.call(self.CAST, path, self.CAST + '.Session', 'Stop')
+            for _ in range(40):
+                if self.connector not in self.placements(self.state()):
+                    return
+                time.sleep(.05)
+            raise ValueError('page_scale_restore_incomplete')
 
 
 def select_target(port, bounds):
@@ -267,7 +372,7 @@ class Lease:
         if identity(self.pid) != self.started:
             raise ValueError('page_scale_window_changed')
         self.x = XWindow(request['display'], request['authority'], request['window_id'], self.pid)
-        self.cdp = None; self.key = '__paneferry_page_' + uuid.uuid4().hex
+        self.cdp = None; self.parking = None; self.parked = False; self.key = '__paneferry_page_' + uuid.uuid4().hex
         self.expression = installation(self.key)
         try:
             bounds = self.x.geometry()
@@ -283,6 +388,13 @@ class Lease:
             if self.x.geometry() != bounds:
                 raise ValueError('page_scale_window_changed')
             self.x.claim()
+            try:
+                self.parking = ParkingOutput()
+                x, y = self.parking.open()
+            except Exception as error:
+                raise ValueError('page_scale_parking_unavailable') from error
+            # Keep the root mapped so XComposite and native input remain live.
+            self.x.send('_NET_MOVERESIZE_WINDOW', [(15 << 8) | (2 << 12) | 10, x, y, *self.size])
             if not self.cdp.js(self.expression):
                 raise ValueError('page_scale_unavailable')
         except Exception:
@@ -294,6 +406,9 @@ class Lease:
             raise ValueError('page_scale_window_changed')
         if not self.cdp.js(self.expression):
             raise ValueError('page_scale_navigation_unsupported')
+        self.parking.check()
+        if self.parked and not self.parking.contains(self.x.geometry()):
+            raise ValueError('page_scale_parking_lost')
 
     def restore(self):
         # Each cleanup is independent: losing the renderer must not skip geometry.
@@ -304,9 +419,20 @@ class Lease:
             self.cdp.close(); self.cdp = None
         try:
             if identity(self.pid) == self.started:
-                self.x.restore()
+                self.x.restore(clear_owner=False)
         except Exception:
             failures.append('geometry')
+        # Move/shrink the living root before unplugging the output. Re-apply
+        # after hot-unplug, since Mutter can perform a final placement pass.
+        if self.parking:
+            try: self.parking.close()
+            except Exception: failures.append('output')
+            self.parking = None
+        try:
+            if identity(self.pid) == self.started:
+                self.x.restore()
+        except Exception:
+            failures.append('geometry_after_output')
         self.x.close()
         if failures:
             print('page_scale_restore_incomplete:' + ','.join(failures), file=sys.stderr, flush=True)
@@ -347,11 +473,14 @@ def serve():
                         reply({'size': lease.size})
                     elif r['op'] == 'commit' and lease:
                         for _ in range(40):
-                            if lease.x.geometry()[2:] == lease.size:
+                            bounds = lease.x.geometry()
+                            if bounds[2:] == lease.size and lease.parking.contains(bounds):
                                 break
                             lease.tick(); time.sleep(.05)
-                        if lease.x.geometry()[2:] != lease.size:
+                        bounds = lease.x.geometry()
+                        if bounds[2:] != lease.size or not lease.parking.contains(bounds):
                             raise ValueError('page_scale_resize_failed')
+                        lease.parked = True
                         reply({'active': True})
                     elif r['op'] == 'stop' and lease:
                         ok = lease.restore(); lease = None

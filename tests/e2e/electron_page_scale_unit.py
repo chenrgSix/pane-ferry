@@ -15,6 +15,35 @@ helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
 
 
 class TargetTests(unittest.TestCase):
+    def test_parking_bounds_and_monitor_changes(self):
+        output = helper.ParkingOutput.__new__(helper.ParkingOutput)
+        output.connector = 'Meta-0'; output.position = (1920, 0, 1, 0, False)
+        self.assertTrue(output.contains([1968, 48, 4096, 2160]))
+        self.assertFalse(output.contains([240, 90, 2940, 1610]))
+        self.assertFalse(output.contains([1968, 48, 4352, 2432]))
+        state = (1, [], [(1920, 0, 1, 0, False, [('Meta-0', 'MetaVendor', '', '')], {})], {})
+        output.state = lambda: state
+        output.check()
+        state = (2, [], [], {})
+        with self.assertRaisesRegex(ValueError, 'page_scale_parking_lost'): output.check()
+
+    def test_output_teardown_follows_geometry_restore_even_if_renderer_is_lost(self):
+        events = []
+        class CDP:
+            def js(self, _): events.append('css'); raise OSError('renderer gone')
+            def close(self): events.append('cdp-close')
+        class Window:
+            def restore(self, clear_owner=True): events.append('restore-final' if clear_owner else 'restore-before-unplug')
+            def close(self): events.append('x-close')
+        class Output:
+            def close(self): events.append('unplug')
+        lease = helper.Lease.__new__(helper.Lease)
+        lease.pid = 123; lease.started = 456; lease.cdp = CDP(); lease.key = 'fixture'
+        lease.x = Window(); lease.parking = Output()
+        with patch.object(helper, 'identity', return_value=456):
+            self.assertFalse(lease.restore())
+        self.assertEqual(events, ['css', 'cdp-close', 'restore-before-unplug', 'unplug', 'restore-final', 'x-close'])
+
     def test_multiple_matching_pages_are_rejected_before_mutation(self):
         class Response:
             def __enter__(self): return self

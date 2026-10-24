@@ -586,6 +586,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 case "page_scale_restart_required": message = "请先在 Ubuntu 运行 paneferry-agent prepare-chatgpt PID，重启 ChatGPT 后重新连接此窗口。"
                 case "page_scale_target_ambiguous": message = "无法唯一对应 ChatGPT 页面与窗口。请错开窗口的位置或尺寸后重试。"
                 case "page_scale_unsupported": message = "此模式仅支持已准备好的 ChatGPT 主窗口，源端缩放需为 1×。"
+                case "page_scale_parking_unavailable": message = "Ubuntu 无法创建目标窗口的虚拟显示器，未开启页面高清。请检查 GNOME 虚拟显示器支持后重试。"
+                case "page_scale_parking_lost": message = "目标窗口已离开虚拟显示器或显示器布局发生变化，已停止页面高清并尝试恢复原位置。"
                 case "page_scale_restore_incomplete": message = "页面高清恢复未完成，请检查 Ubuntu 上的目标窗口。"
                 default: message = "页面高清连接中断或尺寸未生效，已结束适配并尝试恢复目标窗口。"
                 }

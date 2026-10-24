@@ -1,0 +1,1499 @@
+{
+  "date": "2026-10-24",
+  "environment": {
+    "system": "Ubuntu 26.04 / GNOME 50",
+    "chatgpt": "26.1013.40934",
+    "scope": "separate test main window in existing logged-in process; original main used as witness",
+    "deployment": "isolated preview Agent and real QUIC; formal Agent unchanged"
+  },
+  "protocol": {
+    "before": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "0",
+        "text": "",
+        "key": "",
+        "picked": "",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "session": "ddb52a2c44dda42d3986d684f44b2cf0",
+    "one_x": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "0",
+        "text": "",
+        "key": "",
+        "picked": "",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "scaled": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "0",
+        "text": "",
+        "key": "",
+        "picked": "",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "clicked": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "",
+        "key": "",
+        "picked": "",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "typed": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "v",
+        "picked": "",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "keyboard": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "popup": {
+      "geometry_revision": 1,
+      "height": 200,
+      "page_scale_factor": 1,
+      "page_scale_supported": false,
+      "parent_id": 52428907,
+      "presentation_scale_factor": 1,
+      "role": "popup",
+      "scale_factor": 1,
+      "scale_mode": "source",
+      "seq": 18,
+      "session_id": "ddb52a2c44dda42d3986d684f44b2cf0",
+      "type": "window.created",
+      "version": 1,
+      "visible": true,
+      "width": 500,
+      "window_id": 52428933,
+      "x": 2068,
+      "y": 626
+    },
+    "picked": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "disconnect": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "disabled": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    }
+  },
+  "appkit": {
+    "result": "automatic 2x, actual H.264 2940x1610, same NSWindow/frame, two reconnects, explicit detach",
+    "observation_transitions": [
+      {
+        "target": {
+          "bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "lease": false
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            1968,
+            48,
+            1800,
+            1300
+          ],
+          "zoom": "",
+          "pageZoom": "2",
+          "priority": "important",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            1968,
+            48,
+            2940,
+            1610
+          ],
+          "lease": true
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ],
+          "Meta-0": [
+            1920,
+            0,
+            1.0,
+            0,
+            false
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            1968,
+            48,
+            2940,
+            1610
+          ],
+          "zoom": "",
+          "pageZoom": "2",
+          "priority": "important",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            1968,
+            48,
+            2940,
+            1610
+          ],
+          "lease": true
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ],
+          "Meta-0": [
+            1920,
+            0,
+            1.0,
+            0,
+            false
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "lease": false
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "zoom": "",
+          "pageZoom": "2",
+          "priority": "important",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            1968,
+            48,
+            1800,
+            1300
+          ],
+          "lease": true
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ],
+          "Meta-0": [
+            1920,
+            0,
+            1.0,
+            0,
+            false
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            1968,
+            48,
+            2940,
+            1610
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "lease": true
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "lease": false
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            1968,
+            48,
+            1800,
+            1300
+          ],
+          "zoom": "",
+          "pageZoom": "2",
+          "priority": "important",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            1968,
+            48,
+            2940,
+            1610
+          ],
+          "lease": true
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ],
+          "Meta-0": [
+            1920,
+            0,
+            1.0,
+            0,
+            false
+          ]
+        }
+      },
+      {
+        "target": {
+          "bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true,
+          "native_bounds": [
+            50,
+            50,
+            900,
+            650
+          ],
+          "lease": false
+        },
+        "witness": {
+          "bounds": [
+            240,
+            90,
+            1470,
+            809
+          ],
+          "zoom": "",
+          "pageZoom": "",
+          "priority": "",
+          "dpr": 1,
+          "login": true
+        },
+        "monitors": {
+          "DP-2": [
+            0,
+            0,
+            1.0,
+            0,
+            true
+          ]
+        }
+      }
+    ]
+  },
+  "publisher_death": {
+    "before": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "scaled": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "popup_id": 52428988,
+    "restored": {
+      "target": {
+        "bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          50,
+          50,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "recovery_seconds": 0.21,
+    "popup_after_disconnect": {
+      "exit": 1,
+      "mapped": false,
+      "output": "X Error: 9: Bad Drawable\n  Request Major code: 14\n  ResourceID in failed request: 0x32000bc\n  Serial number of failed request: 3\nxwininfo: error: No such window with id 0x32000bc."
+    }
+  },
+  "limits": [
+    "ordinary windows, one physical monitor",
+    "native select tested; arbitrary system dialogs not tested",
+    "shared desktop input seat; not host pointer/focus isolation",
+    "helper SIGKILL or desktop exit cannot guarantee original geometry",
+    "local and LAN verification, not CI"
+  ],
+  "packaged_host": {
+    "before": {
+      "target": {
+        "bounds": [
+          709,
+          107,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          709,
+          107,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "scaled": {
+      "target": {
+        "bounds": [
+          1968,
+          48,
+          1800,
+          1300
+        ],
+        "zoom": "",
+        "pageZoom": "2",
+        "priority": "important",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          1968,
+          48,
+          2940,
+          1618
+        ],
+        "lease": true
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            300,
+            348
+          ],
+          "entry": [
+            400,
+            438
+          ],
+          "choice": [
+            350,
+            528
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ],
+        "Meta-0": [
+          1920,
+          0,
+          1.0,
+          0,
+          false
+        ]
+      }
+    },
+    "after": {
+      "target": {
+        "bounds": [
+          709,
+          107,
+          900,
+          650
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true,
+        "native_bounds": [
+          709,
+          107,
+          900,
+          650
+        ],
+        "lease": false
+      },
+      "witness": {
+        "bounds": [
+          240,
+          90,
+          1470,
+          809
+        ],
+        "zoom": "",
+        "pageZoom": "",
+        "priority": "",
+        "dpr": 1,
+        "login": true
+      },
+      "fixture": {
+        "count": "1",
+        "text": "窗渡虚拟屏验证",
+        "key": "End",
+        "picked": "two",
+        "points": {
+          "button": [
+            150,
+            174
+          ],
+          "entry": [
+            200,
+            219
+          ],
+          "choice": [
+            175,
+            264
+          ]
+        }
+      },
+      "monitors": {
+        "DP-2": [
+          0,
+          0,
+          1.0,
+          0,
+          true
+        ]
+      }
+    },
+    "session": "db446a90189ac1e2e1e3222c07d9ae4b"
+  },
+  "checks": {
+    "scripts/check.sh": "passed",
+    "rust_passed": 63,
+    "rust_ignored": 6,
+    "python_page_scale_tests": 5,
+    "mac_bundle": "built; strict deep signature verification passed; actual packaged host smoke passed",
+    "ubuntu_release": "built and exercised on isolated Agent",
+    "helper_sha256": "bd0eb3e78529a49656574412b26f835485988cd1415be2faff7358edf43f8ca2",
+    "agent_sha256": "712ce378b754e15cb18387461a0af1df644d6586ce0e48b757b8766d3bdcde09"
+  }
+}
