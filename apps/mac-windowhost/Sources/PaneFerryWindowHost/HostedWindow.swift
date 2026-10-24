@@ -9,6 +9,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var revision: UInt64
     var applyingRemote = false
     var remoteVisible = false
+    private var receivedVisibility = false
+    let hiddenSourceView = NSVisualEffectView(frame: .zero)
+    private(set) var restoreSourceButton: NSButton!
     var allowClose = false
     private var closeRequested = false
     var relatedWindow = false
@@ -42,6 +45,47 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         surface.remoteID = id; surface.remoteWidth = width; surface.remoteHeight = height; surface.transmit = transmit
         window.contentView = surface; window.center()
         window.makeFirstResponder(surface)
+        hiddenSourceView.frame = surface.bounds
+        hiddenSourceView.autoresizingMask = [.width, .height]
+        hiddenSourceView.material = .windowBackground
+        hiddenSourceView.blendingMode = .withinWindow
+        hiddenSourceView.isHidden = true
+        let notice = NSTextField(wrappingLabelWithString: "源端窗口已最小化或隐藏")
+        notice.alignment = .center
+        restoreSourceButton = NSButton(title: "恢复源端窗口", target: self, action: #selector(restoreSourceWindow))
+        let stack = NSStackView(views: [notice, restoreSourceButton])
+        stack.orientation = .vertical; stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        hiddenSourceView.addSubview(stack); surface.addSubview(hiddenSourceView)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: hiddenSourceView.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: hiddenSourceView.centerYAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualTo: hiddenSourceView.widthAnchor, constant: -24)
+        ])
+    }
+    func applyRemoteVisibility(_ visible: Bool) {
+        let changed = !receivedVisibility || visible != remoteVisible
+        receivedVisibility = true
+        if !visible {
+            surface.releaseInput(); surface.unmarkText()
+            resizeTimer?.invalidate(); resizeTimer = nil
+        }
+        remoteVisible = visible
+        surface.transmit = visible ? transmit : nil
+        hiddenSourceView.isHidden = visible || popup || relatedWindow || desktopMode
+        if !visible { surface.requestControllerPaste = nil }
+        if changed {
+            if visible || !hiddenSourceView.isHidden {
+                // A remote visibility change must not undo a local minimization.
+                if !window.isMiniaturized { window.makeKeyAndOrderFront(nil) }
+            } else { window.orderOut(nil) }
+        }
+        updateSubtitle()
+    }
+    @objc func restoreSourceWindow() {
+        guard !remoteVisible, !popup, !relatedWindow, !desktopMode else { return }
+        // Wait for source metadata before enabling input or showing old pixels.
+        transmit(["type": "window.focus", "window_id": id])
     }
     func applyRemoteGeometry(width: Int, height: Int, rendering: RenderGeometry) {
         let scaleChanged = self.rendering.scale != rendering.scale
@@ -106,6 +150,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         }
         if let resolutionNotice = resolutionNotice { parts.append(resolutionNotice) }
         if let inputNotice = inputNotice { parts.append(inputNotice) }
+        if !hiddenSourceView.isHidden { parts.append("源端窗口已最小化或隐藏 · 可恢复") }
         window.subtitle = parts.joined(separator: " · ")
     }
     func present(_ image: CGImage, mediaMode: String) {

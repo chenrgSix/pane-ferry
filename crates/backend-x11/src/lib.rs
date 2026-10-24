@@ -650,7 +650,26 @@ impl Backend {
     pub fn focus(&self, id: u32) -> Result<()> {
         self.known(id)?;
         if !self.windows[&id].visible {
-            bail!("window is hidden")
+            if self.windows[&id].role == "popup" {
+                bail!("window is hidden")
+            }
+            // An explicit focus request is also the controller's restore action.
+            // Let the WM remap the managed window before attempting input focus.
+            self.conn.map_window(id)?.check()?;
+            let event = ClientMessageEvent::new(
+                32,
+                id,
+                self.atom("_NET_ACTIVE_WINDOW"),
+                [2, x11rb::CURRENT_TIME, 0, 0, 0],
+            );
+            self.conn.send_event(
+                false,
+                self.root,
+                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                event,
+            )?;
+            self.conn.flush()?;
+            return Ok(());
         }
         if self.process_id.is_some() {
             let event = ClientMessageEvent::new(

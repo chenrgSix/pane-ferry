@@ -199,7 +199,7 @@ try:
                         e["type"] in ("window.metadata", "window.destroyed") and
                         (e["type"] == "window.destroyed" or not e.get("visible", True)))
     assert hidden["type"] == "window.metadata", "Unmapping must preserve window identity"
-    map_window(started["display"], window_id, True)
+    peer.send(type="window.focus", window_id=window_id)
     shown = peer.until(lambda e: e["type"] == "window.metadata" and
                        e.get("window_id") == window_id and e.get("visible", True))
     assert shown["geometry_revision"] >= geometry["geometry_revision"]

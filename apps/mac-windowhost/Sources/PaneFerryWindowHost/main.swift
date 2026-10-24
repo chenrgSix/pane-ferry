@@ -677,7 +677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             for item in snapshot { updateWindow(item, create: true) }
             attachParents()
             for host in windows.values where !host.popup { host.windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
-            if let host = activeHost() { send(["type": "window.focus", "window_id": host.id]) }
+            if let host = activeHost(), host.remoteVisible { send(["type": "window.focus", "window_id": host.id]) }
             return
         }
         if type == "session.exited" {
@@ -737,18 +737,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.scaleMode = object["scale_mode"] as? String ?? "unknown"
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
+        if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }
+        else { parents.removeValue(forKey: id); host.relatedWindow = false; host.window.parent?.removeChildWindow(host.window) }
         let visible = object["visible"] as? Bool ?? true
-        if visible != host.remoteVisible {
-            host.remoteVisible = visible
-            if visible { host.window.makeKeyAndOrderFront(nil) }
-            else { host.surface.releaseInput(); host.window.orderOut(nil) }
-            refreshVideoFPS()
-        }
+        let visibilityChanged = visible != host.remoteVisible
+        host.applyRemoteVisibility(visible)
+        if visibilityChanged { refreshVideoFPS() }
         if justCreated, visible, ["toplevel", "desktop"].contains(object["role"] as? String ?? "") {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
-        if let parent = unsignedInteger(object["parent_id"]), parent <= UInt64(UInt32.max), parent != id { parents[id] = UInt32(parent); host.relatedWindow = true }
-        else { parents.removeValue(forKey: id); host.relatedWindow = false; host.window.parent?.removeChildWindow(host.window) }
     }
     func attachParents() {
         for (id, parentID) in parents where id != parentID {

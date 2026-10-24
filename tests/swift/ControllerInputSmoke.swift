@@ -8,6 +8,7 @@ struct ControllerInputSmoke {
         verifyCut()
         verifyLogicalViewport()
         verifyRealtimeHover()
+        verifyHiddenSourceWindow()
         try! verifyClipboardBundles()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
@@ -142,6 +143,56 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close detaches once; remote destruction stays local")
+    }
+
+    private static func verifyHiddenSourceWindow() {
+        var sent: [[String: Any]] = []
+        let host = HostedWindow(id: 92, width: 640, height: 480, revision: 1, scale: 1,
+                                popup: false, disconnect: {}) { sent.append($0) }
+        defer { host.closeLocally() }
+        host.applyRemoteVisibility(true)
+        let frame = host.window.frame
+        host.surface.insertText("before hide", replacementRange: NSRange(location: NSNotFound, length: 0))
+        host.applyRemoteVisibility(false)
+        precondition(host.window.isVisible && host.window.frame == frame && !host.hiddenSourceView.isHidden,
+                     "a hidden source keeps a recoverable local window with the same geometry")
+        precondition(host.surface.transmit == nil && host.window.subtitle.contains("可恢复"))
+        let count = sent.count
+        host.surface.insertText("hidden input", replacementRange: NSRange(location: NSNotFound, length: 0))
+        host.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification))
+        host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        precondition(sent.count == count, "hidden content must not receive typing, focus or resize")
+        host.restoreSourceButton.performClick(nil)
+        precondition(sent.count == count + 1 && sent.last?["type"] as? String == "window.focus"
+                     && sent.last?["window_id"] as? UInt32 == 92)
+        precondition(!host.remoteVisible && !host.hiddenSourceView.isHidden && host.surface.transmit == nil,
+                     "restore waits for confirmed source visibility")
+        host.applyRemoteVisibility(true)
+        precondition(host.hiddenSourceView.isHidden && host.surface.transmit != nil && host.window.frame == frame)
+        let beforeMinimize = sent.count
+        host.window.miniaturize(nil)
+        let deadline = Date().addingTimeInterval(2)
+        while !host.window.isMiniaturized && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        precondition(host.window.isMiniaturized, "AppKit must complete the local minimize first")
+        precondition(sent.count == beforeMinimize, "native minimize must not minimize the source")
+        host.applyRemoteVisibility(false); host.applyRemoteVisibility(true)
+        precondition(host.window.isMiniaturized, "source visibility must not undo local minimize")
+        host.window.deminiaturize(nil)
+        let child = HostedWindow(id: 93, width: 300, height: 200, revision: 1, scale: 1,
+                                 popup: false, disconnect: {}) { sent.append($0) }
+        defer { child.closeLocally() }
+        child.relatedWindow = true; child.applyRemoteVisibility(true); child.applyRemoteVisibility(false)
+        precondition(!child.window.isVisible && child.hiddenSourceView.isHidden,
+                     "dismissed child windows must not become restore placeholders")
+        let restored = HostedWindow(id: 94, width: 640, height: 480, revision: 1, scale: 1,
+                                    popup: false, disconnect: {}) { sent.append($0) }
+        defer { restored.closeLocally() }
+        restored.applyRemoteVisibility(false)
+        precondition(restored.window.isVisible && !restored.hiddenSourceView.isHidden,
+                     "resuming an already minimized session must expose its restore action")
+        print("PASS: source hide has a restore action, blocks stale input, preserves local minimize and handles hidden snapshots")
     }
 
     private static func verifyRealtimeHover() {
