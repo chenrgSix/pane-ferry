@@ -27,6 +27,12 @@ use tokio::{
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const PEER_LIMIT: usize = 32;
+// RWN/2 stream roles, not fixed QUIC stream IDs. Configure each local send
+// half before its first write: Quinn schedules higher values first. Input and
+// window.configure stay ordered on CONTROL; video never enters that stream.
+const CONTROL_PRIORITY: i32 = 10;
+const MEDIA_PRIORITY: i32 = 0;
+const BULK_PRIORITY: i32 = -10;
 
 async fn within<T, E: Into<anyhow::Error>>(
     deadline: Instant,
@@ -775,7 +781,7 @@ impl Service {
         channel: String,
         quota: Arc<DeviceQuota>,
     ) -> Result<()> {
-        send.set_priority(10)?;
+        send.set_priority(CONTROL_PRIORITY)?;
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
         let mut media: HashMap<u64, MediaQueue> = HashMap::new();
@@ -834,7 +840,7 @@ impl Service {
                                     slot.worker = Some(workers.spawn(async move {
                                         let result = async {
                                             let (mut send,_recv) = within(Instant::now()+TIMEOUT, "open media", connection.open_bi()).await?;
-                                            send.set_priority(0)?;
+                                            send.set_priority(MEDIA_PRIORITY)?;
                                             within(Instant::now()+TIMEOUT, "media header", Packet::new(json!({"op":"media","channel":channel,"window_id":window}),0)?.write(&mut send)).await?;
                                             while let Some(packet) = rx.recv().await { tokio::time::timeout(TIMEOUT,packet.write(&mut send)).await??; }
                                             send.finish()?; Ok::<_,anyhow::Error>(())
@@ -914,7 +920,7 @@ impl Service {
             let connection = self.connection(peer).await?;
             let (mut send, recv) =
                 within(deadline, "open control stream", connection.open_bi()).await?;
-            send.set_priority(10)?;
+            send.set_priority(CONTROL_PRIORITY)?;
             within(
                 deadline,
                 "write control header",
@@ -1038,7 +1044,7 @@ impl Service {
             .spawn()?;
         let mut input = child.stdin.take().unwrap();
         let mut output = child.stdout.take().unwrap();
-        send.set_priority(-10)?;
+        send.set_priority(BULK_PRIORITY)?;
         let transfer = tokio::time::timeout(Duration::from_secs(300), async {
             let upload = async {
                 tokio::io::copy(&mut recv, &mut input).await?;
@@ -1089,7 +1095,7 @@ impl Service {
         )
         .await?;
         let (mut send, recv) = within(deadline, "open bulk stream", connection.open_bi()).await?;
-        send.set_priority(-10)?;
+        send.set_priority(BULK_PRIORITY)?;
         within(
             deadline,
             "write bulk header",
@@ -1327,25 +1333,38 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn stalled_window_keeps_control_and_other_window_live_then_recovers_static_picture() {
+    async fn stalled_video_keeps_ordered_input_resize_and_control_live_then_recovers() {
         use base64::engine::general_purpose::STANDARD;
         let (_root, service) = test_service();
         let (_remote_root, remote) = test_service();
+        let mut client_config = remote
+            .identity
+            .client(&service.identity.certificate)
+            .unwrap();
+        let mut transport = quinn::TransportConfig::default();
+        // The 1 MiB frame cannot complete while the media receiver is stalled.
+        // Leave connection credit for the independent control/other-window streams.
+        transport
+            .stream_receive_window((32u32 * 1024).into())
+            .receive_window((256u32 * 1024).into());
+        client_config.transport_config(Arc::new(transport));
         let dialing = remote
             .endpoint
-            .connect_with(
-                remote
-                    .identity
-                    .client(&service.identity.certificate)
-                    .unwrap(),
-                service.address(),
-                "lan-remoteapp",
-            )
+            .connect_with(client_config, service.address(), "lan-remoteapp")
             .unwrap();
         let accepting = async { service.endpoint.accept().await.unwrap().await.unwrap() };
         let (client, server) = tokio::join!(dialing, accepting);
         let client = client.unwrap();
         let (mut requests, mut controls) = client.open_bi().await.unwrap();
+        requests.set_priority(CONTROL_PRIORITY).unwrap();
+        let inputs = vec![
+            json!({"version":1,"type":"input.pointer","window_id":1,"x":20,"y":30,"button":1,"pressed":true}),
+            json!({"version":1,"type":"input.pointer","window_id":1,"x":20,"y":30,"button":1,"pressed":false}),
+            json!({"version":1,"type":"input.key","window_id":1,"keysym":0xff51,"pressed":true}),
+            json!({"version":1,"type":"input.key","window_id":1,"keysym":0xff51,"pressed":false}),
+            json!({"version":1,"type":"window.configure","window_id":1,"width":800,"height":600}),
+        ];
+        let expected_inputs = inputs.clone();
         Packet::new(json!({"type":"hello","version":1}), 0)
             .unwrap()
             .write(&mut requests)
@@ -1394,12 +1413,27 @@ mod tests {
             .await
             .unwrap();
             let mut refreshed = Some(refreshed);
+            let mut received_inputs = Vec::new();
             while let Ok(value) = framing::line(&mut read).await {
                 if value["type"] == "video.keyframe" && value["window_id"] == 1 {
                     if let Some(notice) = refreshed.take() {
                         let _ = notice.send(());
                     }
                     framing::json(&mut write,&json!({"type":"frame","window_id":1,"codec":"h264","data":"YQ==","key_frame":true,"recovery":true})).await.unwrap();
+                } else {
+                    received_inputs.push(value);
+                    if received_inputs.len() == expected_inputs.len() {
+                        assert_eq!(
+                            received_inputs, expected_inputs,
+                            "input/resize order changed"
+                        );
+                        framing::json(
+                            &mut write,
+                            &json!({"type":"clipboard.data","text":"ordered-input-seen"}),
+                        )
+                        .await
+                        .unwrap();
+                    }
                 }
             }
         });
@@ -1409,7 +1443,16 @@ mod tests {
             for _ in 0..2 {
                 let (send, mut read) = client.accept_bi().await.unwrap();
                 let header = Packet::read_header(&mut read).await.unwrap();
+                assert_eq!(header.value["op"], "media");
+                assert_ne!(read.id(), controls.id(), "video entered the control stream");
                 if header.value["window_id"] == 1 {
+                    // Consume one byte to prove a video packet is in flight,
+                    // then put it back for the later recovery read. No complete
+                    // frame can fit in the negotiated 32 KiB receive window.
+                    let mut prefix = [0];
+                    read.read_exact(&mut prefix).await.unwrap();
+                    assert_eq!(prefix[0], 0); // bounded metadata's length prefix
+                    let read = std::io::Cursor::new(prefix).chain(read);
                     stalled = Some((send, read));
                 } else {
                     assert_eq!(Packet::read(&mut read).await.unwrap().value["window_id"], 2);
@@ -1417,15 +1460,30 @@ mod tests {
                 }
             }
             assert!(other);
+            for value in inputs {
+                Packet::new(value, 0)
+                    .unwrap()
+                    .write(&mut requests)
+                    .await
+                    .unwrap();
+            }
+            let mut control_live = false;
             loop {
-                if Packet::read(&mut controls).await.unwrap().value["text"] == "control-live" {
+                let packet = Packet::read(&mut controls).await.unwrap();
+                if packet.value["text"] == "control-live" {
+                    control_live = true;
+                }
+                if packet.value["text"] == "ordered-input-seen" {
+                    assert!(control_live);
                     break;
                 }
             }
             refresh_seen.await.unwrap();
         })
         .await
-        .expect("control and the second window must progress while window 1 is unread");
+        .expect(
+            "ordered keys, pointer, resize and control replies must progress with video stalled",
+        );
         let (_, mut stalled) = stalled.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
