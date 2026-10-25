@@ -5,6 +5,7 @@ struct ControllerInputSmoke {
     static func main() {
         _ = NSApplication.shared
         verifyShortcutRelease()
+        verifyReleaseAfterShrink()
         verifyRemoteClipboardShortcuts()
         verifyCut()
         verifyLogicalViewport()
@@ -144,6 +145,25 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close detaches once; remote destruction stays local")
+    }
+
+    private static func verifyReleaseAfterShrink() {
+        let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        surface.remoteID = 77; surface.remoteWidth = 640; surface.remoteHeight = 480
+        var sent: [[String: Any]] = []
+        surface.transmit = { sent.append($0) }
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 320, y: 240), modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        surface.mouseDown(with: down)
+        precondition(sent.last?["pressed"] as? Bool == true)
+        surface.remoteWidth = 100; surface.remoteHeight = 80
+        surface.releaseInput()
+        precondition(sent.last?["pressed"] as? Bool == false)
+        precondition(sent.last?["x"] as? Int == 99 && sent.last?["y"] as? Int == 79,
+                     "focus loss after shrink must release the held button inside current remote bounds")
+        let count = sent.count
+        surface.releaseInput()
+        precondition(sent.count == count, "repeated cleanup cannot replay releases")
     }
 
     private static func verifyRemoteClipboardShortcuts() {

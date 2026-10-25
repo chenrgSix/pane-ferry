@@ -210,7 +210,12 @@ final class SurfaceView: NSView, NSTextInputClient {
         heldModifiers = target
     }
     func releaseInput() {
-        for button in heldButtons { transmit?(["type": "input.pointer", "window_id": remoteID, "x": lastPointer.x, "y": lastPointer.y, "button": button, "pressed": false]) }
+        // Metadata can shrink the remote surface before focus is lost. The
+        // publisher validates release coordinates too, so an old out-of-bounds
+        // position would leave its mouse button held after local cleanup.
+        let x = max(0, min(lastPointer.x, remoteWidth - 1))
+        let y = max(0, min(lastPointer.y, remoteHeight - 1))
+        for button in heldButtons { transmit?(["type": "input.pointer", "window_id": remoteID, "x": x, "y": y, "button": button, "pressed": false]) }
         heldButtons.removeAll()
         releaseKeyboard()
         inputContext?.discardMarkedText(); unmarkText()
