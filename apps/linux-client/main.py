@@ -51,7 +51,7 @@ class Manager(Gtk.Application):
         self.connect('command-line', self.command_line)
         self.connect('activate', self.activate)
         self.window = None; self.selected = None; self.catalogs = {}; self.viewers = []; self.revision = 0
-        self.pending_launches = {}; self.peer_keys = []
+        self.pending_launches = {}; self.peer_keys = []; self.peer_timer = None
         self.store = STATE / 'catalog-cache.json'
         try:
             if self.store.stat().st_size <= 8 * 1024 * 1024 and not self.store.is_symlink():
@@ -104,6 +104,8 @@ class Manager(Gtk.Application):
         pair = Gtk.Button(label='配对'); pair.connect('clicked', self.pair_device); pairing.pack_start(pair, False, False, 0)
         root.pack_start(pairing, False, False, 0)
         controls = Gtk.Box(spacing=10)
+        # The widgets are new even when the peer inventory has not changed.
+        self.peer_keys = []
         self.selector = Gtk.ComboBoxText(); self.selector.connect('changed', self.selected_device)
         controls.pack_start(Gtk.Label(label='远端设备'), False, False, 0); controls.pack_start(self.selector, True, True, 0)
         refresh = Gtk.Button(label='刷新应用'); refresh.connect('clicked', lambda *_: self.load(True)); controls.pack_start(refresh, False, False, 0)
@@ -117,9 +119,22 @@ class Manager(Gtk.Application):
         scroll.add(self.rows);root.pack_start(scroll, True, True, 0)
         root.pack_start(Gtk.Label(label='本机与远端可同时使用 · 关闭接收窗口只断开连接 · 剪贴板仅在复制粘贴时传输', xalign=0), False, False, 0)
         self.window.add(root); self.window.show_all()
-        self.window.connect('destroy', lambda *_: setattr(self, 'window', None))
+        self.window.connect('destroy', self.manager_destroyed)
         threading.Thread(target=self.initialize, daemon=True).start()
-        GLib.timeout_add_seconds(3, self.refresh_peers)
+        self.peer_timer = GLib.timeout_add_seconds(3, self.poll_peers)
+
+    def manager_destroyed(self, *_):
+        self.window = None
+        if self.peer_timer is not None:
+            GLib.source_remove(self.peer_timer)
+            self.peer_timer = None
+
+    def poll_peers(self):
+        if not self.window:
+            self.peer_timer = None
+            return False
+        self.refresh_peers()
+        return True
 
     def initialize(self):
         try:
@@ -208,7 +223,9 @@ class Manager(Gtk.Application):
             else:
                 self.selected = None; self.clear_rows()
                 self.set_notice('等待 Mac 返回连接；网络恢复后会自动重新出现。')
-        return True
+        # Used by idle_add after management operations: True would reschedule
+        # this file read forever and consume a CPU core. Only poll_peers repeats.
+        return False
 
     def selected_device(self, selector):
         self.selected = selector.get_active_id(); self.revision += 1
@@ -313,6 +330,14 @@ class Manager(Gtk.Application):
 
     def open_viewer(self, peer, name, session_id=None, app_id=None):
         self.viewers = [v for v in self.viewers if not v.closed.is_set()]
+        # Repeated clicks/command-line opens can race the remote catalog's
+        # controlled flag. Reuse the local connection instead of competing for
+        # the same session with a second receiver. Session IDs are device-scoped.
+        if session_id is not None:
+            existing = next((v for v in self.viewers if v.peer_id == peer and v.session_id == session_id), None)
+            if existing is not None:
+                existing.window.present()
+                return False
         if len(self.viewers) >= 8:
             self.set_notice('当前接收窗口已达 8 个，请先断开不用的窗口。'); return False
         self.viewers.append(Viewer(self, peer, name, session_id=session_id, app_id=app_id))
