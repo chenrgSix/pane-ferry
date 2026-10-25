@@ -446,7 +446,7 @@ pub async fn sessions(endpoint: &Target) -> Result<Vec<SessionInfo>, Error> {
         }
         if !matches!(
             session.mode.as_deref(),
-            None | Some("app") | Some("desktop")
+            None | Some("app") | Some("desktop") | Some("scene")
         ) {
             return Err(Error::Protocol);
         }
@@ -625,6 +625,65 @@ mod tests {
 #[cfg(test)]
 mod unified_transport_tests {
     use super::*;
+    #[tokio::test]
+    async fn session_catalog_accepts_scene_alongside_app_and_desktop_modes() {
+        let directory = std::env::temp_dir().join(format!("rws-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("route.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let legacy = json!({"session_id":"legacy","app_id":"editor","backend":"native",
+            "display":0,"controlled":false});
+        let with_mode = |mode: &str| {
+            let mut value = legacy.clone();
+            value["mode"] = json!(mode);
+            value["session_id"] = json!(mode);
+            value
+        };
+        let app = with_mode("app");
+        let scene = with_mode("scene");
+        let mut desktop = with_mode("desktop");
+        desktop["monitor_id"] = json!("DP-1");
+        let mut unknown = scene.clone();
+        unknown["mode"] = json!("unknown");
+        let mut wrong_monitor = scene.clone();
+        wrong_monitor["monitor_id"] = json!("DP-1");
+        let responses = [
+            json!([legacy, app, scene, desktop]),
+            json!([unknown]),
+            json!([wrong_monitor]),
+        ];
+        let server = tokio::spawn(async move {
+            for sessions in responses {
+                let (socket, _) = listener.accept().await.unwrap();
+                let (read, mut write) = socket.into_split();
+                let mut read = BufReader::new(read);
+                assert_eq!(read_message(&mut read).await.unwrap()["type"], "hello");
+                write
+                    .write_all(b"{\"version\":1,\"type\":\"hello\"}\n")
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    read_message(&mut read).await.unwrap()["type"],
+                    "session.list"
+                );
+                let response = json!({"version":1,"type":"session.list","sessions":sessions});
+                write
+                    .write_all(format!("{response}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        let target = Target { socket: path };
+        let catalog = sessions(&target).await;
+        assert!(matches!(sessions(&target).await, Err(Error::Protocol)));
+        assert!(matches!(sessions(&target).await, Err(Error::Protocol)));
+        server.await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+        let catalog =
+            catalog.expect("scene sessions must not invalidate the entire launcher catalog");
+        assert_eq!(catalog.len(), 4);
+        assert_eq!(catalog[2].mode.as_deref(), Some("scene"));
+    }
     #[tokio::test]
     async fn scene_request_is_never_sent_to_publishers_without_the_capability() {
         for supported in [false, true] {
