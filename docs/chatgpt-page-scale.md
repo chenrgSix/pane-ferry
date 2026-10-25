@@ -106,7 +106,7 @@ paneferry-agent prepare-chatgpt PID
 python3 tests/e2e/electron_page_scale_unit.py
 ```
 
-真实 AppKit/QUIC 测试是显式 opt-in；先在测试 Agent 接管已准备的目标窗口，再传入该会话及已配对路线。测试会检查自动开启高清及实际解码像素、两次断开重连后重新开启且不累乘倍率，最后 detach，不关闭远端应用：
+真实 AppKit/QUIC 测试是显式 opt-in；先在测试 Agent 接管已准备的目标窗口，再传入该会话及已配对路线。测试会显式点击菜单开启高清并检查实际解码像素、两次断开重连后再次显式开启且不累乘倍率，最后 detach，不关闭远端应用：
 
 ```sh
 python3 tests/e2e/live_page_scale_smoke.py \
@@ -124,3 +124,16 @@ Mac 启动器开发包已重新构建并通过严格签名检查，配套网络�
 测试浏览器标签和旁观窗口已关闭，独立测试服务/网络状态已清理。目标最后恢复到 (240,90)、1470×813，页面变量和根 zoom 均恢复原本缺失状态，没有残留租约；ChatGPT 原登录进程继续运行。共享服务的授权升级与页面缩放的单窗口范围是两个不同动作：隔离试验期间旁观窗口保持不变，升级期间四个独立应用按授权重新启动。
 
 构建产物：Mac 启动器位于 `apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app`；Ubuntu release 二进制副本位于 `dist/chatgpt-page-scale-20261024/linux/`，已核对与正式安装哈希一致。ChatGPT 保持已准备的回环调试启动方式；关闭后普通启动会再次需要准备。
+
+
+## 2026-10-25：普通连接不再依赖高清准备
+
+`c171fcc` 删除了首次连接、窗口元数据更新及重连时的自动页面缩放；专用高清仅由用户手动开启。普通连接无需 `prepare-chatgpt`，也不会要求重启源应用。`243f67a` 同时统一 X11 超大窗口恢复与普通尺寸调整的 compositor 路径，保留授权范围检查及未处理时的 X11 回退。
+
+验证及部署结果：
+
+- `automatic_reconnect_smoke.py` 通过：普通连接、元数据、可见性及重连均不发送页面缩放请求；显式菜单仍可开启/关闭。Mac release 完整构建及严格签名检查通过。
+- Ubuntu backend-x11 普通测试 10 passed / 4 ignored；新增私有 Xvfb 尺寸恢复测试单独通过。DAMAGE 两项测试分别在匹配的私有显示配置下通过；最初混用默认 Xvfb 运行所有 ignored 测试失败，不计为通过。Agent 普通测试 34 passed / 7 ignored，release 编译通过。
+- 已更新 Mac 窗口宿主并原子部署 Ubuntu Agent，正式 Agent 和网络服务均 active。Agent SHA-256：`9b37cc698fd94e956e350ce363e101d6a2b4f5783782449cb1db550666072626`；升级前备份位于 `~/.local/state/lan-remoteapp/backups/scoped-resize-243f67a/`。
+- 从 Mac 启动器连接现有 ChatGPT，实际窗口收到 1470×809 H.264，观察到约 27–29 fps；关闭 Mac 宿主后重新连接仍正常显示，没有高清准备提示。Ubuntu ChatGPT 主进程 PID 3664772、启动时间 20:44:58 均未变化；未执行准备命令或重启源应用。
+- 正式服务环境及 QUIC hello 均确认 30 fps 上限。这里验证的是普通连接与重连，没有测量新的端到端延迟，也没有将放大显示视为 Retina 原生高清。

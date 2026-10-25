@@ -2,8 +2,8 @@
 """Opt-in real AppKit/QUIC ChatGPT test. Pass normal WindowHost --session/--native-* options.
 
 Requires an explicitly selected, prepared ChatGPT window on a paired test Agent.
-Opening the host automatically enables page density; the test checks two reconnects
-re-enable without compounding, then detaches. It never closes the remote app or sends chat messages.
+The test explicitly enables page density after attach and each of two reconnects,
+checks it does not compound, then detaches. It never closes the remote app or sends chat messages.
 """
 from pathlib import Path
 import subprocess
