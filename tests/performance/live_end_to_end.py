@@ -52,8 +52,12 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
         text = replace(text, before, after)
     main.write_text(text)
     surface = source / 'SurfaceView.swift'
-    text = replace(surface.read_text(), '        if hasMarkedText() {\n',
-                   '        Probe.drew(image)\n        if hasMarkedText() {\n')
+    if (source / 'VideoFrame.swift').exists():
+        text = replace(surface.read_text(), '        guard displayFrame === frame else { return }',
+                       '        guard displayFrame === frame else { return }\n        Probe.presented(frame, surface: self)')
+    else:
+        text = replace(surface.read_text(), '        if hasMarkedText() {\n',
+                       '        Probe.drew(image)\n        if hasMarkedText() {\n')
     for signature in ('override func mouseDown(with event: NSEvent) {',
                       'override func keyDown(with event: NSEvent) {',
                       'func insertText(_ string: Any, replacementRange: NSRange) {'):
@@ -65,7 +69,13 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
                           'override func scrollWheel(with event: NSEvent) {'):
             text = replace(text, signature, signature + '\n        guard Probe.injecting else { return }; ')
     surface.write_text(text)
-    shutil.copy2(probe_source, source / 'Probe.swift')
+    probe = probe_source.read_text()
+    if (source / 'VideoFrame.swift').exists():
+        probe = replace(probe, 'static func drew(_ image: CGImage) {\n        let completed = now()',
+                        'static func drew(_ image: CGImage, timestamp: UInt64? = nil) {\n        let completed = timestamp ?? now()')
+        probe = probe.replace('context menu AppKit draw completion', 'context menu renderer displayed-buffer availability')
+        probe += (HERE / 'VideoPresentationProbe.swift').read_text()
+    (source / 'Probe.swift').write_text(probe)
     contents = destination / 'PaneFerry Live Probe.app/Contents'
     binary = contents / 'MacOS/PaneFerryLiveProbe'
     binary.parent.mkdir(parents=True, exist_ok=True)

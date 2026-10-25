@@ -33,6 +33,14 @@ ready 或 preview 阶段可发送新 serial、`action:snapshot`，将当前可�
 数据只代表该应用右键菜单打开的延迟，包括临时窗口的采集和编码器启动；不能外推成打字、滚动或所有操作的延迟。
 终点仍为 AppKit 绘制返回，未包括最终桌面合成、显示扫描与面板响应。
 
+## CoreVideo 显示路径的计时终点
+
+当前 Mac 宿主保留 VideoToolbox 的 CoreVideo 缓冲，使用 AVFoundation 视频层显示，不在正常播放时逐帧转 CGImage。
+临时探针通过 `displayedPixelBuffer()` 核对当前提交的 CVPixelBuffer 或 IOSurface，记录显示缓冲可用时间；
+之后才为 ROI/视觉标记生成诊断图片，避免将像素识别开销计入终点。需要 macOS 14.4+。
+结果的 endpoint 为 `renderer displayed-buffer availability`，不是旧版 `NSImage.draw` 返回，
+也不包括最终屏幕扫描和面板响应。不同终点的历史总数不能作为严格的同条件 A/B。
+
 ## 发布端帧率上限试验
 
 Linux Agent 可通过 `PANEFERRY_VIDEO_MAX_FPS=30` 限制视频上限，取值为 1–90 的整数；未设置时保持原协议能力。
