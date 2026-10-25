@@ -28,6 +28,28 @@ static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 const ACTIVE_SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
 const IDLE_SCAN_INTERVAL: Duration = Duration::from_millis(100);
 
+// Publisher policy is advertised to clients and enforced on every rate request.
+// The protocol ceiling stays independent of an installation's chosen cap.
+fn video_fps_limit(value: Option<&str>) -> Result<u8> {
+    let Some(value) = value else {
+        return Ok(paneferry_protocol::MAX_VIDEO_FPS);
+    };
+    let cap = value
+        .parse::<u8>()
+        .ok()
+        .filter(|n| (1..=paneferry_protocol::MAX_VIDEO_FPS).contains(n));
+    cap.context("PANEFERRY_VIDEO_MAX_FPS must be an integer between 1 and 90")
+}
+
+fn configured_video_fps_limit() -> Result<u8> {
+    let value = std::env::var("PANEFERRY_VIDEO_MAX_FPS");
+    match value {
+        Ok(value) => video_fps_limit(Some(&value)),
+        Err(std::env::VarError::NotPresent) => video_fps_limit(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn scan_interval(
     attached: bool,
     has_windows: bool,
@@ -458,6 +480,7 @@ fn bridge() -> Result<()> {
     Ok(())
 }
 fn serve() -> Result<()> {
+    configured_video_fps_limit()?;
     let desktop = discovery::environment();
     let dir = runtime()?;
     let sock = dir.join("agent.sock");
@@ -1251,6 +1274,7 @@ fn win_value(
     v
 }
 fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
+    let video_fps_limit = configured_video_fps_limit()?;
     struct Shutdown(UnixStream);
     impl Drop for Shutdown {
         fn drop(&mut self) {
@@ -1319,7 +1343,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     send(
         &mut out,
         json!({"type":"hello","capabilities":capabilities,
-               "video_max_fps": if video::available() { Some(paneferry_protocol::MAX_VIDEO_FPS) } else { None }}),
+               "video_max_fps": if video::available() { Some(video_fps_limit) } else { None }}),
         "",
     )?;
     let mut last_capture = Instant::now() - Duration::from_secs(1);
@@ -1475,6 +1499,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         if !video::available() {
                             bail!("video encoder unavailable")
                         }
+                        let max_fps = max_fps.min(video_fps_limit);
                         out.enable_video(max_fps, feedback)?;
                         send(
                             &mut out,
@@ -1482,7 +1507,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
-                    Request::ConfigureVideo { max_fps } => out.configure_video(max_fps)?,
+                    Request::ConfigureVideo { max_fps } => {
+                        out.configure_video(max_fps.min(video_fps_limit))?
+                    }
                     Request::VideoFeedback { frame_id } => out.video_feedback(frame_id),
                     Request::Sessions {} => {
                         let st = state.lock().unwrap().clone();
@@ -1989,6 +2016,23 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn publisher_video_limit_preserves_default_and_rejects_invalid_configuration() {
+        assert_eq!(
+            video_fps_limit(None).unwrap(),
+            paneferry_protocol::MAX_VIDEO_FPS
+        );
+        for cap in ["1", "15", "30", "60", "90"] {
+            assert_eq!(
+                video_fps_limit(Some(cap)).unwrap(),
+                cap.parse::<u8>().unwrap()
+            );
+        }
+        for invalid in ["", "0", "91", "256", "-1", "30.0", "auto"] {
+            assert!(video_fps_limit(Some(invalid)).is_err(), "{invalid}");
+        }
+    }
+
     #[test]
     fn skipped_static_windows_precede_continuously_repainting_windows() {
         let make = |id| Window {

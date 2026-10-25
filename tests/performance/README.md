@@ -33,6 +33,14 @@ ready 或 preview 阶段可发送新 serial、`action:snapshot`，将当前可�
 数据只代表该应用右键菜单打开的延迟，包括临时窗口的采集和编码器启动；不能外推成打字、滚动或所有操作的延迟。
 终点仍为 AppKit 绘制返回，未包括最终桌面合成、显示扫描与面板响应。
 
+## 发布端帧率上限试验
+
+Linux Agent 可通过 `PANEFERRY_VIDEO_MAX_FPS=30` 限制视频上限，取值为 1–90 的整数；未设置时保持原协议能力。
+设置在 Agent 服务环境中，重启后生效。它会向客户端公布上限，并限制 `video.enable` 与后续 `video.configure`，
+因此自动协商或重连不会把上限升回 60。`video.ready.max_fps` 返回实际接受的上限。
+这只改变采集/编码发送节奏，不改变 GNOME 虚拟显示器的 60 Hz、源像素尺寸、缩放或编码质量参数；
+静止画面去重与拥塞时自适应降帧仍保留。删除环境覆盖并重启可恢复自动协商。
+
 ## Agent 阶段诊断副本
 
 `python3 tests/performance/agent_stage_probe.py /tmp/fresh-agent-copy --revision HEAD`
