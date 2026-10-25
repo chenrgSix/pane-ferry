@@ -215,6 +215,10 @@ pub fn inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
     }
     Ok(result)
 }
+#[path = "wayland_rpc.rs"]
+mod metadata_rpc;
+use metadata_rpc::AsyncRpc;
+
 struct Stream {
     capture: PipeWireCapture,
     image: Option<Arc<crate::video::Frame>>,
@@ -222,7 +226,8 @@ struct Stream {
     started: Instant,
 }
 pub struct Backend {
-    rpc: RefCell<Rpc>,
+    rpc: RefCell<AsyncRpc>,
+    scene_alive: bool,
     target: Target,
     input: Arc<dyn DesktopInput>,
     keymap: X11,
@@ -258,8 +263,11 @@ impl Backend {
         rpc.call(json!({"op":"focus", "window_id":target.info.window_id}))?;
         let keymap =
             X11::connect_existing(desktop.display, &desktop.authority, target.identity.pid)?;
+        let cancel = rpc.wire.get_ref().try_clone()?;
+        let rpc = AsyncRpc::new(move |value| rpc.call(value), cancel)?;
         Ok(Self {
             rpc: RefCell::new(rpc),
+            scene_alive: true,
             target,
             input,
             keymap,
@@ -333,7 +341,7 @@ impl Backend {
         }
         Ok(())
     }
-    fn scan_scene(&mut self, discovered: Vec<Info>) -> Result<Vec<Window>> {
+    fn scan_scene(&mut self, discovered: Vec<Info>, scene: Value) -> Result<Vec<Window>> {
         let id = self.target.info.window_id;
         let visible = discovered.iter().any(|info| !info.minimized);
         let info = discovered
@@ -341,7 +349,6 @@ impl Backend {
             .find(|w| w.window_id == id && w.id == self.target.info.id)
             .context("unknown window")?;
         info.validate()?;
-        let scene = self.rpc.borrow_mut().call(json!({"op":"scene"}))?;
         let canvas = self.scene.context("application_scene_unavailable")?;
         // Refuse monitor renegotiation outside the agreed canvas, rather than
         // sending coordinates from one layout against another.
@@ -452,6 +459,9 @@ impl WindowBackend for Backend {
         if process_identity(self.target.identity.pid).ok().as_ref() != Some(&self.target.identity) {
             return false;
         }
+        if self.scene.is_some() {
+            return self.scene_alive;
+        }
         match self.call("list", id) {
             Ok(value) => serde_json::from_value::<Vec<Info>>(value).map_or(true, |windows| {
                 windows
@@ -467,21 +477,62 @@ impl WindowBackend for Backend {
         self.windows.contains_key(&id)
     }
     fn scan(&mut self) -> Result<Vec<Window>> {
-        let scope = match self.call("scope", self.target.info.window_id) {
+        // The fixed scene's pixels and popup placement come from GNOME, not
+        // these periodic metadata queries. Never stall PipeWire/input on them.
+        let snapshot = if self.scene.is_some() {
+            match self.rpc.borrow_mut().poll_snapshot()? {
+                Some(result) => Some(result.map_err(anyhow::Error::msg)),
+                None => return Ok(self.windows.values().cloned().collect()),
+            }
+        } else {
+            None
+        };
+        let scope = match snapshot.as_ref().map_or_else(
+            || self.call("scope", self.target.info.window_id),
+            |result| match result {
+                Ok(value) => Ok(value["scope"].clone()),
+                Err(error) => Err(anyhow::anyhow!(error.to_string())),
+            },
+        ) {
             Err(error) if error.to_string() == "unknown window" => {
+                // Distinguish a destroyed root from an extension lease lost
+                // while locked. This recovery query is never on the steady
+                // frame path and must not resurrect a different window.
+                let live: Vec<Info> =
+                    serde_json::from_value(self.call("list", self.target.info.window_id)?)?;
+                if !live.iter().any(|w| {
+                    w.window_id == self.target.info.window_id && w.id == self.target.info.id
+                }) {
+                    self.scene_alive = false;
+                    self.windows.clear();
+                    self.infos.clear();
+                    self.streams.get_mut().clear();
+                    return Ok(vec![]);
+                }
                 // GNOME disables user extensions while locked. Reacquire only
                 // this compositor ID and original process after unlock.
                 let mut rpc = Rpc::new()?;
                 rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid,"scale":self.scale,"scene":self.scene}))?;
                 self.streams.get_mut().clear();
-                self.rpc.replace(rpc);
-                self.call("scope", self.target.info.window_id)?
+                let cancel = rpc.wire.get_ref().try_clone()?;
+                self.rpc
+                    .replace(AsyncRpc::new(move |value| rpc.call(value), cancel)?);
+                // Reacquisition changed the lease/output. Wait for fresh metadata.
+                return Ok(vec![]);
             }
             result => result?,
         };
         let discovered: Vec<Info> = serde_json::from_value(scope)?;
-        if self.scene.is_some() {
-            return self.scan_scene(discovered);
+        if let Some(snapshot) = snapshot {
+            let snapshot = snapshot?;
+            let windows: Vec<Info> = serde_json::from_value(snapshot["list"].clone())?;
+            self.scene_alive = windows
+                .iter()
+                .any(|w| w.window_id == self.target.info.window_id && w.id == self.target.info.id);
+            if !self.scene_alive {
+                return Ok(vec![]);
+            }
+            return self.scan_scene(discovered, snapshot["scene"].clone());
         }
         if discovered.len() > 16 {
             bail!("wayland_bridge_failed")
