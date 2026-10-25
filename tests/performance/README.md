@@ -33,6 +33,19 @@ ready 或 preview 阶段可发送新 serial、`action:snapshot`，将当前可�
 数据只代表该应用右键菜单打开的延迟，包括临时窗口的采集和编码器启动；不能外推成打字、滚动或所有操作的延迟。
 终点仍为 AppKit 绘制返回，未包括最终桌面合成、显示扫描与面板响应。
 
+## Agent 阶段诊断副本
+
+`python3 tests/performance/agent_stage_probe.py /tmp/fresh-agent-copy --revision HEAD`
+从指定 Git 提交创建独立源码副本，加入右键输入接收、分发、处理完成、取帧、编码和写出时间戳。
+它不修改工作树或安装包，也不自动部署。仅用于已授权的单控制器、顺序右键测试；诊断结束应恢复正式 Agent。
+`_agent_stages` 会随对应帧进入 PopupProbe 记录，不包含按键内容或点击坐标。
+
+`raw_first/raw_last`、`converted_first/converted_last` 是本次输入后各 appsink 的首个/最近回调，
+用于判断管线是否已就绪；不是与最终匹配帧严格绑定的原始帧时间戳，不能当作精确应用绘制耗时。
+`pull_first` 是输入后首次尝试取帧，`interval` 是当时自适应发送间隔。所有 Agent 时间戳来自 Linux
+CLOCK_MONOTONIC；只在同一端做差。完整 Mac 响应区间扣除 Agent 内部区间可估计双向传输与桥接残差，
+不能把两台机器的绝对时间戳相减。插桩存在开销，最终结果还需用无插桩正式构建复测。
+
 ## 当前版本：已部署 Agent 的 Wayland/QUIC 实测
 
 `live_end_to_end.py` 构建当前 WindowHost 的临时计时副本，连接已配对的生产网络服务和

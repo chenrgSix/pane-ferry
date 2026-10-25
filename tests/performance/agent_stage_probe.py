@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Instrument a fresh git-archive copy, never the working tree or installed Agent.
+
+Only diagnostic input counts/timestamps are added to frame metadata. Run one
+sequential right-click probe/controller; do not use this binary in production.
+"""
+import argparse
+from pathlib import Path
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+MODULE = r'''
+use std::{collections::HashMap, sync::{Mutex, OnceLock}};
+use serde_json::{json, Value};
+use paneferry_protocol::Request;
+pub fn now() -> u64 {
+    let mut t = libc::timespec {tv_sec:0,tv_nsec:0};
+    assert_eq!(unsafe {libc::clock_gettime(libc::CLOCK_MONOTONIC,&mut t)},0);
+    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+}
+#[derive(Default)]
+struct State { count:u64, received:u64, dispatched:u64, input_end:u64, sinks:HashMap<usize,bool>, raw_first:u64, raw_last:u64, converted_first:u64, converted_last:u64, pull_first:u64, interval:u64, frames:HashMap<usize,Value> }
+static STATE: OnceLock<Mutex<State>> = OnceLock::new();
+pub fn is_input(r:&Request)->bool { matches!(r,Request::Pointer{button:3,pressed:true,..}) }
+pub fn request(stage:&str,r:&Request) {
+    if !is_input(r) {return;}
+    let mut s=STATE.get_or_init(Default::default).lock().unwrap();
+    match stage {
+        "received" => {s.count+=1;s.received=now();s.dispatched=0;s.input_end=0;s.raw_first=0;s.raw_last=0;s.converted_first=0;s.converted_last=0;s.pull_first=0;},
+        "dispatched" => s.dispatched=now(), _=>{}
+    }
+}
+pub fn input_end() { STATE.get_or_init(Default::default).lock().unwrap().input_end=now(); }
+pub fn sink(pointer:usize,raw:bool) {STATE.get_or_init(Default::default).lock().unwrap().sinks.insert(pointer,raw);}
+pub fn wake(pointer:usize) {
+ let mut s=STATE.get_or_init(Default::default).lock().unwrap();let t=now();
+ if s.received==0{return;}
+ match s.sinks.get(&pointer).copied() {
+ Some(true)=>{if s.raw_first==0{s.raw_first=t;}s.raw_last=t;},
+ Some(false)=>{if s.converted_first==0{s.converted_first=t;}s.converted_last=t;},_=>{}
+ }
+}
+pub fn pulling(){let mut s=STATE.get_or_init(Default::default).lock().unwrap();if s.received>0 && s.pull_first==0{s.pull_first=now();}}
+pub fn interval(n:u64){STATE.get_or_init(Default::default).lock().unwrap().interval=n;}
+pub fn capture(pointer:usize,start:u64) {
+    let mut s=STATE.get_or_init(Default::default).lock().unwrap();
+    let v=json!({"count":s.count,"received":s.received,"dispatched":s.dispatched,
+        "input_end":s.input_end,"capture_start":start,"capture_end":now(),"raw_first":s.raw_first,"raw_last":s.raw_last,"converted_first":s.converted_first,"converted_last":s.converted_last,"pull_first":s.pull_first,"interval":s.interval});
+    if s.frames.len()>128 {s.frames.clear();}
+    s.frames.insert(pointer,v);
+}
+pub fn frame(pointer:usize,start:u64)->Value {
+    let mut v=STATE.get_or_init(Default::default).lock().unwrap().frames.get(&pointer).cloned().unwrap_or(Value::Null);
+    if v.is_object() {v["encode_start"]=json!(start);v["encode_end"]=json!(now());}
+    v
+}
+'''
+
+def instrument(destination, revision):
+    destination.mkdir(parents=True, exist_ok=False)
+    with tempfile.TemporaryFile() as archive:
+        subprocess.run(['git', 'archive', revision], cwd=ROOT, stdout=archive, check=True)
+        archive.seek(0)
+        subprocess.run(['tar', '-xf', '-', '-C', str(destination)], stdin=archive, check=True)
+    source = destination / 'apps/linux-agent/src'
+    def edit(name, before, after):
+        p = source / name
+        text = p.read_text()
+        if text.count(before) != 1:
+            raise ValueError(f'instrumentation anchor changed in {name}: {before[:80]}')
+        p.write_text(text.replace(before, after))
+    (source / 'stage_probe.rs').write_text(MODULE)
+    edit('main.rs', 'static STOP:', 'mod stage_probe;\nstatic STOP:')
+    edit('main.rs', 'if tx.send(req).is_err() {', 'stage_probe::request("received", &req);\n                            if tx.send(req).is_err() {')
+    edit('main.rs', 'if triggers_fast_scan(&req) {', 'let probe_input = stage_probe::is_input(&req);\n            stage_probe::request("dispatched", &req);\n            if triggers_fast_scan(&req) {')
+    edit('main.rs', 'if let Err(e) = result {', 'if probe_input {stage_probe::input_end();}\n            if let Err(e) = result {')
+    edit('video.rs', 'let signal = connect_wake(api, sink, wake)?;', 'crate::stage_probe::sink(sink as usize,true);\n        let signal = connect_wake(api, sink, wake)?;')
+    edit('video_frame.rs', 'self.signal = connect_wake(self.api, self.sink, wake)?;', 'crate::stage_probe::sink(self.sink as usize,false);\n        self.signal = connect_wake(self.api, self.sink, wake)?;')
+    edit('video.rs', 'let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };', 'crate::stage_probe::wake(_sink as usize);\n    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };')
+    edit('video.rs', 'let sample = unsafe { (self.api.pull)(self.sink, 0) };', 'crate::stage_probe::pulling();\n        let sample = unsafe { (self.api.pull)(self.sink, 0) };')
+    edit('main.rs', 'if capture_pending && last_capture.elapsed() >= frame_interval {', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        if capture_pending && last_capture.elapsed() >= frame_interval {')
+    edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')
+    edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(Arc::as_ptr(&image) as usize, probe_capture);\n                stream.image = Some(image);')
+    edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        let packet = state.encoder.encode_frame(&job.image)?;')
+    edit('output_worker.rs', '"stream_id":state.encoder.stream,', '"_agent_stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,probe_encode),\n            "stream_id":state.encoder.stream,')
+    edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;', 'if value["_agent_stages"].is_object() {value["_agent_stages"]["write"]=json!(crate::stage_probe::now());}\n        let mut bytes = serde_json::to_vec(&value)?;')
+    print(destination)
+
+if __name__ == '__main__':
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('destination', type=Path)
+    p.add_argument('--revision', default='HEAD')
+    a=p.parse_args()
+    instrument(a.destination.resolve(), a.revision)
