@@ -17,22 +17,29 @@ import AppKit
   }
   func settle() {let end=Date().addingTimeInterval(1.5);while Date()<end {RunLoop.current.run(until:Date().addingTimeInterval(0.01));app.pump();while let event=NSApp.nextEvent(matching:.any,until:.distantPast,inMode:.default,dequeue:true) {NSApp.sendEvent(event)}}}
   app.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification))
-  until {app.ready && app.windows.values.contains {$0.pageScaleSupported && $0.pageScale==2 && $0.surface.image != nil}}
-  let host=app.windows.values.first {$0.pageScaleSupported && $0.pageScale==2}!
+  until {app.ready && app.windows.values.contains {$0.pageScaleSupported && $0.pageScale==1 && $0.surface.image != nil}}
+  let host=app.windows.values.first {$0.pageScaleSupported && $0.pageScale==1}!
   NSApp.activate(ignoringOtherApps:true);host.window.makeKeyAndOrderFront(nil);settle()
   until {NSApp.keyWindow === host.window}
   let width=Int(host.surface.bounds.width.rounded()),height=Int(host.surface.bounds.height.rounded()),frame=host.window.frame
+  app.togglePageScale() // Explicit opt-in; normal connection must work without preparation.
   let menu=NSMenuItem(title:"scale",action:#selector(AppDelegate.togglePageScale),keyEquivalent:"")
   until {host.pageScale==2 && host.rendering.scale==2 && host.surface.image?.width==width*2 && host.surface.image?.height==height*2}
   settle();precondition(host.window.frame==frame && app.validateMenuItem(menu) && menu.state == .on)
   app.transport.disconnect();until {app.recovering}
-  until {app.connected && !app.recovering && host.pageScale==2 && host.surface.image?.width==width*2 && host.surface.image?.height==height*2}
+  until {app.connected && !app.recovering && host.pageScale==1 && host.surface.image != nil}
+  host.window.makeKeyAndOrderFront(nil); until {NSApp.keyWindow === host.window}
+  app.togglePageScale()
+  until {host.pageScale==2 && host.surface.image?.width==width*2 && host.surface.image?.height==height*2}
   precondition(app.windows[host.id] === host && host.window.frame==frame)
   // A second outage must still establish a fresh 2x lease, never compound it.
   app.transport.disconnect();until {app.recovering}
-  until {app.connected && !app.recovering && host.pageScale==2 && host.surface.image?.width==width*2 && host.surface.image?.height==height*2}
+  until {app.connected && !app.recovering && host.pageScale==1 && host.surface.image != nil}
+  host.window.makeKeyAndOrderFront(nil); until {NSApp.keyWindow === host.window}
+  app.togglePageScale()
+  until {host.pageScale==2 && host.surface.image?.width==width*2 && host.surface.image?.height==height*2}
   precondition(app.windows[host.id] === host && host.window.frame==frame)
   app.send(["type":"session.detach"]);app.stopRecovery()
-  print("PASS: automatic 2x takeover, H.264 \(width*2)x\(height*2), same NSWindow/frame, two reconnects re-enable without compounding, explicit detach")
+  print("PASS: explicit 2x opt-in, H.264 \(width*2)x\(height*2), same NSWindow/frame, two reconnects require explicit opt-in without compounding, explicit detach")
  }
 }

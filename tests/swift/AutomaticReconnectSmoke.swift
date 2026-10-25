@@ -51,7 +51,7 @@ struct AutomaticReconnectSmoke {
         return icon
     }
 
-    static func verifyAutomaticPageScale() {
+    static func verifyExplicitPageScale() {
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
         let app = AppDelegate(options: Options(app: "chatgpt-fixture", session: nil,
             native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", state: "/tmp/fixture", helper: "/tmp/fixture/bridge")), clipboard: board)
@@ -76,22 +76,17 @@ struct AutomaticReconnectSmoke {
         precondition(scales().isEmpty, "hello cannot scale an unattached window")
         receive(["type": "session.started"])
         receive(window(42))
-        precondition(scales().count == 1 && scales()[0]["window_id"] as? UInt32 == 42 && scales()[0]["scale"] as? Int == 2,
-                     "first takeover must automatically enable the selected ChatGPT window")
-        // Repeated unscaled metadata also models a rejected/failed adapter.
+        precondition(scales().isEmpty, "ordinary attach must not request a restart-dependent page adapter")
         receive(window(42)); receive(window(42, scale: 2)); receive(window(42))
-        precondition(scales().count == 1, "pending, failed or ended leases must not cause automatic retry loops")
         receive(window(43, supported: false))
         receive(window(44, role: "popup"))
         receive(window(45, parent: 42))
         var desktop = window(46); desktop["surface_type"] = "desktop"; receive(desktop)
-        receive(window(47, visible: false))
-        precondition(scales().count == 1, "other apps, popups, related windows, desktops and hidden windows must not be scaled")
-        receive(window(47))
-        precondition(scales().count == 2 && scales().last?["window_id"] as? UInt32 == 47,
-                     "a hidden candidate can enable once it becomes visible")
+        var scene = window(48); scene["surface_type"] = "session"; receive(scene)
+        receive(window(47, visible: false)); receive(window(47))
+        precondition(scales().isEmpty, "metadata, visibility and composed scenes never enable the optional adapter")
         let host = app.windows[42]!
-        receive(window(42, scale: 2))
+        receive(window(42))
         NSApp.activate(ignoringOtherApps: true); host.window.makeKeyAndOrderFront(nil)
         let deadline = Date().addingTimeInterval(2)
         while NSApp.keyWindow !== host.window, Date() < deadline {
@@ -100,7 +95,11 @@ struct AutomaticReconnectSmoke {
         }
         precondition(NSApp.keyWindow === host.window, "expected root key window; allowed=\(host.window.canBecomeKey), visible=\(host.window.isVisible), active=\(NSApp.isActive), actual=\(String(describing: NSApp.keyWindow?.title))")
         app.togglePageScale()
-        precondition(scales().last?["scale"] as? Int == 1)
+        precondition(scales().count == 1 && scales().last?["scale"] as? Int == 2,
+                     "the optional adapter requires an explicit menu action")
+        receive(window(42, scale: 2))
+        app.togglePageScale()
+        precondition(scales().count == 2 && scales().last?["scale"] as? Int == 1)
         let manualCount = scales().count
         receive(window(42)); receive(window(42))
         precondition(scales().count == manualCount, "manual disable lasts for the current connection")
@@ -109,14 +108,14 @@ struct AutomaticReconnectSmoke {
         app.receive(hello)
         precondition(scales().count == manualCount, "reconnect must wait for the new authoritative snapshot")
         receive(["type": "session.snapshot", "windows": [window(42), window(43, supported: false)]])
-        precondition(scales().count == manualCount + 1 && scales().last?["scale"] as? Int == 2,
-                     "reconnect automatically enables a fresh lease even after manual disable")
+        precondition(scales().count == manualCount,
+                     "reconnect must not enable an optional adapter or require preparing/restarting the source app")
         precondition(app.windows[42] === host && host.window.frame == frame)
         app.pauseConnection(); app.connected = true; app.recovering = true; app.lastSequence = 0; sequence = 0
         app.receive(Incoming(object: ["type": "hello", "capabilities": ["native.h264"]], image: nil))
         receive(["type": "session.snapshot", "windows": [window(42)]])
-        precondition(scales().count == manualCount + 1, "older peers without page-scale capability remain compatible")
-        print("PASS: ChatGPT automatic 2x on takeover/reconnect, target/capability/visibility guards, no metadata retry loop, manual disable until reconnect")
+        precondition(scales().count == manualCount, "older peers without page-scale capability remain compatible")
+        print("PASS: ordinary attach/reconnect/visibility never requests page scaling; explicit menu enable/disable remains available")
     }
 
     static func main() throws {
@@ -243,7 +242,7 @@ struct AutomaticReconnectSmoke {
         launch.session = "known"; launch.ready = false; launch.receive(hello)
         precondition(sent.last?["type"] as? String == "session.resume" && sent.last?["session_id"] as? String == "known")
         launch.stopRecovery()
-        verifyAutomaticPageScale()
+        verifyExplicitPageScale()
         print("PASS: real transport subprocess loss automatically resumes the same NSWindow/session, resets stream sequence, preserves resolution, drops offline input and stops on quit; launch idempotence")
         print("PASS: bounded Ubuntu PNG with alpha over fragmented stdin; non-PNG/oversized icons rejected; application Dock icon survives reconnect")
         print("PASS: shared Ubuntu authorization state stays scoped to the session, survives frame metadata, clears on readiness and does not block reconnect")

@@ -317,7 +317,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var statusItem: NSStatusItem?
     var rateMenuItem: NSMenuItem?
     var capabilities = Set<String>()
-    private var pageScaleAttempted = Set<UInt32>()
     var videoFPS = 60
     var displayHz = 60
     var publisherMaxVideoFPS = maximumVideoFPS
@@ -414,20 +413,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
     @objc func togglePageScale() {
         guard let host = activeHost(), host.pageScaleSupported, capabilities.contains("window.page-scale") else { return }
-        pageScaleAttempted.insert(host.id)
         host.fixedPixels = nil
         send(["type": "window.page-scale", "window_id": host.id, "scale": host.pageScale == 2 ? 1 : 2])
-    }
-    private func automaticallyEnablePageScale(_ host: HostedWindow) {
-        guard connected, ready, !recovering, session != nil,
-              capabilities.contains("window.page-scale"), host.pageScaleSupported,
-              host.remoteVisible, !host.popup, !host.relatedWindow, !host.fixedCanvas,
-              pageScaleAttempted.insert(host.id).inserted else { return }
-        // Once per connection: metadata updates must neither retry a failed
-        // adapter nor undo a manual opt-out. Reconnect starts a fresh lease.
-        guard host.pageScale == 1 else { return }
-        host.fixedPixels = nil
-        send(["type": "window.page-scale", "window_id": host.id, "scale": 2])
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(togglePageScale) {
@@ -509,7 +496,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static func reconnectDelay(_ attempt: Int) -> TimeInterval { [1, 2, 4, 8, 15][min(max(0, attempt), 4)] }
     func pauseConnection() {
         connected = false; ready = false; transport.disconnect()
-        pageScaleAttempted.removeAll()
         handshakeTimer?.invalidate(); handshakeTimer = nil
         clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardWindow=nil
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil
@@ -664,7 +650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if code.hasPrefix("page_scale_") {
                 let message: String
                 switch code {
-                case "page_scale_restart_required": message = "请先在 Ubuntu 运行 paneferry-agent prepare-chatgpt PID，重启 ChatGPT 后重新连接此窗口。"
+                case "page_scale_restart_required": message = "专用高清尚未准备，普通窗口仍可使用。如需开启，请先保存 Ubuntu 上的工作，再运行 paneferry-agent prepare-chatgpt <主进程PID>。命令会按需重启 ChatGPT；完成后重新连接并手动开启高清。"
                 case "page_scale_target_ambiguous": message = "无法唯一对应 ChatGPT 页面与窗口。请错开窗口的位置或尺寸后重试。"
                 case "page_scale_unsupported": message = "此模式仅支持已准备好的 ChatGPT 主窗口，源端缩放需为 1×。"
                 case "page_scale_parking_unavailable": message = "Ubuntu 无法创建目标窗口的虚拟显示器，未开启页面高清。请检查 GNOME 虚拟显示器支持后重试。"
@@ -908,7 +894,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if justCreated, visible, parentID == nil, !host.popup, ["toplevel", "desktop"].contains(role) {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
-        automaticallyEnablePageScale(host)
     }
     func attachParents() {
         guard !layingOutWindows else { return }
