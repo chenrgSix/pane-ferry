@@ -425,12 +425,15 @@ impl Client {
         if let Some(frame) = self.system.frame(&target)? {
             // Old queued frames must never be relabelled with the new geometry revision.
             let geometry = self.geometry.as_ref().unwrap();
-            ensure!(
-                frame.width == geometry.width
-                    && frame.height == geometry.height
-                    && geometry.visible,
-                "capture_failed"
-            );
+            if frame.width != geometry.width || frame.height != geometry.height || !geometry.visible
+            {
+                // The source window may resize after the metadata snapshot but
+                // before capture. Do not disconnect or label this frame with an
+                // obsolete revision. Dropping an encoded access unit also drops
+                // a decoder reference, so restart the stream before trying again.
+                self.system.keyframe(&target)?;
+                return Ok(());
+            }
             ensure!(frame.data.len() <= 12 * 1024 * 1024, "capture_failed");
             self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"encoded_width":frame.width+frame.width%2,"encoded_height":frame.height+frame.height%2,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"data":STANDARD.encode(frame.data)})).await?;
         }
@@ -582,5 +585,102 @@ mod race_tests {
         assert_eq!(state.sessions["s"].controller, Some(current));
         release_controller(&mut state, "s", current, true);
         assert!(!state.sessions.contains_key("s"));
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+    use paneferry_backend_windows::{Input, VideoFrame};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ResizingDesktop {
+        resized: bool,
+        keyframes: Arc<AtomicUsize>,
+    }
+    impl WindowSystem for ResizingDesktop {
+        fn windows(&mut self) -> Result<Vec<Target>> {
+            Ok(Vec::new())
+        }
+        fn geometry(&mut self, _: &Target) -> Result<Geometry> {
+            Ok(Geometry {
+                title: "resizing".into(),
+                width: if self.resized { 800 } else { 640 },
+                height: 480,
+                visible: true,
+            })
+        }
+        fn attach(&mut self, _: &Target, _: u32) -> Result<()> {
+            Ok(())
+        }
+        fn keyframe(&mut self, _: &Target) -> Result<()> {
+            self.keyframes.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn frame(&mut self, _: &Target) -> Result<Option<VideoFrame>> {
+            self.resized = true;
+            Ok(Some(VideoFrame {
+                data: vec![0, 0, 0, 1, 0x65],
+                width: 800,
+                height: 480,
+                stream_id: 2,
+                key_frame: true,
+            }))
+        }
+        fn input(&mut self, _: &Target, _: Input) -> Result<()> {
+            Ok(())
+        }
+        fn detach(&mut self) {}
+    }
+    #[tokio::test]
+    async fn resize_between_metadata_and_capture_restarts_video_without_disconnect() {
+        let keyframes = Arc::new(AtomicUsize::new(0));
+        let target = Target {
+            id: "resize".into(),
+            handle: 1,
+            pid: 1,
+            started: 1,
+            generation: 1,
+            name: "resizing".into(),
+        };
+        let mut system = ResizingDesktop {
+            resized: false,
+            keyframes: keyframes.clone(),
+        };
+        let geometry = system.geometry(&target).unwrap();
+        let mut client = Client {
+            id: uuid::Uuid::new_v4(),
+            state: State::new("test".into(), true),
+            system: Box::new(system),
+            session: Some(("session".into(), target)),
+            video: true,
+            fps: 30,
+            sequence: 0,
+            geometry: Some(geometry),
+            revision: 1,
+        };
+        let mut output = Vec::new();
+        client.tick(&mut output).await.unwrap();
+        assert!(
+            output.is_empty(),
+            "raced frame must not carry stale metadata"
+        );
+        assert_eq!(keyframes.load(Ordering::SeqCst), 1);
+        client.tick(&mut output).await.unwrap();
+        let events: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["type"], "window.metadata");
+        assert_eq!(events[0]["width"], 800);
+        assert_eq!(events[1]["type"], "frame");
+        assert_eq!(
+            events[1]["geometry_revision"],
+            events[0]["geometry_revision"]
+        );
+        assert_eq!(events[1]["geometry_revision"], 2);
+        assert_eq!(events[1]["key_frame"], true);
     }
 }
