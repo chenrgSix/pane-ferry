@@ -1,7 +1,47 @@
 import AppKit
 import Darwin
 @main struct MacPublisherBoundarySmoke {
+    static func readRequest(_ json: String) throws -> [String: Any]? {
+        var sockets = [Int32](repeating: 0, count: 2)
+        precondition(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0)
+        let wire = Wire(sockets[0]), peer = sockets[1]
+        var noSignal: Int32 = 1
+        setsockopt(peer, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
+        let data = Data((json + "\n").utf8)
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            defer { Darwin.close(peer); finished.signal() }
+            data.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let count = Darwin.send(peer, bytes.baseAddress!.advanced(by: offset), bytes.count-offset, 0)
+                    if count > 0 { offset += count }
+                    else if count < 0 && errno == EINTR { continue }
+                    else { break }
+                }
+            }
+        }
+        defer { wire.finish(); finished.wait() }
+        return try wire.read()
+    }
     static func main() throws {
+        let hello = try readRequest(#"{"type":"hello","version":1}"#)
+        precondition(hello?["type"] as? String == "hello")
+        for version in ["true", "1.5", "1.9", "-1", "2", #""1""#] {
+            do {
+                _ = try readRequest("{\"type\":\"hello\",\"version\":\(version)}")
+                fatalError("invalid protocol version accepted: \(version)")
+            } catch NodeError.invalid_request {}
+        }
+        let prefix = #"{"type":"clipboard.inline.paste","version":1,"padding":""#
+        let suffix = #""}"#
+        let maximum = prefix + String(repeating: "a", count: wireLimit - 1 - prefix.utf8.count - suffix.utf8.count) + suffix
+        let maximumRequest = try readRequest(maximum)
+        precondition(maximumRequest != nil)
+        do {
+            _ = try readRequest(prefix + String(repeating: "a", count: wireLimit) + suffix)
+            fatalError("oversized clipboard request accepted")
+        } catch NodeError.invalid_request {}
         var sockets=[Int32](repeating:0,count:2)
         precondition(socketpair(AF_UNIX,SOCK_STREAM,0,&sockets)==0)
         let blocked=Wire(sockets[0])

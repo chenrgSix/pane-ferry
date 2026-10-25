@@ -91,8 +91,9 @@ final class Wire {
         while true {
             if let index = buffer.firstIndex(of: 10) {
                 let line = buffer.prefix(upTo: index); buffer.removeSubrange(...index)
-                guard let body = try JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let version=body["version"] as? NSNumber,CFGetTypeID(version) != CFBooleanGetTypeID(),version.intValue == 1,
+                guard line.count <= wireLimit,
+                      let body = try JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      let version=body["version"] as? NSNumber,CFGetTypeID(version) != CFBooleanGetTypeID(),version.stringValue == "1",
                       let type = body["type"] as? String,
                       line.count <= 65536 || type == "clipboard.inline.paste" else { throw NodeError.invalid_request }
                 return body
