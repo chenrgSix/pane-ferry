@@ -301,6 +301,9 @@ enum Probe {
     static func finish(error: String?) {
         guard !finishing else { return }; finishing = true; tick?.invalidate()
         lock.lock(); let values = rows; lock.unlock()
+        if error != nil, ProcessInfo.processInfo.environment["PROBE_SNAPSHOT_ON_FAILURE"] == "1" {
+            try? snapshot() // Explicit local opt-in; outside the measured samples.
+        }
         var result: [String: Any] = ["frames": values, "expected_samples": samples,
             "endpoint": "context menu AppKit draw completion", "injection": "SurfaceView rightMouseDown",
             "source_geometry": "normal attach; no benchmark resolution override", "phase": phase,
