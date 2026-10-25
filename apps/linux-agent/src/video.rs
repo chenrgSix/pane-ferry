@@ -302,7 +302,10 @@ fn connect_wake(api: &'static Api, sink: Object, wake: Arc<FrameWake>) -> Result
 unsafe impl Send for PipeWireCapture {}
 impl PipeWireCapture {
     pub fn new(node: u32, wake: Arc<FrameWake>) -> Result<Self> {
-        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
+        // Detach from the producer's pool before handing a buffer to an
+        // asynchronous converter. A retained pool lease can stop GNOME's GPU
+        // screencast after its first frame. Subsequent stages share GstMemory.
+        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true use-bufferpool=false ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
         Self::from_description(&description, wake)
     }
     fn from_description(description: &CStr, wake: Arc<FrameWake>) -> Result<Self> {
