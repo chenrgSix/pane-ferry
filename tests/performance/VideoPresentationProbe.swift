@@ -33,9 +33,8 @@ extension Probe {
             }
             matchedVideoCount += 1
             let completed = now()
-            guard let value = videoSelections[ObjectIdentifier(frame)], let image = frame.image else { return }
-            lock.lock(); frames[ObjectIdentifier(image)] = value; lock.unlock()
-            drew(image, timestamp: completed)
+            guard let value = videoSelections[ObjectIdentifier(frame)] else { return }
+            observedVideo(frame, object: value, completed: completed)
         }
         inspect()
     }

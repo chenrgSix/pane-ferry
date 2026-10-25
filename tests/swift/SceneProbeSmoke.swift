@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 @main struct SceneProbeSmoke {
     static func image(_ patch: CGRect? = nil) -> CGImage {
         let context = CGContext(data:nil,width:200,height:200,bitsPerComponent:8,bytesPerRow:800,
@@ -15,6 +16,23 @@ import AppKit
         host.sessionMode=true;app.windows[1]=host;Probe.delegate=app;Probe.rootID=1
         Probe.menuRect=CGRect(x:50,y:50,width:100,height:100)
         let closed=image(), menu=image(CGRect(x:50,y:50,width:100,height:100))
+        // An asymmetric image catches top/bottom inversion in the direct
+        // NV12/BGRA ROI path, independently of menu matching state.
+        var buffer: CVPixelBuffer?
+        precondition(CVPixelBufferCreate(kCFAllocatorDefault, 200, 200, kCVPixelFormatType_32BGRA,
+            [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer) == kCVReturnSuccess)
+        CVPixelBufferLockBaseAddress(buffer!, [])
+        let context = CGContext(data: CVPixelBufferGetBaseAddress(buffer!), width: 200, height: 200,
+            bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer!), space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+        context.draw(image(CGRect(x: 0, y: 0, width: 200, height: 100)), in: CGRect(x: 0, y: 0, width: 200, height: 200))
+        CVPixelBufferUnlockBaseAddress(buffer!, [])
+        let video = try VideoFrame(buffer: buffer!, width: 200, height: 200)
+        let savedROI = Probe.menuRect
+        Probe.menuRect = CGRect(x: 17, y: 10, width: 51, height: 20)
+        precondition(Probe.distance(Probe.signature(video)!, Probe.signature(video.image!)!) < 1,
+                     "direct ROI must sample the same top-left pixels as the full image")
+        Probe.menuRect = savedROI
         Probe.baseline=Probe.signature(closed);Probe.menuReference=Probe.signature(menu)
         Probe.phase="opening";Probe.phaseStarted=Probe.now();Probe.preview=false
         Probe.current=["start":Probe.phaseStarted,"warmup":false]

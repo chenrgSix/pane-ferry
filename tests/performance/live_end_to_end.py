@@ -71,8 +71,6 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     surface.write_text(text)
     probe = probe_source.read_text()
     if (source / 'VideoFrame.swift').exists():
-        probe = replace(probe, 'static func drew(_ image: CGImage) {\n        let completed = now()',
-                        'static func drew(_ image: CGImage, timestamp: UInt64? = nil) {\n        let completed = timestamp ?? now()')
         probe = probe.replace('context menu AppKit draw completion', 'context menu renderer displayed-buffer availability')
         if probe_source.name == 'PopupProbe.swift':
             probe = replace(probe, '        if sceneMode {\n            result["source_geometry"]',

@@ -1,6 +1,7 @@
 // Read-only application exercise: open a context menu at an observed location,
 // then dismiss that test-owned menu with Escape. No production source changes.
 import AppKit
+import CoreImage
 
 enum Probe {
     static let lock = NSLock()
@@ -196,7 +197,7 @@ enum Probe {
         let event = NSEvent.mouseEvent(with: .rightMouseDown, location: location, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: host.window.windowNumber,
             context: nil, eventNumber: count + 1, clickCount: 1, pressure: 1)!
-        if sceneMode { baseline = host.surface.image.flatMap { signature($0) } }
+        if sceneMode { baseline = host.surface.displayFrame.flatMap { signature($0) } }
         count += 1; phase = "opening"; phaseStarted = now()
         windowsBeforeInput = Set(delegate?.windows.keys ?? Dictionary<UInt32, HostedWindow>().keys)
         lock.lock(); current = ["count": count, "start": phaseStarted, "warmup": count <= 2,
@@ -206,7 +207,7 @@ enum Probe {
     }
     static func closeMenu() {
         guard let id = rootID, let host = delegate?.windows[id] else { return }
-        if sceneMode && phase == "preview", let image = host.surface.image {
+        if sceneMode && phase == "preview", let image = host.surface.displayFrame {
             menuReference = signature(image) // Use the inspected, fully painted preview.
         }
         sceneClosed = false
@@ -226,8 +227,25 @@ enum Probe {
         if frames.count > 64 { frames.removeAll() }
         var value = object; value["selected"] = now(); frames[ObjectIdentifier(image)] = value
     }
+    static let roiContext = CIContext(options: [.cacheIntermediates: false])
+    static func signature(_ frame: VideoFrame) -> [UInt8]? {
+        guard let buffer = frame.pixelBuffer else { return frame.image.flatMap { signature($0) } }
+        guard let roi = menuRect else { return nil }
+        // CoreImage uses bottom-left coordinates. The protocol/CGImage ROI is
+        // top-left. Read just a 16x16 GPU thumbnail, never the whole video frame.
+        let rect = CGRect(x: roi.minX, y: CGFloat(CVPixelBufferGetHeight(buffer)) - roi.maxY,
+                          width: roi.width, height: roi.height)
+        let thumbnail = CIImage(cvPixelBuffer: buffer).cropped(to: rect)
+            .transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+            .transformed(by: CGAffineTransform(scaleX: 16 / rect.width, y: 16 / rect.height))
+        guard let image = roiContext.createCGImage(thumbnail, from: CGRect(x: 0, y: 0, width: 16, height: 16)) else { return nil }
+        return signaturePixels(image)
+    }
     static func signature(_ image: CGImage) -> [UInt8]? {
         guard let roi = menuRect, let crop = image.cropping(to: roi) else { return nil }
+        return signaturePixels(crop)
+    }
+    static func signaturePixels(_ crop: CGImage) -> [UInt8]? {
         var bytes = [UInt8](repeating: 0, count: 16 * 16 * 4)
         let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: 16, height: 16, bitsPerComponent: 8,
@@ -242,11 +260,24 @@ enum Probe {
         guard one.count == two.count && !one.isEmpty else { return .infinity }
         return Double(zip(one, two).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(one.count)
     }
+    static func observedVideo(_ frame: VideoFrame, object: [String: Any], completed: UInt64) {
+        if sceneMode {
+            guard ["opening", "closing"].contains(phase), let pixels = signature(frame) else { return }
+            drewScene(pixels, frame: object, completed: completed)
+        } else if let image = frame.image {
+            frames[ObjectIdentifier(image)] = object
+            drew(image, timestamp: completed)
+        }
+    }
     static func drewScene(_ image: CGImage, completed: UInt64) {
-        guard ["opening", "closing"].contains(phase), let frame = frames[ObjectIdentifier(image)],
+        guard let frame = frames[ObjectIdentifier(image)], let pixels = signature(image) else { return }
+        drewScene(pixels, frame: frame, completed: completed)
+    }
+    static func drewScene(_ pixels: [UInt8], frame: [String: Any], completed: UInt64) {
+        guard ["opening", "closing"].contains(phase),
               unsignedInteger(frame["window_id"]) == rootID.map(UInt64.init),
               let received = unsignedInteger(frame["received"]), received >= phaseStarted,
-              let baseline, let pixels = signature(image) else { return }
+              let baseline else { return }
         let changed = distance(pixels, baseline)
         if phase == "closing" {
             let separation = menuReference.map { distance($0, baseline) } ?? 12
@@ -270,8 +301,8 @@ enum Probe {
         if preview { phase = "preview"; state() }
         else { phase = "drawn"; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { closeMenu() } }
     }
-    static func drew(_ image: CGImage) {
-        let completed = now()
+    static func drew(_ image: CGImage, timestamp: UInt64? = nil) {
+        let completed = timestamp ?? now()
         if sceneMode { drewScene(image, completed: completed); return }
         guard phase == "opening", let frame = frames[ObjectIdentifier(image)],
               let received = unsignedInteger(frame["received"]), received >= phaseStarted,

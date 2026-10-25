@@ -70,8 +70,13 @@ enum Probe {
             return value
         }
     }
-    static func drew(_ image: CGImage) {
-        let completed = now() // End of actual NSImage.draw; sampling overhead is excluded.
+    static func observedVideo(_ frame: VideoFrame, object: [String: Any], completed: UInt64) {
+        guard current != nil, let image = frame.image else { return }
+        lock.lock(); frames[ObjectIdentifier(image)] = object; lock.unlock()
+        drew(image, timestamp: completed)
+    }
+    static func drew(_ image: CGImage, timestamp: UInt64? = nil) {
+        let completed = timestamp ?? now() // End of actual NSImage.draw; sampling overhead is excluded.
         guard let marker = marker(image) else { return }
         lock.lock()
         if let expected = current?["count"] as? Int, marker > expected {
