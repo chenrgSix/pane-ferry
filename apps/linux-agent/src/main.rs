@@ -28,10 +28,19 @@ static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 const ACTIVE_SCAN_INTERVAL: Duration = Duration::from_micros(16_667);
 const IDLE_SCAN_INTERVAL: Duration = Duration::from_millis(100);
 
-fn scan_interval(attached: bool, has_windows: bool, recent_window_action: bool) -> Duration {
+fn scan_interval(
+    attached: bool,
+    has_windows: bool,
+    recent_window_action: bool,
+    composed_scene: bool,
+) -> Duration {
+    // A composed scene discovers/places popups in the compositor before paint.
+    // PipeWire readiness independently wakes capture; synchronous metadata RPCs
+    // at video cadence only delay those wakes. Keep fast initial discovery and
+    // per-window popup discovery, plus the usual bounded liveness/metadata scan.
     if !attached {
         Duration::from_secs(1)
-    } else if !has_windows || recent_window_action {
+    } else if !has_windows || (recent_window_action && !composed_scene) {
         ACTIVE_SCAN_INTERVAL
     } else {
         IDLE_SCAN_INTERVAL
@@ -1334,9 +1343,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let mut text_pending = false;
         let mut capture_fd = None;
         let mut capture_pending = false;
+        let mut composed_scene = false;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
+            composed_scene = s.scene.is_some();
             if !s.has_exited()? {
                 if let Some(b) = &mut s.backend {
                     for id in out.take_refreshes() {
@@ -1402,6 +1413,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 lease.is_some(),
                 !known.is_empty(),
                 last_window_action.elapsed() < Duration::from_millis(500),
+                composed_scene,
             )
             .saturating_sub(last_scan.elapsed());
             let frame_delay = if capture_pending {
@@ -1853,6 +1865,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 lease.is_some(),
                 !known.is_empty(),
                 last_window_action.elapsed() < Duration::from_millis(500),
+                composed_scene,
             );
         let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
         if !scan_due && !capture_due {
@@ -2008,11 +2021,22 @@ mod tests {
     }
 
     #[test]
-    fn metadata_scans_slow_only_after_a_window_is_ready_and_input_is_idle() {
-        assert_eq!(scan_interval(false, false, false), Duration::from_secs(1));
-        assert_eq!(scan_interval(true, false, false), ACTIVE_SCAN_INTERVAL);
-        assert_eq!(scan_interval(true, true, true), ACTIVE_SCAN_INTERVAL);
-        assert_eq!(scan_interval(true, true, false), IDLE_SCAN_INTERVAL);
+    fn metadata_scans_keep_fast_discovery_without_polling_composed_popups() {
+        assert_eq!(
+            scan_interval(false, false, false, false),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            scan_interval(true, false, false, false),
+            ACTIVE_SCAN_INTERVAL
+        );
+        assert_eq!(scan_interval(true, true, true, false), ACTIVE_SCAN_INTERVAL);
+        assert_eq!(scan_interval(true, true, false, false), IDLE_SCAN_INTERVAL);
+        // Popups inside a composed canvas arrive with PipeWire frames, not
+        // newly discovered streams. Still discover the first canvas promptly.
+        assert_eq!(scan_interval(true, false, true, true), ACTIVE_SCAN_INTERVAL);
+        assert_eq!(scan_interval(true, true, true, true), IDLE_SCAN_INTERVAL);
+        assert_eq!(scan_interval(true, true, false, true), IDLE_SCAN_INTERVAL);
         assert!(triggers_fast_scan(&Request::Pointer {
             window_id: 1,
             x: 10,
