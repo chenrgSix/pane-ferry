@@ -30,10 +30,10 @@ final class VideoDecodeQueue {
     private var lanes: [UInt32: Lane] = [:]
     private var bytes = 0, count = 0, outstanding = 0
     private var closed = false
-    private let complete: (Job, Result<CGImage?, Error>, Bool) -> Void
+    private let complete: (Job, Result<VideoFrame?, Error>, Bool) -> Void
     // Injection is restricted to native tests; production always uses H264Decoder.
     var decodeOverride: ((Job) throws -> CGImage?)?
-    init(complete: @escaping (Job, Result<CGImage?, Error>, Bool) -> Void) { self.complete = complete }
+    init(complete: @escaping (Job, Result<VideoFrame?, Error>, Bool) -> Void) { self.complete = complete }
 
     func submit(_ job: Job) throws {
         lock.lock(); defer { lock.unlock() }
@@ -61,12 +61,12 @@ final class VideoDecodeQueue {
         let job = lane.jobs.removeFirst()
         // Include the currently decoding packet in the byte/count budget.
         lock.unlock()
-        let result: Result<CGImage?, Error>
+        let result: Result<VideoFrame?, Error>
         do {
-            if let decode = decodeOverride { result = .success(try decode(job)) }
+            if let decode = decodeOverride { result = .success(try decode(job).map { VideoFrame(image: $0) }) }
             else {
                 if lane.generation != job.generation { lane.decoder = H264Decoder(); lane.generation = job.generation }
-                result = .success(try lane.decoder!.decode(job.data, streamID: job.stream,
+                result = .success(try lane.decoder!.decodeFrame(job.data, streamID: job.stream,
                     width: job.width, height: job.height, encodedWidth: job.encodedWidth, encodedHeight: job.encodedHeight))
             }
         } catch { result = .failure(error) }

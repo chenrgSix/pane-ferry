@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 let controllerTextLimit = 8 * 1024
 
@@ -9,7 +10,17 @@ final class SurfaceView: NSView, NSTextInputClient {
     var remoteWidth = 1
     var remoteHeight = 1
     var didDrawFrame: (() -> Void)?
-    var image: CGImage? { didSet { didDrawFrame=nil; needsDisplay = true } }
+    var displayFrame: VideoFrame? { didSet {
+        didDrawFrame = nil
+        presentVideo()
+        needsDisplay = true
+    } }
+    var image: CGImage? {
+        get { displayFrame?.image }
+        set { displayFrame = newValue.map { VideoFrame(image: $0) } }
+    }
+    private var videoCanvas: VideoCanvas?
+    private var textOverlay: MarkedTextOverlay?
     var transmit: (([String: Any]) -> Void)?
     var controllerTextEnabled = true
     var controllerPasteEnabled = true
@@ -30,23 +41,79 @@ final class SurfaceView: NSView, NSTextInputClient {
     var imageRect: CGRect {
         // Metadata can precede its repaint. Fit the pixels actually on screen,
         // not the new geometry, or a resize would distort the previous frame.
-        RenderGeometry.imageRect(in: bounds, width: image?.width ?? remoteWidth, height: image?.height ?? remoteHeight)
+        RenderGeometry.imageRect(in: bounds, width: displayFrame?.width ?? remoteWidth, height: displayFrame?.height ?? remoteHeight)
     }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { overlay || super.acceptsFirstMouse(for: event) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill(); bounds.fill()
-        guard let image = image else { return }
-        NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
-            .draw(in: imageRect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+        if let frame = displayFrame, frame.pixelBuffer == nil, let image = frame.image {
+            NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
+                .draw(in: imageRect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+            frameWasPresented(frame)
+        }
+        if textOverlay == nil { drawMarkedText() }
+        textOverlay?.needsDisplay = true
+    }
+    private func drawMarkedText() {
         if hasMarkedText() {
             let preview = NSAttributedString(string: markedText.string, attributes: [
                 .font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor,
                 .backgroundColor: NSColor.textBackgroundColor, .underlineStyle: NSUnderlineStyle.single.rawValue])
             preview.draw(at: insertionPoint)
         }
-        let completed=didDrawFrame; didDrawFrame=nil; completed?()
+    }
+    // A presentation commit is sufficient for video feedback. Tests may inspect
+    // the renderer's displayed buffer separately; this is not a panel scanout.
+    func frameWasPresented(_ frame: VideoFrame) {
+        guard displayFrame === frame else { return }
+        let completed = didDrawFrame; didDrawFrame = nil; completed?()
+    }
+    func displayedPixelBuffer() -> CVPixelBuffer? {
+        if #available(macOS 14.4, *) { return videoCanvas?.display.sampleBufferRenderer.displayedPixelBuffer() }
+        return nil
+    }
+    private func presentVideo() {
+        guard let frame = displayFrame, let sample = frame.sample else {
+            videoCanvas?.isHidden = true
+            videoCanvas?.display.flushAndRemoveImage()
+            return
+        }
+        if videoCanvas == nil {
+            let canvas = VideoCanvas(frame: imageRect)
+            addSubview(canvas)
+            let overlay = MarkedTextOverlay(frame: bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.paint = { [weak self] in self?.drawMarkedText() }
+            addSubview(overlay)
+            videoCanvas = canvas; textOverlay = overlay
+        }
+        guard let canvas = videoCanvas else { return }
+        canvas.frame = imageRect; canvas.isHidden = false
+        canvas.display.frame = canvas.bounds
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { [weak self, weak frame] in
+            DispatchQueue.main.async {
+                guard let self = self, let frame = frame else { return }
+                self.frameWasPresented(frame)
+            }
+        }
+        if #available(macOS 14.0, *) {
+            let renderer = canvas.display.sampleBufferRenderer
+            if renderer.status == .failed { renderer.flush() }
+            renderer.enqueue(sample)
+        } else {
+            if canvas.display.status == .failed { canvas.display.flush() }
+            canvas.display.enqueue(sample)
+        }
+        CATransaction.commit()
+    }
+    override func layout() {
+        super.layout()
+        videoCanvas?.frame = imageRect
+        if let canvas = videoCanvas { canvas.display.frame = canvas.bounds }
+        textOverlay?.frame = bounds
     }
     override func updateTrackingAreas() {
         if let tracking = tracking { removeTrackingArea(tracking) }
@@ -57,7 +124,7 @@ final class SurfaceView: NSView, NSTextInputClient {
         addTrackingArea(tracking!); super.updateTrackingAreas()
     }
     private func pointer(_ event: NSEvent, button: Int, pressed: Bool) {
-        if let image = image, image.width != remoteWidth || image.height != remoteHeight {
+        if let image = displayFrame, image.width != remoteWidth || image.height != remoteHeight {
             // Do not click an old layout while the application is repainting.
             // Releases must still arrive so an in-progress drag cannot stick.
             if button > 0, !pressed, heldButtons.remove(button) != nil {
@@ -237,4 +304,24 @@ final class SurfaceView: NSView, NSTextInputClient {
             30:"]",31:"o",32:"u",33:"[",34:"i",35:"p",37:"l",38:"j",39:"'",40:"k",41:";",42:"\\",43:",",44:"/",45:"n",46:"m",47:".",49:" ",50:"`"]
         return ansi[event.keyCode]?.unicodeScalars.first?.value
     }
+}
+
+
+private final class VideoCanvas: NSView {
+    let display = AVSampleBufferDisplayLayer()
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        display.videoGravity = .resize
+        layer?.masksToBounds = true
+        layer?.addSublayer(display)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+private final class MarkedTextOverlay: NSView {
+    var paint: (() -> Void)?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) { paint?() }
 }

@@ -17,7 +17,7 @@ args = parser.parse_args()
 source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
 with tempfile.TemporaryDirectory(prefix='lra-quic-bulk-') as directory:
     scratch = Path(directory)
-    files = ['SurfaceView.swift', 'ClipboardBundle.swift', 'ClipboardBulkTransfer.swift', 'RenderGeometry.swift']
+    files = ['VideoFrame.swift', 'SurfaceView.swift', 'ClipboardBundle.swift', 'ClipboardBulkTransfer.swift', 'RenderGeometry.swift']
     binary = scratch/'bulk-test'
     subprocess.run(['swiftc','-module-cache-path',str(scratch/'modules'),
         *[str(source/f) for f in files],str(root/'tests/swift/ClipboardBulkQUICSmoke.swift'),'-o',str(binary)],check=True)

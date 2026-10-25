@@ -111,9 +111,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     func place(relativeTo parent: HostedWindow, available: Bool, sceneOffset: CGPoint = .zero) {
         guard let placement = presentation, let anchor = parent.presentation, available,
               remoteVisible, parent.remoteVisible, parent.window.isVisible, !parent.window.isMiniaturized,
-              let image = parent.surface.image, image.width == parent.surface.remoteWidth,
+              let image = parent.surface.displayFrame, image.width == parent.surface.remoteWidth,
               image.height == parent.surface.remoteHeight,
-              surface.image?.width == surface.remoteWidth, surface.image?.height == surface.remoteHeight else {
+              surface.displayFrame?.width == surface.remoteWidth, surface.displayFrame?.height == surface.remoteHeight else {
             window.orderOut(nil); return
         }
         let rect = placement.relativeRect(to: anchor, in: parent.surface.imageRect)
@@ -234,7 +234,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     func updateSubtitle() {
         let now = ProcessInfo.processInfo.systemUptime
         recentFrames.removeAll { now - $0 > 2 }
-        let frame = surface.image
+        let frame = surface.displayFrame
         var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
         if fixedPixels == nil {
             parts.append("本机 \(Int(surface.bounds.width.rounded())) × \(Int(surface.bounds.height.rounded())) 点 · 等比显示")
@@ -283,7 +283,10 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.subtitle = parts.joined(separator: " · ")
     }
     func present(_ image: CGImage, mediaMode: String) {
-        surface.image = image; self.mediaMode = mediaMode
+        present(VideoFrame(image: image), mediaMode: mediaMode)
+    }
+    func present(_ image: VideoFrame, mediaMode: String) {
+        surface.displayFrame = image; self.mediaMode = mediaMode
         hasReceivedFrame = true
         recentFrames.append(ProcessInfo.processInfo.systemUptime)
         updateSubtitle()
@@ -342,7 +345,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
     func showActualPixels() {
-        guard let image = surface.image else { return }
+        guard let image = surface.displayFrame else { return }
         fixedPixels = (image.width, image.height)
         window.setContentSize(NSSize(width: CGFloat(image.width) / window.backingScaleFactor,
                                      height: CGFloat(image.height) / window.backingScaleFactor))

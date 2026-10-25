@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Network
 
-// RWP/1 developer preview. Rendering is CoreGraphics/NSView, not Metal.
+// RWP/1 developer preview. CoreVideo surfaces use AVFoundation; PNGs use AppKit.
 let maximumLine = 16 * 1024 * 1024
 let maximumPixels = 8_000_000
 let maximumVideoFPS = 90
@@ -56,7 +56,12 @@ enum HostError: Error { case message(String) }
 
 struct Incoming {
     let object: [String: Any]
-    let image: CGImage?
+    let displayFrame: VideoFrame?
+    var image: CGImage? { displayFrame?.image }
+    init(object: [String: Any], image: CGImage?) {
+        self.object = object; displayFrame = image.map { VideoFrame(image: $0) }
+    }
+    init(object: [String: Any], frame: VideoFrame?) { self.object = object; displayFrame = frame }
 }
 struct TransportFailure {
     let message: String
@@ -75,6 +80,8 @@ final class RWPTransport {
     private var closed = false
     private var failure: TransportFailure?
     private var queuedPixels = 0
+    private var deliveryScheduled = false
+    var onReadable: (() -> Void)?
     private let writer = DispatchQueue(label: "paneferry.rwp.writer")
     private var decodeQueue: VideoDecodeQueue!
     private var decodeGeneration: UInt64 = 0
@@ -86,7 +93,7 @@ final class RWPTransport {
         }
         decodeQueue.decodeOverride = decode
     }
-    private func decoded(_ job: VideoDecodeQueue.Job, result: Result<CGImage?, Error>, hardware: Bool) {
+    private func decoded(_ job: VideoDecodeQueue.Job, result: Result<VideoFrame?, Error>, hardware: Bool) {
         lock.lock()
         guard !closed, decodeMembers[job.window] == job.generation,
               decodeGeometry[job.window] == videoGeometry(job.object) else { lock.unlock(); return }
@@ -95,7 +102,7 @@ final class RWPTransport {
             var lightweight = job.object
             lightweight["decode_completed_ns"] = DispatchTime.now().uptimeNanoseconds
             lightweight["hardware_decoder"] = hardware
-            try enqueueLocked(Incoming(object: lightweight, image: image))
+            try enqueueLocked(Incoming(object: lightweight, frame: image))
             lock.unlock()
         } catch {
             lock.unlock(); fail("视频解码失败，已停止接收。", retryable: false); disconnect()
@@ -153,11 +160,11 @@ final class RWPTransport {
     }
 
     private func fail(_ message: String, retryable: Bool = true) {
-        lock.lock(); if failure == nil { failure = TransportFailure(message: message, retryable: retryable) }; lock.unlock()
+        lock.lock(); if failure == nil { failure = TransportFailure(message: message, retryable: retryable) }; signalReadableLocked(); lock.unlock()
     }
     func drain() -> ([Incoming], TransportFailure?) {
         lock.lock(); defer { lock.unlock() }
-        let events = inbox; inbox.removeAll(keepingCapacity: true); queuedPixels = 0
+        let events = inbox; inbox.removeAll(keepingCapacity: true); queuedPixels = 0; deliveryScheduled = false
         let error = failure; failure = nil
         return (events, error)
     }
@@ -170,15 +177,21 @@ final class RWPTransport {
         if value.object["type"] as? String == "frame", let id = value.object["window_id"] as? NSNumber {
             inbox.removeAll { $0.object["type"] as? String == "frame" && ($0.object["window_id"] as? NSNumber) == id }
         }
-        queuedPixels = inbox.reduce(0) { $0 + (($1.image?.width ?? 0) * ($1.image?.height ?? 0)) }
-        let pixels = (value.image?.width ?? 0) * (value.image?.height ?? 0)
+        queuedPixels = inbox.reduce(0) { $0 + (($1.displayFrame?.width ?? 0) * ($1.displayFrame?.height ?? 0)) }
+        let pixels = (value.displayFrame?.width ?? 0) * (value.displayFrame?.height ?? 0)
         while queuedPixels + pixels > 16_000_000 {
-            guard let index = inbox.firstIndex(where: { $0.image != nil }) else { break }
+            guard let index = inbox.firstIndex(where: { $0.displayFrame != nil }) else { break }
             let removed = inbox.remove(at: index)
-            queuedPixels -= (removed.image?.width ?? 0) * (removed.image?.height ?? 0)
+            queuedPixels -= (removed.displayFrame?.width ?? 0) * (removed.displayFrame?.height ?? 0)
         }
         guard inbox.count < 256 else { throw HostError.message("事件队列超过上限，已断开以避免内存持续增长") }
         inbox.append(value); queuedPixels += pixels
+        signalReadableLocked()
+    }
+    private func signalReadableLocked() {
+        guard !deliveryScheduled else { return }
+        deliveryScheduled = true
+        DispatchQueue.main.async { [weak self] in self?.onReadable?() }
     }
     private func readLoop() {
         var buffer = Data()
@@ -370,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         rateItem.isEnabled = false; rateMenuItem = rateItem; displayMenu.addItem(rateItem)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
+        transport.onReadable = { [weak self] in self?.pump() }
         startConnection()
         let timer = Timer(timeInterval: 1.0 / 90.0, repeats: true) { [weak self] _ in self?.pump() }
         RunLoop.main.add(timer, forMode: .common); poll = timer
@@ -825,7 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             attachParents()
             refreshVideoFPS()
         case "frame":
-            guard let host = windows[id], let image = incoming.image,
+            guard let host = windows[id], let image = incoming.displayFrame,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
             host.present(image, mediaMode: "H.264 视频")

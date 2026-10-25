@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-input-', dir='/tmp') as direc
     scratch = pathlib.Path(directory)
     binary = scratch / 'controller-input-smoke'
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
-                    str(source / 'SurfaceView.swift'), str(source / 'ClipboardCopyGate.swift'), str(source / 'RenderGeometry.swift'),
+                    str(source / 'VideoFrame.swift'), str(source / 'SurfaceView.swift'), str(source / 'ClipboardCopyGate.swift'), str(source / 'RenderGeometry.swift'),
                     str(source / 'HostedWindow.swift'),
                     str(source / 'ClipboardBundle.swift'), str(source / 'ClipboardBulkTransfer.swift'),
                     str(root / 'tests/swift/ClipboardBundleSmoke.swift'),

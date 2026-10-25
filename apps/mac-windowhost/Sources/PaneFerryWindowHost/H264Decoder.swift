@@ -4,7 +4,6 @@ import CoreImage
 import CoreMedia
 import VideoToolbox
 
-enum VideoDecodeError: Error { case invalidFrame, decoder(OSStatus) }
 
 /// One decoder per window. All access units are decoded in order on its bounded video worker;
 /// only decoded display images may be coalesced. Dropping a P-frame would corrupt later frames.
@@ -14,7 +13,6 @@ final class H264Decoder {
     private var format: CMVideoFormatDescription?
     private var stream: UInt64?
     private var sps = Data(), pps = Data()
-    private let context = CIContext(options: [.cacheIntermediates: false])
     private let resultLock = NSLock()
     private var output: CVImageBuffer?
 
@@ -48,6 +46,9 @@ final class H264Decoder {
         return units
     }
     func decode(_ data: Data, streamID: UInt64, width: Int, height: Int, encodedWidth: Int, encodedHeight: Int) throws -> CGImage? {
+        try decodeFrame(data, streamID: streamID, width: width, height: height, encodedWidth: encodedWidth, encodedHeight: encodedHeight)?.image
+    }
+    func decodeFrame(_ data: Data, streamID: UInt64, width: Int, height: Int, encodedWidth: Int, encodedHeight: Int) throws -> VideoFrame? {
         guard width > 0, height > 0, width <= 4096, height <= 4096, width * height <= 8_000_000,
               encodedWidth == width + width % 2, encodedHeight == height + height % 2,
               data.count <= 12 * 1024 * 1024 else { throw VideoDecodeError.invalidFrame }
@@ -95,10 +96,9 @@ final class H264Decoder {
         VTDecompressionSessionWaitForAsynchronousFrames(session)
         resultLock.lock(); let pixelBuffer = output; output = nil; resultLock.unlock()
         guard let pixelBuffer = pixelBuffer,
-              CVPixelBufferGetWidth(pixelBuffer) == encodedWidth, CVPixelBufferGetHeight(pixelBuffer) == encodedHeight,
-              let image = context.createCGImage(CIImage(cvPixelBuffer: pixelBuffer), from: CGRect(x: 0, y: 0, width: encodedWidth, height: encodedHeight))
+              CVPixelBufferGetWidth(pixelBuffer) == encodedWidth, CVPixelBufferGetHeight(pixelBuffer) == encodedHeight
         else { throw VideoDecodeError.invalidFrame }
-        return image.cropping(to: CGRect(x: 0, y: 0, width: width, height: height))
+        return try VideoFrame(buffer: pixelBuffer, width: width, height: height)
     }
     private func createSession(encodedWidth: Int, encodedHeight: Int) throws {
         let status = sps.withUnsafeBytes { spsBytes in
@@ -122,7 +122,7 @@ final class H264Decoder {
             let decoder = Unmanaged<H264Decoder>.fromOpaque(refcon).takeUnretainedValue()
             decoder.resultLock.lock(); decoder.output = image; decoder.resultLock.unlock()
         }, decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque())
-        let attributes: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+        let attributes: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferWidthKey: encodedWidth, kCVPixelBufferHeightKey: encodedHeight,
             kCVPixelBufferIOSurfacePropertiesKey: [:]]
         let specification: [CFString: Any] = [kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: true]

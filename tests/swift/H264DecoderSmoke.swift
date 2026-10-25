@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import AVFoundation
 
 @main struct H264DecoderSmoke {
     static func main() throws {
@@ -22,10 +23,13 @@ import ImageIO
                 refinements += 1
                 continue // Retain the decoder's references for the next P-frame.
             }
-            let image = try decoder.decode(Data(base64Encoded: record["data"] as! String)!,
+            let frame = try decoder.decodeFrame(Data(base64Encoded: record["data"] as! String)!,
                 streamID: (record["stream_id"] as! NSNumber).uint64Value, width: width, height: height,
                 encodedWidth: record["encoded_width"] as! Int, encodedHeight: record["encoded_height"] as! Int)
-            guard let image = image else { fatalError("missing decoded image") }
+            guard let frame = frame, let image = frame.image else { fatalError("missing decoded image") }
+            precondition(frame.pixelBuffer != nil && frame.sample != nil, "production decode must retain CoreVideo output")
+            let aperture = CMVideoFormatDescriptionGetCleanAperture(CMSampleBufferGetFormatDescription(frame.sample!)!, originIsAtTopLeft: true)
+            precondition(aperture == CGRect(x: 0, y: 0, width: width, height: height))
             if decoder.hardwareAccelerated { hardwareFrames += 1 }
             precondition(image.width == width && image.height == height)
             if width % 2 != 0 { oddFrames += 1 }

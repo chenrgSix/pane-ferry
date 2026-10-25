@@ -138,7 +138,7 @@ else:sys.stdout.buffer.write((root/sys.argv[2]).read_bytes())
         text=(root/'tests/swift/ClipboardBulkQUICSmoke.swift').read_text()
         test.write_text(text)
         bulk_test=scratch/'bulk-test'
-        subset=['SurfaceView.swift','ClipboardBundle.swift','ClipboardBulkTransfer.swift','RenderGeometry.swift']
+        subset=['VideoFrame.swift', 'SurfaceView.swift','ClipboardBundle.swift','ClipboardBulkTransfer.swift','RenderGeometry.swift']
         subprocess.run(['swiftc','-module-cache-path','/tmp/lra-network-verification/swift-cache',*[str(source/f) for f in subset],str(test),'-o',str(bulk_test)],check=True,timeout=120)
         subprocess.run([str(bulk_test),b['device_id'],str(states[0]),str(binary)],check=True,timeout=45)
         print('PASS: two real QUIC nodes, Swift receiver reconnect and independent binary bulk without SSH')

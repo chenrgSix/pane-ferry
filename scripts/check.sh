@@ -33,6 +33,7 @@ if [[ $(uname -s) == Darwin ]]; then
   python3 tests/e2e/mac_encoder_generation.py
   (cd apps/mac-windowhost && swift build)
   python3 tests/e2e/async_video_decode_smoke.py
+  python3 tests/e2e/video_presentation_smoke.py
   python3 tests/e2e/transport_async_video_smoke.py
   python3 tests/e2e/windowhost_pipe_smoke.py
   python3 tests/e2e/controller_input_smoke.py

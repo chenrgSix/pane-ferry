@@ -13,6 +13,6 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-swift-', dir='/tmp') as
     scratch = Path(temporary)
     binary = scratch / 'video-decoder-smoke'
     subprocess.run(['swiftc', '-O', '-module-cache-path', str(scratch / 'modules'),
-        str(root / 'apps/mac-windowhost/Sources/PaneFerryWindowHost/H264Decoder.swift'),
+        str(root / 'apps/mac-windowhost/Sources/PaneFerryWindowHost/VideoFrame.swift'), str(root / 'apps/mac-windowhost/Sources/PaneFerryWindowHost/H264Decoder.swift'),
         str(root / 'tests/swift/H264DecoderSmoke.swift'), '-o', str(binary)], check=True, timeout=180)
     subprocess.run([str(binary), str(args.packets.resolve())], check=True, timeout=60)
