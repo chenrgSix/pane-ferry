@@ -348,6 +348,17 @@ function record(name: string, result: Result) {
   notice.value = result.message;
   save();
 }
+function useApplicationScene(appId: string): boolean {
+  if (!applicationScene.value) return false;
+  const existing = sessions.value.filter(session => session.app_id === appId && session.mode !== "desktop");
+  // Private application desktops retain their existing presentation. Only a
+  // publisher-advertised live source can opt into the composed scene.
+  if (existing.some(session => session.display !== 0)) return false;
+  const exact = desktopWindows.value.find(window => window.id === appId);
+  const candidates = exact ? [exact] : desktopWindows.value.filter(window => window.app_id === appId ||
+    existing.some(session => window.session_id === session.session_id));
+  return candidates.length === 1 && candidates[0].application_scene === true;
+}
 async function launch(app: LaunchTarget) {
   if (busy.value || !valid.value || app.unavailable_reason || isStarting(app.id)) return;
   busy.value = true;
@@ -357,11 +368,12 @@ async function launch(app: LaunchTarget) {
   notice.value = "";
   const sent = { ...endpoint.value };
   const scale = startupScale();
+  const useScene = useApplicationScene(app.id);
   // Fixed canvas follows the local work area at launch. Local resizing scales
   // the composed image; it doesn't change popup placement behind the user's back.
-  const canvasScale = applicationScene.value ? Math.min(scale, 4096 / window.screen.availWidth, 4096 / Math.max(240, window.screen.availHeight - 40),
+  const canvasScale = useScene ? Math.min(scale, 4096 / window.screen.availWidth, 4096 / Math.max(240, window.screen.availHeight - 40),
     Math.sqrt(8_000_000 / (window.screen.availWidth * Math.max(240, window.screen.availHeight - 40)))) : scale;
-  const scene = applicationScene.value ? {
+  const scene = useScene ? {
     width: Math.max(640, Math.floor(window.screen.availWidth * canvasScale / scale) * scale),
     height: Math.max(480, Math.floor(Math.max(240, window.screen.availHeight - 40) * canvasScale / scale) * scale),
   } : null;
@@ -379,7 +391,8 @@ async function launch(app: LaunchTarget) {
     });
     attempts.resolve(key);
     startingApps.value = startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id);
-    if (signature() === endpointKey(sent)) record(app.name, result);
+    if (signature() === endpointKey(sent)) record(app.name, applicationScene.value && !useScene
+      ? { ...result, message: `${result.message} 当前入口使用兼容窗口显示。` } : result);
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
@@ -457,7 +470,7 @@ async function connect(row: Connection) {
   if (row.controlled) return;
   const session = sessions.value.find(s => s.session_id === row.sessionId);
   const changingPresentation = session && session.display === 0 && session.mode !== "desktop" &&
-    (session.mode === "scene") !== applicationScene.value;
+    (session.mode === "scene") !== useApplicationScene(row.appId);
   if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png);
   else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png });
 }
@@ -682,7 +695,7 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
-          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">主窗口、菜单和对话框在同一个窗口中显示，保留远端原生布局。首版支持已打开的 Ubuntu GNOME/Wayland 应用；画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
+          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
           <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">自动模式按本机显示器倍率请求 100% 或 200%。仅对新启动的应用生效；已有窗口和会话保留原来的缩放。实际清晰度以收到的画面为准。</p></div>
             <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
               <option value="auto">自动 · 跟随本机显示器</option>

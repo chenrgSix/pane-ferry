@@ -260,7 +260,8 @@ impl RunningWindow {
     }
     pub fn public(&self, controlled: bool, session_id: Option<String>) -> Value {
         json!({"id":self.id,"app_id":self.app_id,"window_id":self.window_id,"name":self.name,"title":self.title,
-            "icon_png":self.icon_png,"minimized":self.minimized,"controlled":controlled,"session_id":session_id})
+            "icon_png":self.icon_png,"minimized":self.minimized,"controlled":controlled,"session_id":session_id,
+            "application_scene":false})
     }
 }
 pub fn running(

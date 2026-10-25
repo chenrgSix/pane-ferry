@@ -178,7 +178,7 @@ test("automatic startup requests the display density and retries each density wi
 test("optional scene canvas is bounded, retained on retries, and switches a detached external session", async () => {
   const mounted = mount(storage(), { devicePixelRatio: 2,
     list_sessions: () => [{...session("old", "wayland-root"), mode:"app"}],
-    list_desktop_windows: () => ({windows:[window("wayland-root", "old")], unavailable_reason:null}),
+    list_desktop_windows: () => ({windows:[{...window("wayland-root", "old"), application_scene:true}], unavailable_reason:null}),
     launch_app: () => { throw {message:"connection", retrySameRequest:true}; },
   });
   try {
@@ -197,6 +197,68 @@ test("optional scene canvas is bounded, retained on retries, and switches a deta
     assert.ok(large.scene.width <= 4096 && large.scene.height <= 4096);
     assert.ok(large.scene.width * large.scene.height <= 8_000_000);
     assert.notEqual(large.requestId, sent.args.requestId);
+  } finally { mounted.unmount(); }
+});
+
+test("scene preference follows source capabilities while compatibility sessions resume normally", async () => {
+  const supported = {...window("native-source"), application_scene:true};
+  const compatibility = {...window("compat-source", "compat"), application_scene:false};
+  const legacy = window("legacy-source");
+  const mounted = mount(storage(), {
+    list_sessions: () => [{...session("compat", "compat-source"), mode:"app"}],
+    list_desktop_windows: () => ({windows:[supported, compatibility, legacy], unavailable_reason:null}),
+  });
+  try {
+    await settled(mounted.state);
+    mounted.state.applicationScene = true;
+    await mounted.state.connect(mounted.state.runningConnections.find(row => row.appId === supported.id));
+    assert.ok(actions(mounted).at(-1).args.scene, "an explicitly supported live source keeps the scene preference");
+    await mounted.state.connect(mounted.state.runningConnections.find(row => row.appId === compatibility.id));
+    assert.equal(actions(mounted).at(-1).command, "resume_session", "the preference must not switch an incompatible session");
+    await mounted.state.connect(mounted.state.runningConnections.find(row => row.appId === legacy.id));
+    assert.equal(actions(mounted).at(-1).args.scene, null, "a legacy publisher has not advertised scene support");
+    assert.match(mounted.state.notice, /兼容窗口显示/);
+    assert.equal(mounted.state.applicationScene, true, "compatibility does not disable the preference for other apps");
+    await mounted.state.launch({...compatibility, id:"untouched-compat"});
+    assert.equal(actions(mounted).at(-1).args.scene, null);
+    mounted.state.applicationScene = false;
+    await mounted.state.launch(supported);
+    assert.equal(actions(mounted).at(-1).args.scene, null);
+  } finally { mounted.unmount(); }
+});
+
+test("catalog entry uses only a unique verified live source for scene presentation", async () => {
+  let windows = [{...window("native-root"), app_id:app.id, application_scene:true}];
+  let remote = [];
+  const mounted = mount(storage(), {
+    list_sessions: () => remote,
+    list_desktop_windows: () => ({windows, unavailable_reason:null}),
+  });
+  try {
+    await settled(mounted.state);
+    mounted.state.applicationScene = true;
+    await mounted.state.launch(app);
+    assert.ok(actions(mounted).at(-1).args.scene);
+    const sceneRequest = actions(mounted).at(-1).args.requestId;
+    windows = [{...window("compat-root"), app_id:app.id, application_scene:false}];
+    await mounted.state.refresh();
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).at(-1).args.scene, null);
+    assert.notEqual(actions(mounted).at(-1).args.requestId, sceneRequest);
+    windows = [windows[0], {...window("other-root"), app_id:app.id, application_scene:true}];
+    await mounted.state.refresh();
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).at(-1).args.scene, null, "multiple live windows must not be guessed from an app name");
+    windows = [{...window("native-root"), app_id:app.id, application_scene:true}];
+    remote = [{...session("private", app.id, 228), mode:"app"}];
+    await mounted.state.refresh();
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).at(-1).args.scene, null, "an independent application session retains its presentation");
+    windows = [];
+    remote = [];
+    await mounted.state.refresh();
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).at(-1).args.scene, null, "a new application has not advertised live scene support");
   } finally { mounted.unmount(); }
 });
 

@@ -129,7 +129,8 @@ impl Target {
     pub fn public(&self, controlled: bool, session: Option<String>) -> Value {
         json!({"id":self.id(), "app_id":self.catalog_id, "window_id":self.info.window_id,
             "name":self.info.name,"title":self.info.title,"icon_png":self.icon,
-            "minimized":self.info.minimized,"controlled":controlled,"session_id":session})
+            "minimized":self.info.minimized,"controlled":controlled,"session_id":session,
+            "application_scene":self.info.bridge_version >= 4})
     }
 }
 struct Rpc {

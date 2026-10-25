@@ -41,6 +41,8 @@ pub struct DesktopWindowInfo {
     pub controlled: bool,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub application_scene: bool,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct DesktopWindows {
@@ -100,7 +102,7 @@ pub enum Error {
 }
 pub fn remote_error_message(code: &str) -> String {
     match code {
-        "application_scene_unavailable" => "当前来源不支持应用会话画面。首版需要新版 Ubuntu 扩展和已打开的 GNOME/Wayland 应用。".into(),
+        "application_scene_unavailable" => "此窗口当前无法使用应用会话画面。请刷新运行状态后重试，或在显示设置中关闭该模式。".into(),
         "session_mode_conflict" => "已有会话采用不同的显示方式，请先断开该会话。".into(),
         "sharing_disabled" => "对方已停止本机共享，应用仍在原设备运行。".into(),
         "screen_recording_required" => "请在 Mac 允许 窗渡 PaneFerry 的录屏权限。".into(),
@@ -625,6 +627,57 @@ mod tests {
 #[cfg(test)]
 mod unified_transport_tests {
     use super::*;
+    #[tokio::test]
+    async fn window_catalog_preserves_source_scene_capability_and_defaults_legacy_to_false() {
+        let (client, server) = tokio::io::duplex(4096);
+        let task = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(server);
+            let mut read = BufReader::new(read);
+            assert_eq!(read_message(&mut read).await.unwrap()["type"], "hello");
+            write
+                .write_all(b"{\"version\":1,\"type\":\"hello\"}\n")
+                .await
+                .unwrap();
+            assert_eq!(
+                read_message(&mut read).await.unwrap()["type"],
+                "window.list"
+            );
+            let base = json!({"id":"source","window_id":1,"name":"Same app","title":"Window",
+                "icon_png":null,"minimized":false,"controlled":false});
+            let mut supported = base.clone();
+            supported["application_scene"] = json!(true);
+            let mut compatibility = base.clone();
+            compatibility["application_scene"] = json!(false);
+            let reply =
+                json!({"version":1,"type":"window.list","windows":[supported,compatibility,base]});
+            write
+                .write_all(format!("{reply}\n").as_bytes())
+                .await
+                .unwrap();
+        });
+        let (read, mut write) = tokio::io::split(client);
+        let value = exchange(
+            &mut BufReader::new(read),
+            &mut write,
+            json!({"version":1,"type":"window.list"}),
+            "window.list",
+        )
+        .await
+        .unwrap();
+        let windows: Vec<DesktopWindowInfo> =
+            serde_json::from_value(value["windows"].clone()).unwrap();
+        assert_eq!(
+            windows
+                .iter()
+                .map(|w| w.application_scene)
+                .collect::<Vec<_>>(),
+            [true, false, false]
+        );
+        let mut malformed = value["windows"][0].clone();
+        malformed["application_scene"] = json!("true");
+        assert!(serde_json::from_value::<DesktopWindowInfo>(malformed).is_err());
+        task.await.unwrap();
+    }
     #[tokio::test]
     async fn session_catalog_accepts_scene_alongside_app_and_desktop_modes() {
         let directory = std::env::temp_dir().join(format!("rws-{}", uuid::Uuid::new_v4()));

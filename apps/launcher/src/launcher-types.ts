@@ -7,6 +7,8 @@ export type AppInfo = LaunchTarget & {
 };
 export type AppCatalog = { apps: AppInfo[]; discovery_error: string | null };
 export type DesktopWindow = LaunchTarget & {
+  app_id?: string | null;
+  application_scene?: boolean;
   window_id: number;
   title: string;
   icon_png?: string | null;
