@@ -106,15 +106,30 @@ async function revokePeer(peer:NativePeer) {
     if(endpoint.value.peerId===peer.device_id) endpoint.value={peerId:""};
   } catch {nativeWarning.value="撤销未完成，请重试。";} finally {pairing.value=false;}
 }
+let localRevision = 0;
 async function readLocal() {
-  try {localNode.value=await invoke<LocalNode>("local_node_info"); localWarning.value="";} catch {localWarning.value="本机共享组件尚未就绪。";}
+  // Polls can finish out of order, including after a sharing/permission change.
+  // Never let an old observation overwrite a confirmed user action.
+  if (localBusy.value) return;
+  const revision = ++localRevision;
+  try {
+    const info = await invoke<LocalNode>("local_node_info");
+    if (disposed || revision !== localRevision) return;
+    localNode.value = info; localWarning.value = "";
+  } catch {
+    if (!disposed && revision === localRevision) localWarning.value = "本机共享组件尚未就绪。";
+  }
 }
 async function toggleSharing() {
+  if (localBusy.value || !localNode.value) return;
+  ++localRevision;
   localBusy.value=true;
   try {localNode.value=await invoke<LocalNode>("set_local_sharing",{enabled:!localNode.value?.sharing_enabled});
   } catch {localWarning.value="共享状态未能更新，请重试。";} finally {localBusy.value=false;}
 }
 async function requestPermissions() {
+  if (localBusy.value) return;
+  ++localRevision;
   localBusy.value=true;
   try {localNode.value=await invoke<LocalNode>("request_local_permissions");}
   catch {localWarning.value="请在 macOS 系统设置中允许 窗渡 PaneFerry 的录屏与辅助功能。";}

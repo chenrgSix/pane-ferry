@@ -541,3 +541,52 @@ test("device actions return to the workspace and keep catalogs and connection re
     assert.equal(state.launches.length, 2, "switching devices preserves the session's connection history");
   } finally { mounted.unmount(); }
 });
+
+test("a late sharing-status poll cannot undo a completed stop-sharing result", async () => {
+  const node = { device_id: "local", name: "Mac", sharing_enabled: true,
+    permissions: { screen_recording: true, accessibility: true } };
+  let resolvePoll;
+  let delayed = false;
+  const mounted = mount(storage(), {
+    local_node_info: () => delayed ? new Promise(resolve => { resolvePoll = resolve; }) : node,
+    set_local_sharing: ({ enabled }) => ({ ...node, sharing_enabled: enabled }),
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    delayed = true;
+    const oldPoll = state.readLocal();
+    await state.toggleSharing();
+    assert.equal(state.localNode.sharing_enabled, false);
+    resolvePoll(node);
+    await oldPoll;
+    assert.equal(state.localNode.sharing_enabled, false, "stale read must not say sharing is enabled after stopping it");
+    await state.toggleSharing();
+    assert.equal(mounted.calls.filter(call => call.command === "set_local_sharing").at(-1).args.enabled, true,
+      "the next click must enable sharing, not send a second stop based on stale state");
+  } finally { mounted.unmount(); }
+});
+
+test("sharing mutation excludes concurrent polls and duplicate clicks until confirmed", async () => {
+  const node = { device_id: "local", name: "Mac", sharing_enabled: true,
+    permissions: { screen_recording: true, accessibility: true } };
+  let finish;
+  const mounted = mount(storage(), {
+    local_node_info: () => node,
+    set_local_sharing: () => new Promise(resolve => { finish = resolve; }),
+  });
+  try {
+    const { state } = mounted;
+    await settled(state);
+    const reads = mounted.calls.filter(call => call.command === "local_node_info").length;
+    const stopping = state.toggleSharing();
+    await state.readLocal();
+    void state.toggleSharing();
+    assert.equal(mounted.calls.filter(call => call.command === "local_node_info").length, reads);
+    assert.equal(mounted.calls.filter(call => call.command === "set_local_sharing").length, 1);
+    finish({ ...node, sharing_enabled: false });
+    await stopping;
+    assert.equal(state.localBusy, false);
+    assert.equal(state.localNode.sharing_enabled, false);
+  } finally { mounted.unmount(); }
+});
