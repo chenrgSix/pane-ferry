@@ -737,14 +737,16 @@ impl Backend {
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
         self.known(id)?;
         paneferry_protocol::dimensions(w, h)?;
+        self.resize_window(id, w, h, self.windows[&id].role == "popup")
+    }
+    fn resize_window(&self, id: u32, w: u32, h: u32, popup: bool) -> Result<()> {
+        // Recovery runs before an oversized window enters `windows`. It needs
+        // the same scoped compositor route as an explicit controller resize.
         if let Some(geometry) = &self.desktop_geometry {
             if geometry.resize(id, w, h)? {
                 return Ok(());
             }
         }
-        self.resize_window(id, w, h, self.windows[&id].role == "popup")
-    }
-    fn resize_window(&self, id: u32, w: u32, h: u32, popup: bool) -> Result<()> {
         if !popup {
             // Managed/maximized windows must be resized through their WM.
             // Direct ConfigureWindow is commonly ignored for restored maximized Firefox.
@@ -1074,4 +1076,105 @@ fn authenticated_connection(display: u16, authority: &Path) -> Result<RustConnec
         cookie,
     )?;
     Ok(conn)
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct Geometry {
+        conn: RustConnection,
+        calls: Arc<Mutex<Vec<(u32, u32, u32)>>>,
+        handled: bool,
+        fail: bool,
+    }
+    impl DesktopGeometry for Geometry {
+        fn resize(&self, id: u32, w: u32, h: u32) -> Result<bool> {
+            self.calls.lock().unwrap().push((id, w, h));
+            if self.fail {
+                bail!("window_unavailable");
+            }
+            if self.handled {
+                self.conn
+                    .configure_window(id, &ConfigureWindowAux::new().width(w).height(h))?
+                    .check()?;
+            }
+            Ok(self.handled)
+        }
+        fn pointer(&self, _: u32, _: i32, _: i32, _: u32, _: u32) -> Result<Option<(i32, i32)>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a private Xvfb DISPLAY; run with xvfb-run"]
+    fn oversized_discovery_and_controller_resize_share_scoped_geometry() -> Result<()> {
+        let (conn, screen) = x11rb::connect(None)?;
+        let mut backend = Backend::from_connection(conn, screen, None)?;
+        backend.existing_display = Some(0);
+        let id = backend.conn.generate_id()?;
+        backend
+            .conn
+            .create_window(
+                x11rb::COPY_DEPTH_FROM_PARENT,
+                id,
+                backend.root,
+                0,
+                0,
+                4100,
+                1000,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )?
+            .check()?;
+        backend.conn.map_window(id)?.check()?;
+        backend
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                backend.root,
+                backend.atom("_NET_CLIENT_LIST"),
+                AtomEnum::WINDOW,
+                &[id],
+            )?
+            .check()?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let geometry = |handled, fail| -> Result<Box<dyn DesktopGeometry>> {
+            Ok(Box::new(Geometry {
+                conn: x11rb::connect(None)?.0,
+                calls: calls.clone(),
+                handled,
+                fail,
+            }))
+        };
+        backend.set_desktop_geometry(geometry(true, false)?);
+        assert!(!backend.windows.contains_key(&id));
+        backend.scan()?;
+        let resized = backend.conn.get_geometry(id)?.reply()?;
+        paneferry_protocol::dimensions(resized.width.into(), resized.height.into())?;
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            1,
+            "initial discovery must use compositor geometry"
+        );
+        backend.scan()?;
+        assert!(backend.windows.contains_key(&id));
+        backend.configure(id, 900, 600)?;
+        assert_eq!(calls.lock().unwrap().last(), Some(&(id, 900, 600)));
+        assert_eq!(backend.conn.get_geometry(id)?.reply()?.width, 900);
+
+        // A rejected scope must never fall through to direct X11 mutation.
+        backend.set_desktop_geometry(geometry(false, true)?);
+        assert!(backend.resize_window(id, 700, 500, true).is_err());
+        assert_eq!(backend.conn.get_geometry(id)?.reply()?.width, 900);
+        // A compositor that does not handle this window retains X11 fallback.
+        backend.set_desktop_geometry(geometry(false, false)?);
+        backend.resize_window(id, 700, 500, true)?;
+        assert_eq!(backend.conn.get_geometry(id)?.reply()?.width, 700);
+        backend.conn.destroy_window(id)?.check()?;
+        Ok(())
+    }
 }
