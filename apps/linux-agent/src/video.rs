@@ -305,7 +305,7 @@ impl PipeWireCapture {
         // Detach from the producer's pool before handing a buffer to an
         // asynchronous converter. A retained pool lease can stop GNOME's GPU
         // screencast after its first frame. Subsequent stages share GstMemory.
-        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true use-bufferpool=false ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
+        let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true always-copy=true use-bufferpool=false ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
         Self::from_description(&description, wake)
     }
     fn from_description(description: &CStr, wake: Arc<FrameWake>) -> Result<Self> {
