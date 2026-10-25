@@ -9,6 +9,9 @@ pub trait WindowBackend: Send {
     fn prepare_input(&self);
     fn input_status(&self) -> Option<&'static str>;
     fn refresh_capture(&self);
+    fn refresh_window(&self, _id: u32) {
+        self.refresh_capture();
+    }
     /// An explicit launch/resume may retry a previously failed size adjustment.
     fn retry_window_adjustments(&mut self) {}
     fn event_fd(&self) -> std::os::fd::RawFd;
@@ -51,6 +54,9 @@ impl WindowBackend for X11 {
     }
     fn refresh_capture(&self) {
         X11::refresh_capture(self)
+    }
+    fn refresh_window(&self, id: u32) {
+        X11::refresh_window(self, id)
     }
     fn retry_window_adjustments(&mut self) {
         X11::retry_window_adjustments(self)

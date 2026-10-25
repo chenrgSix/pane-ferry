@@ -6,7 +6,7 @@ use paneferry_core::{load_catalog, App, SessionBus};
 use paneferry_protocol::{identifier, read_line_limit, Request, Window};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{BufReader, Read, Write},
     os::unix::{
@@ -51,6 +51,10 @@ fn triggers_fast_scan(request: &Request) -> bool {
             }
             | Request::Key { pressed: true, .. }
     )
+}
+
+fn prioritize_recaptures(windows: &mut [Window], retries: &HashSet<u32>) {
+    windows.sort_by_key(|window| !retries.contains(&window.window_id));
 }
 
 fn visible_capture_pending(backend: &dyn backend::WindowBackend) -> bool {
@@ -1316,6 +1320,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut input_status = None;
     let mut exit_notified = false;
     let mut known: HashMap<u32, Window> = HashMap::new();
+    let mut retry_windows = HashSet::new();
     let mut pending_request = None;
     while !STOP.load(Ordering::SeqCst) {
         if lease.is_some() && !state.lock().unwrap().sharing {
@@ -1334,6 +1339,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             let sid = s.id.clone();
             if !s.has_exited()? {
                 if let Some(b) = &mut s.backend {
+                    for id in out.take_refreshes() {
+                        if b.windows().contains_key(&id) {
+                            retry_windows.insert(id);
+                            b.refresh_window(id);
+                        }
+                    }
                     if let Err(error) = b.pump_text() {
                         eprintln!("controller text delivery failed: {error}");
                         send(
@@ -1853,7 +1864,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
-            let windows = if !s.has_exited()? && scan_due {
+            let mut windows = if !s.has_exited()? && scan_due {
                 match s.scan_windows() {
                     Ok(windows) => windows,
                     Err(error) => {
@@ -1879,6 +1890,14 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 }
                 continue;
             }
+            retry_windows.retain(|id| {
+                windows
+                    .iter()
+                    .any(|window| window.window_id == *id && window.visible)
+            });
+            // A continuously repainting large window must not always get the
+            // first admission attempt ahead of a previously skipped snapshot.
+            prioritize_recaptures(&mut windows, &retry_windows);
             let existing = s.existing.is_some();
             let desktop_mode = s.desktop_monitor.is_some();
             let scaled_window = s.page_scale.as_ref().map(|z| z.window);
@@ -1944,6 +1963,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     // after idle. Failed attempts still retain the adaptive cap.
                     last_capture = Instant::now();
                     if let Ok(image) = b.capture(w) {
+                        retry_windows.remove(&w.window_id);
                         out.frame(w, image, &sid)?;
                     }
                 }
@@ -1956,6 +1976,37 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn skipped_static_windows_precede_continuously_repainting_windows() {
+        let make = |id| Window {
+            window_id: id,
+            parent_id: None,
+            title: String::new(),
+            presentation: None,
+            role: "toplevel".into(),
+            x: 0,
+            y: 0,
+            width: 3000,
+            height: 2000,
+            scale_factor: 1,
+            geometry_revision: 1,
+            visible: true,
+        };
+        let mut windows = vec![make(1), make(2), make(3)];
+        prioritize_recaptures(&mut windows, &HashSet::from([2, 3]));
+        assert_eq!(
+            windows.iter().map(|w| w.window_id).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
+        // If only the first retry fits, the next scan gives the remaining one
+        // first choice rather than putting the continuously dirty window first.
+        prioritize_recaptures(&mut windows, &HashSet::from([3, 1]));
+        assert_eq!(
+            windows.iter().map(|w| w.window_id).collect::<Vec<_>>(),
+            vec![3, 1, 2]
+        );
+    }
+
     #[test]
     fn metadata_scans_slow_only_after_a_window_is_ready_and_input_is_idle() {
         assert_eq!(scan_interval(false, false, false), Duration::from_secs(1));

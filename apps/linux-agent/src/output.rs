@@ -6,7 +6,7 @@ use paneferry_backend_x11::CapturedImage;
 use paneferry_protocol::Window;
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::Write,
     os::unix::net::UnixStream,
     sync::{Arc, Condvar, Mutex},
@@ -53,9 +53,17 @@ struct Queue {
     events: VecDeque<Pending>,
     pixels: usize,
     encoded_bytes: usize,
+    refresh: HashSet<u32>,
     closed: bool,
 }
 impl Queue {
+    fn request_refresh(&mut self, id: u32) -> Result<()> {
+        if self.refresh.len() >= 64 && !self.refresh.contains(&id) {
+            bail!("recapture window limit")
+        }
+        self.refresh.insert(id);
+        Ok(())
+    }
     fn remove(&mut self, index: usize) -> Pending {
         let event = self.events.remove(index).unwrap();
         self.pixels -= event.pixels();
@@ -75,12 +83,14 @@ impl Queue {
             {
                 self.remove(index);
             }
-            while self.pixels + event.pixels() > PIXEL_BUDGET {
-                let Some(index) = self.events.iter().position(|old| old.frame_id().is_some())
-                else {
-                    bail!("frame exceeds output budget")
-                };
-                self.remove(index);
+            if event.pixels() > PIXEL_BUDGET {
+                bail!("frame exceeds output budget")
+            }
+            if self.pixels + event.pixels() > PIXEL_BUDGET {
+                // Capture already acknowledged XDamage. Preserve older windows'
+                // turns and explicitly request this window again, even if static.
+                self.request_refresh(id)?;
+                return Ok(());
             }
         }
         if self.encoded_bytes + event.encoded_bytes() > 32 * 1024 * 1024 {
@@ -140,6 +150,9 @@ impl Output {
         session: &str,
     ) -> Result<()> {
         self.push(Pending::Frame(window.clone(), image, session.into()))
+    }
+    pub fn take_refreshes(&self) -> Vec<u32> {
+        self.queue.0.lock().unwrap().refresh.drain().collect()
     }
     pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
         self.push(Pending::EnableVideo(max_fps, feedback))
@@ -235,6 +248,7 @@ fn write_loop(
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
                         generations.remove(&id);
                         geometry.remove(&id);
+                        shared.0.lock().unwrap().refresh.remove(&id);
                         workers.forget(id)?;
                     }
                     Some("window.created" | "window.metadata") => {
@@ -366,6 +380,32 @@ mod tests {
         ));
         assert_eq!(queue.pixels, 0);
     }
+    #[test]
+    fn output_pixel_pressure_retains_other_windows_and_requests_recapture() {
+        let mut queue = Queue::default();
+        for id in 1..=3 {
+            let Pending::Frame(mut window, _, session) = frame(1) else {
+                unreachable!()
+            };
+            window.window_id = id;
+            let image = Arc::new(crate::video::Frame::from(CapturedImage {
+                width: 4000,
+                height: 2000,
+                data: vec![],
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            }));
+            queue.push(Pending::Frame(window, image, session)).unwrap();
+        }
+        assert_eq!(queue.pixels, PIXEL_BUDGET);
+        assert_eq!(queue.events.len(), 2);
+        assert_eq!(queue.remove(0).frame_id(), Some(1));
+        assert_eq!(queue.remove(0).frame_id(), Some(2));
+        assert_eq!(queue.refresh.into_iter().collect::<Vec<_>>(), vec![3]);
+    }
+
     #[test]
     fn bounds_control_queue_and_rejects_writes_after_close() {
         let mut queue = Queue::default();

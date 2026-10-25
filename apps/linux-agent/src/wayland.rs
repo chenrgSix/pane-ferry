@@ -440,6 +440,11 @@ impl WindowBackend for Backend {
             stream.dirty = true;
         }
     }
+    fn refresh_window(&self, id: u32) {
+        if let Some(stream) = self.streams.borrow_mut().get_mut(&id) {
+            stream.dirty = true;
+        }
+    }
     fn event_fd(&self) -> std::os::fd::RawFd {
         self.frame_wake.event_fd()
     }

@@ -104,6 +104,9 @@ impl Backend {
     pub fn refresh_capture(&self) {
         self.damage.borrow_mut().refresh();
     }
+    pub fn refresh_window(&self, id: u32) {
+        self.damage.borrow_mut().retry(id);
+    }
     /// Readiness only; ownership remains with this backend for the controller lease.
     pub fn event_fd(&self) -> std::os::fd::RawFd {
         use std::os::fd::AsRawFd;

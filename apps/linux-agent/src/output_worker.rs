@@ -145,7 +145,7 @@ impl Queue {
         self.pixels -= work.pixels();
         work
     }
-    fn push(&mut self, work: Work) -> Result<()> {
+    fn push(&mut self, work: Work) -> Result<bool> {
         if self.closed {
             bail!("encoder closed")
         }
@@ -155,15 +155,11 @@ impl Queue {
             ) {
                 self.remove(at);
             }
-            while self.pixels + work.pixels() > 8_000_000 {
-                let Some(at) = self
-                    .events
-                    .iter()
-                    .position(|old| matches!(old, Work::Frame(_)))
-                else {
-                    bail!("encoder pixel budget")
-                };
-                self.remove(at);
+            if work.pixels() > 8_000_000 {
+                bail!("encoder pixel budget")
+            }
+            if self.pixels + work.pixels() > 8_000_000 {
+                return Ok(false);
             }
         }
         if self.events.len() >= 128 {
@@ -171,12 +167,13 @@ impl Queue {
         }
         self.pixels += work.pixels();
         self.events.push_back(work);
-        Ok(())
+        Ok(true)
     }
 }
 type WorkerQueue = Arc<(Mutex<Queue>, Condvar)>;
 pub(super) struct Pool {
     queues: Vec<WorkerQueue>,
+    output: Shared,
 }
 impl Pool {
     pub fn new(output: Shared, factory: Factory) -> Self {
@@ -233,11 +230,21 @@ impl Pool {
                 }
             });
         }
-        Self { queues }
+        Self { queues, output }
     }
     fn push(&self, index: usize, work: Work) -> Result<()> {
+        let id = match &work {
+            Work::Frame(job) => Some(job.window.window_id),
+            _ => None,
+        };
         let q = &self.queues[index];
-        q.0.lock().unwrap().push(work)?;
+        if !q.0.lock().unwrap().push(work)? {
+            // A dropped raw snapshot needs a fresh capture, not a keyframe
+            // request from a client that may never have received any image.
+            if let Some(id) = id {
+                self.output.0.lock().unwrap().request_refresh(id)?;
+            }
+        }
         q.1.notify_one();
         Ok(())
     }
@@ -266,5 +273,68 @@ impl Drop for Pool {
             state.pixels = 0;
             q.1.notify_one();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paneferry_backend_x11::CapturedImage;
+
+    fn job(id: u32) -> Job {
+        Job {
+            window: Window {
+                window_id: id,
+                parent_id: None,
+                title: String::new(),
+                presentation: None,
+                role: "toplevel".into(),
+                x: 0,
+                y: 0,
+                width: 3000,
+                height: 2000,
+                scale_factor: 1,
+                geometry_revision: 1,
+                visible: true,
+            },
+            // Queue accounting does not inspect pixels or call an encoder.
+            image: Arc::new(crate::video::Frame::from(CapturedImage {
+                width: 3000,
+                height: 2000,
+                data: vec![],
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            })),
+            session: "test".into(),
+            generation: 1,
+            fps: 60,
+        }
+    }
+
+    #[test]
+    fn pixel_pressure_preserves_older_windows_and_requests_static_recapture() {
+        let output = Arc::new((Mutex::new(super::super::Queue::default()), Condvar::new()));
+        let pool = Pool {
+            queues: vec![Arc::new((Mutex::new(Queue::default()), Condvar::new()))],
+            output: output.clone(),
+        };
+        pool.frame(job(1)).unwrap();
+        pool.frame(job(2)).unwrap();
+        assert_eq!(pool.queues[0].0.lock().unwrap().pixels, 6_000_000);
+        assert!(
+            matches!(pool.queues[0].0.lock().unwrap().remove(0), Work::Frame(j) if j.window.window_id == 1)
+        );
+        assert_eq!(
+            output.0.lock().unwrap().refresh.drain().collect::<Vec<_>>(),
+            vec![2]
+        );
+        // The recaptured static window obtains its turn when capacity is free.
+        pool.frame(job(2)).unwrap();
+        assert!(
+            matches!(pool.queues[0].0.lock().unwrap().remove(0), Work::Frame(j) if j.window.window_id == 2)
+        );
+        assert!(output.0.lock().unwrap().refresh.is_empty());
     }
 }
