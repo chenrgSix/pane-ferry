@@ -611,3 +611,13 @@ Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启
 基线扫描的 105 个 Ubuntu 进程中，98 个身份保持，7 个原有 Codex 下的临时工具子进程已结束；不声称所有 105 个进程都保持。未操作用户实际应用窗口，未重启正式服务、桌面或网络，也没有启用/更新 GNOME 扩展。本次覆盖私有 X11 窗口，不替代已有 Wayland 窗口、真实应用或长期使用验收。夹具语法、diff 检查和真实 GUI 两轮通过，本次未重跑全项目门禁。
 
 [结构化证据](validation-artifacts/2026-10-24-window-lifecycle-deployment.json)、[最小化恢复入口](validation-artifacts/2026-10-24-source-minimized.png)、[恢复后的画面](validation-artifacts/2026-10-24-source-restored.png)。完整安装备份及本机记录保留在忽略目录 `dist/window-lifecycle-20261024/`，Ubuntu 旧 Agent 备份保留在用户状态目录的 `upgrades/window-lifecycle-20261024/`。
+
+## 应用会话列表与临时显示器回归（2026-10-25）
+
+`cbca671` 修复启动器 transport 的会话列表校验遗漏 `scene`：有效的应用会话此前会触发“远端返回无效或过大的消息”。新增真实 Unix socket 握手测试，混合旧会话、app、desktop、scene 列表；旧代码稳定返回 Protocol，修复后通过，未知模式及非 desktop 模式携带 monitor_id 仍被拒绝。transport 9 项、启动器 Rust 6 项测试通过。
+
+`abf3c06` 在 GNOME 显示器枚举中排除 Mutter RecordVirtual 创建的临时采集输出。依据 compositor 提供的 connector/vendor/product 组合识别，未依据显示名称、应用或画布分辨率判断；普通无头显示器及名称为 MetaVendor 的实体显示器保留。desktop.start 共用同一枚举，旧缓存中的临时 connector 也不能绕过。显示器 Python 4 项、远端 release 桌面坐标测试 1 项通过。
+
+Mac 正式应用重新构建、签名校验并启动；Ubuntu Agent release 构建并部署。运行中 Agent SHA-256 为 `985aef4239fde0214dfce4ac0720d3da9799d3c8b6d38dd5c8dd4a2464f374dc`，服务 active、NRestarts=0。备份位于 `~/.local/state/lan-remoteapp/upgrades/catalog-fix-20261025/`；原 IDEA 和 ChatGPT 进程保留，未变更 GNOME 扩展或注销桌面。
+
+实际启用启动器“应用会话画面 · 试用”，从运行窗口列表点击 IDEA“连接”，界面返回“已连接应用窗口”，正式缓存 WindowHost 显示 2940×1594 的单场景 H.264 图像。真实配对路径调用启动器同一 Rust sessions API 成功；连接期间刷新显示器无报错，只显示 HKD 实体屏。Mutter 仍报告 DP-2 和 Meta-0 两个 connector，而正式 desktop.list 只返回 DP-2；真实 desktop.start 请求 Meta-0 返回 desktop_monitor_unavailable。此轮验证针对目录读取、连接和显示器过滤，未重测端到端延迟，不以此宣称性能变化或所有平台 CI 通过。
