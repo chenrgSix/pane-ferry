@@ -74,6 +74,9 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
         probe = replace(probe, 'static func drew(_ image: CGImage) {\n        let completed = now()',
                         'static func drew(_ image: CGImage, timestamp: UInt64? = nil) {\n        let completed = timestamp ?? now()')
         probe = probe.replace('context menu AppKit draw completion', 'context menu renderer displayed-buffer availability')
+        if probe_source.name == 'PopupProbe.swift':
+            probe = replace(probe, '        if sceneMode {\n            result["source_geometry"]',
+                '        result["video_counts"] = ["selected": selectedVideoCount, "presented": presentedVideoCount, "matched": matchedVideoCount]\n        if sceneMode {\n            result["source_geometry"]')
         probe += (HERE / 'VideoPresentationProbe.swift').read_text()
     (source / 'Probe.swift').write_text(probe)
     contents = destination / 'PaneFerry Live Probe.app/Contents'

@@ -315,7 +315,9 @@ enum Probe {
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: output), options: .atomic)
         }
-        let cleanupMenu = openedID.flatMap { delegate?.windows[$0] }?.window.isVisible == true
+        // A failed ROI match can still leave a real menu open. Always dismiss
+        // an attempted menu on this authorized root before detaching.
+        let cleanupMenu = rootID != nil && ["opening", "preview", "drawn", "closing"].contains(phase)
         if cleanupMenu { closeMenu() }
         DispatchQueue.main.asyncAfter(deadline: .now() + (cleanupMenu ? 0.3 : 0)) {
             delegate?.stopping = true; delegate?.connected = false; delegate?.transport.disconnect()

@@ -5,13 +5,16 @@ import IOSurface
 // displayed buffer. Pixel inspection happens afterward and never gates product
 // rendering. This includes renderer scheduling, but not physical panel scanout.
 extension Probe {
+    static var selectedVideoCount = 0, presentedVideoCount = 0, matchedVideoCount = 0
     static var videoSelections: [ObjectIdentifier: [String: Any]] = [:]
     static func selected(_ frame: VideoFrame, object: [String: Any]) {
+        selectedVideoCount += 1
         if videoSelections.count > 64 { videoSelections.removeAll() }
         var value = object; value["selected"] = now()
         videoSelections[ObjectIdentifier(frame)] = value
     }
     static func presented(_ frame: VideoFrame, surface: SurfaceView) {
+        presentedVideoCount += 1
         let deadline = now() + 1_000_000_000
         func inspect() {
             guard surface.displayFrame === frame else { return }
@@ -28,6 +31,7 @@ extension Probe {
                     return
                 }
             }
+            matchedVideoCount += 1
             let completed = now()
             guard let value = videoSelections[ObjectIdentifier(frame)], let image = frame.image else { return }
             lock.lock(); frames[ObjectIdentifier(image)] = value; lock.unlock()
