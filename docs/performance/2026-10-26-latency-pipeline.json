@@ -1,0 +1,172 @@
+{
+  "date": "2026-10-26",
+  "application": "IntelliJ IDEA",
+  "scenario": "Git log context menu open with right-click and dismiss with Escape; no menu command selected",
+  "production_commits": {
+    "agent": "288997c",
+    "macos": "8e91d92",
+    "probe": "315c21d",
+    "starting_revision": "4b1e49c"
+  },
+  "agent_sha256": "2d9dfdf84bfe8d152f3ad58599ee0c8591ac189c08c87578c5a49f9f7aebaad6",
+  "windowhost_sha256": "d554f38f335653a66d76318052d917a6ec1bc620b4131989c1ff1a3e32d99252",
+  "transport": {
+    "protocol": "paired QUIC",
+    "interface": "utun4",
+    "route": "EasyTier tunnel; not a direct LAN benchmark"
+  },
+  "source": {
+    "pixels": [
+      2940,
+      1618
+    ],
+    "logical_size": [
+      1470,
+      809
+    ],
+    "scale": 2,
+    "click_pixels": [
+      1000,
+      900
+    ],
+    "menu_roi_pixels": [
+      1080,
+      385,
+      420,
+      60
+    ],
+    "scene_window_count": 1
+  },
+  "measurement": {
+    "clock": "same Mac monotonic clock",
+    "start": "SurfaceView.rightMouseDown entry",
+    "end": "matching context menu renderer displayed-buffer availability",
+    "warmups_per_run": 2,
+    "samples_per_run": 60,
+    "p95_method": "nearest rank",
+    "all_h264": true,
+    "all_hardware_decode": true,
+    "roi_readback": "16x16 after endpoint timestamp",
+    "includes_physical_input_or_scanout": false
+  },
+  "headline_runs": [
+    {
+      "name": "final-30-roi",
+      "fps_cap": 30,
+      "stages": {
+        "total": {
+          "samples": 60,
+          "median_ms": 137.058083,
+          "p95_ms": 167.165292,
+          "min_ms": 114.945125,
+          "max_ms": 193.525834
+        },
+        "input_write": {
+          "samples": 60,
+          "median_ms": 0.014812,
+          "p95_ms": 0.019791,
+          "min_ms": 0.006875,
+          "max_ms": 0.051209
+        },
+        "before_receive": {
+          "samples": 60,
+          "median_ms": 120.173313,
+          "p95_ms": 148.521625,
+          "min_ms": 99.398375,
+          "max_ms": 182.394625
+        },
+        "parse_decode": {
+          "samples": 60,
+          "median_ms": 5.433126,
+          "p95_ms": 6.125458,
+          "min_ms": 2.792667,
+          "max_ms": 6.506125
+        },
+        "main_queue": {
+          "samples": 60,
+          "median_ms": 0.065771,
+          "p95_ms": 0.095666,
+          "min_ms": 0.039333,
+          "max_ms": 0.88125
+        },
+        "renderer": {
+          "samples": 60,
+          "median_ms": 11.918813,
+          "p95_ms": 17.042583,
+          "min_ms": 2.890042,
+          "max_ms": 17.769959
+        }
+      },
+      "video_counts": {
+        "matched": 662,
+        "presented": 673,
+        "selected": 679
+      }
+    },
+    {
+      "name": "final-60-roi",
+      "fps_cap": 60,
+      "stages": {
+        "total": {
+          "samples": 60,
+          "median_ms": 134.796042,
+          "p95_ms": 168.867583,
+          "min_ms": 107.400625,
+          "max_ms": 219.031875
+        },
+        "input_write": {
+          "samples": 60,
+          "median_ms": 0.0155,
+          "p95_ms": 0.022875,
+          "min_ms": 0.007458,
+          "max_ms": 0.036417
+        },
+        "before_receive": {
+          "samples": 60,
+          "median_ms": 119.553375,
+          "p95_ms": 147.723542,
+          "min_ms": 95.853291,
+          "max_ms": 204.573084
+        },
+        "parse_decode": {
+          "samples": 60,
+          "median_ms": 5.419813,
+          "p95_ms": 7.258958,
+          "min_ms": 2.68925,
+          "max_ms": 8.4305
+        },
+        "main_queue": {
+          "samples": 60,
+          "median_ms": 0.081188,
+          "p95_ms": 5.656375,
+          "min_ms": 0.04175,
+          "max_ms": 9.253916
+        },
+        "renderer": {
+          "samples": 60,
+          "median_ms": 10.193041,
+          "p95_ms": 14.656083,
+          "min_ms": 1.451,
+          "max_ms": 16.745833
+        }
+      },
+      "video_counts": {
+        "matched": 732,
+        "presented": 763,
+        "selected": 789
+      }
+    }
+  ],
+  "decision": {
+    "deployed_fps_cap": 30,
+    "reason": "60 cap changes median by about 2.3 ms with slightly worse P95; no material improvement demonstrated. Separate synthetic continuous-motion spot checks did not reach sustained 60 displayed fps."
+  },
+  "limitations": [
+    "No final old/new build A/B with the same endpoint; cannot compute an improvement percentage over historical 222 ms.",
+    "One 60-cap exploration failed after 27 formal samples using a menu/background ROI; preserved and excluded from complete-run statistics.",
+    "Displayed-buffer availability is a software observation, not physical panel scanout.",
+    "Continuous-motion FPS was a spot check, not an averaged throughput or input-latency benchmark.",
+    "30/60 caps share resolution and QP limit, but nominal encoder bitrate follows negotiated FPS.",
+    "Before-receive time includes application response, capture, encoding and round-trip transport; it is not a measurement of network delay alone."
+  ]
+}

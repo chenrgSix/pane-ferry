@@ -31,13 +31,15 @@ ready 或 preview 阶段可发送新 serial、`action:snapshot`，将当前可�
 当前菜单关闭后才能触发下一次输入，超时、菜单仍带标题栏或意外已有子窗口会终止测试并报告失败。
 正式结果强制核对 H.264 与硬件解码。预览与失败尝试不能混入成功样本。
 数据只代表该应用右键菜单打开的延迟，包括临时窗口的采集和编码器启动；不能外推成打字、滚动或所有操作的延迟。
-终点仍为 AppKit 绘制返回，未包括最终桌面合成、显示扫描与面板响应。
+当前 CoreVideo 路径的终点见下一节；旧版位图记录的终点为 AppKit 绘制返回。两者均未包括显示扫描与面板响应。
 
 ## CoreVideo 显示路径的计时终点
 
 当前 Mac 宿主保留 VideoToolbox 的 CoreVideo 缓冲，使用 AVFoundation 视频层显示，不在正常播放时逐帧转 CGImage。
 临时探针通过 `displayedPixelBuffer()` 核对当前提交的 CVPixelBuffer 或 IOSurface，记录显示缓冲可用时间；
-之后才为 ROI/视觉标记生成诊断图片，避免将像素识别开销计入终点。需要 macOS 14.4+。
+之后才检查 ROI/视觉标记，避免将像素识别开销计入终点。菜单探针直接把已观察确认的 ROI 缩为
+16×16 像素进行比对，预览和关闭基线也使用同样的 ROI 路径，不逐帧回读整张图像。需要 macOS 14.4+。
+显式设置 `PROBE_SNAPSHOT_ON_FAILURE=1` 可在失败后导出私有诊断截图；截图不参与计时，也不要提交到仓库。
 结果的 endpoint 为 `renderer displayed-buffer availability`，不是旧版 `NSImage.draw` 返回，
 也不包括最终屏幕扫描和面板响应。不同终点的历史总数不能作为严格的同条件 A/B。
 
@@ -46,7 +48,8 @@ ready 或 preview 阶段可发送新 serial、`action:snapshot`，将当前可�
 Linux Agent 可通过 `PANEFERRY_VIDEO_MAX_FPS=30` 限制视频上限，取值为 1–90 的整数；未设置时保持原协议能力。
 设置在 Agent 服务环境中，重启后生效。它会向客户端公布上限，并限制 `video.enable` 与后续 `video.configure`，
 因此自动协商或重连不会把上限升回 60。`video.ready.max_fps` 返回实际接受的上限。
-这只改变采集/编码发送节奏，不改变 GNOME 虚拟显示器的 60 Hz、源像素尺寸、缩放或编码质量参数；
+这改变采集/编码发送节奏，不改变 GNOME 虚拟显示器的 60 Hz、源像素尺寸、缩放或 QP 上限；
+编码器的名义码率仍随协商帧率计算，因此不能把 30/60 上限试验描述为完全相同码率的对照。
 静止画面去重与拥塞时自适应降帧仍保留。删除环境覆盖并重启可恢复自动协商。
 
 ## Agent 阶段诊断副本
@@ -88,7 +91,8 @@ python3 tests/performance/live_end_to_end.py --build-dir /tmp/paneferry-live-pro
 
 方向键与点击交错，各预热 2 次、正式采样 40 次；8 位视觉标记必须匹配才记录。每轮核对
 远端 JSONL 中的输入计数、输入种类、绘制尺寸与缩放，保留原始数据及失败轮次。
-总延迟为同一 Mac 单调时钟的 `(draw_end - start) / 1e6` ms，终点为实际 AppKit 绘制完成，
+总延迟为同一 Mac 单调时钟的 `(draw_end - start) / 1e6` ms；当前 CoreVideo 路径中保留的
+`draw_end` 字段表示上述显示缓冲可用时间，历史位图记录则表示 AppKit 绘制完成，
 不含硬件输入、macOS 合成、屏幕扫描和面板响应。`received` 是完整协议行开始解析的时间，
 不能当成首个网络字节到达时间。程序强制核验 H.264 与 VideoToolbox 硬件解码。
 运行后关闭测试窗口，清理自建进程；源码和已安装的 WindowHost 不会被修改。
