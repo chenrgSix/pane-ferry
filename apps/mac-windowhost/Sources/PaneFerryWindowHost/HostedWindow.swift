@@ -271,12 +271,6 @@ final class HostedWindow: NSObject, NSWindowDelegate {
                 parts.append("近 2 秒收到约 \(Int((Double(recentFrames.count - 1) / (now - first)).rounded())) fps")
             }
         }
-        if let frame = frame {
-            let rect = surface.imageRect
-            let enlargement = max(rect.width * window.backingScaleFactor / CGFloat(frame.width),
-                                  rect.height * window.backingScaleFactor / CGFloat(frame.height))
-            if enlargement > 1.05 { parts.append("画面放大 \(Int((enlargement * 100).rounded()))%") }
-        }
         if let resolutionNotice = resolutionNotice { parts.append(resolutionNotice) }
         if let inputNotice = inputNotice { parts.append(inputNotice) }
         if !hiddenSourceView.isHidden { parts.append("源端窗口已最小化或隐藏 · 可恢复") }
