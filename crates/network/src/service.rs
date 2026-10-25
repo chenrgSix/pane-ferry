@@ -1072,18 +1072,37 @@ impl Service {
         }
         result
     }
+    async fn open_bulk(
+        self: &Arc<Self>,
+        request: &Value,
+        deadline: Instant,
+    ) -> Result<(SendStream, RecvStream)> {
+        // Stream credit and header writes can stall even on an authenticated,
+        // live connection. Bound all setup stages, not just the later body copy,
+        // so a stalled peer cannot retain local management slots indefinitely.
+        let connection = within(
+            deadline,
+            "connect bulk peer",
+            self.connection(request["device_id"].as_str().context("device required")?),
+        )
+        .await?;
+        let (mut send, recv) = within(deadline, "open bulk stream", connection.open_bi()).await?;
+        send.set_priority(-10)?;
+        within(
+            deadline,
+            "write bulk header",
+            Packet::new(request.clone(), 0)?.write(&mut send),
+        )
+        .await?;
+        Ok((send, recv))
+    }
     async fn bulk_client<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
         self: &Arc<Self>,
         request: &Value,
         read: &mut R,
         write: &mut W,
     ) -> Result<()> {
-        let connection = self
-            .connection(request["device_id"].as_str().context("device required")?)
-            .await?;
-        let (mut send, mut recv) = connection.open_bi().await?;
-        send.set_priority(-10)?;
-        Packet::new(request.clone(), 0)?.write(&mut send).await?;
+        let (mut send, mut recv) = self.open_bulk(request, Instant::now() + TIMEOUT).await?;
         tokio::time::timeout(Duration::from_secs(300), async {
             let input = async {
                 tokio::io::copy(read, &mut send).await?;
@@ -1409,6 +1428,48 @@ mod tests {
         .await
         .expect("cancelled media workers must release quota");
         client.close(0u32.into(), b"test complete");
+    }
+
+    #[tokio::test]
+    async fn bulk_setup_deadline_covers_exhausted_stream_credit() {
+        let (_root, service) = test_service();
+        let (_remote_root, remote) = test_service();
+        let peer = remote.local_peer();
+        let mut config = remote.identity.server().unwrap();
+        let mut transport = quinn::TransportConfig::default();
+        transport.max_concurrent_bidi_streams(0u32.into());
+        config.transport_config(Arc::new(transport));
+        remote.endpoint.set_server_config(Some(config));
+        service.persist_peer(peer.clone()).unwrap();
+        let dialing = service
+            .endpoint
+            .connect_with(
+                service.identity.client(&peer.certificate).unwrap(),
+                remote.address(),
+                "lan-remoteapp",
+            )
+            .unwrap();
+        let accepting = async { remote.endpoint.accept().await.unwrap().await.unwrap() };
+        let (client, server) = tokio::join!(dialing, accepting);
+        let client = client.unwrap();
+        // Authentication is already complete for this fixture: isolate the
+        // subsequent bulk stream-credit wait from the handshake deadline.
+        service.register(&peer.device_id, &client).unwrap();
+        let request = json!({"op":"bulk-download","device_id":peer.device_id,"transfer_id":"copy"});
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            service.open_bulk(&request, Instant::now() + Duration::from_millis(100)),
+        )
+        .await
+        .expect("bulk setup must not wait forever")
+        .unwrap_err();
+        assert!(error.to_string().contains("open bulk stream timed out"));
+        assert!(
+            client.close_reason().is_none(),
+            "a stalled operation must not close the shared peer connection"
+        );
+        client.close(0u32.into(), b"test complete");
+        server.close(0u32.into(), b"test complete");
     }
 
     #[tokio::test]
