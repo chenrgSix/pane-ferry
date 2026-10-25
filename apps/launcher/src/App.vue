@@ -37,7 +37,6 @@ const endpoint = ref<Endpoint>({ peerId: "" }),
   monitorWarning = ref(""),
   search = ref("");
 const busy = ref(false),
-  renderScale = ref("auto"),
   applicationScene = ref(false),
   error = ref(""),
   notice = ref(""),
@@ -224,22 +223,17 @@ function reconcileStarting(sent: Endpoint, remote: SessionInfo[]) {
   else stopStartupPoll();
 }
 const valid = computed(() => validPeerId(endpoint.value.peerId));
-function startupScale(): 1 | 2 {
-  const density = renderScale.value === "auto" ? window.devicePixelRatio : Number(renderScale.value);
-  return density >= 1.5 ? 2 : 1;
-}
 function save() {
   try {
     storage?.setItem(
       "lan-remoteapp.connection",
-      JSON.stringify({ endpoint: endpoint.value, renderScale: renderScale.value, applicationScene: applicationScene.value }),
+      JSON.stringify({ endpoint: endpoint.value, applicationScene: applicationScene.value }),
     );
   } catch {}
 }
 try {
   const saved = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
   applicationScene.value = saved?.applicationScene === true;
-  if (["auto", "1", "2"].includes(saved?.renderScale)) renderScale.value = saved.renderScale;
   if (validPeerId(saved?.endpoint?.peerId)) endpoint.value = { peerId: saved.endpoint.peerId };
 } catch {}
 function restoreCatalog() {
@@ -367,15 +361,15 @@ async function launch(app: LaunchTarget) {
   actionConnectionError.value = false;
   notice.value = "";
   const sent = { ...endpoint.value };
-  const scale = startupScale();
+  const scale = 1;
   const useScene = useApplicationScene(app.id);
   // Fixed canvas follows the local work area at launch. Local resizing scales
   // the composed image; it doesn't change popup placement behind the user's back.
-  const canvasScale = useScene ? Math.min(scale, 4096 / window.screen.availWidth, 4096 / Math.max(240, window.screen.availHeight - 40),
-    Math.sqrt(8_000_000 / (window.screen.availWidth * Math.max(240, window.screen.availHeight - 40)))) : scale;
+  const canvasScale = Math.min(1, 4096 / window.screen.availWidth, 4096 / Math.max(240, window.screen.availHeight - 40),
+    Math.sqrt(8_000_000 / (window.screen.availWidth * Math.max(240, window.screen.availHeight - 40))));
   const scene = useScene ? {
-    width: Math.max(640, Math.floor(window.screen.availWidth * canvasScale / scale) * scale),
-    height: Math.max(480, Math.floor(Math.max(240, window.screen.availHeight - 40) * canvasScale / scale) * scale),
+    width: Math.max(640, Math.floor(window.screen.availWidth * canvasScale)),
+    height: Math.max(480, Math.floor(Math.max(240, window.screen.availHeight - 40) * canvasScale)),
   } : null;
   const key = `${signature()}:${app.id}:native:${scale}${scene ? `:scene:${scene.width}x${scene.height}` : ""}`;
   try {
@@ -696,13 +690,6 @@ onUnmounted(() => {
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
           <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
-          <div class="setting-row scale-setting"><div><label for="render-scale">新应用启动缩放</label><p class="hint">自动模式按本机显示器倍率请求 100% 或 200%。仅对新启动的应用生效；已有窗口和会话保留原来的缩放。实际清晰度以收到的画面为准。</p></div>
-            <select id="render-scale" v-model="renderScale" :disabled="busy" @change="save">
-              <option value="auto">自动 · 跟随本机显示器</option>
-              <option value="1">100%</option>
-              <option value="2">200%</option>
-            </select>
-          </div>
           <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">远端窗口跟随本机内容区的逻辑宽高，保留应用现有缩放，画面等比显示。可在应用窗口的“显示”菜单中适应屏幕，或指定远端像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
         </section>
         <section class="panel">

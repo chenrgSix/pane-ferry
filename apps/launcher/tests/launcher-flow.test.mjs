@@ -151,28 +151,27 @@ test("launching a cached application forwards its Ubuntu icon without scanning a
   } finally { mounted.unmount(); }
 });
 
-test("automatic startup requests the display density and retries each density with its own request ID", async () => {
-  const mounted = mount(storage(), { devicePixelRatio: 2,
-    launch_app: () => { throw { message: "连接中断", retrySameRequest: true }; },
-  });
-  try {
-    await settled(mounted.state);
-    const target = mounted.state.apps[0];
-    await mounted.state.launch(target);
-    const retina = actions(mounted).at(-1).args;
-    assert.equal(retina.renderScale, 2);
-    globalThis.window.devicePixelRatio = 1;
-    await mounted.state.launch(target);
-    const standard = actions(mounted).at(-1).args;
-    assert.equal(standard.renderScale, 1);
-    assert.notEqual(standard.requestId, retina.requestId);
-    globalThis.window.devicePixelRatio = 2;
-    await mounted.state.launch(target);
-    assert.equal(actions(mounted).at(-1).args.requestId, retina.requestId);
-    mounted.state.renderScale = "1";
-    await mounted.state.launch(target);
-    assert.equal(actions(mounted).at(-1).args.requestId, standard.requestId);
-  } finally { mounted.unmount(); }
+test("ordinary startup ignores retired scaling preferences and Mac display density", async () => {
+  for (const oldScale of ["auto", "2", "1"]) {
+    const saved = storage();
+    saved.setItem("lan-remoteapp.connection", JSON.stringify({endpoint, renderScale:oldScale, applicationScene:true}));
+    const mounted = mount(saved, { devicePixelRatio:2,
+      launch_app: () => { throw {message:"connection",retrySameRequest:true}; },
+    });
+    try {
+      await settled(mounted.state);
+      assert.equal(mounted.state.applicationScene, true, "migration preserves the remaining display preference");
+      assert.equal(JSON.parse(saved.getItem("lan-remoteapp.connection")).renderScale, undefined);
+      await mounted.state.launch(app);
+      const retina = actions(mounted).at(-1).args;
+      assert.equal(retina.renderScale, 1);
+      globalThis.window.devicePixelRatio = 1;
+      await mounted.state.launch(app);
+      assert.equal(actions(mounted).at(-1).args.renderScale, 1);
+      assert.equal(actions(mounted).at(-1).args.requestId, retina.requestId,
+        "changing Mac density must not start a second request");
+    } finally { mounted.unmount(); }
+  }
 });
 
 test("optional scene canvas is bounded, retained on retries, and switches a detached external session", async () => {
@@ -188,7 +187,7 @@ test("optional scene canvas is bounded, retained on retries, and switches a deta
     await mounted.state.connect(mounted.state.runningConnections[0]);
     const sent = actions(mounted).at(-1);
     assert.equal(sent.command, "launch_app");
-    assert.deepEqual(sent.args.scene, {width:2940,height:1594});
+    assert.deepEqual(sent.args.scene, {width:1470,height:797});
     await mounted.state.connect(mounted.state.runningConnections[0]);
     assert.equal(actions(mounted).at(-1).args.requestId, sent.args.requestId);
     globalThis.window.screen = {availWidth:7680,availHeight:4320};
@@ -536,7 +535,7 @@ test("legacy connection settings cannot become a paired device or trigger connec
   try {
     await settled(mounted.state);
     assert.equal(mounted.state.valid, false);
-    assert.equal(mounted.state.renderScale, "2");
+    assert.equal(mounted.state.renderScale, undefined);
     assert.equal(saved.getItem("lan-remoteapp.devices"), null);
     assert.doesNotMatch(saved.getItem("lan-remoteapp.connection"), /host|user|port/);
     assert.equal(mounted.calls.filter(c => ["list_apps","list_sessions","list_desktop_windows"].includes(c.command)).length, 0);
@@ -553,7 +552,7 @@ test("menu navigation preserves the active device, app search, display preferenc
     const { state } = mounted;
     await settled(state);
     state.search = "fire";
-    state.renderScale = "2";
+    state.applicationScene = true;
     state.pairAddress = "192.168.1.20:42424";
     const calls = mounted.calls.length;
     for (const page of ["devices", "sharing", "display", "history", "apps"]) {
@@ -562,13 +561,13 @@ test("menu navigation preserves the active device, app search, display preferenc
       assert.equal(state.currentPage.id, page);
       assert.equal(state.selectedPeer.device_id, endpoint.peerId);
       assert.equal(state.filtered[0].name, "Firefox");
-      assert.equal(state.renderScale, "2");
+      assert.equal(state.applicationScene, true);
       assert.equal(state.pairAddress, "192.168.1.20:42424");
       assert.equal(state.runningConnections[0].sessionId, "remote");
     }
     assert.equal(mounted.calls.length, calls, "changing pages must not reconnect, rescan apps or change sharing");
     await state.launch(state.installed[0]);
-    assert.equal(actions(mounted).at(-1).args.renderScale, 2);
+    assert.equal(actions(mounted).at(-1).args.renderScale, 1);
     assert.equal(actions(mounted).at(-1).args.endpoint.peerId, endpoint.peerId);
   } finally { mounted.unmount(); }
 });

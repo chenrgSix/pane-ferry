@@ -11,7 +11,7 @@ export function retireLegacyPreferences(storage?: Preferences) {
     const saved = JSON.parse(storage.getItem("lan-remoteapp.connection") || "null");
     if (saved) {
       const endpoint = validPeerId(saved.endpoint?.peerId) ? {peerId: saved.endpoint.peerId} : {peerId: ""};
-      storage.setItem("lan-remoteapp.connection", JSON.stringify({endpoint, renderScale: saved.renderScale}));
+      storage.setItem("lan-remoteapp.connection", JSON.stringify({endpoint, applicationScene: saved.applicationScene === true}));
     }
     for (const key of ["lan-remoteapp.app-catalogs.v1", "lan-remoteapp.pending-launches"]) {
       const raw = storage.getItem(key);

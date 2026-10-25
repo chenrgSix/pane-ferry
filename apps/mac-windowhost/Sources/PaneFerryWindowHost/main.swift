@@ -655,7 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             else if let app = options.app {
                 var launch: [String: Any] = ["type": "app.launch", "app_id": app, "request_id": launchRequestID, "backend": "native"]
                 if capabilities.contains("display.scale") {
-                    launch["scale_factor"] = (NSScreen.main?.backingScaleFactor ?? 1) >= 1.5 ? 2 : 1
+                    launch["scale_factor"] = 1
                 }
                 send(launch)
             }

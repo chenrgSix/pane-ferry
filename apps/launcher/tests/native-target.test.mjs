@@ -15,14 +15,14 @@ test("migration preserves both peers' caches and ambiguous launches, removes leg
   const catalogs=[[endpointKey(a),{apps:[]}],[endpointKey(b),{apps:[]}],[old,{apps:[]}]];
   const pending=[[endpointKey(a)+":app:native:auto","request-a"],[endpointKey(b)+":app:native:auto","request-b"],[old+":app:native:auto","legacy"]];
   const data=new Map([
-    ["lan-remoteapp.connection",JSON.stringify({endpoint:{...a,host:"old",user:"old",port:22},renderScale:"2"})],
+    ["lan-remoteapp.connection",JSON.stringify({endpoint:{...a,host:"old",user:"old",port:22},renderScale:"2",applicationScene:true})],
     ["lan-remoteapp.devices","legacy"],
     ["lan-remoteapp.app-catalogs.v1",JSON.stringify(catalogs)],
     ["lan-remoteapp.pending-launches",JSON.stringify(pending)],
   ]);
   const storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
   retireLegacyPreferences(storage); retireLegacyPreferences(storage);
-  assert.deepEqual(JSON.parse(data.get("lan-remoteapp.connection")),{endpoint:a,renderScale:"2"});
+  assert.deepEqual(JSON.parse(data.get("lan-remoteapp.connection")),{endpoint:a,applicationScene:true});
   assert.deepEqual(JSON.parse(data.get("lan-remoteapp.app-catalogs.v1")),catalogs.slice(0,2));
   assert.deepEqual(JSON.parse(data.get("lan-remoteapp.pending-launches")),pending.slice(0,2));
   assert.equal(data.has("lan-remoteapp.devices"),false);

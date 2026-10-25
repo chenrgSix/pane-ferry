@@ -144,8 +144,6 @@ main { margin-left: 210px; width: calc(100% - 210px); max-width: 1450px; min-hei
 .setting-row + .setting-row { border-top: 1px solid #e7ecdf; }
 .setting-row:last-child { padding-bottom: 0; }
 .setting-row .hint { margin-top: 6px; }
-.scale-setting label { font-size: 14px; font-weight: 600; color: #21382e; }
-.scale-setting select { width: auto; max-width: 100%; flex-shrink: 0; font-size: 12px; }
 .permission-state { font-size: 12px; color: #a16d38; white-space: nowrap; }
 .permission-state.granted { color: #5b7d42; }
 .button-row { display: flex; gap: 9px; margin-top: 22px; flex-wrap: wrap; }
@@ -161,7 +159,6 @@ footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 3
   main { padding: 30px 25px 20px; }
   .device-picker { flex-wrap: wrap; gap: 8px; }
   .device-picker select { max-width: 260px; }
-  .scale-setting { align-items: flex-start; flex-direction: column; gap: 14px; }
 }
 @media (max-width: 850px) {
   .sidebar { width: 178px; padding: 27px 13px 20px; }
