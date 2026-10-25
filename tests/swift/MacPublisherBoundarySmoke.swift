@@ -1,7 +1,7 @@
 import AppKit
 import Darwin
 @main struct MacPublisherBoundarySmoke {
-    static func readRequest(_ json: String) throws -> [String: Any]? {
+    static func readRequest(_ json: String, count: Int = 1) throws -> [String: Any]? {
         var sockets = [Int32](repeating: 0, count: 2)
         precondition(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0)
         let wire = Wire(sockets[0]), peer = sockets[1]
@@ -22,11 +22,15 @@ import Darwin
             }
         }
         defer { wire.finish(); finished.wait() }
-        return try wire.read()
+        var result: [String: Any]?
+        for _ in 0..<count { result = try wire.read() }
+        return result
     }
     static func main() throws {
         let hello = try readRequest(#"{"type":"hello","version":1}"#)
         precondition(hello?["type"] as? String == "hello")
+        let buffered = try readRequest(#"{"type":"hello","version":1}"# + "\n" + #"{"type":"next","version":1}"#, count: 2)
+        precondition(buffered?["type"] as? String == "next", "each read must scan any buffered next request")
         for version in ["true", "1.5", "1.9", "-1", "2", #""1""#] {
             do {
                 _ = try readRequest("{\"type\":\"hello\",\"version\":\(version)}")

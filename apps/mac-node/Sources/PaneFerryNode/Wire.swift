@@ -88,8 +88,9 @@ final class Wire {
         }
     }
     func read() throws -> [String: Any]? {
+        var scanned = 0
         while true {
-            if let index = buffer.firstIndex(of: 10) {
+            if let index = buffer.dropFirst(scanned).firstIndex(of: 10) {
                 let line = buffer.prefix(upTo: index); buffer.removeSubrange(...index)
                 guard line.count <= wireLimit,
                       let body = try JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -99,6 +100,9 @@ final class Wire {
                 return body
             }
             guard buffer.count < wireLimit else { throw NodeError.invalid_request }
+            // Large clipboard lines arrive in chunks; each byte only needs to
+            // be searched once. A new read() starts at any buffered next line.
+            scanned = buffer.count
             var bytes = [UInt8](repeating: 0, count: 65536)
             let count = Darwin.read(fd, &bytes, bytes.count)
             if count == 0 { if buffer.isEmpty { return nil }; throw NodeError.invalid_request }

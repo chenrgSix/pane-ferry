@@ -9,5 +9,5 @@ with tempfile.TemporaryDirectory(prefix='paneferry-publisher-boundaries-') as te
     output = str(Path(temporary) / 'boundaries')
     subprocess.run(['swiftc', '-module-cache-path', temporary + '/cache',
         *[str(source / name) for name in ('Wire.swift', 'ProcessIdentity.swift', 'Publisher.swift', 'Clipboard.swift', 'VideoRateController.swift')],
-        str(root / 'tests/swift/MacPublisherBoundarySmoke.swift'), '-o', output], check=True)
-    subprocess.run([output], check=True)
+        str(root / 'tests/swift/MacPublisherBoundarySmoke.swift'), '-o', output], check=True, timeout=120)
+    subprocess.run([output], check=True, timeout=30)
