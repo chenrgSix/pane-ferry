@@ -1,0 +1,427 @@
+{
+  "installed_baseline": {
+    "note": "abf3c06 installed; exploratory, not the controlled baseline",
+    "samples": 60,
+    "error": null,
+    "total": {
+      "median_ms": 251.1424165,
+      "p95_ms": 323.319834,
+      "min_ms": 170.873875,
+      "max_ms": 465.838083
+    },
+    "response": {
+      "median_ms": 217.81935399999998,
+      "p95_ms": 297.835166,
+      "min_ms": 145.441459,
+      "max_ms": 440.135958
+    },
+    "decode": {
+      "median_ms": 17.1556255,
+      "p95_ms": 21.092625,
+      "min_ms": 9.715042,
+      "max_ms": 22.6755
+    },
+    "main": {
+      "median_ms": 5.753771,
+      "p95_ms": 10.08825,
+      "min_ms": 0.075791,
+      "max_ms": 11.211666
+    },
+    "draw": {
+      "median_ms": 3.2433544999999997,
+      "p95_ms": 10.753292,
+      "min_ms": 0.915583,
+      "max_ms": 17.530459
+    }
+  },
+  "stage_before": {
+    "note": "2dcc9f3 with stage instrumentation",
+    "samples": 60,
+    "error": null,
+    "total": {
+      "median_ms": 214.18854149999999,
+      "p95_ms": 305.602667,
+      "min_ms": 162.695417,
+      "max_ms": 364.310333
+    },
+    "response": {
+      "median_ms": 188.0530625,
+      "p95_ms": 283.641459,
+      "min_ms": 138.892583,
+      "max_ms": 345.507375
+    },
+    "decode": {
+      "median_ms": 16.987666500000003,
+      "p95_ms": 20.787667,
+      "min_ms": 10.613708,
+      "max_ms": 22.429708
+    },
+    "main": {
+      "median_ms": 5.596895999999999,
+      "p95_ms": 11.21875,
+      "min_ms": 0.115333,
+      "max_ms": 12.6255
+    },
+    "draw": {
+      "median_ms": 3.279146,
+      "p95_ms": 8.793958,
+      "min_ms": 1.2425,
+      "max_ms": 16.937458
+    },
+    "input_queue": {
+      "median_ms": 0.0212175,
+      "p95_ms": 0.243523,
+      "min_ms": 0.011122,
+      "max_ms": 5.180291
+    },
+    "input_dispatch": {
+      "median_ms": 2.9196375000000003,
+      "p95_ms": 5.062399,
+      "min_ms": 1.786178,
+      "max_ms": 25.176735
+    },
+    "capture_wait": {
+      "median_ms": 118.7845575,
+      "p95_ms": 191.331789,
+      "min_ms": 89.10364,
+      "max_ms": 200.147301
+    },
+    "encode_queue": {
+      "median_ms": 1.1799675,
+      "p95_ms": 29.320907,
+      "min_ms": 0.093218,
+      "max_ms": 67.684855
+    },
+    "encode": {
+      "median_ms": 6.7264855,
+      "p95_ms": 9.521758,
+      "min_ms": 4.032138,
+      "max_ms": 10.485832
+    },
+    "transport_bridge_residual": {
+      "median_ms": 38.059926000000004,
+      "p95_ms": 104.392228,
+      "min_ms": 33.168968,
+      "max_ms": 181.049016
+    }
+  },
+  "detailed_before": {
+    "note": "same code, with readiness instrumentation",
+    "samples": 30,
+    "error": null,
+    "total": {
+      "median_ms": 202.697771,
+      "p95_ms": 293.79275,
+      "min_ms": 162.687333,
+      "max_ms": 303.768334
+    },
+    "response": {
+      "median_ms": 176.9008335,
+      "p95_ms": 266.215458,
+      "min_ms": 140.775416,
+      "max_ms": 277.903125
+    },
+    "decode": {
+      "median_ms": 17.283645999999997,
+      "p95_ms": 19.513792,
+      "min_ms": 9.974959,
+      "max_ms": 20.107083
+    },
+    "main": {
+      "median_ms": 4.0810625,
+      "p95_ms": 8.848125,
+      "min_ms": 0.138209,
+      "max_ms": 10.594917
+    },
+    "draw": {
+      "median_ms": 2.9818119999999997,
+      "p95_ms": 6.261208,
+      "min_ms": 1.1535,
+      "max_ms": 6.358042
+    },
+    "input_queue": {
+      "median_ms": 0.0186765,
+      "p95_ms": 0.030807,
+      "min_ms": 0.01098,
+      "max_ms": 1.522325
+    },
+    "input_dispatch": {
+      "median_ms": 2.3439445,
+      "p95_ms": 4.129495,
+      "min_ms": 1.349475,
+      "max_ms": 4.46522
+    },
+    "capture_wait": {
+      "median_ms": 124.310645,
+      "p95_ms": 161.481468,
+      "min_ms": 92.92957,
+      "max_ms": 177.000089
+    },
+    "encode_queue": {
+      "median_ms": 2.63105,
+      "p95_ms": 9.352763,
+      "min_ms": 0.091254,
+      "max_ms": 21.927116
+    },
+    "encode": {
+      "median_ms": 5.843197,
+      "p95_ms": 8.216093,
+      "min_ms": 4.016326,
+      "max_ms": 8.871653
+    },
+    "ready_to_pull": {
+      "median_ms": 14.8124065,
+      "p95_ms": 21.45093,
+      "min_ms": 0.024043,
+      "max_ms": 22.236735
+    },
+    "first_raw_hint": {
+      "median_ms": 67.5310355,
+      "p95_ms": 91.360224,
+      "min_ms": -0.549952,
+      "max_ms": 93.43471
+    },
+    "transport_bridge_residual": {
+      "median_ms": 36.557129,
+      "p95_ms": 126.031479,
+      "min_ms": 34.298553,
+      "max_ms": 126.92304
+    }
+  },
+  "trial_after": {
+    "note": "temporary composed metadata cadence trial",
+    "samples": 30,
+    "error": null,
+    "total": {
+      "median_ms": 178.617541,
+      "p95_ms": 231.926708,
+      "min_ms": 143.424667,
+      "max_ms": 232.26125
+    },
+    "response": {
+      "median_ms": 155.129833,
+      "p95_ms": 199.736416,
+      "min_ms": 120.85325,
+      "max_ms": 205.317625
+    },
+    "decode": {
+      "median_ms": 17.457042,
+      "p95_ms": 20.755541,
+      "min_ms": 11.060167,
+      "max_ms": 21.13625
+    },
+    "main": {
+      "median_ms": 5.863353999999999,
+      "p95_ms": 10.230666,
+      "min_ms": 0.066625,
+      "max_ms": 11.466625
+    },
+    "draw": {
+      "median_ms": 2.790083,
+      "p95_ms": 5.89675,
+      "min_ms": 0.96325,
+      "max_ms": 6.657667
+    },
+    "input_queue": {
+      "median_ms": 0.017488499999999997,
+      "p95_ms": 0.099559,
+      "min_ms": 0.007601,
+      "max_ms": 2.534692
+    },
+    "input_dispatch": {
+      "median_ms": 2.47387,
+      "p95_ms": 4.74462,
+      "min_ms": 1.485761,
+      "max_ms": 16.037869
+    },
+    "capture_wait": {
+      "median_ms": 99.59383700000001,
+      "p95_ms": 130.698522,
+      "min_ms": 71.329292,
+      "max_ms": 160.524912
+    },
+    "encode_queue": {
+      "median_ms": 0.1840905,
+      "p95_ms": 0.501686,
+      "min_ms": 0.097557,
+      "max_ms": 0.644131
+    },
+    "encode": {
+      "median_ms": 5.871489,
+      "p95_ms": 7.97014,
+      "min_ms": 3.768892,
+      "max_ms": 8.961546
+    },
+    "ready_to_pull": {
+      "median_ms": 0.11354800000000001,
+      "p95_ms": 19.117343,
+      "min_ms": 0.023002,
+      "max_ms": 23.054674
+    },
+    "first_raw_hint": {
+      "median_ms": 52.0757955,
+      "p95_ms": 78.319745,
+      "min_ms": 0.570654,
+      "max_ms": 78.805236
+    },
+    "transport_bridge_residual": {
+      "median_ms": 37.921795,
+      "p95_ms": 72.474188,
+      "min_ms": 33.794864,
+      "max_ms": 105.079212
+    }
+  },
+  "aborted_overlap": {
+    "note": "aborted when local validation started; excluded",
+    "samples": 11,
+    "error": "stopped by operator",
+    "total": {
+      "median_ms": 195.941417,
+      "p95_ms": 242.554958,
+      "min_ms": 153.00475,
+      "max_ms": 242.554958
+    },
+    "response": {
+      "median_ms": 177.98925,
+      "p95_ms": 227.746125,
+      "min_ms": 137.246708,
+      "max_ms": 227.746125
+    },
+    "decode": {
+      "median_ms": 11.413917,
+      "p95_ms": 13.87875,
+      "min_ms": 8.082792,
+      "max_ms": 13.87875
+    },
+    "main": {
+      "median_ms": 3.164667,
+      "p95_ms": 9.406625,
+      "min_ms": 0.495042,
+      "max_ms": 9.406625
+    },
+    "draw": {
+      "median_ms": 1.216417,
+      "p95_ms": 3.563125,
+      "min_ms": 0.620125,
+      "max_ms": 3.563125
+    },
+    "input_queue": {
+      "median_ms": 0.016974,
+      "p95_ms": 1.057711,
+      "min_ms": 0.00991,
+      "max_ms": 1.057711
+    },
+    "input_dispatch": {
+      "median_ms": 2.007126,
+      "p95_ms": 4.162468,
+      "min_ms": 1.508491,
+      "max_ms": 4.162468
+    },
+    "capture_wait": {
+      "median_ms": 113.558605,
+      "p95_ms": 183.277385,
+      "min_ms": 94.432273,
+      "max_ms": 183.277385
+    },
+    "encode_queue": {
+      "median_ms": 0.197732,
+      "p95_ms": 27.498873,
+      "min_ms": 0.098566,
+      "max_ms": 27.498873
+    },
+    "encode": {
+      "median_ms": 5.672344,
+      "p95_ms": 9.789285,
+      "min_ms": 4.158638,
+      "max_ms": 9.789285
+    },
+    "ready_to_pull": {
+      "median_ms": 0.212916,
+      "p95_ms": 23.120677,
+      "min_ms": 0.065556,
+      "max_ms": 23.120677
+    },
+    "first_raw_hint": {
+      "median_ms": 77.542708,
+      "p95_ms": 143.084234,
+      "min_ms": 59.996545,
+      "max_ms": 143.084234
+    },
+    "transport_bridge_residual": {
+      "median_ms": 34.696873,
+      "p95_ms": 78.825389,
+      "min_ms": 32.40955,
+      "max_ms": 78.825389
+    }
+  },
+  "release_before": {
+    "note": "Uninstrumented release, 60 formal samples + 2 warmups",
+    "samples": 60,
+    "error": null,
+    "total": {
+      "median_ms": 199.4378125,
+      "p95_ms": 246.924334,
+      "min_ms": 131.690541,
+      "max_ms": 344.078042
+    },
+    "response": {
+      "median_ms": 170.7858335,
+      "p95_ms": 220.506542,
+      "min_ms": 106.788625,
+      "max_ms": 325.276917
+    },
+    "decode": {
+      "median_ms": 16.952479,
+      "p95_ms": 19.46225,
+      "min_ms": 11.317792,
+      "max_ms": 20.746458
+    },
+    "main": {
+      "median_ms": 6.353167,
+      "p95_ms": 10.504333,
+      "min_ms": 0.253625,
+      "max_ms": 11.628583
+    },
+    "draw": {
+      "median_ms": 3.286354,
+      "p95_ms": 6.621917,
+      "min_ms": 0.983,
+      "max_ms": 12.18625
+    }
+  },
+  "release_after": {
+    "note": "Uninstrumented release, 60 formal samples + 2 warmups",
+    "samples": 60,
+    "error": null,
+    "total": {
+      "median_ms": 180.64966700000002,
+      "p95_ms": 233.878375,
+      "min_ms": 141.009375,
+      "max_ms": 268.1195
+    },
+    "response": {
+      "median_ms": 153.91220850000002,
+      "p95_ms": 210.600167,
+      "min_ms": 122.706834,
+      "max_ms": 242.347833
+    },
+    "decode": {
+      "median_ms": 16.073708500000002,
+      "p95_ms": 18.69225,
+      "min_ms": 8.311375,
+      "max_ms": 20.013166
+    },
+    "main": {
+      "median_ms": 4.522729,
+      "p95_ms": 9.881958,
+      "min_ms": 0.035,
+      "max_ms": 11.896208
+    },
+    "draw": {
+      "median_ms": 3.102937,
+      "p95_ms": 5.396334,
+      "min_ms": 0.827333,
+      "max_ms": 9.68325
+    }
+  }
+}
