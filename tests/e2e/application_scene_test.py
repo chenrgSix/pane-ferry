@@ -98,6 +98,14 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
             window = snapshot['windows'][0] if snapshot['windows'] else resumed.until('window.created')
             assert window['surface_type'] == 'session' and window['window_id'] == root_id
             resumed.until('frame')
+            previous = peer
+            peer = resumed
+            try:
+                action('open')
+                collect(lambda c: c['green'] > 100 and c['blue'] > 30)
+                action('close')
+                collect(lambda c: c['green'] == 0 and c['blue'] == 0 and c['light'] > 100)
+            finally: peer = previous
         finally: resumed.close()
         wait(lambda: monitor_layout() == baseline)
         # Switching a detached external session must release only its lease,
@@ -111,6 +119,6 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
         finally: switched.close()
         wait(lambda: monitor_layout() == baseline)
         assert app.poll() is None
-        print('PASS: one native scene/stream for root, dialog and nested menus; unrelated same-PID window excluded; popup churn and reconnect; output cleanup preserves app', flush=True)
+        print('PASS: one native scene/stream for root, dialog and nested menus; unrelated same-PID window excluded; popup churn and fresh animated frames after retired-output reconnect; output cleanup preserves app', flush=True)
     finally:
         action('close'); bridge.close(); pipeline.set_state(Gst.State.NULL)

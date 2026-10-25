@@ -9,6 +9,11 @@ pub trait WindowBackend: Send {
     fn prepare_input(&self);
     fn input_status(&self) -> Option<&'static str>;
     fn refresh_capture(&self);
+    /// A fresh controller must revalidate streams whose producer may have
+    /// been retired while the application itself remained alive.
+    fn resume_capture(&mut self) {
+        self.refresh_capture();
+    }
     fn refresh_window(&self, _id: u32) {
         self.refresh_capture();
     }

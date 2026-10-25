@@ -1236,7 +1236,7 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
     if let Some(backend) = &mut s.backend {
         backend.retry_window_adjustments();
         backend.prepare_input();
-        backend.refresh_capture();
+        backend.resume_capture();
     }
     drop(s);
     Ok(Lease(session))

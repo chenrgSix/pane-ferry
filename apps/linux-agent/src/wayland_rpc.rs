@@ -32,7 +32,16 @@ impl AsyncRpc {
                 let invoke = |call: &mut dyn FnMut(Value) -> Result<Value>, value| {
                     call(value).map_err(|e| e.to_string())
                 };
-                while let Ok(work) = requests.recv() {
+                let mut deferred = None;
+                loop {
+                    let work = match deferred
+                        .take()
+                        .map(Work::Snapshot)
+                        .or_else(|| requests.recv().ok())
+                    {
+                        Some(work) => work,
+                        None => break,
+                    };
                     match work {
                         Work::Call(value, reply) => {
                             let _ = reply.send(invoke(&mut call, value));
@@ -43,8 +52,16 @@ impl AsyncRpc {
                                 for op in ["scope", "scene", "list"] {
                                     // Input arriving during a metadata RPC runs before
                                     // the next query, never behind an entire scan.
-                                    while let Ok(Work::Call(value, reply)) = requests.try_recv() {
-                                        let _ = reply.send(invoke(&mut call, value));
+                                    while let Ok(work) = requests.try_recv() {
+                                        match work {
+                                            Work::Call(value, reply) => {
+                                                let _ = reply.send(invoke(&mut call, value));
+                                            }
+                                            // Resume can invalidate an in-flight snapshot.
+                                            // Keep its replacement instead of dropping it
+                                            // while draining foreground commands.
+                                            Work::Snapshot(reply) => deferred = Some(reply),
+                                        }
                                     }
                                     snapshot[op] = invoke(&mut call, json!({"op":op}))?;
                                 }
@@ -72,6 +89,9 @@ impl AsyncRpc {
             .recv()
             .context("wayland_bridge_unavailable")?
             .map_err(anyhow::Error::msg)
+    }
+    pub fn invalidate_snapshot(&mut self) {
+        self.pending.take();
     }
     pub fn poll_snapshot(&mut self) -> Result<Option<Reply>> {
         if let Some(reply) = &self.pending {
@@ -116,19 +136,21 @@ mod tests {
         let (entered, started) = mpsc::sync_channel(1);
         let seen = Arc::new(Mutex::new(Vec::new()));
         let calls = seen.clone();
+        let mut generation = 0;
         let (cancel, _other) = UnixStream::pair()?;
         let mut rpc = AsyncRpc::new(
             move |value| {
                 let op = value["op"].as_str().unwrap().to_string();
                 calls.lock().unwrap().push(op.clone());
                 if op == "scope" {
+                    generation += 1;
                     entered.send(()).unwrap();
                     let (lock, cv) = &*blocked;
                     let _guard = cv
                         .wait_while(lock.lock().unwrap(), |ready| !*ready)
                         .unwrap();
                 }
-                Ok(json!({"op":op}))
+                Ok(json!({"op":op, "generation":generation}))
             },
             cancel,
         )?;
@@ -138,6 +160,8 @@ mod tests {
         for _ in 0..100 {
             assert!(rpc.poll_snapshot()?.is_none());
         }
+        rpc.invalidate_snapshot();
+        assert!(rpc.poll_snapshot()?.is_none());
         let (reply, result) = mpsc::sync_channel(1);
         rpc.sender
             .as_ref()
@@ -146,12 +170,22 @@ mod tests {
         *gate.0.lock().unwrap() = true;
         gate.1.notify_one();
         assert_eq!(result.recv()?.unwrap()["op"], "scene_point");
-        while rpc.pending.as_ref().unwrap().try_recv().is_err() {
-            thread::yield_now();
-        }
+        let fresh = rpc.pending.as_ref().unwrap().recv()?.unwrap();
+        assert_eq!(
+            fresh["scope"]["generation"], 2,
+            "resume must never publish the discarded producer's metadata"
+        );
         assert_eq!(
             *seen.lock().unwrap(),
-            ["scope", "scene_point", "scene", "list"]
+            [
+                "scope",
+                "scene_point",
+                "scene",
+                "list",
+                "scope",
+                "scene",
+                "list"
+            ]
         );
         Ok(())
     }

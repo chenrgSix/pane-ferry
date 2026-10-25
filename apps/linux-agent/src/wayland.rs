@@ -359,7 +359,9 @@ impl Backend {
             bail!("resolution_limited")
         }
         let Some(node) = scene["node"].as_u64() else {
-            return Ok(vec![]);
+            // A replacement stream can be pending while GNOME publishes its
+            // node. Keep the existing window identity; only its pixels wait.
+            return Ok(self.windows.values().cloned().collect());
         };
         let node = u32::try_from(node)?;
         if self.scene_node != Some(node) {
@@ -441,6 +443,19 @@ impl WindowBackend for Backend {
     }
     fn input_status(&self) -> Option<&'static str> {
         Some(self.input.status())
+    }
+    fn resume_capture(&mut self) {
+        if self.scene.is_some() {
+            // GNOME retires an idle output after detach. PipeWire may assign
+            // the replacement the SAME numeric node ID. Never reuse a cached
+            // pipeline/image (or an old metadata reply) across controllers.
+            self.rpc.get_mut().invalidate_snapshot();
+            self.streams.get_mut().clear();
+            self.scene_node = None;
+            self.pending_pull = false;
+        } else {
+            self.refresh_capture();
+        }
     }
     fn refresh_capture(&self) {
         for stream in self.streams.borrow_mut().values_mut() {
