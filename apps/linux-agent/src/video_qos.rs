@@ -126,7 +126,9 @@ impl VideoQos {
 
     fn check_stall(&mut self, now: Instant) {
         if !self.feedback
-            || self.pending.is_empty()
+            || self.pending.front().is_none_or(|(_, sent)| {
+                now.saturating_duration_since(*sent) < Duration::from_secs(1)
+            })
             || now.saturating_duration_since(self.last_feedback) < Duration::from_secs(1)
             || now.saturating_duration_since(self.last_change) < Duration::from_secs(1)
         {
@@ -184,6 +186,28 @@ mod tests {
         qos.sent(start + Duration::from_secs(2));
         qos.interval(start + Duration::from_secs(4));
         assert_eq!(qos.target(), MIN_FPS);
+    }
+
+    #[test]
+    fn first_frame_after_idle_gets_a_full_feedback_deadline() {
+        let start = Instant::now();
+        let mut qos = VideoQos::new(start);
+        qos.configure(60, true, start);
+        let first = qos.sent(start).unwrap();
+        qos.acknowledge(first, start + Duration::from_millis(20));
+        let resumed = start + Duration::from_secs(30);
+        let id = qos.sent(resumed).unwrap();
+        qos.interval(resumed + Duration::from_millis(20));
+        assert_eq!(qos.target(), 60, "idle time is not presentation latency");
+        qos.acknowledge(id, resumed + Duration::from_millis(30));
+        assert_eq!(qos.target(), 60);
+        qos.sent(resumed + Duration::from_secs(1));
+        qos.interval(resumed + Duration::from_secs(2));
+        assert_eq!(
+            qos.target(),
+            30,
+            "a genuinely unacknowledged frame still backs off"
+        );
     }
 
     #[test]
