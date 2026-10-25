@@ -43,6 +43,8 @@ pub struct Packet {
     pub value: Value,
     pub payload: Vec<u8>,
     pub barrier: u64,
+    // Receiver-local QUIC stream identity; never serialized or supplied by peers.
+    pub(crate) media_stream: Option<u64>,
     reservation: Option<tokio::sync::OwnedSemaphorePermit>,
     peer_reservation: Option<tokio::sync::OwnedSemaphorePermit>,
 }
@@ -70,6 +72,7 @@ impl Packet {
             value,
             payload,
             barrier,
+            media_stream: None,
             reservation: None,
             peer_reservation: None,
         })
@@ -188,6 +191,7 @@ impl Packet {
                 value,
                 payload,
                 barrier,
+                media_stream: None,
                 reservation,
                 peer_reservation,
             }))

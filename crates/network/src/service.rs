@@ -614,9 +614,10 @@ impl Service {
                     .context("unknown channel")?
                     .clone();
                 send.finish()?;
+                let media_stream = recv.id().index();
                 let result = async {
                     loop {
-                        let Some(packet) = Packet::read_media(&mut recv, &quota.media).await?
+                        let Some(mut packet) = Packet::read_media(&mut recv, &quota.media).await?
                         else {
                             return Ok(());
                         };
@@ -625,6 +626,7 @@ impl Service {
                                 && packet.value["window_id"] == head["window_id"],
                             "invalid media"
                         );
+                        packet.media_stream = Some(media_stream);
                         tokio::time::timeout(TIMEOUT, sender.send(packet)).await??;
                     }
                     #[allow(unreachable_code)]
@@ -1130,12 +1132,14 @@ struct Merge {
     sequence: u64,
     reset: u64,
     windows: HashMap<u64, (u64, u64, bool)>,
+    media_streams: HashMap<u64, u64>,
 }
 impl Merge {
     fn observe(&mut self, value: &Value) -> Result<()> {
         match value["type"].as_str() {
             Some("session.snapshot" | "session.exited") => {
                 self.windows.clear();
+                self.media_streams.clear();
                 self.reset = self.barrier;
                 if let Some(windows) = value["windows"].as_array() {
                     for window in windows {
@@ -1149,6 +1153,7 @@ impl Merge {
                 if let Some(id) = value["window_id"].as_u64() {
                     if value["type"] == "window.destroyed" {
                         self.windows.remove(&id);
+                        self.media_streams.remove(&id);
                         return Ok(());
                     }
                     if value["type"] == "window.metadata" && !self.windows.contains_key(&id) {
@@ -1179,16 +1184,33 @@ impl Merge {
         }
         Ok(())
     }
-    fn current(&self, packet: &Packet) -> bool {
-        packet.barrier >= self.reset
-            && packet.value["window_id"]
-                .as_u64()
-                .and_then(|id| self.windows.get(&id))
+    fn current(&mut self, packet: &Packet) -> bool {
+        let Some(id) = packet.value["window_id"].as_u64() else {
+            return false;
+        };
+        if packet.barrier < self.reset
+            || !self
+                .windows
+                .get(&id)
                 .is_some_and(|(born, revision, hidden)| {
                     !hidden
                         && packet.barrier >= *born
                         && packet.value["geometry_revision"].as_u64() == Some(*revision)
                 })
+        {
+            return false;
+        }
+        if let Some(stream) = packet.media_stream {
+            // A restarted media stream begins at an IDR, but QUIC only orders
+            // within each stream. Once its new frames are delivered, late old
+            // stream P frames must never be spliced into the replacement GOP.
+            let latest = self.media_streams.entry(id).or_insert(stream);
+            if stream < *latest {
+                return false;
+            }
+            *latest = stream;
+        }
+        true
     }
     fn deliver(&mut self, packet: Packet) -> Value {
         let mut value = packet.restore();
@@ -1695,6 +1717,65 @@ mod tests {
         assert!(!merge.current(&frame(2, 5)));
         assert!(merge.current(&frame(4, 5)));
     }
+    #[test]
+    fn replacement_media_stream_rejects_late_frames_from_older_streams() {
+        let mut merge = Merge {
+            barrier: 1,
+            ..Default::default()
+        };
+        merge
+            .observe(&json!({"type":"window.created","window_id":7,"geometry_revision":1}))
+            .unwrap();
+        let frame = |stream, key| {
+            let mut packet = Packet::new(
+                json!({"type":"frame","window_id":7,"geometry_revision":1,
+                "codec":"h264","data":"YQ==","key_frame":key}),
+                1,
+            )
+            .unwrap();
+            packet.media_stream = Some(stream);
+            packet
+        };
+        assert!(merge.current(&frame(1, true)));
+        assert!(merge.current(&frame(1, false)));
+        assert!(merge.current(&frame(5, true)));
+        assert!(
+            !merge.current(&frame(1, false)),
+            "old P frames corrupt the new GOP"
+        );
+        assert!(
+            !merge.current(&frame(1, true)),
+            "old keyframes cannot roll back recovery"
+        );
+        assert!(merge.current(&frame(5, false)));
+        let mut obsolete_geometry = frame(9, true);
+        obsolete_geometry.value["geometry_revision"] = json!(0);
+        assert!(!merge.current(&obsolete_geometry));
+        assert!(
+            merge.current(&frame(5, false)),
+            "invalid frames cannot advance the stream generation"
+        );
+        merge
+            .observe(&json!({"type":"window.created","window_id":8,"geometry_revision":1}))
+            .unwrap();
+        let mut other = frame(1, true);
+        other.value["window_id"] = json!(8);
+        assert!(
+            merge.current(&other),
+            "stream generations are scoped to a window"
+        );
+        merge.barrier = 2;
+        merge
+            .observe(&json!({"type":"window.destroyed","window_id":7}))
+            .unwrap();
+        assert!(
+            !merge.media_streams.contains_key(&7),
+            "retired windows must release tracking state"
+        );
+        merge.observe(&json!({"type":"session.exited"})).unwrap();
+        assert!(merge.media_streams.is_empty());
+    }
+
     #[tokio::test]
     async fn bulk_guard_observes_stop_sharing_without_waiting_for_transfer_eof() {
         let mut replies =
