@@ -44,6 +44,16 @@ impl State {
         }))
     }
 }
+fn prior_request<'a>(state: &'a State, request: &str, app: &str) -> Result<Option<&'a str>> {
+    match state.requests.get(request) {
+        Some((original_app, session)) => {
+            ensure!(original_app == app, "request_id_conflict");
+            Ok(Some(session))
+        }
+        None => Ok(None),
+    }
+}
+
 fn release_controller(state: &mut State, id: &str, owner: uuid::Uuid, exited: bool) {
     if let Some(session) = state
         .sessions
@@ -315,8 +325,7 @@ impl Client {
                 }
                 let target = {
                     let s = self.state.lock().unwrap();
-                    if let Some((app, id)) = s.requests.get(&request_id) {
-                        ensure!(app == &app_id, "request_id_conflict");
+                    if let Some(id) = prior_request(&s, &request_id, &app_id)? {
                         s.sessions
                             .get(id)
                             .ok_or_else(|| anyhow::anyhow!("session_exited"))?
@@ -332,8 +341,10 @@ impl Client {
                 self.system.geometry(&target)?; // Recheck process creation time and current user before acquiring.
                 let id = {
                     let mut s = self.state.lock().unwrap();
-                    if let Some((_, id)) = s.requests.get(&request_id) {
-                        id.clone()
+                    // Another client can claim this request while geometry is
+                    // checked outside the mutex. Revalidate its app binding.
+                    if let Some(id) = prior_request(&s, &request_id, &app_id)? {
+                        id.to_owned()
                     } else {
                         ensure!(s.requests.len() < 1024, "request_history_limit");
                         let old = s
@@ -522,6 +533,29 @@ pub async fn client(
 #[cfg(test)]
 mod race_tests {
     use super::*;
+    #[test]
+    fn request_binding_is_rechecked_after_another_client_claims_it() {
+        let state = State::new("test".into(), true);
+        let mut state = state.lock().unwrap();
+        assert!(prior_request(&state, "request", "window-b")
+            .unwrap()
+            .is_none());
+        // Represents the other client's insertion during the geometry check.
+        state
+            .requests
+            .insert("request".into(), ("window-a".into(), "session-a".into()));
+        assert_eq!(
+            prior_request(&state, "request", "window-b")
+                .unwrap_err()
+                .to_string(),
+            "request_id_conflict"
+        );
+        assert_eq!(
+            prior_request(&state, "request", "window-a").unwrap(),
+            Some("session-a")
+        );
+    }
+
     #[test]
     fn attach_failure_cleanup_tolerates_retirement_and_never_clears_a_new_owner() {
         let state = State::new("test".into(), true);
