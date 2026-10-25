@@ -135,7 +135,7 @@ struct AutomaticReconnectSmoke {
             waitIndex += 1
             let deadline = Date().addingTimeInterval(8)
             while !condition(), Date() < deadline {
-                RunLoop.current.run(until: Date().addingTimeInterval(0.01)); app.pump()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
             }
             if !condition() {
                 print("state wait=\(waitIndex) connected=\(app.connected) ready=\(app.ready) recovering=\(app.recovering) windows=\(app.windows.count) seq=\(app.lastSequence) transportAlive=\(app.transport.alive)")
@@ -144,6 +144,9 @@ struct AutomaticReconnectSmoke {
             precondition(condition(), "automatic reconnect wait \(waitIndex) did not reach expected state")
         }
         app.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification))
+        // Startup, transport loss and reconnect must deliver without the
+        // periodic deadline/feedback pump or manual test-side draining.
+        app.poll?.invalidate(); app.poll = nil
         precondition(NSApp.mainMenu?.items.first?.title == app.applicationName)
         precondition(isFixtureIcon(NSApp.applicationIconImage),
                      "Ubuntu icon content is applied to this application's Dock tile")

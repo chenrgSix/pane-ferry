@@ -383,7 +383,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         rateItem.isEnabled = false; rateMenuItem = rateItem; displayMenu.addItem(rateItem)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
-        transport.onReadable = { [weak self] in self?.pump() }
         startConnection()
         let timer = Timer(timeInterval: 1.0 / 90.0, repeats: true) { [weak self] _ in self?.pump() }
         RunLoop.main.add(timer, forMode: .common); poll = timer
@@ -492,6 +491,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !stopping else { return }
         reconnectTimer?.invalidate(); reconnectTimer = nil
         transport = makeTransport(); connected = true; ready = false; lastSequence = 0; capabilities.removeAll()
+        let readableTransport = transport
+        transport.onReadable = { [weak self, weak readableTransport] in
+            guard let self = self, self.transport === readableTransport else { return }
+            self.pump()
+        }
         publisherMaxVideoFPS = maximumVideoFPS
         updateRateMenu()
         lastVideoFeedback = 0; pendingVideoFeedbackID = nil
