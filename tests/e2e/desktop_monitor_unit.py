@@ -17,6 +17,22 @@ def physical(connector, width, height, *, current=True):
 
 
 class MonitorListTests(unittest.TestCase):
+    def test_capture_outputs_are_excluded_without_hiding_headless_or_named_desktops(self):
+        capture = list(physical('Meta-3', 2940, 1618))
+        capture[0] = ('Meta-3', 'MetaVendor', 'Virtual remote monitor', '0x000014')
+        headless = list(physical('Meta-1', 1920, 1080))
+        headless[0] = ('Meta-1', 'MetaVendor', 'MetaVirtualMonitor', '0x00')
+        named = list(physical('DP-2', 2940, 1618))
+        named[2] = {'display-name': 'MetaVendor'}
+        state = (7, [capture, headless, named],
+                 [(i * 2000, 0, 1.0, 0, i == 0, [monitor[0]], {})
+                  for i, monitor in enumerate([named, headless, capture])],
+                 {'layout-mode': 1})
+        self.assertEqual([m['id'] for m in module.monitor_list(state)], ['DP-2', 'Meta-1'])
+        # The same source remains excluded at a different canvas/DPI size.
+        capture[1][0] = ('mode', 1600, 900, 60.0, 1.0, [1.0], {'is-current': True})
+        self.assertEqual([m['id'] for m in module.monitor_list(state)], ['DP-2', 'Meta-1'])
+
     def test_primary_and_secondary_keep_independent_physical_and_logical_geometry(self):
         state = (5,
                  [physical('eDP-1', 2880, 1800), physical('HDMI-1', 1920, 1080)],

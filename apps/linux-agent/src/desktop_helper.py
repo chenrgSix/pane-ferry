@@ -20,7 +20,15 @@ def monitor_list(state):
             placement[spec[0]] = (x, y, scale, transform, primary)
     result = []
     for spec, modes, properties in physical:
-        connector, _vendor, product, _serial = spec
+        connector, vendor, product, _serial = spec
+        # Mutter RecordVirtual outputs are temporary capture surfaces, not
+        # desktop sources. Match their compositor identity, never a user-facing
+        # display name or resolution. Keep normal/headless outputs available.
+        # start() uses this same inventory, so stale IDs cannot bypass the rule.
+        if (connector.startswith('Meta-') and connector[5:].isascii()
+                and connector[5:].isdigit() and vendor == 'MetaVendor'
+                and product == 'Virtual remote monitor'):
+            continue
         place = placement.get(connector)
         if not place:
             continue
