@@ -9,14 +9,15 @@ use std::{
     time::Duration,
 };
 
-/// Give queued requests priority, including a barrier retained by coalesce().
-/// Under continuous input, service metadata/capture at least every 100 ms.
+/// Process input first, including a barrier retained by coalesce(), but admit a
+/// due frame even under continuous input. Metadata still has a 100 ms bound.
 pub fn defer_maintenance(
     receiver: &Receiver<Request>,
     pending: &mut Option<Request>,
     since_scan: Duration,
+    frame_due: bool,
 ) -> bool {
-    if since_scan >= Duration::from_millis(100) {
+    if frame_due || since_scan >= Duration::from_millis(100) {
         return false;
     }
     if pending.is_none() {
@@ -67,35 +68,63 @@ pub fn receive(
     })
 }
 
-/// Merge only consecutive committed text for one window. Keep key/click/paste
-/// boundaries intact and never mutate a clipboard transfer already in flight.
+/// Keep the newest consecutive motion or merge committed text for one window.
+/// Key/click/scroll/paste and window boundaries remain ordered. Limit each turn
+/// so a producer cannot keep coalescing forever without dispatch or capture.
 pub fn coalesce(
-    request: Request,
+    mut request: Request,
     receiver: &Receiver<Request>,
     pending: &mut Option<Request>,
 ) -> Request {
-    let Request::Text {
-        window_id,
-        mut text,
-    } = request
-    else {
+    if !matches!(
+        &request,
+        Request::Text { .. }
+            | Request::Pointer {
+                button: 0,
+                pressed: false,
+                ..
+            }
+    ) {
         return request;
-    };
-    while let Ok(next) = receiver.try_recv() {
-        match next {
-            Request::Text {
-                window_id: next_window,
-                text: more,
-            } if next_window == window_id && text.len() + more.len() <= MAX_TEXT_BYTES => {
+    }
+    for _ in 1..256 {
+        let Ok(next) = receiver.try_recv() else { break };
+        match (&mut request, next) {
+            (
+                Request::Pointer {
+                    window_id,
+                    x,
+                    y,
+                    button: 0,
+                    pressed: false,
+                },
+                Request::Pointer {
+                    window_id: next_window,
+                    x: next_x,
+                    y: next_y,
+                    button: 0,
+                    pressed: false,
+                },
+            ) if *window_id == next_window => {
+                *x = next_x;
+                *y = next_y;
+            }
+            (
+                Request::Text { window_id, text },
+                Request::Text {
+                    window_id: next_window,
+                    text: more,
+                },
+            ) if *window_id == next_window && text.len() + more.len() <= MAX_TEXT_BYTES => {
                 text.push_str(&more)
             }
-            barrier => {
+            (_, barrier) => {
                 *pending = Some(barrier);
                 break;
             }
         }
     }
-    Request::Text { window_id, text }
+    request
 }
 
 #[cfg(test)]
@@ -120,7 +149,8 @@ mod tests {
         assert!(defer_maintenance(
             &receiver,
             &mut pending,
-            Duration::from_millis(20)
+            Duration::from_millis(20),
+            false
         ));
         assert!(matches!(
             pending.take(),
@@ -129,19 +159,167 @@ mod tests {
         assert!(defer_maintenance(
             &receiver,
             &mut pending,
-            Duration::from_millis(30)
+            Duration::from_millis(30),
+            false
         ));
         assert!(matches!(pending, Some(Request::Key { pressed: false, .. })));
         assert!(!defer_maintenance(
             &receiver,
             &mut pending,
-            Duration::from_millis(100)
+            Duration::from_millis(100),
+            false
         ));
         assert!(matches!(
             pending.take(),
             Some(Request::Key { pressed: false, .. })
         ));
-        assert!(!defer_maintenance(&receiver, &mut pending, Duration::ZERO));
+        assert!(!defer_maintenance(
+            &receiver,
+            &mut pending,
+            Duration::ZERO,
+            false
+        ));
+    }
+    #[test]
+    fn continuous_input_does_not_push_due_frames_to_the_100ms_metadata_deadline() {
+        let (_sender, receiver) = mpsc::channel();
+        let mut pending = Some(Request::Key {
+            window_id: 1,
+            keysym: 42,
+            pressed: false,
+        });
+        let mut last_frame = Duration::ZERO;
+        let mut last_scan = Duration::ZERO;
+        let interval = Duration::from_micros(33_333);
+        let mut frames = 0;
+        for ms in 1..=1000 {
+            let now = Duration::from_millis(ms);
+            let frame_due = now - last_frame >= interval;
+            if defer_maintenance(&receiver, &mut pending, now - last_scan, frame_due) {
+                continue;
+            }
+            if now - last_scan >= Duration::from_millis(100) {
+                last_scan = now;
+            }
+            if frame_due {
+                frames += 1;
+                last_frame = now;
+            }
+            assert!(
+                matches!(pending, Some(Request::Key { pressed: false, .. })),
+                "a due frame must preserve the queued key release"
+            );
+        }
+        assert!(frames >= 29, "continuous input admitted only {frames} frames instead of the negotiated 30 FPS cadence");
+    }
+    fn motion(window_id: u32, x: i32) -> Request {
+        Request::Pointer {
+            window_id,
+            x,
+            y: 10,
+            button: 0,
+            pressed: false,
+        }
+    }
+    #[test]
+    fn obsolete_motion_is_replaced_without_crossing_input_or_window_boundaries() {
+        for barrier in [
+            Request::Key {
+                window_id: 1,
+                keysym: 42,
+                pressed: true,
+            },
+            Request::Key {
+                window_id: 1,
+                keysym: 42,
+                pressed: false,
+            },
+            Request::Pointer {
+                window_id: 1,
+                x: 8,
+                y: 10,
+                button: 1,
+                pressed: true,
+            },
+            Request::Pointer {
+                window_id: 1,
+                x: 8,
+                y: 10,
+                button: 1,
+                pressed: false,
+            },
+            Request::Pointer {
+                window_id: 1,
+                x: 8,
+                y: 10,
+                button: 4,
+                pressed: true,
+            },
+            Request::Pointer {
+                window_id: 1,
+                x: 8,
+                y: 10,
+                button: 4,
+                pressed: false,
+            },
+            Request::Text {
+                window_id: 1,
+                text: "text".into(),
+            },
+            Request::Paste {
+                window_id: 1,
+                text: "clipboard".into(),
+            },
+            motion(2, 8),
+        ] {
+            let (sender, receiver) = mpsc::channel();
+            let expected = format!("{barrier:?}");
+            sender.send(motion(1, 7)).unwrap();
+            sender.send(motion(1, 8)).unwrap();
+            sender.send(barrier).unwrap();
+            sender.send(motion(1, 99)).unwrap();
+            let mut pending = None;
+            assert!(matches!(
+                coalesce(motion(1, 1), &receiver, &mut pending),
+                Request::Pointer { x: 8, .. }
+            ));
+            assert_eq!(format!("{:?}", pending.take().unwrap()), expected);
+            assert!(matches!(
+                receiver.try_recv().unwrap(),
+                Request::Pointer { x: 99, .. }
+            ));
+        }
+    }
+    #[test]
+    fn a_large_motion_burst_remains_bounded_and_preserves_the_final_release() {
+        let (sender, receiver) = mpsc::channel();
+        for x in 1..600 {
+            sender.send(motion(1, x)).unwrap();
+        }
+        sender
+            .send(Request::Key {
+                window_id: 1,
+                keysym: 42,
+                pressed: false,
+            })
+            .unwrap();
+        let mut pending = None;
+        for (first, last) in [
+            (motion(1, 0), 255),
+            (motion(1, 256), 511),
+            (motion(1, 512), 599),
+        ] {
+            assert!(
+                matches!(coalesce(first, &receiver, &mut pending), Request::Pointer { x, .. } if x == last)
+            );
+            if last != 599 {
+                assert!(pending.is_none());
+                assert!(
+                    matches!(receiver.try_recv().unwrap(), Request::Pointer { x, .. } if x == last + 1)
+                );
+            }
+        }
+        assert!(matches!(pending, Some(Request::Key { pressed: false, .. })));
     }
     #[test]
     fn readiness_wakes_requests_and_preserves_messages_after_coalesced_signals() {

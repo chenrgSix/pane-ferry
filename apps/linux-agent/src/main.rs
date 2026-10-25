@@ -1869,9 +1869,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )?;
             }
         }
-        // A queued input takes precedence over a new capture, including when
-        // damage events keep the screen continuously dirty.
-        if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed()) {
+        // The current input has already run. Do not make continuous input
+        // postpone visual feedback beyond the negotiated frame deadline.
+        let frame_interval = out.frame_interval();
+        let frame_due = capture_pending && last_capture.elapsed() >= frame_interval;
+        if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed(), frame_due)
+        {
             continue;
         }
         let frame_interval = out.frame_interval();
@@ -1961,7 +1964,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         &sid,
                     )?;
                 }
-                let mut defer_capture = false;
+                let mut attempted_capture = false;
                 for w in &windows {
                     let old = known.get(&w.window_id);
                     if old != Some(w) {
@@ -1986,19 +1989,19 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
-                    if defer_capture || !capture_due || !w.visible || !b.capture_needed(w.window_id)
-                    {
+                    if !capture_due || !w.visible || !b.capture_needed(w.window_id) {
                         continue;
                     }
-                    if pending_request.is_none()
-                        && last_capture.elapsed() < Duration::from_millis(100)
-                    {
-                        if let Ok(request) = rx.try_recv() {
-                            pending_request = Some(request);
-                            defer_capture = true;
-                            continue;
-                        }
+                    if pending_request.is_none() {
+                        pending_request = rx.try_recv().ok();
                     }
+                    // Admit one due capture before returning to queued input.
+                    // Other dirty windows keep their turn for the next frame.
+                    if attempted_capture && pending_request.is_some() {
+                        retry_windows.insert(w.window_id);
+                        continue;
+                    }
+                    attempted_capture = true;
                     // Metadata-only scans must not postpone the first repaint
                     // after idle. Failed attempts still retain the adaptive cap.
                     last_capture = Instant::now();
