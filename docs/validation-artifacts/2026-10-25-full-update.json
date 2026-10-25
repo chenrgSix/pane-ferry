@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-25",
+  "source_commit": "0bdfeb4990db33fe4c8eb0a3dbf55f277ec0c1cf",
+  "mac": {
+    "bundle": "apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "sha256": {
+      "launcher": "835c306ac8355ad4892d55888ab2af4fdb7f3e517c28171219943718916cb01f",
+      "receiver": "20f5b70dd7612312e42049d990823188616d844aeed0018b482e1c783daff238",
+      "publisher": "fcdc6f3141d00043cc8302e03b1b0125e28466625f0e08e5051ae91e3e4f640d",
+      "network": "df7a0869677123a56b386bc8f8f62e79404bce6d1400bc44324afaedcb411a6f"
+    },
+    "strict_signature_verification": "passed",
+    "launcher_pid": 80409,
+    "publisher_pid": 80420,
+    "network_pid": 80422,
+    "ui_connected": true,
+    "backup": "dist/full-update-0bdfeb4-20261025/previous/窗渡 PaneFerry.app"
+  },
+  "ubuntu": {
+    "agent_sha256": "7dd9d46809fd75acb480ae8981cd83db85e15a84127c9ca3a9dc60840d453d2b",
+    "network_sha256": "73759e71084cfb57ec961828f00df770685e23fd2dc67764231a163e980e0070",
+    "all_installed_binaries_python_helpers_extension_match_package": true,
+    "agent_pid": 4014901,
+    "network_pid": 4014903,
+    "video_max_fps": 30,
+    "idea_original_pid_preserved": 3837316,
+    "gnome_extension_changed": false,
+    "desktop_logout_required": false
+  },
+  "checks": {
+    "mac_to_ubuntu": [
+      "node.info",
+      "window.list",
+      "desktop.list"
+    ],
+    "ubuntu_to_mac": [
+      "node.info"
+    ],
+    "existing_pairing_retained": true,
+    "builds": [
+      "mac complete application bundle",
+      "ubuntu complete user package"
+    ],
+    "network_tests": "Ubuntu unit and integration tests passed"
+  },
+  "limits": [
+    "This deployment check did not repeat the prior latency benchmark or a full cross-platform UI suite.",
+    "macOS development build is ad-hoc signed, not notarized."
+  ]
+}
