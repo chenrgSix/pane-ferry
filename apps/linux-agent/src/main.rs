@@ -533,6 +533,16 @@ fn random_id() -> Result<String> {
     std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
     Ok(b.iter().map(|v| format!("{v:02x}")).collect())
 }
+// Both application and desktop launches share the same live-session budget.
+// Keep request history, so retries of retired sessions receive a terminal error.
+fn retire_exited_sessions(st: &mut State) -> Result<()> {
+    for session in st.sessions.values() {
+        session.lock().unwrap().has_exited()?;
+    }
+    st.sessions
+        .retain(|_, session| !session.lock().unwrap().exited);
+    Ok(())
+}
 fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mutex<Session>>> {
     if !identifier(monitor_id) || !identifier(req) {
         bail!("invalid desktop request")
@@ -545,14 +555,21 @@ fn start_desktop(st: &mut State, monitor_id: &str, req: &str) -> Result<Arc<Mute
             bail!("request id conflict")
         }
         let session = st.sessions.get(id).cloned().context("session expired")?;
-        if session.lock().unwrap().controller {
-            bail!("session already controlled")
+        {
+            let mut current = session.lock().unwrap();
+            if current.has_exited()? {
+                bail!("session exited; use a new request id to start again")
+            }
+            if current.controller {
+                bail!("session already controlled")
+            }
         }
         return Ok(session);
     }
     if st.desktop_requests.len() >= 4096 {
         bail!("request history limit reached; restart after saving work")
     }
+    retire_exited_sessions(st)?;
     let mut previous = None;
     for session in st.sessions.values() {
         let mut current = session.lock().unwrap();
@@ -647,11 +664,7 @@ fn launch(
         }
         return Ok(s);
     }
-    for session in st.sessions.values() {
-        let mut s = session.lock().unwrap();
-        s.has_exited()?;
-    }
-    st.sessions.retain(|_, s| !s.lock().unwrap().exited);
+    retire_exited_sessions(st)?;
     if st.requests.len() >= 4096 {
         bail!("request history limit reached; restart after saving work")
     }
@@ -2039,6 +2052,31 @@ mod tests {
         session.lock().unwrap().controller = true;
         assert!(launch(&mut st, "test-app", "another-request", 2, None).is_err());
         assert_eq!(st.sessions.len(), 1);
+        // A cached desktop request must not announce a retired session as started.
+        session.lock().unwrap().controller = false;
+        session.lock().unwrap().exited = true;
+        st.desktop_requests.insert(
+            "desktop-request".into(),
+            ("monitor".into(), "existing-session".into()),
+        );
+        assert_eq!(
+            start_desktop(&mut st, "monitor", "desktop-request")
+                .err()
+                .unwrap()
+                .to_string(),
+            "session exited; use a new request id to start again"
+        );
+        retire_exited_sessions(&mut st).unwrap();
+        assert!(st.sessions.is_empty());
+        assert!(st.requests.contains_key("request"));
+        assert!(st.desktop_requests.contains_key("desktop-request"));
+        assert_eq!(
+            start_desktop(&mut st, "monitor", "desktop-request")
+                .err()
+                .unwrap()
+                .to_string(),
+            "session expired"
+        );
         let shared = Arc::new(Mutex::new(st));
         let worker = shared.clone();
         let (started_tx, started_rx) = mpsc::channel();
