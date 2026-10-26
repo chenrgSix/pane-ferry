@@ -206,7 +206,7 @@ impl Session {
                 self.display,
                 self.page_scale_authority.as_ref().unwrap(),
             )?;
-            backend.configure(window, zoom.size[0], zoom.size[1])?;
+            backend.configure_native(window, zoom.size[0], zoom.size[1])?;
             zoom.commit()?;
             self.page_scale = Some(zoom);
         }
@@ -952,6 +952,7 @@ fn launch(
         if backend.scan()?.is_empty() {
             bail!("no X11 windows belong to the approved process")
         }
+        let backend = backend::LogicalX11::new(backend)?;
         let id = random_id()?;
         let session = Arc::new(Mutex::new(Session {
             scene: None,

@@ -944,6 +944,7 @@ pub fn native_process_running(app: &crate::discovery::DesktopApp) -> bool {
 pub struct X11Geometry {
     rpc: RefCell<Rpc>,
     identity: ProcessIdentity,
+    root_xid: u32,
 }
 impl X11Geometry {
     fn compositor_id<'a>(windows: &'a Value, pid: u32, xid: u32) -> Option<&'a str> {
@@ -972,9 +973,10 @@ impl X11Geometry {
         Ok(Some(Box::new(Self {
             rpc: RefCell::new(rpc),
             identity,
+            root_xid: xid,
         })))
     }
-    fn scoped(&self, xid: u32) -> Result<bool> {
+    fn scope(&self, xid: u32) -> Result<Value> {
         if process_identity(self.identity.pid).ok().as_ref() != Some(&self.identity) {
             bail!("approved existing process unavailable")
         }
@@ -997,12 +999,62 @@ impl X11Geometry {
             }
             self.rpc.replace(rpc);
         }
-        Ok(result?
+        result
+    }
+    fn scoped(&self, xid: u32) -> Result<bool> {
+        Ok(self
+            .scope(xid)?
             .as_array()
             .is_some_and(|scope| scope.iter().any(|w| w["xwindow"] == xid)))
     }
 }
 impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
+    fn logical_layout(&self) -> Result<HashMap<u32, paneferry_backend_x11::LogicalLayout>> {
+        let values = self.scope(self.root_xid)?;
+        let mut result = HashMap::new();
+        for window in values.as_array().context("wayland_bridge_failed")? {
+            let Some(xid) = window["xwindow"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+            else {
+                continue;
+            };
+            // Older bridges that omit client geometry retain their raw path.
+            let Some(width) = window["client_width"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+            else {
+                continue;
+            };
+            let Some(height) = window["client_height"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+            else {
+                continue;
+            };
+            paneferry_protocol::dimensions(width, height)?;
+            let x = i32::try_from(
+                window["client_x"]
+                    .as_i64()
+                    .context("wayland_bridge_failed")?,
+            )?;
+            let y = i32::try_from(
+                window["client_y"]
+                    .as_i64()
+                    .context("wayland_bridge_failed")?,
+            )?;
+            result.insert(
+                xid,
+                paneferry_backend_x11::LogicalLayout {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+            );
+        }
+        Ok(result)
+    }
     fn resize(&self, window: u32, width: u32, height: u32) -> Result<bool> {
         if !self.scoped(window)? {
             return Ok(false);

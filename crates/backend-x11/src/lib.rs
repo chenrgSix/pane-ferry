@@ -40,6 +40,9 @@ pub trait DesktopInput: Send + Sync {
 }
 /// Optional compositor geometry for an already approved Xwayland window.
 pub trait DesktopGeometry: Send {
+    fn logical_layout(&self) -> Result<HashMap<u32, LogicalLayout>> {
+        Ok(HashMap::new())
+    }
     fn resize(&self, window: u32, width: u32, height: u32) -> Result<bool>;
     fn pointer(
         &self,
@@ -49,6 +52,14 @@ pub trait DesktopGeometry: Send {
         width: u32,
         height: u32,
     ) -> Result<Option<(i32, i32)>>;
+}
+/// Compositor client coordinates, independent of Xwayland backing pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogicalLayout {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 pub struct Backend {
     conn: RustConnection,
@@ -78,6 +89,11 @@ impl Backend {
     }
     pub fn set_desktop_geometry(&mut self, geometry: Box<dyn DesktopGeometry>) {
         self.desktop_geometry = Some(geometry);
+    }
+    pub fn logical_layout(&self) -> Result<HashMap<u32, LogicalLayout>> {
+        self.desktop_geometry
+            .as_ref()
+            .map_or_else(|| Ok(HashMap::new()), |g| g.logical_layout())
     }
     pub fn prepare_input(&self) {
         if let Some(input) = &self.desktop_input {

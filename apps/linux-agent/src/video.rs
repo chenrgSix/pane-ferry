@@ -602,6 +602,10 @@ fn pipeline_for_format(
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
     let input = match format {
         Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert ! video/x-raw,format=I420"),
+        Format::ScaledBgrx { width: source_width, height: source_height } => format!(
+            "caps=video/x-raw,format=BGRx,width={source_width},height={source_height},framerate={fps}/1 \
+            ! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height} \
+            {padding}! videoconvert ! video/x-raw,format=I420"),
         Format::I420 => format!("caps=video/x-raw,format=I420,width={even_width},height={even_height},framerate={fps}/1"),
     };
     format!(

@@ -3,6 +3,8 @@ use anyhow::Result;
 use paneferry_backend_x11::{Backend as X11, CopiedText};
 use paneferry_protocol::Window;
 use std::{collections::HashMap, sync::Arc};
+mod logical_x11;
+pub use logical_x11::LogicalX11;
 
 pub trait WindowBackend: Send {
     fn windows(&self) -> &HashMap<u32, Window>;
@@ -30,6 +32,9 @@ pub trait WindowBackend: Send {
     fn capture_needed(&self, window: u32) -> bool;
     fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>>;
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()>;
+    fn configure_native(&self, id: u32, width: u32, height: u32) -> Result<()> {
+        self.configure(id, width, height)
+    }
     fn focus(&self, id: u32) -> Result<()>;
     fn close(&self, id: u32) -> Result<()>;
     fn pointer(&self, id: u32, x: i32, y: i32, button: u8, pressed: bool) -> Result<()>;

@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     Bgrx,
+    ScaledBgrx { width: u32, height: u32 },
     I420,
 }
 
@@ -43,10 +44,34 @@ impl Frame {
         }
     }
     pub fn pixels(&self) -> usize {
-        self.width as usize * self.height as usize
+        match &self.storage {
+            Storage::Image(image) => image.pixels(),
+            Storage::I420(_) => self.width as usize * self.height as usize,
+        }
+    }
+    pub fn scaled_image(image: CapturedImage, width: u32, height: u32) -> Result<Self> {
+        paneferry_protocol::dimensions(image.width, image.height)?;
+        paneferry_protocol::dimensions(width, height)?;
+        anyhow::ensure!(
+            width <= image.width && height <= image.height,
+            "invalid source density"
+        );
+        Ok(Self {
+            width,
+            height,
+            storage: Storage::Image(Arc::new(image)),
+        })
     }
     pub fn format(&self) -> Format {
         match self.storage {
+            Storage::Image(ref image)
+                if (image.width, image.height) != (self.width, self.height) =>
+            {
+                Format::ScaledBgrx {
+                    width: image.width,
+                    height: image.height,
+                }
+            }
             Storage::Image(_) => Format::Bgrx,
             Storage::I420(_) => Format::I420,
         }
@@ -301,6 +326,17 @@ mod tests {
             little: true,
             masks: (0xff0000, 0xff00, 0xff),
         }
+    }
+    #[test]
+    fn density_normalization_counts_backing_memory_and_invalidates_format() {
+        let normal = Frame::from(image(900, 701, 0));
+        let dense = Frame::scaled_image(image(1800, 1402, 0), 900, 701).unwrap();
+        assert_eq!((dense.width, dense.height), (normal.width, normal.height));
+        assert_eq!(dense.pixels(), 1800 * 1402);
+        assert_ne!(dense.format(), normal.format());
+        assert!(!dense.same_pixels(&normal));
+        assert!(dense.same_pixels(&Frame::scaled_image(image(1800, 1402, 0), 900, 701).unwrap()));
+        assert!(Frame::scaled_image(image(90, 70, 0), 180, 140).is_err());
     }
     fn buffer(image: &Arc<CapturedImage>) -> Buffer {
         // A compositor backing buffer may exceed the protocol's visible pixel
