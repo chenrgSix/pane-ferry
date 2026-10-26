@@ -30,6 +30,7 @@ def wait(check,label):
 class Peer:
     def __init__(self,path):
         self.s=socket.socket(socket.AF_UNIX);self.s.settimeout(35);self.s.connect(str(path));self.f=self.s.makefile('rwb',buffering=0);self.send(type='hello');assert self.read()['type']=='hello'
+        self.send(type='video.enable',codec='h264',max_fps=30);self.until('video.ready')
     def send(self,**event):self.f.write(json.dumps(dict(event,version=1)).encode()+b'\n')
     def read(self):return json.loads(self.f.readline(16*1024*1024+1))
     def until(self,kind):
