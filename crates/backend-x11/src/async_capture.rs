@@ -784,7 +784,23 @@ mod tests {
             let result = (|| -> Result<()> {
                 backend.key(window.window_id, 0x61, true)?;
                 backend.key(window.window_id, 0x61, false)?;
-                backend.pointer(window.window_id, 10, 20, 1, true)
+                backend.pointer(window.window_id, 10, 20, 1, true)?;
+                backend.windows.get_mut(&window.window_id).unwrap().visible = false;
+                assert_eq!(
+                    backend
+                        .key(window.window_id, 0x61, true)
+                        .unwrap_err()
+                        .to_string(),
+                    "window is hidden"
+                );
+                assert_eq!(
+                    backend
+                        .pointer(window.window_id, 10, 20, 1, true)
+                        .unwrap_err()
+                        .to_string(),
+                    "window is hidden"
+                );
+                Ok(())
             })();
             let _ = finished.send(result);
         });

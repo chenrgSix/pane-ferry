@@ -820,6 +820,9 @@ impl Backend {
             self.windows.contains_key(&id) && scope.current(id),
             "unknown window"
         );
+        if focus && !self.windows[&id].visible {
+            bail!("window is hidden")
+        }
         geometry.input_target(id, focus)
     }
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
