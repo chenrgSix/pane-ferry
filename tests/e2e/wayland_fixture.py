@@ -14,6 +14,8 @@ app = Gtk.Application(application_id='io.paneferry.X11Fixture' if x11 else
 def activate(app):
     win = Gtk.ApplicationWindow(application=app, title='PaneFerry Wayland fixture')
     win.set_default_size(700, 450)
+    if '--minimum-size' in sys.argv:
+        win.set_size_request(480, 600)
     entry = Gtk.Entry(text='preserved fixture contents')
     # The compositor's XSettings can override GTK_IM_MODULE. Select the entry's
     # actual context so native text-input and unsupported contexts are tested.

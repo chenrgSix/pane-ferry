@@ -25,6 +25,7 @@ p.add_argument('--agent', required=True, type=Path)
 p.add_argument('--private-bus', action='store_true')
 p.add_argument('--with-xwayland', action='store_true')
 p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
+p.add_argument('--xwayland-resize-only', action='store_true', help='test live scaling and maximized Xwayland resize in the private compositor')
 p.add_argument('--logical-wayland-scale', type=int, choices=(1, 2), default=1,
                help='source scale to request for the logical-size fixture')
 p.add_argument('--isolated-app', choices=('text-editor',),
@@ -36,6 +37,8 @@ p.add_argument('--application-scene-only', action='store_true', help='test one s
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
+if a.xwayland_resize_only and not a.with_xwayland:
+    p.error('--xwayland-resize-only requires --with-xwayland')
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
     p.error('Run from the graphical login or via systemd-run --user --collect --wait --pipe; a headless GNOME launched in an SSH login may not render.')
 if not a.private_bus:
@@ -46,6 +49,7 @@ if not a.private_bus:
         # No activation of the user's calendar, keyring, document portal or IM.
         raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
             *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
+            *(['--xwayland-resize-only'] if a.xwayland_resize_only else []),
             '--logical-wayland-scale', str(a.logical_wayland_scale),
             *(['--isolated-app', a.isolated_app] if a.isolated_app else []),
             *(['--app-artifact-dir', str(a.app_artifact_dir.resolve())] if a.app_artifact_dir else []),
@@ -127,6 +131,17 @@ try:
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
         shutil.copytree(a.extension_dir or root/'apps/linux-agent/gnome-extension',ext)
+        if a.xwayland_resize_only:
+            # Test-only action in this private compositor. Never installed in
+            # the user's desktop or available through the production bridge.
+            extension = ext/'extension.js'
+            source = extension.read_text().replace('const r = JSON.parse(encoded);', '''const r = JSON.parse(encoded);
+            if (r.op === 'test_resize_maximize') {
+                const w = this.windows().find(w => w.get_pid() === r.pid);
+                w.maximize();
+                invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result: {}})])); return;
+            }''')
+            extension.write_text(source)
         if a.application_scene_only:
             # Test-only injection into this private compositor: deliberately put
             # an unrelated window under the cover. Never installed in production.
@@ -170,6 +185,9 @@ try:
              'XDG_SESSION_TYPE','DISPLAY','XAUTHORITY','WAYLAND_DISPLAY','GTK_USE_PORTAL','GIO_USE_VFS','NO_AT_BRIDGE')]], env=env, check=True)
         subprocess.run(['gsettings','set','org.gnome.shell','enabled-extensions',"['paneferry@local']"],env=env,check=True)
         subprocess.run(['gsettings','set','org.gnome.shell','disable-user-extensions','false'],env=env,check=True)
+        if a.xwayland_resize_only:
+            subprocess.run(['gsettings','set','org.gnome.mutter','experimental-features',
+                            "['scale-monitor-framebuffer', 'xwayland-native-scaling']"],env=env,check=True)
         with (t/'fixture.log').open('w') as log:
             start(['Xvfb',f':{display}','-screen','0','1600x900x24','-nolisten','tcp','-auth',str(authority)],env,log)
             wait(lambda:Path(f'/tmp/.X11-unix/X{display}').exists())
@@ -193,6 +211,10 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.xwayland_resize_only:
+                    from xwayland_resize_test import verify
+                    verify(sock, env, fixture, t, log, start, wait, Peer, Bridge)
+                    raise SystemExit(0)
                 if a.application_scene_only:
                     from application_scene_test import verify
                     try:

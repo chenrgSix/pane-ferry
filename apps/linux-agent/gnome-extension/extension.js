@@ -217,11 +217,14 @@ export default class PaneFerry extends Extension {
                         if (r.op === 'resize' || r.op === 'resize_x11') {
                             if (lease.scene) throw new Error('resolution_limited');
                             if (!Number.isInteger(r.width) || !Number.isInteger(r.height) || r.width < 1 || r.height < 1 || r.width > 4096 || r.height > 4096 || r.width * r.height > 8000000) throw new Error('invalid_dimensions');
-                            const rect = w.get_frame_rect();
                             const limits = this.describe(w);
                             if (w.get_client_type() === Meta.WindowClientType.WAYLAND && (r.width > limits.max_width || r.height > limits.max_height)) throw new Error('resolution_limited');
                             if (w.is_fullscreen()) w.unmake_fullscreen();
                             w.unmaximize();
+                            // Unmaximizing can synchronously restore a different
+                            // frame. Compare frame/client rectangles from the
+                            // same state, not the old maximized outer bounds.
+                            const rect = w.get_frame_rect();
                             // This is an explicit controller resize. Mutter otherwise
                             // clamps programmatic requests to the physical work area.
                             let width = r.width, height = r.height;

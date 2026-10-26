@@ -743,6 +743,26 @@ impl Backend {
         // Recovery runs before an oversized window enters `windows`. It needs
         // the same scoped compositor route as an explicit controller resize.
         if let Some(geometry) = &self.desktop_geometry {
+            // After a live Xwayland scale change, Mutter can retain size hints
+            // converted using the previous scale. Ask it to re-read the existing
+            // property before resizing. Do not replace/remove the application's
+            // hints (or change the desktop's DPI). This runs only on explicit
+            // resize/recovery, never on the input or per-frame path.
+            self.conn
+                .send_event(
+                    false,
+                    id,
+                    EventMask::PROPERTY_CHANGE,
+                    PropertyNotifyEvent {
+                        response_type: PROPERTY_NOTIFY_EVENT,
+                        sequence: 0,
+                        window: id,
+                        atom: AtomEnum::WM_NORMAL_HINTS.into(),
+                        time: x11rb::CURRENT_TIME,
+                        state: Property::NEW_VALUE,
+                    },
+                )?
+                .check()?;
             if geometry.resize(id, w, h)? {
                 return Ok(());
             }
