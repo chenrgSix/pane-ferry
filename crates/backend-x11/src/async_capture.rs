@@ -719,6 +719,112 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a private Xvfb DISPLAY with XRES; run serially"]
+    fn compositor_bound_input_does_not_query_a_grabbed_x_server() -> Result<()> {
+        struct Input(mpsc::Sender<&'static str>);
+        impl DesktopInput for Input {
+            fn prepare(&self) {}
+            fn status(&self) -> &'static str {
+                "ready"
+            }
+            fn pointer(&self, _: i32, _: i32, _: u8, _: bool) -> Result<()> {
+                self.0.send("pointer")?;
+                Ok(())
+            }
+            fn key(&self, _: u8, pressed: bool) -> Result<()> {
+                self.0.send(if pressed { "press" } else { "release" })?;
+                Ok(())
+            }
+            fn sync(&self) -> Result<()> {
+                Ok(())
+            }
+            fn release_all(&self) {}
+        }
+        struct Geometry(u32);
+        impl DesktopGeometry for Geometry {
+            fn input_target(&self, id: u32, _: bool) -> Result<bool> {
+                anyhow::ensure!(id == self.0, "unknown window");
+                Ok(true)
+            }
+            fn resize(&self, _: u32, _: u32, _: u32) -> Result<bool> {
+                Ok(false)
+            }
+            fn pointer(
+                &self,
+                id: u32,
+                _: i32,
+                _: i32,
+                _: u32,
+                _: u32,
+            ) -> Result<Option<(i32, i32)>> {
+                anyhow::ensure!(id == self.0, "unknown window");
+                Ok(Some((10, 20)))
+            }
+        }
+        let (mut backend, painter, window) = fixture()?;
+        let pid = std::process::id();
+        let display = std::env::var("DISPLAY")?
+            .trim_start_matches(':')
+            .split('.')
+            .next()
+            .unwrap()
+            .parse()?;
+        backend.window_scope = Some(related_windows::Scope::new(
+            display,
+            pid,
+            window.window_id,
+            &[],
+        )?);
+        let (events, received) = mpsc::channel();
+        backend.set_desktop_input(Arc::new(Input(events)));
+        backend.set_desktop_geometry(Box::new(Geometry(window.window_id)));
+        painter.grab_server()?.check()?;
+        let (finished, done) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let result = (|| -> Result<()> {
+                backend.key(window.window_id, 0x61, true)?;
+                backend.key(window.window_id, 0x61, false)?;
+                backend.pointer(window.window_id, 10, 20, 1, true)
+            })();
+            let _ = finished.send(result);
+        });
+        let result = done.recv_timeout(Duration::from_millis(500));
+        // Always release the server before asserting, including a regression.
+        painter.ungrab_server()?.check()?;
+        worker.join().unwrap();
+        result.context("input waited for the grabbed X server")??;
+        assert_eq!(
+            received.try_iter().collect::<Vec<_>>(),
+            ["press", "release", "pointer"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a private Xvfb DISPLAY; run serially"]
+    fn keyboard_mapping_notifications_invalidate_cached_keycodes() -> Result<()> {
+        let (backend, painter, _) = fixture()?;
+        let code = painter.setup().min_keycode;
+        let old = painter.get_keyboard_mapping(code, 1)?.reply()?;
+        let symbol = 0x123456;
+        painter
+            .change_keyboard_mapping(1, code, 1, &[symbol])?
+            .check()?;
+        let changed = (|| -> Result<()> {
+            wait(|| {
+                backend.pump_capture_events()?;
+                Ok(backend.keymap.borrow().is_none())
+            })?;
+            assert_eq!(backend.keycode(symbol)?, code);
+            Ok(())
+        })();
+        painter
+            .change_keyboard_mapping(1, code, old.keysyms_per_keycode, &old.keysyms)?
+            .check()?;
+        changed
+    }
+
+    #[test]
     #[ignore = "requires a private Linux Xvfb DISPLAY with XRES 1.2; run serially"]
     fn readback_revalidates_the_server_reported_owner_before_reading_pixels() -> Result<()> {
         struct Child(std::process::Child);

@@ -130,6 +130,11 @@ impl Scope {
             m.identity.pid == pid && m.identity.current() && m.identity.descendant_of(&self.root)
         })
     }
+    pub fn current(&self, id: u32) -> bool {
+        self.members
+            .get(&id)
+            .is_some_and(|m| self.contains(id, m.identity.pid))
+    }
     pub fn parent(&self, id: u32) -> Option<u32> {
         self.members.get(&id).and_then(|m| m.parent)
     }

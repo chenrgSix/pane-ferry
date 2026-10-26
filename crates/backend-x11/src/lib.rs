@@ -44,7 +44,13 @@ pub trait DesktopInput: Send + Sync {
 }
 /// Optional compositor geometry for an already approved Xwayland window.
 pub trait DesktopGeometry: Send {
-    fn logical_layout(&self) -> Result<HashMap<u32, LogicalLayout>> {
+    /// Validate a compositor object bound during a trusted X11 scan. Returning
+    /// true permits input without asking the busy X server to resolve the XID.
+    /// Implementations must reject replacement objects, not rebind on input.
+    fn input_target(&self, _window: u32, _focus: bool) -> Result<bool> {
+        Ok(false)
+    }
+    fn logical_layout(&self, _owners: &HashMap<u32, u32>) -> Result<HashMap<u32, LogicalLayout>> {
         Ok(HashMap::new())
     }
     fn resize(&self, window: u32, width: u32, height: u32) -> Result<bool>;
@@ -84,6 +90,7 @@ pub struct Backend {
     damage: RefCell<damage::Damage>,
     metadata: metadata_events::MetadataEvents,
     pending_event: RefCell<Option<(x11rb::protocol::Event, u64)>>,
+    keymap: RefCell<Option<GetKeyboardMappingReply>>,
     render_scale: RefCell<render_scale::RenderScale>,
     visuals: HashMap<u32, u32>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
@@ -101,9 +108,21 @@ impl Backend {
         self.desktop_geometry = Some(geometry);
     }
     pub fn logical_layout(&self) -> Result<HashMap<u32, LogicalLayout>> {
-        self.desktop_geometry
-            .as_ref()
-            .map_or_else(|| Ok(HashMap::new()), |g| g.logical_layout())
+        let Some(geometry) = &self.desktop_geometry else {
+            return Ok(HashMap::new());
+        };
+        let owners = self
+            .windows
+            .keys()
+            .filter_map(|id| {
+                let pid = self.client_pid(*id).ok()?;
+                self.window_scope
+                    .as_ref()
+                    .is_some_and(|scope| scope.contains(*id, pid))
+                    .then_some((*id, pid))
+            })
+            .collect();
+        geometry.logical_layout(&owners)
     }
     pub fn metadata_events(&self) -> bool {
         self.metadata.enabled()
@@ -245,6 +264,10 @@ impl Backend {
         let damage = RefCell::new(damage::Damage::new(&conn));
         let metadata = metadata_events::MetadataEvents::new(&conn, root);
         let render_scale = RefCell::new(render_scale::RenderScale::new(&conn, root));
+        let setup = conn.setup();
+        let keymap = conn
+            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)?
+            .reply()?;
         Ok(Self {
             conn,
             root,
@@ -264,6 +287,7 @@ impl Backend {
             damage,
             metadata,
             pending_event: RefCell::new(None),
+            keymap: RefCell::new(Some(keymap)),
             render_scale,
             visuals: HashMap::new(),
             desktop_input: None,
@@ -690,6 +714,9 @@ impl Backend {
                 None => self.conn.poll_for_event_with_sequence()?,
             };
             if let Some((event, _)) = &event {
+                if matches!(event, x11rb::protocol::Event::MappingNotify(_)) {
+                    self.keymap.borrow_mut().take();
+                }
                 self.metadata
                     .notify(event, self.root, &self.windows, &self.atoms);
                 use x11rb::protocol::Event;
@@ -777,6 +804,23 @@ impl Backend {
             bail!("unknown window")
         };
         Ok(())
+    }
+    fn compositor_input(&self, id: u32, focus: bool) -> Result<bool> {
+        let Some(geometry) = self
+            .desktop_geometry
+            .as_ref()
+            .filter(|_| self.desktop_input.is_some())
+        else {
+            return Ok(false);
+        };
+        let Some(scope) = &self.window_scope else {
+            return Ok(false);
+        };
+        anyhow::ensure!(
+            self.windows.contains_key(&id) && scope.current(id),
+            "unknown window"
+        );
+        geometry.input_target(id, focus)
     }
     pub fn configure(&self, id: u32, w: u32, h: u32) -> Result<()> {
         self.known(id)?;
@@ -953,9 +997,9 @@ impl Backend {
         Ok(())
     }
     pub fn pointer(&self, id: u32, x: i32, y: i32, button: u8, pressed: bool) -> Result<()> {
-        self.known(id)?;
-        let w = &self.windows[&id];
+        let w = self.windows.get(&id).context("unknown window")?;
         if x < 0 || y < 0 || x >= w.width as i32 || y >= w.height as i32 || button > 7 {
+            self.known(id)?;
             if (1..=7).contains(&button) && !pressed {
                 self.release_all();
                 return Ok(());
@@ -965,13 +1009,13 @@ impl Backend {
         if pressed || button == 0 {
             self.require_input()?;
         }
-        if button != 0 && pressed {
+        let compositor = self.compositor_input(id, button != 0 && pressed)?;
+        if !compositor {
+            self.known(id)?;
+        }
+        if button != 0 && pressed && !compositor {
             self.focus_for_input(id)?;
         }
-        let point = self
-            .conn
-            .translate_coordinates(id, self.root, x as i16, y as i16)?
-            .reply()?;
         if let Some(input) = &self.desktop_input {
             if let Some(geometry) = &self.desktop_geometry {
                 let window = &self.windows[&id];
@@ -984,8 +1028,16 @@ impl Backend {
                     return input.pointer(px, py, button, pressed);
                 }
             }
+            let point = self
+                .conn
+                .translate_coordinates(id, self.root, x as i16, y as i16)?
+                .reply()?;
             return input.pointer(point.dst_x.into(), point.dst_y.into(), button, pressed);
         }
+        let point = self
+            .conn
+            .translate_coordinates(id, self.root, x as i16, y as i16)?
+            .reply()?;
         // XWarpPointer only moves Xwayland's internal pointer. Button events
         // go through the compositor's input-emulation portal, so motion must
         // use the same XTEST route or clicks land at the old desktop position.
@@ -1029,10 +1081,15 @@ impl Backend {
         let setup = self.conn.setup();
         let min = setup.min_keycode;
         let max = setup.max_keycode;
-        let map = self
-            .conn
-            .get_keyboard_mapping(min, max - min + 1)?
-            .reply()?;
+        let mut cached = self.keymap.borrow_mut();
+        if cached.is_none() {
+            *cached = Some(
+                self.conn
+                    .get_keyboard_mapping(min, max - min + 1)?
+                    .reply()?,
+            );
+        }
+        let map = cached.as_ref().unwrap();
         let code = map
             .keysyms
             .chunks(map.keysyms_per_keycode as usize)
@@ -1042,11 +1099,14 @@ impl Backend {
         Ok(code)
     }
     pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
-        self.known(id)?;
         if pressed {
             self.require_input()?;
         }
-        if pressed {
+        let compositor = self.compositor_input(id, pressed)?;
+        if !compositor {
+            self.known(id)?;
+        }
+        if pressed && !compositor {
             self.focus_for_input(id)?;
         }
         let code = self.keycode(keysym)?;

@@ -956,12 +956,13 @@ pub fn native_process_running(app: &crate::discovery::DesktopApp) -> bool {
     })
 }
 
-/// Xwayland keeps its existing XComposite capture and clipboard. Only geometry
-/// uses the compositor, bound to the same approved XID/PID/start-time identity.
+/// Xwayland keeps XComposite capture and clipboard. Geometry and input targets
+/// use compositor objects bound to the approved XID/PID/start-time identity.
 pub struct X11Geometry {
     rpc: RefCell<Rpc>,
     identity: ProcessIdentity,
     root_xid: u32,
+    input_targets: RefCell<HashMap<u32, u32>>,
 }
 impl X11Geometry {
     fn compositor_id<'a>(windows: &'a Value, pid: u32, xid: u32) -> Option<&'a str> {
@@ -991,6 +992,7 @@ impl X11Geometry {
             rpc: RefCell::new(rpc),
             identity,
             root_xid: xid,
+            input_targets: RefCell::new(HashMap::new()),
         })))
     }
     fn scope(&self, xid: u32) -> Result<Value> {
@@ -1026,9 +1028,38 @@ impl X11Geometry {
     }
 }
 impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
-    fn logical_layout(&self) -> Result<HashMap<u32, paneferry_backend_x11::LogicalLayout>> {
+    fn input_target(&self, window: u32, focus: bool) -> Result<bool> {
+        let Some(id) = self.input_targets.borrow().get(&window).copied() else {
+            return Ok(false);
+        };
+        if process_identity(self.identity.pid).ok().as_ref() != Some(&self.identity) {
+            bail!("approved existing process unavailable")
+        }
+        // The lease and stable compositor object are checked by the bridge.
+        // Do not reacquire/rebind here: a reused XID must fail until a trusted
+        // XRES-backed metadata scan approves the replacement.
+        if focus {
+            self.rpc
+                .borrow_mut()
+                .call(json!({"op":"focus","window_id":id}))?;
+        } else {
+            let scope = self.rpc.borrow_mut().call(json!({"op":"scope"}))?;
+            anyhow::ensure!(
+                scope.as_array().is_some_and(|s| s
+                    .iter()
+                    .any(|w| w["xwindow"] == window && w["window_id"] == id)),
+                "unknown window"
+            );
+        }
+        Ok(true)
+    }
+    fn logical_layout(
+        &self,
+        owners: &HashMap<u32, u32>,
+    ) -> Result<HashMap<u32, paneferry_backend_x11::LogicalLayout>> {
         let values = self.scope(self.root_xid)?;
         let mut result = HashMap::new();
+        let mut targets = HashMap::new();
         for window in values.as_array().context("wayland_bridge_failed")? {
             let Some(xid) = window["xwindow"]
                 .as_u64()
@@ -1069,7 +1100,15 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
                     height,
                 },
             );
+            if let Some(id) = window["window_id"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|_| owners.get(&xid).is_some_and(|pid| window["pid"] == *pid))
+            {
+                targets.insert(xid, id);
+            }
         }
+        self.input_targets.replace(targets);
         Ok(result)
     }
     fn resize(&self, window: u32, width: u32, height: u32) -> Result<bool> {
@@ -1089,11 +1128,14 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
         width: u32,
         height: u32,
     ) -> Result<Option<(i32, i32)>> {
-        if !self.scoped(window)? {
+        let Some(id) = self.input_targets.borrow().get(&window).copied() else {
             return Ok(None);
+        };
+        if process_identity(self.identity.pid).ok().as_ref() != Some(&self.identity) {
+            bail!("approved existing process unavailable")
         }
         let point = self.rpc.borrow_mut().call(
-            json!({"op":"locate_x11","xwindow":window,"x":x,"y":y,"width":width,"height":height}),
+            json!({"op":"locate_x11","window_id":id,"x":x,"y":y,"width":width,"height":height}),
         )?;
         let x = i32::try_from(point["x"].as_i64().context("wayland_bridge_failed")?)?;
         let y = i32::try_from(point["y"].as_i64().context("wayland_bridge_failed")?)?;
@@ -1104,6 +1146,60 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn x11_input_uses_pinned_compositor_objects_and_rejects_xid_reuse() -> Result<()> {
+        use paneferry_backend_x11::DesktopGeometry;
+        let (client, server) = UnixStream::pair()?;
+        client.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let fixture = std::thread::spawn(move || -> Result<Vec<Value>> {
+            let mut wire = BufReader::new(server);
+            let mut requests = vec![];
+            for answer in [
+                json!({"result":{}}),
+                json!({"result":{"x":12,"y":34}}),
+                // Same XID, different compositor object: never rebind on input.
+                json!({"result":[{"xwindow":42,"window_id":88}]}),
+                json!({"error":"window_unavailable"}),
+            ] {
+                let line = read_line_limit(&mut wire, 4096)?.context("missing request")?;
+                requests.push(serde_json::from_slice(&line)?);
+                serde_json::to_writer(wire.get_mut(), &answer)?;
+                wire.get_mut().write_all(b"\n")?;
+            }
+            Ok(requests)
+        });
+        let geometry = X11Geometry {
+            rpc: RefCell::new(Rpc {
+                child: Command::new("sleep").arg("3").spawn()?,
+                wire: BufReader::new(client),
+            }),
+            identity: process_identity(std::process::id())?,
+            root_xid: 42,
+            input_targets: RefCell::new(HashMap::from([(42, 77)])),
+        };
+        assert!(geometry.input_target(42, true)?);
+        assert_eq!(geometry.pointer(42, 1, 2, 100, 100)?, Some((12, 34)));
+        assert_eq!(
+            geometry.input_target(42, false).unwrap_err().to_string(),
+            "unknown window"
+        );
+        assert_eq!(
+            geometry.input_target(42, true).unwrap_err().to_string(),
+            "unknown window"
+        );
+        assert!(!geometry.input_target(43, true)?);
+        let requests = fixture.join().unwrap()?;
+        assert_eq!(requests[0], json!({"op":"focus","window_id":77}));
+        assert_eq!(requests[1]["op"], "locate_x11");
+        assert_eq!(requests[1]["window_id"], 77);
+        assert!(requests.iter().all(|r| r.get("xwindow").is_none()));
+        assert_eq!(requests[2]["op"], "scope");
+        assert_eq!(
+            requests[3], requests[0],
+            "no list/acquire fallback during input"
+        );
+        Ok(())
+    }
     #[test]
     fn reacquire_uses_current_compositor_id_for_the_same_process_and_xid() {
         let windows = json!([
