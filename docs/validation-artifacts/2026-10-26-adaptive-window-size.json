@@ -1,0 +1,144 @@
+{
+  "date": "2026-10-26",
+  "address": "10.0.1.66",
+  "commits": {
+    "mac": "7714b59",
+    "linux": "35721be"
+  },
+  "cause": {
+    "desktop_scale": 1.25,
+    "xwayland_native_scaling": true,
+    "source_maximized": true,
+    "source_pixels_before": [
+      3072,
+      1504
+    ],
+    "local_points": [
+      1470,
+      805
+    ],
+    "reported_minimum_pixels": [
+      480,
+      600
+    ],
+    "stale_constraint_height": 1200
+  },
+  "isolated_gnome": {
+    "scale_change": [
+      1,
+      1.25
+    ],
+    "before_refresh": [
+      1470,
+      1200
+    ],
+    "after_refresh": [
+      1470,
+      806
+    ],
+    "application_hints_unchanged": true,
+    "requested_and_received": [
+      [
+        [
+          1470,
+          805
+        ],
+        [
+          1470,
+          806
+        ]
+      ],
+      [
+        [
+          900,
+          700
+        ],
+        [
+          900,
+          700
+        ]
+      ],
+      [
+        [
+          900,
+          500
+        ],
+        [
+          900,
+          600
+        ]
+      ],
+      [
+        [
+          1470,
+          805
+        ],
+        [
+          1470,
+          806
+        ]
+      ],
+      [
+        [
+          1000,
+          800
+        ],
+        [
+          1000,
+          800
+        ]
+      ]
+    ],
+    "maximized_restore_single_request": true
+  },
+  "checks": {
+    "mac_controller_input_smoke": "passed",
+    "mac_window_tree_smoke": "passed",
+    "mac_release_build_and_signature": "passed",
+    "linux_backend_x11": {
+      "passed": 10,
+      "ignored": 4
+    },
+    "linux_private_xvfb_scoped_geometry": "passed",
+    "linux_private_gnome_live_scaling": "passed",
+    "linux_private_gnome_logical_size_and_reconnect": "passed: 5 sizes each, Wayland and Xwayland",
+    "cargo_fmt_and_diff_check": "passed"
+  },
+  "deployed": {
+    "agent_sha256": "2d831e66673c384efeac50aceb1ca505232656c2704a585e2c1cf852c83b70b4",
+    "mac_host_sha256": "4653bde31e39d5c07c5bc17ac863e63346e11ac3ef6ec59414cfff3c80883f85",
+    "agent_pid": 1318982,
+    "mac_host_pid": 38471,
+    "extension_file_updated": true,
+    "extension_reloaded": false
+  },
+  "live_verification": {
+    "received_pixels": [
+      1470,
+      806
+    ],
+    "local_points": [
+      1470,
+      805
+    ],
+    "received_fps_observed": [
+      29,
+      30
+    ],
+    "large_letterbox_removed": true,
+    "source_maximize_recovers_automatically": true,
+    "desktop_scale_unchanged": true,
+    "original_application_pids_unchanged": [
+      3664772,
+      3837316,
+      4042507
+    ],
+    "source_hints_unchanged": true
+  },
+  "limits": [
+    "1-pixel compositor rounding is accepted; the displayed title retains actual dimensions",
+    "real minimum sizes and character grids are preserved; reconciliation is bounded",
+    "the installed extension file loads at the next normal GNOME login; current live fix was verified with the old loaded extension",
+    "no new latency benchmark in this change"
+  ]
+}
