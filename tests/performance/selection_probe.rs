@@ -197,8 +197,12 @@ pub(crate) fn trace(v: Value) {
         }))
     });
     if let Some(f) = f.lock().unwrap().as_mut() {
-        let _ = serde_json::to_writer(&mut *f, &v);
-        let _ = f.write_all(b"\n");
+        // Serialize in memory: streaming JSON directly to File performs many
+        // small writes while holding this mutex and can distort queue timings.
+        if let Ok(mut bytes) = serde_json::to_vec(&v) {
+            bytes.push(b'\n');
+            let _ = f.write_all(&bytes);
+        }
     }
 }
 
