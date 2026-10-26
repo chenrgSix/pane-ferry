@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Instrument a fresh git-archive copy, never the working tree or installed Agent.
 
-Only diagnostic input/fixture counts and timestamps are added to frame metadata. Run one
-sequential key/click probe/controller; do not use this binary in production.
+Only diagnostic frame identities, fixture counts and timestamps are added to
+frame metadata. Run one sequential key/click probe/controller; do not use this
+binary in production.
 """
 import argparse
 from pathlib import Path
@@ -70,6 +71,7 @@ pub fn scan(start:bool){if start{SCAN_START.set(now());}else{SCAN_END.set(now())
 pub fn publish(pointer:usize) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     if let Some(v)=s.frames.get_mut(&pointer){v["publish"]=json!(now());v["scan_start"]=json!(SCAN_START.get());v["scan_end"]=json!(SCAN_END.get());}
+    drop(s);crate::selection_probe::publish(pointer);
 }
 pub fn capture(window:u32,pointer:usize,start:u64) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
@@ -81,32 +83,61 @@ pub fn capture(window:u32,pointer:usize,start:u64) {
 }
 pub fn frame(pointer:usize,start:u64)->Value {
     let mut v=STATE.get_or_init(Default::default).lock().unwrap().frames.get(&pointer).cloned().unwrap_or(Value::Null);
-    if v.is_object() {v["encode_start"]=json!(start);v["encode_end"]=json!(now());}
+    if v.is_object() {v["encode_start"]=json!(start);v["encode_end"]=json!(now());v["selection"]=crate::selection_probe::frame(pointer);}
     v
 }
 '''
 
-def instrument(destination, revision):
+def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=()):
     destination.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryFile() as archive:
         subprocess.run(['git', 'archive', revision], cwd=ROOT, stdout=archive, check=True)
         archive.seek(0)
         subprocess.run(['tar', '-xf', '-', '-C', str(destination)], stdin=archive, check=True)
     source = destination / 'apps/linux-agent/src'
+    for name in source_overrides:
+        relative = Path(name)
+        original = (ROOT / relative).resolve()
+        target = (destination / relative).resolve()
+        if (relative.is_absolute() or '..' in relative.parts
+                or not original.is_relative_to(ROOT.resolve()) or not original.is_file()
+                or not target.is_relative_to(destination.resolve()) or not target.is_file()):
+            raise ValueError('source override must be a repository-relative file')
+        target.write_bytes(original.read_bytes())
     def edit(name, before, after):
         p = source / name
         text = p.read_text()
         if text.count(before) != 1:
             raise ValueError(f'instrumentation anchor changed in {name}: {before[:80]}')
         p.write_text(text.replace(before, after))
+    if isolated_state:
+        # Test-only builds never bind the installed Agent's socket or change
+        # HOME. Its existing desktop permission can be restored independently.
+        edit('main.rs', 'let p = home()?.join(".local/state/lan-remoteapp");',
+             'let p = PathBuf::from(std::env::var("PANEFERRY_PROBE_STATE").context("probe state required")?);\n    if !p.is_absolute() {bail!("absolute probe state required")}')
+        edit('desktop_input.py', "apps = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'applications'",
+             "apps = self.store.path.parent / 'probe-applications'")
+    if not stages:
+        print(destination)
+        return
     (source / 'stage_probe.rs').write_text(MODULE)
-    edit('main.rs', 'static STOP:', 'mod stage_probe;\nstatic STOP:')
+    for name in ['selection_probe.rs', 'selection_gstreamer.rs']:
+        (source / name).write_text((ROOT / 'tests/performance' / name).read_text())
+    edit('main.rs', 'static STOP:', 'mod stage_probe;\nmod selection_probe;\nstatic STOP:')
+    edit('video.rs', 'type Object =', '#[path="selection_gstreamer.rs"]\nmod selection_gstreamer;\ntype Object =')
+    edit('video.rs', 'caps_structure: unsafe extern', '''probe_caps: unsafe extern "C" fn(*const c_char) -> Object => (core, c"gst_caps_from_string"),
+    probe_add_reference: unsafe extern "C" fn(Object, Object, u64, u64) -> Object => (core, c"gst_buffer_add_reference_timestamp_meta"),
+    probe_get_reference: unsafe extern "C" fn(Object, Object) -> Object => (core, c"gst_buffer_get_reference_timestamp_meta"),
+    caps_structure: unsafe extern''')
+    edit('video.rs', 'pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink', 'pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! identity name=probe_ready signal-handoffs=true ! appsink')
+    edit('video_frame.rs', '! appsink name=sink sync=false max-buffers=1 drop=true', '! identity name=probe_ready signal-handoffs=true ! appsink name=sink sync=false max-buffers=1 drop=true')
     edit('main.rs', 'if tx.send(req).is_err() {', 'stage_probe::request("received", &req);\n                            if tx.send(req).is_err() {')
     edit('main.rs', 'if triggers_fast_scan(&req) {', 'let probe_input = stage_probe::is_input(&req);\n            stage_probe::request("dispatched", &req);\n            if triggers_fast_scan(&req) {')
     edit('main.rs', 'if let Err(e) = result {', 'if probe_input {stage_probe::input_end();}\n            if let Err(e) = result {')
-    edit('video.rs', 'let signal = connect_wake(api, sink, wake)?;', 'crate::stage_probe::sink(sink as usize,true);\n        let signal = connect_wake(api, sink, wake)?;')
-    edit('video_frame.rs', 'self.signal = connect_wake(self.api, self.sink, wake)?;', 'crate::stage_probe::sink(self.sink as usize,false);\n        self.signal = connect_wake(self.api, self.sink, wake)?;')
-    edit('video.rs', 'let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };', 'crate::stage_probe::wake(_sink as usize);\n    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };')
+    edit('video.rs', 'let signal = connect_wake(api, sink, wake)?;', 'crate::stage_probe::sink(sink as usize,true);\n        selection_gstreamer::connect(api,pipeline,sink,true,0,0)?;\n        let signal = connect_wake(api, sink, wake)?;')
+    edit('video_frame.rs', 'self.signal = connect_wake(self.api, self.sink, wake)?;', 'crate::stage_probe::sink(self.sink as usize,false);\n        selection_gstreamer::connect(self.api,self.pipeline,self.sink,false,self.spec.region[2],self.spec.region[3])?;\n        self.signal = connect_wake(self.api, self.sink, wake)?;')
+    edit('video.rs', 'let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };', 'crate::stage_probe::wake(_sink as usize);\n    crate::selection_probe::ready(_sink as usize);\n    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };')
+    edit('video_frame.rs', 'if unsafe { (self.api.push)(self.source, input) } != 0 {', 'selection_gstreamer::tag_input(self.api,buffer,input);\n        if unsafe { (self.api.push)(self.source, input) } != 0 {')
     edit('video.rs', 'let sample = unsafe { (self.api.pull)(self.sink, 0) };', 'crate::stage_probe::pulling();\n        let sample = unsafe { (self.api.pull)(self.sink, 0) };')
     edit('video.rs', 'converter.submit(buffer)?;', '''if spec.region[2]>=256 && spec.region[3]>16 {
                 let mapping=ReadMap::new(self.api,buffer)?;
@@ -123,20 +154,25 @@ def instrument(destination, revision):
             for bit in 0..8 {let offset=16*w.next_multiple_of(4)+16+bit*32;if bytes.get(offset).is_some_and(|v|*v>128){marker|=1<<bit;}}
             crate::stage_probe::pixels(false,marker);
         }
+        crate::selection_probe::selected(output as usize);
         Ok(Some(Frame {''')
-    edit('main.rs', 'let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;')
+    edit('main.rs', 'let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        selection_probe::deadline(last_capture.elapsed().as_nanos() as u64,frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;')
     edit('main.rs', 'let mut windows = if !s.has_exited()? && scan_due {\n                match s.scan_windows() {', 'let mut windows = if !s.has_exited()? && scan_due {\n                stage_probe::scan(true);\n                let probe_scan_result=s.scan_windows();\n                stage_probe::scan(false);\n                match probe_scan_result {')
     edit('main.rs', 'out.frame(w, image, &sid)?;', 'stage_probe::publish(Arc::as_ptr(&image) as usize);\n                        out.frame(w, image, &sid)?;')
     edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')
-    edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(*id, Arc::as_ptr(&image) as usize, probe_capture);\n                stream.image = Some(image);')
-    edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        let packet = state.encoder.encode_frame(&job.image)?;')
+    edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(*id, Arc::as_ptr(&image) as usize, probe_capture);\n                crate::selection_probe::capture(Arc::as_ptr(&image) as usize);\n                stream.image = Some(image);')
+    edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        crate::selection_probe::encoding(Arc::as_ptr(&job.image) as usize,probe_encode);\n        let packet = state.encoder.encode_frame(&job.image)?;')
     edit('output_worker.rs', '"stream_id":state.encoder.stream,', '"_agent_stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,probe_encode),\n            "stream_id":state.encoder.stream,')
     edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;', 'if value["_agent_stages"].is_object() {value["_agent_stages"]["write"]=json!(crate::stage_probe::now());}\n        let mut bytes = serde_json::to_vec(&value)?;')
+    edit('output.rs', 'socket.write_all(&bytes)?;', 'let probe_write=crate::stage_probe::now();\n        socket.write_all(&bytes)?;\n        crate::selection_probe::sent(&value,bytes.len(),probe_write,crate::stage_probe::now());')
     print(destination)
 
 if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('destination', type=Path)
     p.add_argument('--revision', default='HEAD')
+    p.add_argument('--isolated-state', action='store_true', help='require a private PANEFERRY_PROBE_STATE; keep HOME and installed desktop integration untouched')
+    p.add_argument('--no-stages', action='store_true', help='archive only (plus optional isolated state), without timing instrumentation')
+    p.add_argument('--source-override', action='append', default=[], help='copy this explicit working-tree file before instrumenting the archive')
     a=p.parse_args()
-    instrument(a.destination.resolve(), a.revision)
+    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override)
