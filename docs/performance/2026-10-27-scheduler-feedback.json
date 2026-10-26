@@ -1,0 +1,4091 @@
+{
+  "schema": 1,
+  "endpoint": "Mac input function to renderer displayed-buffer availability; excludes scanout/panel",
+  "units": "milliseconds unless suffixed _ns",
+  "conditions": {
+    "peer": "10.0.1.66",
+    "route": "utun4",
+    "rtt_approx_ms": 20,
+    "output": [
+      1470,
+      809
+    ],
+    "scale": 1,
+    "fps_cap": 30,
+    "x11_source_backing": [
+      2940,
+      1618
+    ],
+    "source_scale": 2,
+    "unrelated_apps_left_running": true
+  },
+  "datasets": {
+    "event_diagnostic": {
+      "rounds": [
+        {
+          "name": "x11-round1-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 179.1112915,
+              "p95": 251.479458,
+              "minimum": 124.899958,
+              "maximum": 275.042458
+            },
+            "pointer": {
+              "n": 20,
+              "median": 196.402333,
+              "p95": 325.777917,
+              "minimum": 76.148292,
+              "maximum": 369.52
+            },
+            "all": {
+              "n": 40,
+              "median": 182.6977085,
+              "p95": 275.814,
+              "minimum": 76.148292,
+              "maximum": 369.52
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 17.326210542,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round2-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 160.43925000000002,
+              "p95": 290.839,
+              "minimum": 85.272542,
+              "maximum": 358.23475
+            },
+            "pointer": {
+              "n": 20,
+              "median": 164.1458335,
+              "p95": 235.307584,
+              "minimum": 97.05,
+              "maximum": 380.273291
+            },
+            "all": {
+              "n": 40,
+              "median": 164.1458335,
+              "p95": 290.839,
+              "minimum": 85.272542,
+              "maximum": 380.273291
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 16.107971875,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round3-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 238.5214585,
+              "p95": 375.522916,
+              "minimum": 150.767875,
+              "maximum": 459.836667
+            },
+            "pointer": {
+              "n": 20,
+              "median": 235.163125,
+              "p95": 325.052417,
+              "minimum": 118.969792,
+              "maximum": 454.245958
+            },
+            "all": {
+              "n": 40,
+              "median": 236.11285400000003,
+              "p95": 375.522916,
+              "minimum": 118.969792,
+              "maximum": 459.836667
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 18.791168542,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round4-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 169.488042,
+              "p95": 227.516416,
+              "minimum": 98.344542,
+              "maximum": 253.647542
+            },
+            "pointer": {
+              "n": 20,
+              "median": 159.77474999999998,
+              "p95": 207.087958,
+              "minimum": 112.267083,
+              "maximum": 248.029958
+            },
+            "all": {
+              "n": 40,
+              "median": 165.49875,
+              "p95": 227.516416,
+              "minimum": 98.344542,
+              "maximum": 253.647542
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 16.26065575,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        }
+      ],
+      "overall": {
+        "n": 160,
+        "p50": 182.6977085,
+        "p95": 307.277958,
+        "maximum": 459.836667,
+        "above200": 62,
+        "above500": 0,
+        "below100": 5
+      },
+      "by_fps": {
+        "30": {
+          "n": 160,
+          "p50": 182.6977085,
+          "p95": 307.277958,
+          "maximum": 459.836667,
+          "above200": 62,
+          "above500": 0,
+          "below100": 5
+        }
+      },
+      "by_variant": {
+        "base": {
+          "n": 80,
+          "p50": 169.488042,
+          "p95": 269.594625,
+          "maximum": 369.52,
+          "above200": 22,
+          "above500": 0,
+          "below100": 2
+        },
+        "candidate": {
+          "n": 80,
+          "p50": 199.482146,
+          "p95": 358.23475,
+          "maximum": 459.836667,
+          "above200": 40,
+          "above500": 0,
+          "below100": 3
+        }
+      },
+      "slowest_five_by_variant": {
+        "base": [
+          {
+            "input_id": "x11-round1-base/input-36",
+            "e2e_ms": 369.52,
+            "response_protocol_frame_id": 181,
+            "first_response_i420_id": null,
+            "final_capture_id": 141,
+            "key_frame": false,
+            "wire_bytes": 4678,
+            "mac_timeline": {
+              "input_start_ns": 665366934422125,
+              "response_available_ns": 665367303942125,
+              "relative_ns": {
+                "write_start": 1348708,
+                "write_end": 1359916,
+                "received": 351729000,
+                "decoded": 353522333,
+                "selected": 353599875,
+                "draw_end": 369520000
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161236505973276,
+              "first_draw_ns": 161236535822654,
+              "relative_first_draw_ns": 29849378
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161236604375352,
+              "capture_id": 141,
+              "capture_start": 161236584478235,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 36,
+              "dispatched": 161236498746718,
+              "encode_end": 161236610090217,
+              "encode_start": 161236604416826,
+              "input_end": 161236505075527,
+              "interval": 66666000,
+              "publish": 161236604381615,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161236280549301,
+              "scan_end": 161236584173646,
+              "scan_start": 161236505158697,
+              "selection": null,
+              "status_end": 161236584461320,
+              "status_start": 161236584295341,
+              "write": 161236610106620
+            }
+          },
+          {
+            "input_id": "x11-round1-base/input-38",
+            "e2e_ms": 325.777917,
+            "response_protocol_frame_id": 189,
+            "first_response_i420_id": null,
+            "final_capture_id": 149,
+            "key_frame": false,
+            "wire_bytes": 36786,
+            "mac_timeline": {
+              "input_start_ns": 665367783648416,
+              "response_available_ns": 665368109426333,
+              "relative_ns": {
+                "write_start": 132125,
+                "write_end": 140375,
+                "received": 313995334,
+                "decoded": 317098459,
+                "selected": 317168792,
+                "draw_end": 325777917
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161237320088654,
+              "first_draw_ns": 161237349743193,
+              "relative_first_draw_ns": 29654539
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161237412199657,
+              "capture_id": 149,
+              "capture_start": 161237375082114,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 38,
+              "dispatched": 161237314646745,
+              "encode_end": 161237418674285,
+              "encode_start": 161237412247926,
+              "input_end": 161237318578394,
+              "interval": 66666000,
+              "publish": 161237412214568,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161237127982487,
+              "scan_end": 161237374918608,
+              "scan_start": 161237318646622,
+              "selection": null,
+              "status_end": 161237375061617,
+              "status_start": 161237374938739,
+              "write": 161237418693451
+            }
+          },
+          {
+            "input_id": "x11-round1-base/input-22",
+            "e2e_ms": 275.814,
+            "response_protocol_frame_id": 128,
+            "first_response_i420_id": null,
+            "final_capture_id": 88,
+            "key_frame": false,
+            "wire_bytes": 22706,
+            "mac_timeline": {
+              "input_start_ns": 665362828197583,
+              "response_available_ns": 665363104011583,
+              "relative_ns": {
+                "write_start": 308083,
+                "write_end": 318583,
+                "received": 256874417,
+                "decoded": 260052167,
+                "selected": 260113083,
+                "draw_end": 275814000
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161232295328766,
+              "first_draw_ns": 161232296138926,
+              "relative_first_draw_ns": 810160
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161232402833242,
+              "capture_id": 88,
+              "capture_start": 161232356944692,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 22,
+              "dispatched": 161232246397309,
+              "encode_end": 161232407197167,
+              "encode_start": 161232402884292,
+              "input_end": 161232285670555,
+              "interval": 50000000,
+              "publish": 161232402842688,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161232174022368,
+              "scan_end": 161232356900273,
+              "scan_start": 161232324159584,
+              "selection": null,
+              "status_end": 161232356931099,
+              "status_start": 161232356929890,
+              "write": 161232407214582
+            }
+          },
+          {
+            "input_id": "x11-round1-base/input-37",
+            "e2e_ms": 275.042458,
+            "response_protocol_frame_id": 185,
+            "first_response_i420_id": null,
+            "final_capture_id": 145,
+            "key_frame": false,
+            "wire_bytes": 4230,
+            "mac_timeline": {
+              "input_start_ns": 665367394525958,
+              "response_available_ns": 665367669568416,
+              "relative_ns": {
+                "write_start": 196000,
+                "write_end": 205208,
+                "received": 257439000,
+                "decoded": 260167083,
+                "selected": 260250750,
+                "draw_end": 275042458
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161236860847927,
+              "first_draw_ns": 161236891782882,
+              "relative_first_draw_ns": 30934955
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161236971076892,
+              "capture_id": 145,
+              "capture_start": 161236927627878,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 37,
+              "dispatched": 161236841361106,
+              "encode_end": 161236976027355,
+              "encode_start": 161236971126543,
+              "input_end": 161236860473166,
+              "interval": 66666000,
+              "publish": 161236971082324,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161236739637260,
+              "scan_end": 161236841119542,
+              "scan_start": 161236835078142,
+              "selection": null,
+              "status_end": 161236927619793,
+              "status_start": 161236927617073,
+              "write": 161236976044628
+            }
+          },
+          {
+            "input_id": "x11-round1-base/input-8",
+            "e2e_ms": 269.594625,
+            "response_protocol_frame_id": 74,
+            "first_response_i420_id": null,
+            "final_capture_id": 33,
+            "key_frame": false,
+            "wire_bytes": 1688,
+            "mac_timeline": {
+              "input_start_ns": 665358734706375,
+              "response_available_ns": 665359004301000,
+              "relative_ns": {
+                "write_start": 2114791,
+                "write_end": 2146625,
+                "received": 263913500,
+                "decoded": 266722666,
+                "selected": 266779083,
+                "draw_end": 269594625
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161228140479225,
+              "first_draw_ns": 161228185868502,
+              "relative_first_draw_ns": 45389277
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161228314202057,
+              "capture_id": 33,
+              "capture_start": 161228292868110,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 8,
+              "dispatched": 161228081734656,
+              "encode_end": 161228322398893,
+              "encode_start": 161228314245870,
+              "input_end": 161228127426571,
+              "interval": 66666000,
+              "publish": 161228314208288,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161228081712249,
+              "scan_end": 161228291326996,
+              "scan_start": 161228190764120,
+              "selection": null,
+              "status_end": 161228292855537,
+              "status_start": 161228292671730,
+              "write": 161228322417288
+            }
+          }
+        ],
+        "candidate": [
+          {
+            "input_id": "x11-round3-candidate/input-39",
+            "e2e_ms": 459.836667,
+            "response_protocol_frame_id": 198,
+            "first_response_i420_id": null,
+            "final_capture_id": 152,
+            "key_frame": false,
+            "wire_bytes": 4702,
+            "mac_timeline": {
+              "input_start_ns": 665403578029333,
+              "response_available_ns": 665404037866000,
+              "relative_ns": {
+                "write_start": 176250,
+                "write_end": 183875,
+                "received": 453032750,
+                "decoded": 456041125,
+                "selected": 456138417,
+                "draw_end": 459836667
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161273229240789,
+              "first_draw_ns": 161273260726424,
+              "relative_first_draw_ns": 31485635
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161273347420530,
+              "capture_id": 152,
+              "capture_start": 161273309242276,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 39,
+              "dispatched": 161273206371247,
+              "encode_end": 161273355718897,
+              "encode_start": 161273347487059,
+              "input_end": 161273228890674,
+              "interval": 66666000,
+              "publish": 161273347429468,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161272922538851,
+              "scan_end": 161273309196391,
+              "scan_start": 161273300784451,
+              "selection": null,
+              "status_end": 161273309229490,
+              "status_start": 161273309228396,
+              "write": 161273355742070
+            }
+          },
+          {
+            "input_id": "x11-round3-candidate/input-34",
+            "e2e_ms": 454.245958,
+            "response_protocol_frame_id": 178,
+            "first_response_i420_id": null,
+            "final_capture_id": 132,
+            "key_frame": false,
+            "wire_bytes": 4774,
+            "mac_timeline": {
+              "input_start_ns": 665401550505833,
+              "response_available_ns": 665402004751791,
+              "relative_ns": {
+                "write_start": 139708,
+                "write_end": 151167,
+                "received": 437824583,
+                "decoded": 441174667,
+                "selected": 441261750,
+                "draw_end": 454245958
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161271246154699,
+              "first_draw_ns": 161271246905949,
+              "relative_first_draw_ns": 751250
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161271306601440,
+              "capture_id": 132,
+              "capture_start": 161271257818117,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 34,
+              "dispatched": 161271226581856,
+              "encode_end": 161271312540588,
+              "encode_start": 161271306653694,
+              "input_end": 161271230152632,
+              "interval": 66666000,
+              "publish": 161271306607275,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161270895225969,
+              "scan_end": 161271257763742,
+              "scan_start": 161271230199809,
+              "selection": null,
+              "status_end": 161271257804339,
+              "status_start": 161271257803106,
+              "write": 161271312568213
+            }
+          },
+          {
+            "input_id": "x11-round2-candidate/input-40",
+            "e2e_ms": 380.273291,
+            "response_protocol_frame_id": 200,
+            "first_response_i420_id": null,
+            "final_capture_id": 168,
+            "key_frame": false,
+            "wire_bytes": 4350,
+            "mac_timeline": {
+              "input_start_ns": 665384757330500,
+              "response_available_ns": 665385137603791,
+              "relative_ns": {
+                "write_start": 233833,
+                "write_end": 246666,
+                "received": 374270083,
+                "decoded": 376105541,
+                "selected": 376163916,
+                "draw_end": 380273291
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161254302441961,
+              "first_draw_ns": 161254336390017,
+              "relative_first_draw_ns": 33948056
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161254450593957,
+              "capture_id": 168,
+              "capture_start": 161254423263690,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 40,
+              "dispatched": 161254281737539,
+              "encode_end": 161254455607953,
+              "encode_start": 161254450651952,
+              "input_end": 161254302108469,
+              "interval": 66666000,
+              "publish": 161254450600292,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161254102746728,
+              "scan_end": 161254423072484,
+              "scan_start": 161254347059951,
+              "selection": null,
+              "status_end": 161254423255013,
+              "status_start": 161254423153865,
+              "write": 161254455631752
+            }
+          },
+          {
+            "input_id": "x11-round3-candidate/input-9",
+            "e2e_ms": 375.522916,
+            "response_protocol_frame_id": 86,
+            "first_response_i420_id": null,
+            "final_capture_id": 40,
+            "key_frame": false,
+            "wire_bytes": 10496,
+            "mac_timeline": {
+              "input_start_ns": 665392561393750,
+              "response_available_ns": 665392936916666,
+              "relative_ns": {
+                "write_start": 288125,
+                "write_end": 303375,
+                "received": 358211625,
+                "decoded": 360783958,
+                "selected": 360858250,
+                "draw_end": 375522916
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161262174311870,
+              "first_draw_ns": 161262175633918,
+              "relative_first_draw_ns": 1322048
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161262236274020,
+              "capture_id": 40,
+              "capture_start": 161262191504266,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 9,
+              "dispatched": 161262131352470,
+              "encode_end": 161262241905361,
+              "encode_start": 161262236328704,
+              "input_end": 161262132155288,
+              "interval": 62500000,
+              "publish": 161262236282983,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161261906661375,
+              "scan_end": 161262191250884,
+              "scan_start": 161262132204520,
+              "selection": null,
+              "status_end": 161262191476255,
+              "status_start": 161262191288815,
+              "write": 161262241929054
+            }
+          },
+          {
+            "input_id": "x11-round2-candidate/input-39",
+            "e2e_ms": 358.23475,
+            "response_protocol_frame_id": 195,
+            "first_response_i420_id": null,
+            "final_capture_id": 163,
+            "key_frame": false,
+            "wire_bytes": 4162,
+            "mac_timeline": {
+              "input_start_ns": 665384311500916,
+              "response_available_ns": 665384669735666,
+              "relative_ns": {
+                "write_start": 327417,
+                "write_end": 347334,
+                "received": 342141459,
+                "decoded": 344590250,
+                "selected": 344658625,
+                "draw_end": 358234750
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161253810023346,
+              "first_draw_ns": 161253815172407,
+              "relative_first_draw_ns": 5149061
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161253973770255,
+              "capture_id": 163,
+              "capture_start": 161253953974445,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 39,
+              "dispatched": 161253800549407,
+              "encode_end": 161253977985589,
+              "encode_start": 161253973808731,
+              "input_end": 161253809583678,
+              "interval": 66666000,
+              "publish": 161253973773500,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161253656392775,
+              "scan_end": 161253953807867,
+              "scan_start": 161253834292081,
+              "selection": null,
+              "status_end": 161253953967827,
+              "status_start": 161253953848368,
+              "write": 161253978030637
+            }
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "event_formal": {
+      "rounds": [
+        {
+          "name": "x11-round1-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 165.3874165,
+              "p95": 234.666375,
+              "minimum": 85.482334,
+              "maximum": 246.245875
+            },
+            "pointer": {
+              "n": 30,
+              "median": 167.0616875,
+              "p95": 267.282166,
+              "minimum": 82.662375,
+              "maximum": 267.542625
+            },
+            "all": {
+              "n": 60,
+              "median": 167.0616875,
+              "p95": 234.666375,
+              "minimum": 82.662375,
+              "maximum": 267.542625
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 21.199745417,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round2-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 168.6535,
+              "p95": 269.677042,
+              "minimum": 92.584083,
+              "maximum": 277.734125
+            },
+            "pointer": {
+              "n": 30,
+              "median": 168.295458,
+              "p95": 234.935333,
+              "minimum": 112.500875,
+              "maximum": 244.326042
+            },
+            "all": {
+              "n": 60,
+              "median": 168.5222085,
+              "p95": 236.472083,
+              "minimum": 92.584083,
+              "maximum": 277.734125
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 21.588578875,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round3-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 142.5675,
+              "p95": 207.06925,
+              "minimum": 74.989084,
+              "maximum": 208.563084
+            },
+            "pointer": {
+              "n": 30,
+              "median": 144.4161665,
+              "p95": 202.772792,
+              "minimum": 93.085667,
+              "maximum": 210.3605
+            },
+            "all": {
+              "n": 60,
+              "median": 143.709521,
+              "p95": 202.772792,
+              "minimum": 74.989084,
+              "maximum": 210.3605
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.974597375,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round4-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 127.10775000000001,
+              "p95": 163.026583,
+              "minimum": 92.060375,
+              "maximum": 168.679959
+            },
+            "pointer": {
+              "n": 30,
+              "median": 134.26972899999998,
+              "p95": 182.115375,
+              "minimum": 75.82275,
+              "maximum": 190.117
+            },
+            "all": {
+              "n": 60,
+              "median": 129.948104,
+              "p95": 170.137083,
+              "minimum": 75.82275,
+              "maximum": 190.117
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.325013375,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round5-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 126.98308349999999,
+              "p95": 189.735167,
+              "minimum": 84.893375,
+              "maximum": 201.558375
+            },
+            "pointer": {
+              "n": 30,
+              "median": 134.2520835,
+              "p95": 245.465834,
+              "minimum": 83.789166,
+              "maximum": 276.245125
+            },
+            "all": {
+              "n": 60,
+              "median": 131.24589600000002,
+              "p95": 189.735167,
+              "minimum": 83.789166,
+              "maximum": 276.245125
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.495822209,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round6-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 139.921875,
+              "p95": 177.573459,
+              "minimum": 91.283667,
+              "maximum": 182.984791
+            },
+            "pointer": {
+              "n": 30,
+              "median": 137.694146,
+              "p95": 187.979875,
+              "minimum": 62.380833,
+              "maximum": 189.432542
+            },
+            "all": {
+              "n": 60,
+              "median": 139.040917,
+              "p95": 182.984791,
+              "minimum": 62.380833,
+              "maximum": 189.432542
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.493141625,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round7-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 131.600854,
+              "p95": 184.795167,
+              "minimum": 94.76725,
+              "maximum": 185.953959
+            },
+            "pointer": {
+              "n": 30,
+              "median": 142.28004149999998,
+              "p95": 185.34375,
+              "minimum": 85.756,
+              "maximum": 208.401417
+            },
+            "all": {
+              "n": 60,
+              "median": 136.6380625,
+              "p95": 184.795167,
+              "minimum": 85.756,
+              "maximum": 208.401417
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.475136708,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round8-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 127.30739600000001,
+              "p95": 194.250709,
+              "minimum": 60.979958,
+              "maximum": 234.791083
+            },
+            "pointer": {
+              "n": 30,
+              "median": 134.1422915,
+              "p95": 202.072,
+              "minimum": 93.390541,
+              "maximum": 210.9415
+            },
+            "all": {
+              "n": 60,
+              "median": 130.90533349999998,
+              "p95": 194.250709,
+              "minimum": 60.979958,
+              "maximum": 234.791083
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.18726625,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        }
+      ],
+      "overall": {
+        "n": 480,
+        "p50": 142.65947949999997,
+        "p95": 210.935541,
+        "maximum": 277.734125,
+        "above200": 37,
+        "above500": 0,
+        "below100": 45
+      },
+      "by_fps": {
+        "30": {
+          "n": 480,
+          "p50": 142.65947949999997,
+          "p95": 210.935541,
+          "maximum": 277.734125,
+          "above200": 37,
+          "above500": 0,
+          "below100": 45
+        }
+      },
+      "by_variant": {
+        "base": {
+          "n": 240,
+          "p50": 140.43089600000002,
+          "p95": 198.87325,
+          "maximum": 267.542625,
+          "above200": 11,
+          "above500": 0,
+          "below100": 21
+        },
+        "candidate": {
+          "n": 240,
+          "p50": 144.4161665,
+          "p95": 226.642166,
+          "maximum": 277.734125,
+          "above200": 26,
+          "above500": 0,
+          "below100": 24
+        }
+      },
+      "slowest_five_by_variant": {
+        "base": [
+          {
+            "input_id": "x11-round1-base/input-38",
+            "e2e_ms": 267.542625,
+            "response_protocol_frame_id": 242,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4714,
+            "mac_timeline": {
+              "input_start_ns": 665525834465833,
+              "response_available_ns": 665526102008458,
+              "relative_ns": {
+                "write_start": 213125,
+                "write_end": 220208,
+                "received": 256437125,
+                "decoded": 260664583,
+                "selected": 260760750,
+                "draw_end": 267542625
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161395328321411,
+              "first_draw_ns": 161395329686759,
+              "relative_first_draw_ns": 1365348
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-50",
+            "e2e_ms": 267.282166,
+            "response_protocol_frame_id": 311,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 2630,
+            "mac_timeline": {
+              "input_start_ns": 665529334765750,
+              "response_available_ns": 665529602047916,
+              "relative_ns": {
+                "write_start": 255208,
+                "write_end": 273708,
+                "received": 252194000,
+                "decoded": 255520083,
+                "selected": 255588500,
+                "draw_end": 267282166
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161398752602030,
+              "first_draw_ns": 161398754121789,
+              "relative_first_draw_ns": 1519759
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-33",
+            "e2e_ms": 246.245875,
+            "response_protocol_frame_id": 216,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": true,
+            "wire_bytes": 186697,
+            "mac_timeline": {
+              "input_start_ns": 665524405100958,
+              "response_available_ns": 665524651346833,
+              "relative_ns": {
+                "write_start": 329667,
+                "write_end": 340833,
+                "received": 228846083,
+                "decoded": 233814625,
+                "selected": 233880042,
+                "draw_end": 246245875
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161393820387836,
+              "first_draw_ns": 161393885559909,
+              "relative_first_draw_ns": 65172073
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-59",
+            "e2e_ms": 234.666375,
+            "response_protocol_frame_id": 356,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3350,
+            "mac_timeline": {
+              "input_start_ns": 665531701444041,
+              "response_available_ns": 665531936110416,
+              "relative_ns": {
+                "write_start": 310209,
+                "write_end": 324834,
+                "received": 228184000,
+                "decoded": 231108250,
+                "selected": 231195709,
+                "draw_end": 234666375
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161401170695377,
+              "first_draw_ns": 161401207285533,
+              "relative_first_draw_ns": 36590156
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-63",
+            "e2e_ms": 224.465917,
+            "response_protocol_frame_id": 376,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3970,
+            "mac_timeline": {
+              "input_start_ns": 665532876972791,
+              "response_available_ns": 665533101438708,
+              "relative_ns": {
+                "write_start": 272334,
+                "write_end": 287792,
+                "received": 207043334,
+                "decoded": 210043375,
+                "selected": 210110667,
+                "draw_end": 224465917
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161402291301503,
+              "first_draw_ns": 161402338957967,
+              "relative_first_draw_ns": 47656464
+            },
+            "linux_agent_timeline": null
+          }
+        ],
+        "candidate": [
+          {
+            "input_id": "x11-round2-candidate/input-29",
+            "e2e_ms": 277.734125,
+            "response_protocol_frame_id": 203,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4070,
+            "mac_timeline": {
+              "input_start_ns": 665545507666166,
+              "response_available_ns": 665545785400291,
+              "relative_ns": {
+                "write_start": 325584,
+                "write_end": 344167,
+                "received": 267097917,
+                "decoded": 271059250,
+                "selected": 271152375,
+                "draw_end": 277734125
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161415007495057,
+              "first_draw_ns": 161415009745741,
+              "relative_first_draw_ns": 2250684
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round5-candidate/input-30",
+            "e2e_ms": 276.245125,
+            "response_protocol_frame_id": 235,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4358,
+            "mac_timeline": {
+              "input_start_ns": 665606541690958,
+              "response_available_ns": 665606817936083,
+              "relative_ns": {
+                "write_start": 137292,
+                "write_end": 148292,
+                "received": 255679292,
+                "decoded": 259206625,
+                "selected": 259275625,
+                "draw_end": 276245125
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161476010228323,
+              "first_draw_ns": 161476049158564,
+              "relative_first_draw_ns": 38930241
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round2-candidate/input-27",
+            "e2e_ms": 269.677042,
+            "response_protocol_frame_id": 193,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 8574,
+            "mac_timeline": {
+              "input_start_ns": 665544799956958,
+              "response_available_ns": 665545069634000,
+              "relative_ns": {
+                "write_start": 314208,
+                "write_end": 331333,
+                "received": 251604458,
+                "decoded": 254753417,
+                "selected": 254832375,
+                "draw_end": 269677042
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161414239526804,
+              "first_draw_ns": 161414275237694,
+              "relative_first_draw_ns": 35710890
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round5-candidate/input-26",
+            "e2e_ms": 245.465834,
+            "response_protocol_frame_id": 214,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4294,
+            "mac_timeline": {
+              "input_start_ns": 665605455073416,
+              "response_available_ns": 665605700539250,
+              "relative_ns": {
+                "write_start": 294959,
+                "write_end": 310500,
+                "received": 231579167,
+                "decoded": 234339375,
+                "selected": 234444209,
+                "draw_end": 245465834
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161474892259978,
+              "first_draw_ns": 161474947462936,
+              "relative_first_draw_ns": 55202958
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round2-candidate/input-64",
+            "e2e_ms": 244.326042,
+            "response_protocol_frame_id": 364,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3666,
+            "mac_timeline": {
+              "input_start_ns": 665555223572583,
+              "response_available_ns": 665555467898625,
+              "relative_ns": {
+                "write_start": 159333,
+                "write_end": 165292,
+                "received": 227042500,
+                "decoded": 231221625,
+                "selected": 231339750,
+                "draw_end": 244326042
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161424661827268,
+              "first_draw_ns": 161424690248411,
+              "relative_first_draw_ns": 28421143
+            },
+            "linux_agent_timeline": null
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "feedback_before_diagnostic": {
+      "rounds": [
+        {
+          "name": "x11-round1-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 128.3156875,
+              "p95": 208.0345,
+              "minimum": 97.395083,
+              "maximum": 232.080917
+            },
+            "pointer": {
+              "n": 20,
+              "median": 154.200584,
+              "p95": 233.3655,
+              "minimum": 110.106083,
+              "maximum": 235.626792
+            },
+            "all": {
+              "n": 40,
+              "median": 142.9234375,
+              "p95": 232.080917,
+              "minimum": 97.395083,
+              "maximum": 235.626792
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 15.020660792,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        }
+      ],
+      "overall": {
+        "n": 40,
+        "p50": 142.9234375,
+        "p95": 232.080917,
+        "maximum": 235.626792,
+        "above200": 5,
+        "above500": 0,
+        "below100": 1
+      },
+      "by_fps": {
+        "30": {
+          "n": 40,
+          "p50": 142.9234375,
+          "p95": 232.080917,
+          "maximum": 235.626792,
+          "above200": 5,
+          "above500": 0,
+          "below100": 1
+        }
+      },
+      "by_variant": {
+        "candidate": {
+          "n": 40,
+          "p50": 142.9234375,
+          "p95": 232.080917,
+          "maximum": 235.626792,
+          "above200": 5,
+          "above500": 0,
+          "below100": 1
+        }
+      },
+      "slowest_five_by_variant": {
+        "candidate": [
+          {
+            "input_id": "x11-round1-candidate/input-42",
+            "e2e_ms": 235.626792,
+            "response_protocol_frame_id": 300,
+            "first_response_i420_id": null,
+            "final_capture_id": 241,
+            "key_frame": false,
+            "wire_bytes": 3118,
+            "mac_timeline": {
+              "input_start_ns": 665949611536208,
+              "response_available_ns": 665949847163000,
+              "relative_ns": {
+                "write_start": 305625,
+                "write_end": 322917,
+                "received": 219059333,
+                "decoded": 222608292,
+                "selected": 222684792,
+                "draw_end": 235626792
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161819031603060,
+              "first_draw_ns": 161819078246231,
+              "relative_first_draw_ns": 46643171
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161819144497528,
+              "capture_id": 241,
+              "capture_start": 161819088799393,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 42,
+              "dispatched": 161819010577230,
+              "encode_end": 161819153516001,
+              "encode_start": 161819144549040,
+              "input_end": 161819031094144,
+              "interval": 37037000,
+              "publish": 161819144504575,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161818955657933,
+              "scan_end": 161819088654420,
+              "scan_start": 161819077496860,
+              "selection": null,
+              "status_end": 161819088790123,
+              "status_start": 161819088685431,
+              "write": 161819153546524
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-36",
+            "e2e_ms": 233.3655,
+            "response_protocol_frame_id": 266,
+            "first_response_i420_id": null,
+            "final_capture_id": 207,
+            "key_frame": false,
+            "wire_bytes": 4122,
+            "mac_timeline": {
+              "input_start_ns": 665947930249291,
+              "response_available_ns": 665948163614791,
+              "relative_ns": {
+                "write_start": 230125,
+                "write_end": 237542,
+                "received": 219697042,
+                "decoded": 222602834,
+                "selected": 222665209,
+                "draw_end": 233365500
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161817348259988,
+              "first_draw_ns": 161817411334181,
+              "relative_first_draw_ns": 63074193
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161817467529372,
+              "capture_id": 207,
+              "capture_start": 161817422136870,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 36,
+              "dispatched": 161817332649402,
+              "encode_end": 161817472887383,
+              "encode_start": 161817467569846,
+              "input_end": 161817347643715,
+              "interval": 45454000,
+              "publish": 161817467538564,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161817273529983,
+              "scan_end": 161817421989877,
+              "scan_start": 161817410851219,
+              "selection": null,
+              "status_end": 161817422127233,
+              "status_start": 161817422018959,
+              "write": 161817472901331
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-35",
+            "e2e_ms": 232.080917,
+            "response_protocol_frame_id": 260,
+            "first_response_i420_id": null,
+            "final_capture_id": 201,
+            "key_frame": false,
+            "wire_bytes": 3826,
+            "mac_timeline": {
+              "input_start_ns": 665947597911041,
+              "response_available_ns": 665947829991958,
+              "relative_ns": {
+                "write_start": 299042,
+                "write_end": 309209,
+                "received": 223592834,
+                "decoded": 226905959,
+                "selected": 226972000,
+                "draw_end": 232080917
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161817023536257,
+              "first_draw_ns": 161817074096129,
+              "relative_first_draw_ns": 50559872
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161817139070898,
+              "capture_id": 201,
+              "capture_start": 161817095940981,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 35,
+              "dispatched": 161817022375905,
+              "encode_end": 161817144488781,
+              "encode_start": 161817139104241,
+              "input_end": 161817023064505,
+              "interval": 45454000,
+              "publish": 161817139075181,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161816941519740,
+              "scan_end": 161817095696501,
+              "scan_start": 161817086396569,
+              "selection": null,
+              "status_end": 161817095920002,
+              "status_start": 161817095721873,
+              "write": 161817144507777
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-8",
+            "e2e_ms": 221.167292,
+            "response_protocol_frame_id": 103,
+            "first_response_i420_id": null,
+            "final_capture_id": 44,
+            "key_frame": false,
+            "wire_bytes": 6478,
+            "mac_timeline": {
+              "input_start_ns": 665940632441208,
+              "response_available_ns": 665940853608500,
+              "relative_ns": {
+                "write_start": 148083,
+                "write_end": 162000,
+                "received": 205126750,
+                "decoded": 208524250,
+                "selected": 208594625,
+                "draw_end": 221167292
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161810023662791,
+              "first_draw_ns": 161810057662661,
+              "relative_first_draw_ns": 33999870
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161810151916015,
+              "capture_id": 44,
+              "capture_start": 161810096411071,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 8,
+              "dispatched": 161810016789373,
+              "encode_end": 161810158997956,
+              "encode_start": 161810151963582,
+              "input_end": 161810022977600,
+              "interval": 33333000,
+              "publish": 161810151920469,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161809976769135,
+              "scan_end": 161810096317141,
+              "scan_start": 161810077804608,
+              "selection": null,
+              "status_end": 161810096384636,
+              "status_start": 161810096382958,
+              "write": 161810159042673
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-5",
+            "e2e_ms": 208.0345,
+            "response_protocol_frame_id": 87,
+            "first_response_i420_id": null,
+            "final_capture_id": 28,
+            "key_frame": false,
+            "wire_bytes": 2352,
+            "mac_timeline": {
+              "input_start_ns": 665939855277583,
+              "response_available_ns": 665940063312083,
+              "relative_ns": {
+                "write_start": 189042,
+                "write_end": 201208,
+                "received": 190877917,
+                "decoded": 193317958,
+                "selected": 193401625,
+                "draw_end": 208034500
+              }
+            },
+            "source_timeline": {
+              "input_ns": 161809324037554,
+              "first_draw_ns": 161809324877344,
+              "relative_first_draw_ns": 839790
+            },
+            "linux_agent_timeline": {
+              "capture_end": 161809362352184,
+              "capture_id": 28,
+              "capture_start": 161809332145453,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 5,
+              "dispatched": 161809284354528,
+              "encode_end": 161809369974254,
+              "encode_start": 161809363775657,
+              "input_end": 161809288548804,
+              "interval": 33333000,
+              "publish": 161809362359528,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 161809199207313,
+              "scan_end": 161809245462552,
+              "scan_start": 161809234600529,
+              "selection": null,
+              "status_end": 161809332138367,
+              "status_start": 161809332136894,
+              "write": 161809369996070
+            }
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "feedback_after_diagnostic": {
+      "rounds": [
+        {
+          "name": "x11-round1-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 192.617792,
+              "p95": 244.854375,
+              "minimum": 141.942666,
+              "maximum": 260.346667
+            },
+            "pointer": {
+              "n": 20,
+              "median": 177.58889599999998,
+              "p95": 260.438083,
+              "minimum": 110.973917,
+              "maximum": 277.3385
+            },
+            "all": {
+              "n": 40,
+              "median": 188.5392705,
+              "p95": 260.346667,
+              "minimum": 110.973917,
+              "maximum": 277.3385
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 16.897927416,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        }
+      ],
+      "overall": {
+        "n": 40,
+        "p50": 188.5392705,
+        "p95": 260.346667,
+        "maximum": 277.3385,
+        "above200": 15,
+        "above500": 0,
+        "below100": 0
+      },
+      "by_fps": {
+        "30": {
+          "n": 40,
+          "p50": 188.5392705,
+          "p95": 260.346667,
+          "maximum": 277.3385,
+          "above200": 15,
+          "above500": 0,
+          "below100": 0
+        }
+      },
+      "by_variant": {
+        "candidate": {
+          "n": 40,
+          "p50": 188.5392705,
+          "p95": 260.346667,
+          "maximum": 277.3385,
+          "above200": 15,
+          "above500": 0,
+          "below100": 0
+        }
+      },
+      "slowest_five_by_variant": {
+        "candidate": [
+          {
+            "input_id": "x11-round1-candidate/input-28",
+            "e2e_ms": 277.3385,
+            "response_protocol_frame_id": 186,
+            "first_response_i420_id": null,
+            "final_capture_id": 145,
+            "key_frame": true,
+            "wire_bytes": 186585,
+            "mac_timeline": {
+              "input_start_ns": 666363465353000,
+              "response_available_ns": 666363742691500,
+              "relative_ns": {
+                "write_start": 142458,
+                "write_end": 156125,
+                "received": 256179041,
+                "decoded": 260985583,
+                "selected": 261049916,
+                "draw_end": 277338500
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162232959062961,
+              "first_draw_ns": 162232960556833,
+              "relative_first_draw_ns": 1493872
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162233002744080,
+              "capture_id": 145,
+              "capture_start": 162232971923805,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 28,
+              "dispatched": 162232873305607,
+              "encode_end": 162233012532738,
+              "encode_start": 162233002798067,
+              "input_end": 162232896458202,
+              "interval": 33333000,
+              "publish": 162233002751455,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162232809080185,
+              "scan_end": 162232971860178,
+              "scan_start": 162232964792570,
+              "selection": null,
+              "status_end": 162232971901920,
+              "status_start": 162232971900614,
+              "write": 162233014999713
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-12",
+            "e2e_ms": 260.438083,
+            "response_protocol_frame_id": 102,
+            "first_response_i420_id": null,
+            "final_capture_id": 61,
+            "key_frame": false,
+            "wire_bytes": 34726,
+            "mac_timeline": {
+              "input_start_ns": 666358505596958,
+              "response_available_ns": 666358766035041,
+              "relative_ns": {
+                "write_start": 117000,
+                "write_end": 128167,
+                "received": 246413250,
+                "decoded": 250085958,
+                "selected": 250149458,
+                "draw_end": 260438083
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162227892612387,
+              "first_draw_ns": 162227940522900,
+              "relative_first_draw_ns": 47910513
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162228058012201,
+              "capture_id": 61,
+              "capture_start": 162228016532170,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 12,
+              "dispatched": 162227888563163,
+              "encode_end": 162228068688384,
+              "encode_start": 162228058037086,
+              "input_end": 162227892183266,
+              "interval": 33333000,
+              "publish": 162228058017688,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162227848715527,
+              "scan_end": 162228016430976,
+              "scan_start": 162227997956269,
+              "selection": null,
+              "status_end": 162228016500643,
+              "status_start": 162228016496872,
+              "write": 162228068724953
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-41",
+            "e2e_ms": 260.346667,
+            "response_protocol_frame_id": 255,
+            "first_response_i420_id": null,
+            "final_capture_id": 214,
+            "key_frame": false,
+            "wire_bytes": 4378,
+            "mac_timeline": {
+              "input_start_ns": 666367499277041,
+              "response_available_ns": 666367759623708,
+              "relative_ns": {
+                "write_start": 305334,
+                "write_end": 317750,
+                "received": 252279584,
+                "decoded": 255849625,
+                "selected": 255917959,
+                "draw_end": 260346667
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162236906672213,
+              "first_draw_ns": 162236974182633,
+              "relative_first_draw_ns": 67510420
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162237062625423,
+              "capture_id": 214,
+              "capture_start": 162236977576403,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 41,
+              "dispatched": 162236904888371,
+              "encode_end": 162237073519160,
+              "encode_start": 162237062677267,
+              "input_end": 162236906107745,
+              "interval": 33333000,
+              "publish": 162237062634052,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162236842691155,
+              "scan_end": 162236912794360,
+              "scan_start": 162236906146421,
+              "selection": null,
+              "status_end": 162236977571118,
+              "status_start": 162236977568557,
+              "write": 162237073546174
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-18",
+            "e2e_ms": 250.291833,
+            "response_protocol_frame_id": 132,
+            "first_response_i420_id": null,
+            "final_capture_id": 91,
+            "key_frame": false,
+            "wire_bytes": 27286,
+            "mac_timeline": {
+              "input_start_ns": 666360448399250,
+              "response_available_ns": 666360698691083,
+              "relative_ns": {
+                "write_start": 223375,
+                "write_end": 236041,
+                "received": 233467458,
+                "decoded": 237537625,
+                "selected": 237611750,
+                "draw_end": 250291833
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162229880104819,
+              "first_draw_ns": 162229924671864,
+              "relative_first_draw_ns": 44567045
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162229992150122,
+              "capture_id": 91,
+              "capture_start": 162229954813611,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 18,
+              "dispatched": 162229855017933,
+              "encode_end": 162230001432946,
+              "encode_start": 162229992191164,
+              "input_end": 162229878223765,
+              "interval": 33333000,
+              "publish": 162229992155365,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162229792316898,
+              "scan_end": 162229954783335,
+              "scan_start": 162229949150289,
+              "selection": null,
+              "status_end": 162229954806044,
+              "status_start": 162229954805143,
+              "write": 162230001471357
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-13",
+            "e2e_ms": 244.854375,
+            "response_protocol_frame_id": 108,
+            "first_response_i420_id": null,
+            "final_capture_id": 67,
+            "key_frame": false,
+            "wire_bytes": 1442,
+            "mac_timeline": {
+              "input_start_ns": 666358896734458,
+              "response_available_ns": 666359141588833,
+              "relative_ns": {
+                "write_start": 285542,
+                "write_end": 300792,
+                "received": 231286333,
+                "decoded": 235199250,
+                "selected": 235298083,
+                "draw_end": 244854375
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162228294957628,
+              "first_draw_ns": 162228363221789,
+              "relative_first_draw_ns": 68264161
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162228442446864,
+              "capture_id": 67,
+              "capture_start": 162228379523776,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 13,
+              "dispatched": 162228289638421,
+              "encode_end": 162228450279952,
+              "encode_start": 162228442493795,
+              "input_end": 162228294517442,
+              "interval": 33333000,
+              "publish": 162228442455329,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162228240059770,
+              "scan_end": 162228379428038,
+              "scan_start": 162228363314093,
+              "selection": null,
+              "status_end": 162228379500057,
+              "status_start": 162228379498893,
+              "write": 162228450306686
+            }
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "readback_diagnostic": {
+      "rounds": [
+        {
+          "name": "x11-round1-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 20,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 20,
+              "median": 134.94402100000002,
+              "p95": 175.504959,
+              "minimum": 95.2615,
+              "maximum": 182.464625
+            },
+            "pointer": {
+              "n": 20,
+              "median": 138.04427049999998,
+              "p95": 179.578042,
+              "minimum": 83.901,
+              "maximum": 203.070917
+            },
+            "all": {
+              "n": 40,
+              "median": 136.083125,
+              "p95": 179.578042,
+              "minimum": 83.901,
+              "maximum": 203.070917
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 44,
+          "wall_seconds": 14.1760875,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        }
+      ],
+      "overall": {
+        "n": 40,
+        "p50": 136.083125,
+        "p95": 179.578042,
+        "maximum": 203.070917,
+        "above200": 1,
+        "above500": 0,
+        "below100": 2
+      },
+      "by_fps": {
+        "30": {
+          "n": 40,
+          "p50": 136.083125,
+          "p95": 179.578042,
+          "maximum": 203.070917,
+          "above200": 1,
+          "above500": 0,
+          "below100": 2
+        }
+      },
+      "by_variant": {
+        "candidate": {
+          "n": 40,
+          "p50": 136.083125,
+          "p95": 179.578042,
+          "maximum": 203.070917,
+          "above200": 1,
+          "above500": 0,
+          "below100": 2
+        }
+      },
+      "slowest_five_by_variant": {
+        "candidate": [
+          {
+            "input_id": "x11-round1-candidate/input-14",
+            "e2e_ms": 203.070917,
+            "response_protocol_frame_id": 137,
+            "first_response_i420_id": null,
+            "final_capture_id": 84,
+            "key_frame": false,
+            "wire_bytes": 1502,
+            "mac_timeline": {
+              "input_start_ns": 666957200455791,
+              "response_available_ns": 666957403526708,
+              "relative_ns": {
+                "write_start": 140834,
+                "write_end": 155334,
+                "received": 195300625,
+                "decoded": 197395459,
+                "selected": 197471292,
+                "draw_end": 203070917
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162826602590836,
+              "first_draw_ns": 162826639195573,
+              "relative_first_draw_ns": 36604737
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162826711120100,
+              "capture_id": 84,
+              "capture_start": 162826673850674,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 14,
+              "dispatched": 162826591504639,
+              "encode_end": 162826717145151,
+              "encode_start": 162826711157515,
+              "input_end": 162826601906358,
+              "interval": 33333000,
+              "publish": 162826711128222,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162826543318278,
+              "scan_end": 162826673770091,
+              "scan_start": 162826656833602,
+              "selection": null,
+              "status_end": 162826673832702,
+              "status_start": 162826673831027,
+              "write": 162826717161651
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-11",
+            "e2e_ms": 182.464625,
+            "response_protocol_frame_id": 117,
+            "first_response_i420_id": null,
+            "final_capture_id": 64,
+            "key_frame": false,
+            "wire_bytes": 1866,
+            "mac_timeline": {
+              "input_start_ns": 666956419237375,
+              "response_available_ns": 666956601702000,
+              "relative_ns": {
+                "write_start": 235375,
+                "write_end": 246375,
+                "received": 163817041,
+                "decoded": 165841333,
+                "selected": 165901041,
+                "draw_end": 182464625
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162825786105531,
+              "first_draw_ns": 162825847302091,
+              "relative_first_draw_ns": 61196560
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162825899671555,
+              "capture_id": 64,
+              "capture_start": 162825851049001,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 11,
+              "dispatched": 162825781492220,
+              "encode_end": 162825905165106,
+              "encode_start": 162825899735028,
+              "input_end": 162825785752492,
+              "interval": 33333000,
+              "publish": 162825899678075,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162825761313196,
+              "scan_end": 162825789605237,
+              "scan_start": 162825785770347,
+              "selection": null,
+              "status_end": 162825851043684,
+              "status_start": 162825851041914,
+              "write": 162825905182236
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-22",
+            "e2e_ms": 179.578042,
+            "response_protocol_frame_id": 184,
+            "first_response_i420_id": null,
+            "final_capture_id": 131,
+            "key_frame": false,
+            "wire_bytes": 3966,
+            "mac_timeline": {
+              "input_start_ns": 666959256647833,
+              "response_available_ns": 666959436225875,
+              "relative_ns": {
+                "write_start": 351500,
+                "write_end": 367542,
+                "received": 172434333,
+                "decoded": 175163792,
+                "selected": 175787375,
+                "draw_end": 179578042
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162828661541260,
+              "first_draw_ns": 162828695554657,
+              "relative_first_draw_ns": 34013397
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162828742835411,
+              "capture_id": 131,
+              "capture_start": 162828707418679,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 22,
+              "dispatched": 162828653307444,
+              "encode_end": 162828750320852,
+              "encode_start": 162828742882407,
+              "input_end": 162828661120845,
+              "interval": 33333000,
+              "publish": 162828742839928,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162828599566879,
+              "scan_end": 162828707368098,
+              "scan_start": 162828702074169,
+              "selection": null,
+              "status_end": 162828707409507,
+              "status_start": 162828707408567,
+              "write": 162828750353591
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-19",
+            "e2e_ms": 175.504959,
+            "response_protocol_frame_id": 166,
+            "first_response_i420_id": null,
+            "final_capture_id": 113,
+            "key_frame": false,
+            "wire_bytes": 6866,
+            "mac_timeline": {
+              "input_start_ns": 666958426999916,
+              "response_available_ns": 666958602504875,
+              "relative_ns": {
+                "write_start": 232792,
+                "write_end": 247417,
+                "received": 157001500,
+                "decoded": 159058625,
+                "selected": 159119292,
+                "draw_end": 175504959
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162827820316968,
+              "first_draw_ns": 162827867513964,
+              "relative_first_draw_ns": 47196996
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162827898522446,
+              "capture_id": 113,
+              "capture_start": 162827877961931,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 19,
+              "dispatched": 162827814605222,
+              "encode_end": 162827903860643,
+              "encode_start": 162827898576415,
+              "input_end": 162827819924774,
+              "interval": 33333000,
+              "publish": 162827898526910,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162827769377738,
+              "scan_end": 162827877946507,
+              "scan_start": 162827872218984,
+              "selection": null,
+              "status_end": 162827877957466,
+              "status_start": 162827877956704,
+              "write": 162827903880362
+            }
+          },
+          {
+            "input_id": "x11-round1-candidate/input-21",
+            "e2e_ms": 174.774125,
+            "response_protocol_frame_id": 179,
+            "first_response_i420_id": null,
+            "final_capture_id": 126,
+            "key_frame": false,
+            "wire_bytes": 4002,
+            "mac_timeline": {
+              "input_start_ns": 666958977810541,
+              "response_available_ns": 666959152584666,
+              "relative_ns": {
+                "write_start": 435209,
+                "write_end": 460292,
+                "received": 168129750,
+                "decoded": 171288792,
+                "selected": 171344875,
+                "draw_end": 174774125
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162828354697509,
+              "first_draw_ns": 162828367818704,
+              "relative_first_draw_ns": 13121195
+            },
+            "linux_agent_timeline": {
+              "capture_end": 162828459023001,
+              "capture_id": 126,
+              "capture_start": 162828388279338,
+              "converted_first": 0,
+              "converted_last": 0,
+              "converted_matching": 0,
+              "count": 21,
+              "dispatched": 162828348834846,
+              "encode_end": 162828467190900,
+              "encode_start": 162828459096733,
+              "input_end": 162828354188799,
+              "interval": 33333000,
+              "publish": 162828459060206,
+              "pull_first": 0,
+              "raw_first": 0,
+              "raw_last": 0,
+              "raw_matching": 0,
+              "received": 162828321197359,
+              "scan_end": 162828319948269,
+              "scan_start": 162828305749164,
+              "selection": null,
+              "status_end": 162828388275525,
+              "status_start": 162828388273392,
+              "write": 162828467209432
+            }
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "formal": {
+      "rounds": [
+        {
+          "name": "x11-round1-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 165.9241455,
+              "p95": 261.770958,
+              "minimum": 78.469459,
+              "maximum": 268.693375
+            },
+            "pointer": {
+              "n": 30,
+              "median": 152.4888335,
+              "p95": 244.835167,
+              "minimum": 83.068666,
+              "maximum": 305.247
+            },
+            "all": {
+              "n": 60,
+              "median": 153.97725,
+              "p95": 244.835167,
+              "minimum": 78.469459,
+              "maximum": 305.247
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 20.848382708,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round2-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 132.495854,
+              "p95": 194.038542,
+              "minimum": 85.810292,
+              "maximum": 201.60275
+            },
+            "pointer": {
+              "n": 30,
+              "median": 141.67700000000002,
+              "p95": 195.2075,
+              "minimum": 84.924292,
+              "maximum": 201.210459
+            },
+            "all": {
+              "n": 60,
+              "median": 137.734396,
+              "p95": 194.038542,
+              "minimum": 84.924292,
+              "maximum": 201.60275
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.84402275,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round3-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 148.792458,
+              "p95": 217.125042,
+              "minimum": 116.000084,
+              "maximum": 223.350292
+            },
+            "pointer": {
+              "n": 30,
+              "median": 152.807521,
+              "p95": 233.225459,
+              "minimum": 97.314209,
+              "maximum": 244.835333
+            },
+            "all": {
+              "n": 60,
+              "median": 150.1441875,
+              "p95": 223.118375,
+              "minimum": 97.314209,
+              "maximum": 244.835333
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 20.437534875,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round4-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 150.4521455,
+              "p95": 208.304792,
+              "minimum": 83.312417,
+              "maximum": 225.431625
+            },
+            "pointer": {
+              "n": 30,
+              "median": 152.466187,
+              "p95": 201.922959,
+              "minimum": 85.972167,
+              "maximum": 339.815375
+            },
+            "all": {
+              "n": 60,
+              "median": 152.0619165,
+              "p95": 202.85375,
+              "minimum": 83.312417,
+              "maximum": 339.815375
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 20.4969695,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round5-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 134.701833,
+              "p95": 193.895083,
+              "minimum": 68.749166,
+              "maximum": 201.440917
+            },
+            "pointer": {
+              "n": 30,
+              "median": 141.163917,
+              "p95": 203.588667,
+              "minimum": 80.342792,
+              "maximum": 206.37725
+            },
+            "all": {
+              "n": 60,
+              "median": 138.228854,
+              "p95": 194.142959,
+              "minimum": 68.749166,
+              "maximum": 206.37725
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.828870542,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        },
+        {
+          "name": "x11-round6-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 141.0146665,
+              "p95": 205.544208,
+              "minimum": 85.463458,
+              "maximum": 243.835833
+            },
+            "pointer": {
+              "n": 30,
+              "median": 138.93325,
+              "p95": 257.305125,
+              "minimum": 84.375042,
+              "maximum": 288.938292
+            },
+            "all": {
+              "n": 60,
+              "median": 141.0146665,
+              "p95": 205.544208,
+              "minimum": 84.375042,
+              "maximum": 288.938292
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 20.07579875,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round7-base",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 120.41468750000001,
+              "p95": 181.883875,
+              "minimum": 91.572792,
+              "maximum": 184.850375
+            },
+            "pointer": {
+              "n": 30,
+              "median": 143.18262499999997,
+              "p95": 198.883541,
+              "minimum": 92.295666,
+              "maximum": 228.751833
+            },
+            "all": {
+              "n": 60,
+              "median": 142.743,
+              "p95": 187.158125,
+              "minimum": 91.572792,
+              "maximum": 228.751833
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.317585417,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "base"
+        },
+        {
+          "name": "x11-round8-candidate",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 143.27,
+              "p95": 202.075833,
+              "minimum": 101.736458,
+              "maximum": 202.076542
+            },
+            "pointer": {
+              "n": 30,
+              "median": 150.920875,
+              "p95": 222.793958,
+              "minimum": 99.824333,
+              "maximum": 225.357125
+            },
+            "all": {
+              "n": 60,
+              "median": 144.93981250000002,
+              "p95": 206.679417,
+              "minimum": 99.824333,
+              "maximum": 225.357125
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 20.211296917,
+          "stop_returncode": 0,
+          "path": "x11",
+          "variant": "candidate"
+        }
+      ],
+      "overall": {
+        "n": 480,
+        "p50": 143.8082915,
+        "p95": 208.304792,
+        "maximum": 339.815375,
+        "above200": 43,
+        "above500": 0,
+        "below100": 27
+      },
+      "by_fps": {
+        "30": {
+          "n": 480,
+          "p50": 143.8082915,
+          "p95": 208.304792,
+          "maximum": 339.815375,
+          "above200": 43,
+          "above500": 0,
+          "below100": 27
+        }
+      },
+      "by_variant": {
+        "base": {
+          "n": 240,
+          "p50": 144.8755,
+          "p95": 220.459583,
+          "maximum": 339.815375,
+          "above200": 25,
+          "above500": 0,
+          "below100": 17
+        },
+        "candidate": {
+          "n": 240,
+          "p50": 142.487083,
+          "p95": 203.588667,
+          "maximum": 244.835333,
+          "above200": 18,
+          "above500": 0,
+          "below100": 10
+        }
+      },
+      "slowest_five_by_variant": {
+        "base": [
+          {
+            "input_id": "x11-round4-base/input-54",
+            "e2e_ms": 339.815375,
+            "response_protocol_frame_id": 336,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": true,
+            "wire_bytes": 193137,
+            "mac_timeline": {
+              "input_start_ns": 666663582321875,
+              "response_available_ns": 666663922137250,
+              "relative_ns": {
+                "write_start": 316083,
+                "write_end": 331875,
+                "received": 325676250,
+                "decoded": 330849500,
+                "selected": 330916791,
+                "draw_end": 339815375
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162533020670695,
+              "first_draw_ns": 162533127620516,
+              "relative_first_draw_ns": 106949821
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-8",
+            "e2e_ms": 305.247,
+            "response_protocol_frame_id": 97,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": true,
+            "wire_bytes": 181740,
+            "mac_timeline": {
+              "input_start_ns": 666588800862875,
+              "response_available_ns": 666589106109875,
+              "relative_ns": {
+                "write_start": 208583,
+                "write_end": 214041,
+                "received": 289763750,
+                "decoded": 294885916,
+                "selected": 294967916,
+                "draw_end": 305247000
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162458288640976,
+              "first_draw_ns": 162458324104392,
+              "relative_first_draw_ns": 35463416
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round6-base/input-22",
+            "e2e_ms": 288.938292,
+            "response_protocol_frame_id": 167,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 1218,
+            "mac_timeline": {
+              "input_start_ns": 666695949957666,
+              "response_available_ns": 666696238895958,
+              "relative_ns": {
+                "write_start": 307667,
+                "write_end": 321875,
+                "received": 271470000,
+                "decoded": 273811292,
+                "selected": 273887875,
+                "draw_end": 288938292
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162565425711023,
+              "first_draw_ns": 162565494873783,
+              "relative_first_draw_ns": 69162760
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-53",
+            "e2e_ms": 268.693375,
+            "response_protocol_frame_id": 338,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 20414,
+            "mac_timeline": {
+              "input_start_ns": 666601270670375,
+              "response_available_ns": 666601539363750,
+              "relative_ns": {
+                "write_start": 211333,
+                "write_end": 224458,
+                "received": 250297166,
+                "decoded": 252465708,
+                "selected": 252518791,
+                "draw_end": 268693375
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162470747808540,
+              "first_draw_ns": 162470749106603,
+              "relative_first_draw_ns": 1298063
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round1-base/input-33",
+            "e2e_ms": 261.770958,
+            "response_protocol_frame_id": 231,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4582,
+            "mac_timeline": {
+              "input_start_ns": 666596046025875,
+              "response_available_ns": 666596307796833,
+              "relative_ns": {
+                "write_start": 169791,
+                "write_end": 176125,
+                "received": 251243708,
+                "decoded": 254608416,
+                "selected": 254678500,
+                "draw_end": 261770958
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162465477256803,
+              "first_draw_ns": 162465548360662,
+              "relative_first_draw_ns": 71103859
+            },
+            "linux_agent_timeline": null
+          }
+        ],
+        "candidate": [
+          {
+            "input_id": "x11-round3-candidate/input-52",
+            "e2e_ms": 244.835333,
+            "response_protocol_frame_id": 353,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3838,
+            "mac_timeline": {
+              "input_start_ns": 666641934030125,
+              "response_available_ns": 666642178865458,
+              "relative_ns": {
+                "write_start": 327791,
+                "write_end": 346416,
+                "received": 230302125,
+                "decoded": 234334833,
+                "selected": 234439125,
+                "draw_end": 244835333
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162511341156662,
+              "first_draw_ns": 162511386571447,
+              "relative_first_draw_ns": 45414785
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round3-candidate/input-38",
+            "e2e_ms": 233.225459,
+            "response_protocol_frame_id": 269,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3262,
+            "mac_timeline": {
+              "input_start_ns": 666638056251541,
+              "response_available_ns": 666638289477000,
+              "relative_ns": {
+                "write_start": 280917,
+                "write_end": 298750,
+                "received": 225184417,
+                "decoded": 227545292,
+                "selected": 227604375,
+                "draw_end": 233225459
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162507523126537,
+              "first_draw_ns": 162507524767043,
+              "relative_first_draw_ns": 1640506
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round8-candidate/input-38",
+            "e2e_ms": 225.357125,
+            "response_protocol_frame_id": 273,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3438,
+            "mac_timeline": {
+              "input_start_ns": 666739762023125,
+              "response_available_ns": 666739987380250,
+              "relative_ns": {
+                "write_start": 169166,
+                "write_end": 182333,
+                "received": 205451583,
+                "decoded": 208767750,
+                "selected": 208828916,
+                "draw_end": 225357125
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162609155971993,
+              "first_draw_ns": 162609199132796,
+              "relative_first_draw_ns": 43160803
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round3-candidate/input-27",
+            "e2e_ms": 223.350292,
+            "response_protocol_frame_id": 208,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4254,
+            "mac_timeline": {
+              "input_start_ns": 666635148877041,
+              "response_available_ns": 666635372227333,
+              "relative_ns": {
+                "write_start": 192000,
+                "write_end": 205834,
+                "received": 208262292,
+                "decoded": 210612667,
+                "selected": 210729459,
+                "draw_end": 223350292
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162504525446166,
+              "first_draw_ns": 162504540173809,
+              "relative_first_draw_ns": 14727643
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "x11-round3-candidate/input-16",
+            "e2e_ms": 223.118375,
+            "response_protocol_frame_id": 143,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 1474,
+            "mac_timeline": {
+              "input_start_ns": 666632067379125,
+              "response_available_ns": 666632290497500,
+              "relative_ns": {
+                "write_start": 1072208,
+                "write_end": 1088833,
+                "received": 209229541,
+                "decoded": 212006708,
+                "selected": 212100125,
+                "draw_end": 223118375
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162501564588375,
+              "first_draw_ns": 162501566083888,
+              "relative_first_draw_ns": 1495513
+            },
+            "linux_agent_timeline": null
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "installed_base": {
+      "rounds": [
+        {
+          "name": "installed-base-x11-1",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 137.932312,
+              "p95": 184.71575,
+              "minimum": 78.229292,
+              "maximum": 186.025708
+            },
+            "pointer": {
+              "n": 30,
+              "median": 139.8259165,
+              "p95": 211.261875,
+              "minimum": 77.615125,
+              "maximum": 211.850959
+            },
+            "all": {
+              "n": 60,
+              "median": 137.932312,
+              "p95": 184.71575,
+              "minimum": 77.615125,
+              "maximum": 211.850959
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.692645667,
+          "stop_returncode": 0
+        },
+        {
+          "name": "installed-base-x11-2",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 144.394458,
+              "p95": 208.071667,
+              "minimum": 91.38025,
+              "maximum": 234.226708
+            },
+            "pointer": {
+              "n": 30,
+              "median": 144.293792,
+              "p95": 185.244375,
+              "minimum": 90.698,
+              "maximum": 235.388916
+            },
+            "all": {
+              "n": 60,
+              "median": 144.30097949999998,
+              "p95": 188.032833,
+              "minimum": 90.698,
+              "maximum": 235.388916
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.823620833,
+          "stop_returncode": 0
+        }
+      ],
+      "overall": {
+        "n": 120,
+        "p50": 143.83656200000001,
+        "p95": 186.025708,
+        "maximum": 235.388916,
+        "above200": 5,
+        "above500": 0,
+        "below100": 12
+      },
+      "by_fps": {
+        "30": {
+          "n": 120,
+          "p50": 143.83656200000001,
+          "p95": 186.025708,
+          "maximum": 235.388916,
+          "above200": 5,
+          "above500": 0,
+          "below100": 12
+        }
+      },
+      "by_variant": {
+        "base": {
+          "n": 120,
+          "p50": 143.83656200000001,
+          "p95": 186.025708,
+          "maximum": 235.388916,
+          "above200": 5,
+          "above500": 0,
+          "below100": 12
+        }
+      },
+      "slowest_five_by_variant": {
+        "base": [
+          {
+            "input_id": "installed-base-x11-2/input-12",
+            "e2e_ms": 235.388916,
+            "response_protocol_frame_id": 115,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 5086,
+            "mac_timeline": {
+              "input_start_ns": 667118798644125,
+              "response_available_ns": 667119034033041,
+              "relative_ns": {
+                "write_start": 204125,
+                "write_end": 215166,
+                "received": 219841625,
+                "decoded": 223306083,
+                "selected": 223376208,
+                "draw_end": 235388916
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162988210122662,
+              "first_draw_ns": 162988211478927,
+              "relative_first_draw_ns": 1356265
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-base-x11-2/input-51",
+            "e2e_ms": 234.226708,
+            "response_protocol_frame_id": 343,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3262,
+            "mac_timeline": {
+              "input_start_ns": 667128990668125,
+              "response_available_ns": 667129224894833,
+              "relative_ns": {
+                "write_start": 305125,
+                "write_end": 315083,
+                "received": 220733458,
+                "decoded": 224332500,
+                "selected": 224411125,
+                "draw_end": 234226708
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162998406735935,
+              "first_draw_ns": 162998456584277,
+              "relative_first_draw_ns": 49848342
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-base-x11-1/input-44",
+            "e2e_ms": 211.850959,
+            "response_protocol_frame_id": 309,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 60130,
+            "mac_timeline": {
+              "input_start_ns": 667107173287666,
+              "response_available_ns": 667107385138625,
+              "relative_ns": {
+                "write_start": 231917,
+                "write_end": 243959,
+                "received": 191672125,
+                "decoded": 195886875,
+                "selected": 195970125,
+                "draw_end": 211850959
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162976553244540,
+              "first_draw_ns": 162976554117357,
+              "relative_first_draw_ns": 872817
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-base-x11-1/input-26",
+            "e2e_ms": 211.261875,
+            "response_protocol_frame_id": 205,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4078,
+            "mac_timeline": {
+              "input_start_ns": 667102505942083,
+              "response_available_ns": 667102717203958,
+              "relative_ns": {
+                "write_start": 1288458,
+                "write_end": 1307167,
+                "received": 201861167,
+                "decoded": 204067917,
+                "selected": 204147083,
+                "draw_end": 211261875
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162971937802951,
+              "first_draw_ns": 162971981314744,
+              "relative_first_draw_ns": 43511793
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-base-x11-2/input-13",
+            "e2e_ms": 208.071667,
+            "response_protocol_frame_id": 120,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 2494,
+            "mac_timeline": {
+              "input_start_ns": 667119142688416,
+              "response_available_ns": 667119350760083,
+              "relative_ns": {
+                "write_start": 350875,
+                "write_end": 366917,
+                "received": 201751167,
+                "decoded": 204861542,
+                "selected": 204922459,
+                "draw_end": 208071667
+              }
+            },
+            "source_timeline": {
+              "input_ns": 162988590383647,
+              "first_draw_ns": 162988591915215,
+              "relative_first_draw_ns": 1531568
+            },
+            "linux_agent_timeline": null
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "installed_candidate": {
+      "rounds": [
+        {
+          "name": "installed-candidate-x11-1",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 134.2832085,
+              "p95": 186.090417,
+              "minimum": 63.856833,
+              "maximum": 210.330458
+            },
+            "pointer": {
+              "n": 30,
+              "median": 139.2822505,
+              "p95": 175.415583,
+              "minimum": 83.752625,
+              "maximum": 179.156125
+            },
+            "all": {
+              "n": 60,
+              "median": 135.7055205,
+              "p95": 181.392375,
+              "minimum": 63.856833,
+              "maximum": 210.330458
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.966152291,
+          "stop_returncode": 0
+        },
+        {
+          "name": "installed-candidate-x11-2",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 30,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 30,
+              "median": 134.324542,
+              "p95": 177.497375,
+              "minimum": 95.108041,
+              "maximum": 183.958958
+            },
+            "pointer": {
+              "n": 30,
+              "median": 146.51068750000002,
+              "p95": 194.162959,
+              "minimum": 82.431792,
+              "maximum": 195.624459
+            },
+            "all": {
+              "n": 60,
+              "median": 140.79225000000002,
+              "p95": 182.890584,
+              "minimum": 82.431792,
+              "maximum": 195.624459
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 64,
+          "wall_seconds": 19.448672416,
+          "stop_returncode": 0
+        }
+      ],
+      "overall": {
+        "n": 120,
+        "p50": 138.310896,
+        "p95": 182.530875,
+        "maximum": 210.330458,
+        "above200": 1,
+        "above500": 0,
+        "below100": 9
+      },
+      "by_fps": {
+        "30": {
+          "n": 120,
+          "p50": 138.310896,
+          "p95": 182.530875,
+          "maximum": 210.330458,
+          "above200": 1,
+          "above500": 0,
+          "below100": 9
+        }
+      },
+      "by_variant": {
+        "candidate": {
+          "n": 120,
+          "p50": 138.310896,
+          "p95": 182.530875,
+          "maximum": 210.330458,
+          "above200": 1,
+          "above500": 0,
+          "below100": 9
+        }
+      },
+      "slowest_five_by_variant": {
+        "candidate": [
+          {
+            "input_id": "installed-candidate-x11-1/input-57",
+            "e2e_ms": 210.330458,
+            "response_protocol_frame_id": 397,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": true,
+            "wire_bytes": 195129,
+            "mac_timeline": {
+              "input_start_ns": 667174055960958,
+              "response_available_ns": 667174266291416,
+              "relative_ns": {
+                "write_start": 321333,
+                "write_end": 337000,
+                "received": 192718292,
+                "decoded": 197480542,
+                "selected": 197552208,
+                "draw_end": 210330458
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163043460298626,
+              "first_draw_ns": 163043481562461,
+              "relative_first_draw_ns": 21263835
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-candidate-x11-2/input-8",
+            "e2e_ms": 195.624459,
+            "response_protocol_frame_id": 94,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 2745,
+            "mac_timeline": {
+              "input_start_ns": 667181303679416,
+              "response_available_ns": 667181499303875,
+              "relative_ns": {
+                "write_start": 1585542,
+                "write_end": 1604167,
+                "received": 179209667,
+                "decoded": 182542167,
+                "selected": 182606584,
+                "draw_end": 195624459
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163050730307350,
+              "first_draw_ns": 163050731039039,
+              "relative_first_draw_ns": 731689
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-candidate-x11-2/input-34",
+            "e2e_ms": 194.162959,
+            "response_protocol_frame_id": 246,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": true,
+            "wire_bytes": 193149,
+            "mac_timeline": {
+              "input_start_ns": 667187905763791,
+              "response_available_ns": 667188099926750,
+              "relative_ns": {
+                "write_start": 191459,
+                "write_end": 203834,
+                "received": 179963542,
+                "decoded": 184992459,
+                "selected": 185072209,
+                "draw_end": 194162959
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163057291295370,
+              "first_draw_ns": 163057331718461,
+              "relative_first_draw_ns": 40423091
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-candidate-x11-1/input-51",
+            "e2e_ms": 186.090417,
+            "response_protocol_frame_id": 358,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3250,
+            "mac_timeline": {
+              "input_start_ns": 667172363476083,
+              "response_available_ns": 667172549566500,
+              "relative_ns": {
+                "write_start": 158708,
+                "write_end": 169625,
+                "received": 165899958,
+                "decoded": 169262042,
+                "selected": 169329792,
+                "draw_end": 186090417
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163041751724449,
+              "first_draw_ns": 163041786959673,
+              "relative_first_draw_ns": 35235224
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-candidate-x11-2/input-25",
+            "e2e_ms": 183.958958,
+            "response_protocol_frame_id": 196,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 3214,
+            "mac_timeline": {
+              "input_start_ns": 667185693424583,
+              "response_available_ns": 667185877383541,
+              "relative_ns": {
+                "write_start": 241292,
+                "write_end": 246125,
+                "received": 162589333,
+                "decoded": 166536833,
+                "selected": 166608333,
+                "draw_end": 183958958
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163055077199349,
+              "first_draw_ns": 163055088538456,
+              "relative_first_draw_ns": 11339107
+            },
+            "linux_agent_timeline": null
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    },
+    "installed_native": {
+      "rounds": [
+        {
+          "name": "installed-feedback-native-30",
+          "scale": 1,
+          "fps": 30,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 10,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 10,
+              "median": 82.4566255,
+              "p95": 107.523708,
+              "minimum": 57.608833,
+              "maximum": 107.523708
+            },
+            "pointer": {
+              "n": 10,
+              "median": 75.63010449999999,
+              "p95": 102.767958,
+              "minimum": 51.690458,
+              "maximum": 102.767958
+            },
+            "all": {
+              "n": 20,
+              "median": 78.6472085,
+              "p95": 102.767958,
+              "minimum": 51.690458,
+              "maximum": 107.523708
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 24,
+          "wall_seconds": 8.643790542,
+          "stop_returncode": 0
+        },
+        {
+          "name": "installed-feedback-native-60",
+          "scale": 1,
+          "fps": 60,
+          "width": 1470,
+          "height": 809,
+          "samples_per_mode": 10,
+          "status": "passed",
+          "summary": {
+            "key": {
+              "n": 10,
+              "median": 70.7915625,
+              "p95": 102.433708,
+              "minimum": 48.47825,
+              "maximum": 102.433708
+            },
+            "pointer": {
+              "n": 10,
+              "median": 68.16562499999999,
+              "p95": 81.9845,
+              "minimum": 44.082583,
+              "maximum": 81.9845
+            },
+            "all": {
+              "n": 20,
+              "median": 70.7915625,
+              "p95": 89.318625,
+              "minimum": 44.082583,
+              "maximum": 102.433708
+            }
+          },
+          "local_points": [
+            1445,
+            793
+          ],
+          "source_input_count": 24,
+          "wall_seconds": 8.298465709,
+          "stop_returncode": 0
+        }
+      ],
+      "overall": null,
+      "by_fps": {
+        "30": {
+          "n": 20,
+          "p50": 78.6472085,
+          "p95": 102.767958,
+          "maximum": 107.523708,
+          "above200": 0,
+          "above500": 0,
+          "below100": 18
+        },
+        "60": {
+          "n": 20,
+          "p50": 70.7915625,
+          "p95": 89.318625,
+          "maximum": 102.433708,
+          "above200": 0,
+          "above500": 0,
+          "below100": 19
+        }
+      },
+      "by_variant": {
+        "candidate": {
+          "n": 40,
+          "p50": 75.123063,
+          "p95": 102.433708,
+          "maximum": 107.523708,
+          "above200": 0,
+          "above500": 0,
+          "below100": 37
+        }
+      },
+      "slowest_five_by_variant": {
+        "candidate": [
+          {
+            "input_id": "installed-feedback-native-30/input-11",
+            "e2e_ms": 107.523708,
+            "response_protocol_frame_id": 116,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 2342,
+            "mac_timeline": {
+              "input_start_ns": 667218876453708,
+              "response_available_ns": 667218983977416,
+              "relative_ns": {
+                "write_start": 168083,
+                "write_end": 179167,
+                "received": 95306958,
+                "decoded": 97708125,
+                "selected": 97776583,
+                "draw_end": 107523708
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163088219927112,
+              "first_draw_ns": 163088239969501,
+              "relative_first_draw_ns": 20042389
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-feedback-native-30/input-12",
+            "e2e_ms": 102.767958,
+            "response_protocol_frame_id": 122,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 21130,
+            "mac_timeline": {
+              "input_start_ns": 667219080474458,
+              "response_available_ns": 667219183242416,
+              "relative_ns": {
+                "write_start": 221000,
+                "write_end": 237292,
+                "received": 96706958,
+                "decoded": 99139250,
+                "selected": 99192167,
+                "draw_end": 102767958
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163088425982281,
+              "first_draw_ns": 163088430770188,
+              "relative_first_draw_ns": 4787907
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-feedback-native-60/input-17",
+            "e2e_ms": 102.433708,
+            "response_protocol_frame_id": 161,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 4418,
+            "mac_timeline": {
+              "input_start_ns": 667228613748333,
+              "response_available_ns": 667228716182041,
+              "relative_ns": {
+                "write_start": 179208,
+                "write_end": 192292,
+                "received": 90918542,
+                "decoded": 93052792,
+                "selected": 93109750,
+                "draw_end": 102433708
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163098001630630,
+              "first_draw_ns": 163098008320994,
+              "relative_first_draw_ns": 6690364
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-feedback-native-30/input-7",
+            "e2e_ms": 98.648625,
+            "response_protocol_frame_id": 94,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 10560,
+            "mac_timeline": {
+              "input_start_ns": 667218134273625,
+              "response_available_ns": 667218232922250,
+              "relative_ns": {
+                "write_start": 256375,
+                "write_end": 267458,
+                "received": 81490791,
+                "decoded": 83950041,
+                "selected": 84065708,
+                "draw_end": 98648625
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163087482915250,
+              "first_draw_ns": 163087485686935,
+              "relative_first_draw_ns": 2771685
+            },
+            "linux_agent_timeline": null
+          },
+          {
+            "input_id": "installed-feedback-native-30/input-17",
+            "e2e_ms": 97.424917,
+            "response_protocol_frame_id": 152,
+            "first_response_i420_id": null,
+            "final_capture_id": null,
+            "key_frame": false,
+            "wire_bytes": 24770,
+            "mac_timeline": {
+              "input_start_ns": 667220118264791,
+              "response_available_ns": 667220215689708,
+              "relative_ns": {
+                "write_start": 291459,
+                "write_end": 308459,
+                "received": 79235834,
+                "decoded": 81369834,
+                "selected": 81415167,
+                "draw_end": 97424917
+              }
+            },
+            "source_timeline": {
+              "input_ns": 163089462192400,
+              "first_draw_ns": 163089465138159,
+              "relative_first_draw_ns": 2945759
+            },
+            "linux_agent_timeline": null
+          }
+        ]
+      },
+      "all_expected_responses_observed": true,
+      "failed_or_missing_responses": 0
+    }
+  },
+  "feedback_before_diagnostic": {
+    "ack_arrival_to_processing_ms": {
+      "n": 245,
+      "p50": 17.904096,
+      "p95": 81.808333,
+      "maximum": 122.916298,
+      "above200": 0,
+      "above500": 0,
+      "below100": 242
+    },
+    "target_fps_by_ack": {
+      "30": 161,
+      "22": 68,
+      "27": 16
+    },
+    "excess_above100ms": 11
+  },
+  "feedback_after_diagnostic": {
+    "ack_arrival_to_processing_ms": {
+      "n": 260,
+      "p50": 0.0176085,
+      "p95": 0.032396,
+      "maximum": 0.056412,
+      "above200": 0,
+      "above500": 0,
+      "below100": 260
+    },
+    "target_fps_by_ack": {
+      "30": 260
+    },
+    "excess_above100ms": 0
+  },
+  "x11_capture_checkpoints": {
+    "start->known": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 0.0818585,
+        "p95": 0.566558,
+        "maximum": 6.216169,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.051115,
+        "p95": 0.111298,
+        "maximum": 0.156604,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    },
+    "known->acknowledged": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 0.018631500000000002,
+        "p95": 0.054971,
+        "maximum": 1.540679,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.010488500000000001,
+        "p95": 0.022143,
+        "maximum": 0.052035,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    },
+    "acknowledged->named_pixmap": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 0.013022,
+        "p95": 0.031709,
+        "maximum": 0.444008,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.007117,
+        "p95": 0.016109,
+        "maximum": 0.027995,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    },
+    "named_pixmap->scaled": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 0.07709099999999999,
+        "p95": 0.162807,
+        "maximum": 1.184447,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.0200615,
+        "p95": 0.042132,
+        "maximum": 0.06377,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    },
+    "scaled->readback": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 26.3499175,
+        "p95": 51.885653,
+        "maximum": 70.406873,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.7797135,
+        "p95": 1.4181,
+        "maximum": 3.593344,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    },
+    "readback->metadata": {
+      "wall_ms": {
+        "n": 320,
+        "p50": 0.011351,
+        "p95": 0.019605,
+        "maximum": 0.06725,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      },
+      "thread_cpu_ms": {
+        "n": 320,
+        "p50": 0.009018,
+        "p95": 0.01725,
+        "maximum": 0.032363,
+        "above200": 0,
+        "above500": 0,
+        "below100": 320
+      }
+    }
+  },
+  "limitations": [
+    "No physical presentation/scanout endpoint.",
+    "Diagnostic and formal samples are kept separate.",
+    "Native 30/60 runs are small post-install smoke tests, not an A/B of code revisions.",
+    "Production before/after runs were sequential, not interleaved; source background load can change.",
+    "Uninstrumented formal and installed runs have no Linux Agent capture/encode timestamps or first I420 identity.",
+    "X11 capture_id is an owned RGB/BGR snapshot identity, not an I420 ID.",
+    "Per-stage percentile values cannot be summed into an end-to-end percentile."
+  ],
+  "fixture_regression": {
+    "rich_clipboard_old_script": "first-frame EOF reproduced on both baseline and candidate; H264 must be negotiated before attach",
+    "fixed_script": "PNG/INCR/files byte-for-byte checks passed on both baseline and candidate"
+  },
+  "deployment": {
+    "status": "installed",
+    "agent_code_revision": "349d2c2",
+    "archive_revision": "e135158",
+    "installed_sha256": "5b5fb8a0ab2e7bea1d1df97b288663db7eb1d14ade5575ca37a62103e7cb62ed",
+    "previous_sha256": "e7e03bda422296d66270f7f41d9a3fc2cdcdbf8cc04e70fbd42542fde708bdf1",
+    "agent_pid": 2501409,
+    "network_pid_unchanged": 4014903,
+    "original_app_processes_preserved": true,
+    "authorization_and_pairing_unchanged": true,
+    "no_diagnostic_state_or_fields": true,
+    "hello": {
+      "capabilities": [
+        "application.scene",
+        "catalog",
+        "display.scale",
+        "window.page-scale",
+        "input.pointer",
+        "input.key",
+        "input.authorization",
+        "input.text.commit",
+        "clipboard.paste",
+        "clipboard.copy",
+        "clipboard.cut",
+        "clipboard.bundle",
+        "session.resume",
+        "session.list",
+        "app.discovery",
+        "window.list",
+        "desktop.monitor",
+        "node.info",
+        "peer.reverse",
+        "native.h264",
+        "video.qos",
+        "video.keyframe"
+      ],
+      "seq": 1,
+      "session_id": "",
+      "type": "hello",
+      "version": 1,
+      "video_max_fps": 60
+    },
+    "installed_utc": "2026-10-26 17:46:17 UTC"
+  },
+  "ui_verification": {
+    "mac_host_pid": 59058,
+    "source_chatgpt_pid": 3664772,
+    "received_pixels": [
+      1470,
+      797
+    ],
+    "local_points": [
+      1470,
+      797
+    ],
+    "configured_fps": 30,
+    "observed_recent_fps": [
+      28,
+      29
+    ],
+    "menu_fps_options": [
+      30,
+      60
+    ],
+    "retired_2x_page_menu_absent": true,
+    "did_not_modify_user_chat_content": true
+  },
+  "raw_archive": {
+    "path": "2026-10-27-scheduler-feedback.raw.jsonl.gz",
+    "sha256": "1de1ba7e80c978c00f0452faac056f7f136042c79dde2bc48f354463ebcc294b",
+    "bytes": 664609,
+    "records": 13598,
+    "session_ids_aliased": true,
+    "pixels_clipboard_and_credentials_excluded": true
+  }
+}
