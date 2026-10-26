@@ -24,7 +24,7 @@ struct Input { count:u64, received:u64, dispatched:u64, input_end:u64 }
 #[derive(Default)]
 struct State { inputs:HashMap<u32,Input>, active:Option<u32>, sinks:HashMap<usize,bool>, raw_first:u64, raw_last:u64, converted_first:u64, converted_last:u64, pull_first:u64, raw_matching:u64, converted_matching:u64, frames:HashMap<usize,Value> }
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-thread_local! { static WINDOW:Cell<Option<u32>>=const { Cell::new(None) }; static INTERVAL:Cell<u64>=const { Cell::new(0) }; }
+thread_local! { static WINDOW:Cell<Option<u32>>=const { Cell::new(None) }; static INTERVAL:Cell<u64>=const { Cell::new(0) }; static SCAN_START:Cell<u64>=const {Cell::new(0)}; static SCAN_END:Cell<u64>=const {Cell::new(0)}; }
 pub fn is_input(r:&Request)->bool { window(r).is_some() }
 fn window(r:&Request)->Option<u32> {
     match r {
@@ -66,6 +66,11 @@ pub fn pixels(raw:bool,marker:u64) {
     if !raw && s.converted_matching==0{s.converted_matching=t;}
 }
 pub fn interval(n:u64){INTERVAL.set(n);}
+pub fn scan(start:bool){if start{SCAN_START.set(now());}else{SCAN_END.set(now());}}
+pub fn publish(pointer:usize) {
+    let mut s=STATE.get_or_init(Default::default).lock().unwrap();
+    if let Some(v)=s.frames.get_mut(&pointer){v["publish"]=json!(now());v["scan_start"]=json!(SCAN_START.get());v["scan_end"]=json!(SCAN_END.get());}
+}
 pub fn capture(window:u32,pointer:usize,start:u64) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     let Some(i)=s.inputs.get(&window).cloned() else{return};
@@ -120,6 +125,8 @@ def instrument(destination, revision):
         }
         Ok(Some(Frame {''')
     edit('main.rs', 'let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;')
+    edit('main.rs', 'let mut windows = if !s.has_exited()? && scan_due {\n                match s.scan_windows() {', 'let mut windows = if !s.has_exited()? && scan_due {\n                stage_probe::scan(true);\n                let probe_scan_result=s.scan_windows();\n                stage_probe::scan(false);\n                match probe_scan_result {')
+    edit('main.rs', 'out.frame(w, image, &sid)?;', 'stage_probe::publish(Arc::as_ptr(&image) as usize);\n                        out.frame(w, image, &sid)?;')
     edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')
     edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(*id, Arc::as_ptr(&image) as usize, probe_capture);\n                stream.image = Some(image);')
     edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        let packet = state.encoder.encode_frame(&job.image)?;')
