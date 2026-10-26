@@ -34,12 +34,22 @@ import CoreVideo
         }
         let bitmap = VideoFrame(image: context.makeImage()!)
         precondition(Probe.videoMarker(bitmap) == 85, "bitmap fallback must recognize the same marker")
+        let other = VideoFrame(image: context.makeImage()!)
+        Probe.selected(bitmap, object: ["probe_label": "first"])
+        Probe.videoStage(bitmap, "enqueue_begin")
+        Probe.selected(other, object: ["probe_label": "second"])
+        Probe.videoStage(other, "enqueue_end")
+        let firstStages = Probe.videoSelections[ObjectIdentifier(bitmap)]!["mac_stages"] as! [String: UInt64]
+        let otherStages = Probe.videoSelections[ObjectIdentifier(other)]!["mac_stages"] as! [String: UInt64]
+        precondition(firstStages["enqueue_begin"] != nil && firstStages["enqueue_end"] == nil)
+        precondition(otherStages["enqueue_begin"] == nil && otherStages["enqueue_end"] != nil,
+                     "asynchronous presentation timestamps must stay with their exact frame")
         Probe.current = ["count": 7, "start": UInt64(100), "warmup": false]
         Probe.matched(6, object: ["codec": "h264"], completed: 150)
         precondition(Probe.rows.isEmpty && Probe.current != nil, "a stale displayed frame must not complete an input")
         Probe.matched(7, object: ["codec": "h264"], completed: 200)
         precondition(Probe.rows.count == 1 && Probe.current == nil)
         precondition(Probe.rows[0]["draw_end"] as? UInt64 == 200, "pixel matching must retain the earlier display timestamp")
-        print("PASS: all 256 NV12 markers in both ranges, padded stride, top-row orientation, undersized rejection, bitmap fallback, stale frame isolation and display timestamp")
+        print("PASS: all 256 NV12 markers in both ranges, padded stride, top-row orientation, undersized rejection, bitmap fallback, stale frame isolation, display timestamp and per-frame presentation stages")
     }
 }

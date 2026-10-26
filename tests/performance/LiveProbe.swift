@@ -152,6 +152,12 @@ enum Probe {
         result["scale"] = delegate?.windows.values.first?.rendering.scale
         result["negotiated_fps"] = negotiatedFPS
         result["local_points"] = delegate?.windows.values.first.map { [Double($0.surface.bounds.width), Double($0.surface.bounds.height)] }
+        if let screen = delegate?.windows.values.first?.window.screen {
+            result["screen_maximum_fps"] = screen.maximumFramesPerSecond
+            if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                result["screen_mode_refresh_hz"] = CGDisplayCopyDisplayMode(number.uint32Value)?.refreshRate
+            }
+        }
         result["pending"] = current
         result["last_marker"] = delegate?.windows.values.first?.surface.displayFrame.flatMap { videoMarker($0) }
         result["session_id"] = delegate?.session

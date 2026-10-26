@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-live-probe-unit-') as directo
     binary = scratch / 'smoke'
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
         *[str(p) for p in source.glob('*.swift') if p.name != 'main.swift'], str(types),
-        str(root / 'tests/performance/LiveProbe.swift'), str(root / 'tests/swift/LiveProbeSmoke.swift'),
+        str(root / 'tests/performance/LiveProbe.swift'), str(root / 'tests/performance/VideoPresentationProbe.swift'), str(root / 'tests/swift/LiveProbeSmoke.swift'),
         '-o', str(binary)], check=True, timeout=120)
     subprocess.run([str(binary)], check=True, timeout=15,
         env=dict(os.environ, PROBE_OUTPUT=str(scratch / 'result.json'), PROBE_WIDTH='1470', PROBE_HEIGHT='809'))

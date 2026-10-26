@@ -61,6 +61,16 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     if (source / 'VideoFrame.swift').exists():
         text = replace(surface.read_text(), '        guard displayFrame === frame else { return }',
                        '        guard displayFrame === frame else { return }\n        Probe.presented(frame, surface: self)')
+        text = replace(text, 'CATransaction.setCompletionBlock { [weak self, weak frame] in',
+                       'CATransaction.setCompletionBlock { [weak self, weak frame] in\n            if let frame = frame { Probe.videoStage(frame, "transaction_completion") }')
+        text = replace(text, '                self.frameWasPresented(frame)',
+                       '                Probe.videoStage(frame, "completion_on_main")\n                self.frameWasPresented(frame)')
+        text = replace(text, '            renderer.enqueue(sample)',
+                       '            Probe.videoStage(frame, "enqueue_begin")\n            renderer.enqueue(sample)\n            Probe.videoStage(frame, "enqueue_end")')
+        text = replace(text, '            canvas.display.enqueue(sample)',
+                       '            Probe.videoStage(frame, "enqueue_begin")\n            canvas.display.enqueue(sample)\n            Probe.videoStage(frame, "enqueue_end")')
+        text = replace(text, '        CATransaction.commit()\n    }\n    override func layout()',
+                       '        Probe.videoStage(frame, "commit_begin")\n        CATransaction.commit()\n        Probe.videoStage(frame, "commit_return")\n    }\n    override func layout()')
     else:
         text = replace(surface.read_text(), '        if hasMarkedText() {\n',
                        '        Probe.drew(image)\n        if hasMarkedText() {\n')
