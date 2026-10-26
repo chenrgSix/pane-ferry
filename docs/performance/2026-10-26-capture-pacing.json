@@ -1,0 +1,695 @@
+{
+  "date": "2026-10-26",
+  "baseline_revision": "be644ba",
+  "optimized_revision": "5d12ddc",
+  "capture_pacing_revision": "317107f",
+  "probe_revision": "1f987ce",
+  "endpoint": "renderer displayed-buffer availability",
+  "address": "192.168.1.254:42424",
+  "interface": "en0",
+  "connection_proof": [
+    {
+      "event": "connection_opened",
+      "remote": "192.168.1.254:42424"
+    }
+  ],
+  "source_pixels": [
+    1470,
+    809
+  ],
+  "source_scale": 1,
+  "local_points": [
+    1467,
+    805
+  ],
+  "negotiated_max_fps": 30,
+  "samples_per_variant": 240,
+  "groups": {
+    "baseline": {
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 127.6525005,
+          "p95_ms": 168.714875,
+          "minimum_ms": 76.469625,
+          "maximum_ms": 192.954084
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 126.626396,
+          "p95_ms": 173.65725,
+          "minimum_ms": 78.506916,
+          "maximum_ms": 191.180167
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 130.739771,
+          "p95_ms": 165.508125,
+          "minimum_ms": 76.469625,
+          "maximum_ms": 192.954084
+        }
+      },
+      "stages": {
+        "input_to_write": {
+          "samples": 240,
+          "median_ms": 0.208834,
+          "p95_ms": 1.002709,
+          "minimum_ms": 0.062125,
+          "maximum_ms": 2.889416
+        },
+        "write_to_received": {
+          "samples": 240,
+          "median_ms": 116.6717915,
+          "p95_ms": 154.109916,
+          "minimum_ms": 68.487,
+          "maximum_ms": 189.969125
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 1.8981249999999998,
+          "p95_ms": 2.9125,
+          "minimum_ms": 0.819792,
+          "maximum_ms": 4.2905
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.0541255,
+          "p95_ms": 0.086959,
+          "minimum_ms": 0.019958,
+          "maximum_ms": 0.315333
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 9.992896,
+          "p95_ms": 17.102125,
+          "minimum_ms": 0.886541,
+          "maximum_ms": 21.1425
+        }
+      },
+      "agent_cpu_one_core_percent": 25.468909489228338
+    },
+    "candidate": {
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 106.6471665,
+          "p95_ms": 148.806833,
+          "minimum_ms": 49.01575,
+          "maximum_ms": 176.143916
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 105.698604,
+          "p95_ms": 149.331083,
+          "minimum_ms": 51.118542,
+          "maximum_ms": 171.519917
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 106.75725,
+          "p95_ms": 144.087792,
+          "minimum_ms": 49.01575,
+          "maximum_ms": 176.143916
+        }
+      },
+      "stages": {
+        "input_to_write": {
+          "samples": 240,
+          "median_ms": 0.18974999999999997,
+          "p95_ms": 0.845125,
+          "minimum_ms": 0.049583,
+          "maximum_ms": 1.547667
+        },
+        "write_to_received": {
+          "samples": 240,
+          "median_ms": 95.578438,
+          "p95_ms": 133.860792,
+          "minimum_ms": 38.259875,
+          "maximum_ms": 167.31175
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 1.858146,
+          "p95_ms": 3.003125,
+          "minimum_ms": 0.789125,
+          "maximum_ms": 4.148292
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.0547705,
+          "p95_ms": 0.091084,
+          "minimum_ms": 0.016291,
+          "maximum_ms": 2.736584
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 7.6754995,
+          "p95_ms": 16.910125,
+          "minimum_ms": 0.888625,
+          "maximum_ms": 18.495
+        }
+      },
+      "agent_cpu_one_core_percent": 25.544062465693372
+    }
+  },
+  "comparison": {
+    "median_reduction_ms": 21.005334000000005,
+    "median_reduction_percent": 16.45509012179515,
+    "p95_reduction_ms": 19.908041999999995,
+    "p95_reduction_percent": 11.79981433172386
+  },
+  "rounds": [
+    {
+      "name": "lan-final1-baseline",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 132.9802085,
+          "p95": 158.27425,
+          "minimum": 107.18475,
+          "maximum": 159.240292
+        },
+        "pointer": {
+          "n": 30,
+          "median": 135.3957915,
+          "p95": 168.323167,
+          "minimum": 103.872625,
+          "maximum": 192.954084
+        },
+        "all": {
+          "n": 60,
+          "median": 134.8910625,
+          "p95": 159.240292,
+          "minimum": 103.872625,
+          "maximum": 192.954084
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.607422875,
+      "stop_returncode": 0,
+      "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+      "agent_cpu_seconds": 5.051754,
+      "observed_seconds": 19.776021291,
+      "variant": "baseline"
+    },
+    {
+      "name": "lan-final2-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 89.4532705,
+          "p95": 141.574958,
+          "minimum": 51.118542,
+          "maximum": 142.79125
+        },
+        "pointer": {
+          "n": 30,
+          "median": 83.7062085,
+          "p95": 123.152375,
+          "minimum": 49.01575,
+          "maximum": 127.38
+        },
+        "all": {
+          "n": 60,
+          "median": 85.6405625,
+          "p95": 126.756125,
+          "minimum": 49.01575,
+          "maximum": 142.79125
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 16.991089958,
+      "stop_returncode": 0,
+      "agent_sha256": "e574fabb060551db8278fc6e196e7ac939070c7e065f746f9551c8a2a808ce98",
+      "agent_cpu_seconds": 4.236401,
+      "observed_seconds": 17.228405166,
+      "variant": "candidate"
+    },
+    {
+      "name": "lan-final3-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 135.99422950000002,
+          "p95": 156.464375,
+          "minimum": 102.801708,
+          "maximum": 171.519917
+        },
+        "pointer": {
+          "n": 30,
+          "median": 123.895896,
+          "p95": 155.976417,
+          "minimum": 102.087042,
+          "maximum": 158.198875
+        },
+        "all": {
+          "n": 60,
+          "median": 129.53564599999999,
+          "p95": 155.976417,
+          "minimum": 102.087042,
+          "maximum": 171.519917
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.501323667,
+      "stop_returncode": 0,
+      "agent_sha256": "e574fabb060551db8278fc6e196e7ac939070c7e065f746f9551c8a2a808ce98",
+      "agent_cpu_seconds": 5.028551,
+      "observed_seconds": 19.584085084,
+      "variant": "candidate"
+    },
+    {
+      "name": "lan-final4-baseline",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 125.4936455,
+          "p95": 168.738375,
+          "minimum": 91.474708,
+          "maximum": 173.826791
+        },
+        "pointer": {
+          "n": 30,
+          "median": 127.6525005,
+          "p95": 165.508125,
+          "minimum": 104.060125,
+          "maximum": 168.138417
+        },
+        "all": {
+          "n": 60,
+          "median": 126.79781249999999,
+          "p95": 165.508125,
+          "minimum": 91.474708,
+          "maximum": 173.826791
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.49175525,
+      "stop_returncode": 0,
+      "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+      "agent_cpu_seconds": 4.977557,
+      "observed_seconds": 19.564953958,
+      "variant": "baseline"
+    },
+    {
+      "name": "lan-final5-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 85.718917,
+          "p95": 130.710125,
+          "minimum": 51.422458,
+          "maximum": 145.434583
+        },
+        "pointer": {
+          "n": 30,
+          "median": 91.667042,
+          "p95": 126.129209,
+          "minimum": 66.9605,
+          "maximum": 138.824625
+        },
+        "all": {
+          "n": 60,
+          "median": 87.879354,
+          "p95": 126.129209,
+          "minimum": 51.422458,
+          "maximum": 145.434583
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.457942666,
+      "stop_returncode": 0,
+      "agent_sha256": "e574fabb060551db8278fc6e196e7ac939070c7e065f746f9551c8a2a808ce98",
+      "agent_cpu_seconds": 4.590328,
+      "observed_seconds": 17.519424875,
+      "variant": "candidate"
+    },
+    {
+      "name": "lan-final6-baseline",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 150.74775,
+          "p95": 179.201667,
+          "minimum": 93.153,
+          "maximum": 191.180167
+        },
+        "pointer": {
+          "n": 30,
+          "median": 141.8662915,
+          "p95": 168.793666,
+          "minimum": 102.03675,
+          "maximum": 170.856834
+        },
+        "all": {
+          "n": 60,
+          "median": 147.155271,
+          "p95": 175.19225,
+          "minimum": 93.153,
+          "maximum": 191.180167
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 20.724653709,
+      "stop_returncode": 0,
+      "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+      "agent_cpu_seconds": 5.251846,
+      "observed_seconds": 20.961491291,
+      "variant": "baseline"
+    },
+    {
+      "name": "lan-final7-baseline",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 107.0336875,
+          "p95": 152.568125,
+          "minimum": 78.506916,
+          "maximum": 173.65725
+        },
+        "pointer": {
+          "n": 30,
+          "median": 105.110917,
+          "p95": 142.219625,
+          "minimum": 76.469625,
+          "maximum": 143.347208
+        },
+        "all": {
+          "n": 60,
+          "median": 105.7078545,
+          "p95": 142.219625,
+          "minimum": 76.469625,
+          "maximum": 173.65725
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.028532583,
+      "stop_returncode": 0,
+      "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+      "agent_cpu_seconds": 4.698198,
+      "observed_seconds": 18.143589458,
+      "variant": "baseline"
+    },
+    {
+      "name": "lan-final8-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 110.260229,
+          "p95": 133.460125,
+          "minimum": 76.935625,
+          "maximum": 138.924542
+        },
+        "pointer": {
+          "n": 30,
+          "median": 115.782292,
+          "p95": 154.605417,
+          "minimum": 92.219875,
+          "maximum": 176.143916
+        },
+        "all": {
+          "n": 60,
+          "median": 112.4768955,
+          "p95": 140.161417,
+          "minimum": 76.935625,
+          "maximum": 176.143916
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.574343917,
+      "stop_returncode": 0,
+      "agent_sha256": "e574fabb060551db8278fc6e196e7ac939070c7e065f746f9551c8a2a808ce98",
+      "agent_cpu_seconds": 4.784562,
+      "observed_seconds": 18.639414416,
+      "variant": "candidate"
+    }
+  ],
+  "exploratory_diagnostics": {
+    "baseline": {
+      "reader_dispatch": {
+        "samples": 30,
+        "median_ms": 0.346728,
+        "p95_ms": 15.688055,
+        "minimum_ms": 0.024147,
+        "maximum_ms": 17.219921
+      },
+      "dispatch_app_input": {
+        "samples": 30,
+        "median_ms": 18.895546500000002,
+        "p95_ms": 35.446715,
+        "minimum_ms": 1.993027,
+        "maximum_ms": 103.269811
+      },
+      "app_draw": {
+        "samples": 30,
+        "median_ms": 4.524713500000001,
+        "p95_ms": 30.742915,
+        "minimum_ms": 1.627881,
+        "maximum_ms": 34.493566
+      },
+      "draw_raw_sample": {
+        "samples": 30,
+        "median_ms": 52.7473545,
+        "p95_ms": 84.217257,
+        "minimum_ms": 31.067113,
+        "maximum_ms": 88.784854
+      },
+      "raw_converted_sample": {
+        "samples": 30,
+        "median_ms": 38.818928,
+        "p95_ms": 57.812856,
+        "minimum_ms": 8.96028,
+        "maximum_ms": 59.443121
+      },
+      "converted_encoder": {
+        "samples": 30,
+        "median_ms": 0.122033,
+        "p95_ms": 9.418561,
+        "minimum_ms": 0.034956,
+        "maximum_ms": 11.765436
+      },
+      "encode": {
+        "samples": 30,
+        "median_ms": 2.371903,
+        "p95_ms": 5.834418,
+        "minimum_ms": 1.302782,
+        "maximum_ms": 6.025152
+      },
+      "agent_total": {
+        "samples": 30,
+        "median_ms": 127.26599150000001,
+        "p95_ms": 180.024538,
+        "minimum_ms": 87.577243,
+        "maximum_ms": 279.323323
+      }
+    },
+    "candidate": {
+      "reader_dispatch": {
+        "samples": 30,
+        "median_ms": 0.0402005,
+        "p95_ms": 16.794949,
+        "minimum_ms": 0.007629,
+        "maximum_ms": 36.813545
+      },
+      "dispatch_app_input": {
+        "samples": 30,
+        "median_ms": 11.899156000000001,
+        "p95_ms": 28.215641,
+        "minimum_ms": 2.002072,
+        "maximum_ms": 31.977963
+      },
+      "app_draw": {
+        "samples": 30,
+        "median_ms": 2.738134,
+        "p95_ms": 23.794886,
+        "minimum_ms": 1.507212,
+        "maximum_ms": 33.678838
+      },
+      "draw_raw_sample": {
+        "samples": 30,
+        "median_ms": 25.3104505,
+        "p95_ms": 37.349314,
+        "minimum_ms": 20.520712,
+        "maximum_ms": 45.226819
+      },
+      "raw_converted_sample": {
+        "samples": 30,
+        "median_ms": 3.990875,
+        "p95_ms": 22.146546,
+        "minimum_ms": 2.750774,
+        "maximum_ms": 23.665568
+      },
+      "converted_encoder": {
+        "samples": 30,
+        "median_ms": 19.473349,
+        "p95_ms": 54.653375,
+        "minimum_ms": 2.202259,
+        "maximum_ms": 62.776299
+      },
+      "encode": {
+        "samples": 30,
+        "median_ms": 1.8322915,
+        "p95_ms": 2.946063,
+        "minimum_ms": 1.216375,
+        "maximum_ms": 3.041232
+      },
+      "agent_total": {
+        "samples": 30,
+        "median_ms": 76.835123,
+        "p95_ms": 121.797297,
+        "minimum_ms": 47.571696,
+        "maximum_ms": 124.165229
+      }
+    }
+  },
+  "compat60": {
+    "name": "compat60-final",
+    "scale": 1,
+    "fps": 60,
+    "width": 1470,
+    "height": 809,
+    "samples_per_mode": 8,
+    "status": "passed",
+    "summary": {
+      "key": {
+        "n": 8,
+        "median": 76.6738125,
+        "p95": 104.968833,
+        "minimum": 68.400791,
+        "maximum": 104.968833
+      },
+      "pointer": {
+        "n": 8,
+        "median": 102.2733755,
+        "p95": 151.500916,
+        "minimum": 68.212583,
+        "maximum": 151.500916
+      },
+      "all": {
+        "n": 16,
+        "median": 89.0993125,
+        "p95": 151.500916,
+        "minimum": 68.212583,
+        "maximum": 151.500916
+      }
+    },
+    "local_points": [
+      1467,
+      805
+    ],
+    "source_input_count": 20,
+    "wall_seconds": 7.904633292,
+    "stop_returncode": 0
+  },
+  "final_state": {
+    "final_agent_sha256": "e574fabb060551db8278fc6e196e7ac939070c7e065f746f9551c8a2a808ce98",
+    "temporary_quic_stopped": true,
+    "temporary_identity_removed": true,
+    "production_pairing_unchanged": true
+  },
+  "probe_sha256": "4112871d555e0e205dd50a9c418f604bc3d1d851dfb8596a6a2b087869ea0d5a",
+  "network_sha256": "df7a0869677123a56b386bc8f8f62e79404bce6d1400bc44324afaedcb411a6f",
+  "validation": {
+    "mac_workspace_tests": "passed on final 5d12ddc",
+    "final_agent_regular_tests": {
+      "passed": 38,
+      "ignored": 8
+    },
+    "linux_native_tests_excluding_benchmark": 7,
+    "resize_test_old_logic": "fails: resize frame was lost before metadata arrived",
+    "resize_test_fixed": "passes; latest frame pixels and source lease cleanup checked",
+    "private_gnome_logical_resize": "three complete runs, five sizes each, same source/process/content/session on reconnect",
+    "private_gnome_window_tree_1x": "passed on final binary",
+    "private_gnome_scene_2x": "passed on final binary, including retired-output reconnect",
+    "input_pressure": "passed at 10 samples and 128 motion events; reader stall input 0.8ms; unchanged controller-loop code since that test",
+    "nv12_marker_cases": 512,
+    "production_agent_service": "active",
+    "production_network_service": "active, original PID 4014903",
+    "original_app_pids_preserved": [
+      3664772,
+      3837316,
+      4042507
+    ],
+    "theme_receiver_restored": true
+  }
+}
