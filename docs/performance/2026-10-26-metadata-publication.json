@@ -1,0 +1,2835 @@
+{
+  "production_commit": "14323d9",
+  "diagnostic_tools_commit": "3ca6689",
+  "baseline_commit": "01d1958",
+  "conditions": {
+    "address": "10.0.1.66",
+    "route_interface": "utun4",
+    "icmp_rtt_average_ms": 19.119,
+    "source_pixels": [
+      1470,
+      809
+    ],
+    "source_scale": 1,
+    "local_points": [
+      1445,
+      793
+    ],
+    "fps": 30,
+    "source_animation_interval_ms": 33,
+    "endpoint": "renderer displayed-buffer availability"
+  },
+  "formal": {
+    "base": {
+      "n": 240,
+      "p50": 107.22225,
+      "p95": 143.402375,
+      "minimum": 51.328958,
+      "maximum": 166.112791,
+      "below_100_ms": 73
+    },
+    "candidate": {
+      "n": 240,
+      "p50": 93.6000415,
+      "p95": 133.10625,
+      "minimum": 56.088625,
+      "maximum": 142.178792,
+      "below_100_ms": 147
+    }
+  },
+  "rounds": [
+    {
+      "name": "selection-round1-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 106.2329795,
+          "p95": 136.239292,
+          "minimum": 51.328958,
+          "maximum": 153.008333
+        },
+        "pointer": {
+          "n": 30,
+          "median": 109.3381665,
+          "p95": 137.986333,
+          "minimum": 74.288333,
+          "maximum": 140.040625
+        },
+        "all": {
+          "n": 60,
+          "median": 106.962771,
+          "p95": 137.833417,
+          "minimum": 51.328958,
+          "maximum": 153.008333
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.99099525,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round2-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 88.6523335,
+          "p95": 122.186708,
+          "minimum": 71.326333,
+          "maximum": 132.338917
+        },
+        "pointer": {
+          "n": 30,
+          "median": 96.0068335,
+          "p95": 134.78725,
+          "minimum": 70.164042,
+          "maximum": 135.271667
+        },
+        "all": {
+          "n": 60,
+          "median": 92.4898545,
+          "p95": 132.338917,
+          "minimum": 70.164042,
+          "maximum": 135.271667
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.638393167,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round3-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 87.257833,
+          "p95": 114.856625,
+          "minimum": 60.84175,
+          "maximum": 126.642583
+        },
+        "pointer": {
+          "n": 30,
+          "median": 94.0578955,
+          "p95": 129.070458,
+          "minimum": 65.840333,
+          "maximum": 141.635458
+        },
+        "all": {
+          "n": 60,
+          "median": 92.3468755,
+          "p95": 122.864917,
+          "minimum": 60.84175,
+          "maximum": 141.635458
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.428140791,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round4-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 96.9241875,
+          "p95": 127.529708,
+          "minimum": 62.468916,
+          "maximum": 144.180291
+        },
+        "pointer": {
+          "n": 30,
+          "median": 111.8808745,
+          "p95": 153.61125,
+          "minimum": 61.210291,
+          "maximum": 159.980834
+        },
+        "all": {
+          "n": 60,
+          "median": 106.849208,
+          "p95": 147.792,
+          "minimum": 61.210291,
+          "maximum": 159.980834
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.997261042,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round5-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 93.5850835,
+          "p95": 118.877375,
+          "minimum": 73.848791,
+          "maximum": 121.111666
+        },
+        "pointer": {
+          "n": 30,
+          "median": 93.9063545,
+          "p95": 133.10625,
+          "minimum": 56.088625,
+          "maximum": 142.178792
+        },
+        "all": {
+          "n": 60,
+          "median": 93.72345849999999,
+          "p95": 121.600708,
+          "minimum": 56.088625,
+          "maximum": 142.178792
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.589635875,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round6-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 106.7614165,
+          "p95": 136.714834,
+          "minimum": 86.776959,
+          "maximum": 144.061167
+        },
+        "pointer": {
+          "n": 30,
+          "median": 115.987542,
+          "p95": 161.804541,
+          "minimum": 80.417625,
+          "maximum": 166.112791
+        },
+        "all": {
+          "n": 60,
+          "median": 110.59770850000001,
+          "p95": 144.061167,
+          "minimum": 80.417625,
+          "maximum": 166.112791
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.359429,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round7-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 101.635396,
+          "p95": 144.965084,
+          "minimum": 64.584291,
+          "maximum": 151.073708
+        },
+        "pointer": {
+          "n": 30,
+          "median": 108.82370850000001,
+          "p95": 133.099042,
+          "minimum": 84.578833,
+          "maximum": 136.560375
+        },
+        "all": {
+          "n": 60,
+          "median": 106.3856455,
+          "p95": 133.099042,
+          "minimum": 64.584291,
+          "maximum": 151.073708
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.100705667,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round8-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 87.771771,
+          "p95": 118.370917,
+          "minimum": 59.300125,
+          "maximum": 135.386208
+        },
+        "pointer": {
+          "n": 30,
+          "median": 99.395,
+          "p95": 136.06175,
+          "minimum": 60.4395,
+          "maximum": 141.558666
+        },
+        "all": {
+          "n": 60,
+          "median": 94.576042,
+          "p95": 135.338916,
+          "minimum": 59.300125,
+          "maximum": 141.558666
+        }
+      },
+      "local_points": [
+        1445,
+        793
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.364520709,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    }
+  ],
+  "diagnostic": {
+    "base": {
+      "metrics": {
+        "e2e": {
+          "n": 40,
+          "p50": 107.8374585,
+          "p95": 151.20425,
+          "max": 164.482667,
+          "min": 72.820708
+        },
+        "mac_input": {
+          "n": 40,
+          "p50": 0.280104,
+          "p95": 1.130208,
+          "max": 1.272416,
+          "min": 0.114459
+        },
+        "linux_total": {
+          "n": 40,
+          "p50": 71.48962850000001,
+          "p95": 110.621158,
+          "max": 130.668689,
+          "min": 37.254551
+        },
+        "input_delivery": {
+          "n": 40,
+          "p50": 20.754001,
+          "p95": 39.919426,
+          "max": 46.292703,
+          "min": 2.601281
+        },
+        "app_draw": {
+          "n": 40,
+          "p50": 3.199738,
+          "p95": 12.765494,
+          "max": 18.170919,
+          "min": 1.335314
+        },
+        "draw_to_raw": {
+          "n": 40,
+          "p50": 24.081193,
+          "p95": 33.51793,
+          "max": 58.434894,
+          "min": 6.144638
+        },
+        "raw_to_i420": {
+          "n": 40,
+          "p50": 3.9566600000000003,
+          "p95": 15.9693,
+          "max": 29.447902,
+          "min": 2.772902
+        },
+        "i420_to_publish": {
+          "n": 40,
+          "p50": 15.065449999999998,
+          "p95": 48.661244,
+          "max": 49.923966,
+          "min": 0.029639
+        },
+        "publish_to_encode": {
+          "n": 40,
+          "p50": 0.09713949999999999,
+          "p95": 0.12993,
+          "max": 0.161646,
+          "min": 0.063174
+        },
+        "encode": {
+          "n": 40,
+          "p50": 1.5120719999999999,
+          "p95": 2.216563,
+          "max": 2.382648,
+          "min": 1.092311
+        },
+        "encoded_to_agent_write": {
+          "n": 40,
+          "p50": 0.0498135,
+          "p95": 0.078691,
+          "max": 0.086371,
+          "min": 0.026744
+        },
+        "mixed": {
+          "n": 40,
+          "p50": 21.3404365,
+          "p95": 24.714558,
+          "max": 28.66809,
+          "min": 19.965246
+        },
+        "parse_decode": {
+          "n": 40,
+          "p50": 2.620979,
+          "p95": 3.082917,
+          "max": 5.629708,
+          "min": 1.595833
+        },
+        "decode_to_selected": {
+          "n": 40,
+          "p50": 0.0698545,
+          "p95": 0.108833,
+          "max": 0.225584,
+          "min": 0.045583
+        },
+        "selected_to_commit": {
+          "n": 40,
+          "p50": 0.18362499999999998,
+          "p95": 0.238041,
+          "max": 0.245125,
+          "min": 0.100166
+        },
+        "commit_to_transaction": {
+          "n": 40,
+          "p50": 2.7496875,
+          "p95": 4.710667,
+          "max": 12.067625,
+          "min": 0.379833
+        },
+        "transaction_to_main": {
+          "n": 40,
+          "p50": 0.042854,
+          "p95": 0.065583,
+          "max": 0.086917,
+          "min": 0.025
+        },
+        "transaction_to_match": {
+          "n": 40,
+          "p50": 5.701833000000001,
+          "p95": 12.97725,
+          "max": 14.642333,
+          "min": 0.066833
+        },
+        "decode_to_match": {
+          "n": 40,
+          "p50": 8.813188,
+          "p95": 16.371375,
+          "max": 17.8105,
+          "min": 2.045667
+        },
+        "query_uncertainty": {
+          "n": 35,
+          "p50": 2.081,
+          "p95": 3.953542,
+          "max": 4.191833,
+          "min": 1.26375
+        },
+        "scan": {
+          "n": 40,
+          "p50": 11.841334,
+          "p95": 18.503189,
+          "max": 23.376728,
+          "min": 1.501815
+        },
+        "status": {
+          "n": 40,
+          "p50": 0.001253,
+          "p95": 0.218828,
+          "max": 0.416823,
+          "min": 0.000657
+        },
+        "publication_lateness": {
+          "n": 40,
+          "p50": 5.7741145,
+          "p95": 19.319166,
+          "max": 23.422612,
+          "min": 0.118825
+        },
+        "sender_local": {
+          "n": 40,
+          "p50": 0.0811685,
+          "p95": 0.136677,
+          "max": 0.201805,
+          "min": 0.049664
+        },
+        "sender_parse": {
+          "n": 40,
+          "p50": 0.0052985,
+          "p95": 0.017241,
+          "max": 0.020583,
+          "min": 0.002608
+        },
+        "quic_local_write": {
+          "n": 40,
+          "p50": 0.011380000000000001,
+          "p95": 0.014941,
+          "max": 0.022059,
+          "min": 0.007392
+        },
+        "receiver_packet": {
+          "n": 40,
+          "p50": 0.040812,
+          "p95": 0.708333,
+          "max": 6.657958,
+          "min": 0.01375
+        },
+        "receiver_restore": {
+          "n": 40,
+          "p50": 0.011896,
+          "p95": 0.0395,
+          "max": 0.055,
+          "min": 0.002708
+        },
+        "receiver_serialize": {
+          "n": 40,
+          "p50": 0.0149375,
+          "p95": 0.041,
+          "max": 0.0725,
+          "min": 0.004625
+        },
+        "receiver_to_line": {
+          "n": 40,
+          "p50": 0.3930205,
+          "p95": 0.830292,
+          "max": 1.02825,
+          "min": 0.170917
+        },
+        "local_line_after_json_write": {
+          "n": 40,
+          "p50": 0.14925,
+          "p95": 0.339334,
+          "max": 0.551416,
+          "min": 0.076166
+        }
+      },
+      "key_groups": {
+        "False": {
+          "e2e": {
+            "n": 40,
+            "p50": 107.8374585,
+            "p95": 151.20425,
+            "max": 164.482667,
+            "min": 72.820708
+          },
+          "mixed": {
+            "n": 40,
+            "p50": 21.3404365,
+            "p95": 24.714558,
+            "max": 28.66809,
+            "min": 19.965246
+          },
+          "receiver_packet": {
+            "n": 40,
+            "p50": 0.040812,
+            "p95": 0.708333,
+            "max": 6.657958,
+            "min": 0.01375
+          },
+          "receiver_to_line": {
+            "n": 40,
+            "p50": 0.3930205,
+            "p95": 0.830292,
+            "max": 1.02825,
+            "min": 0.170917
+          },
+          "local_line_after_json_write": {
+            "n": 40,
+            "p50": 0.14925,
+            "p95": 0.339334,
+            "max": 0.551416,
+            "min": 0.076166
+          }
+        },
+        "True": {
+          "e2e": null,
+          "mixed": null,
+          "receiver_packet": null,
+          "receiver_to_line": null,
+          "local_line_after_json_write": null
+        }
+      },
+      "all_publication_lateness": {
+        "n": 232,
+        "p50": 1.136169,
+        "p95": 18.596607,
+        "max": 28.126828,
+        "min": 0.020505
+      },
+      "publications": 232,
+      "newer_response_at_publish": 0,
+      "unique_scan": {
+        "n": 236,
+        "p50": 6.719163,
+        "p95": 16.884596,
+        "max": 28.75607,
+        "min": 1.057619
+      },
+      "unique_status": {
+        "n": 231,
+        "p50": 0.001259,
+        "p95": 0.183199,
+        "max": 0.53546,
+        "min": 5.6e-05
+      }
+    },
+    "candidate": {
+      "metrics": {
+        "e2e": {
+          "n": 40,
+          "p50": 95.69247899999999,
+          "p95": 127.010083,
+          "max": 135.4025,
+          "min": 74.869167
+        },
+        "mac_input": {
+          "n": 40,
+          "p50": 0.291146,
+          "p95": 1.166667,
+          "max": 1.339792,
+          "min": 0.105667
+        },
+        "linux_total": {
+          "n": 40,
+          "p50": 61.457538,
+          "p95": 96.367214,
+          "max": 97.172504,
+          "min": 34.128161
+        },
+        "input_delivery": {
+          "n": 40,
+          "p50": 16.533124,
+          "p95": 30.824688,
+          "max": 34.101011,
+          "min": 4.680856
+        },
+        "app_draw": {
+          "n": 40,
+          "p50": 3.187717,
+          "p95": 24.048098,
+          "max": 30.931188,
+          "min": 1.357483
+        },
+        "draw_to_raw": {
+          "n": 40,
+          "p50": 20.0062,
+          "p95": 22.6521,
+          "max": 24.982355,
+          "min": 6.15756
+        },
+        "raw_to_i420": {
+          "n": 40,
+          "p50": 3.3776945,
+          "p95": 5.13008,
+          "max": 5.518422,
+          "min": 2.683218
+        },
+        "i420_to_publish": {
+          "n": 40,
+          "p50": 16.444406999999998,
+          "p95": 31.693461,
+          "max": 38.634595,
+          "min": 0.07251
+        },
+        "publish_to_encode": {
+          "n": 40,
+          "p50": 0.10299,
+          "p95": 0.133153,
+          "max": 0.248582,
+          "min": 0.062553
+        },
+        "encode": {
+          "n": 40,
+          "p50": 1.4784834999999998,
+          "p95": 2.220283,
+          "max": 2.527896,
+          "min": 0.94536
+        },
+        "encoded_to_agent_write": {
+          "n": 40,
+          "p50": 0.056899000000000005,
+          "p95": 0.090446,
+          "max": 0.229162,
+          "min": 0.030919
+        },
+        "mixed": {
+          "n": 40,
+          "p50": 21.463967,
+          "p95": 24.75695,
+          "max": 41.002695,
+          "min": 19.919884
+        },
+        "parse_decode": {
+          "n": 40,
+          "p50": 2.3905415,
+          "p95": 3.0555,
+          "max": 4.288334,
+          "min": 1.249292
+        },
+        "decode_to_selected": {
+          "n": 40,
+          "p50": 0.06985450000000001,
+          "p95": 0.099584,
+          "max": 0.107125,
+          "min": 0.035375
+        },
+        "selected_to_commit": {
+          "n": 40,
+          "p50": 0.1729165,
+          "p95": 0.227041,
+          "max": 0.283,
+          "min": 0.077166
+        },
+        "commit_to_transaction": {
+          "n": 40,
+          "p50": 2.630021,
+          "p95": 4.098084,
+          "max": 5.054541,
+          "min": 0.339042
+        },
+        "transaction_to_main": {
+          "n": 40,
+          "p50": 0.03975,
+          "p95": 0.079333,
+          "max": 0.096208,
+          "min": 0.019875
+        },
+        "transaction_to_match": {
+          "n": 40,
+          "p50": 6.3225625,
+          "p95": 15.171291,
+          "max": 15.849334,
+          "min": 0.112541
+        },
+        "decode_to_match": {
+          "n": 40,
+          "p50": 9.075854,
+          "p95": 17.650792,
+          "max": 18.871334,
+          "min": 2.876666
+        },
+        "query_uncertainty": {
+          "n": 39,
+          "p50": 2.080083,
+          "p95": 3.858625,
+          "max": 8.423916,
+          "min": 1.278166
+        },
+        "scan": {
+          "n": 40,
+          "p50": 0.0204,
+          "p95": 0.03683,
+          "max": 0.039626,
+          "min": 0.004293
+        },
+        "status": {
+          "n": 40,
+          "p50": 0.0008815,
+          "p95": 0.098901,
+          "max": 0.109887,
+          "min": 0.000345
+        },
+        "publication_lateness": {
+          "n": 40,
+          "p50": 0.504008,
+          "p95": 1.013818,
+          "max": 1.213306,
+          "min": 0.115652
+        },
+        "sender_local": {
+          "n": 40,
+          "p50": 0.0810685,
+          "p95": 0.150424,
+          "max": 0.3059,
+          "min": 0.057643
+        },
+        "sender_parse": {
+          "n": 40,
+          "p50": 0.0051135,
+          "p95": 0.020251,
+          "max": 0.090574,
+          "min": 0.002905
+        },
+        "quic_local_write": {
+          "n": 40,
+          "p50": 0.012385,
+          "p95": 0.018499,
+          "max": 0.026898,
+          "min": 0.007536
+        },
+        "receiver_packet": {
+          "n": 40,
+          "p50": 0.032604,
+          "p95": 0.419541,
+          "max": 18.211291,
+          "min": 0.015583
+        },
+        "receiver_restore": {
+          "n": 40,
+          "p50": 0.00975,
+          "p95": 0.044916,
+          "max": 0.127667,
+          "min": 0.004125
+        },
+        "receiver_serialize": {
+          "n": 40,
+          "p50": 0.011083,
+          "p95": 0.047125,
+          "max": 0.094667,
+          "min": 0.004834
+        },
+        "receiver_to_line": {
+          "n": 40,
+          "p50": 0.3558335,
+          "p95": 0.792084,
+          "max": 2.134375,
+          "min": 0.231875
+        },
+        "local_line_after_json_write": {
+          "n": 40,
+          "p50": 0.134229,
+          "p95": 0.370459,
+          "max": 1.077416,
+          "min": 0.085583
+        }
+      },
+      "key_groups": {
+        "False": {
+          "e2e": {
+            "n": 39,
+            "p50": 94.470708,
+            "p95": 127.010083,
+            "max": 135.4025,
+            "min": 74.869167
+          },
+          "mixed": {
+            "n": 39,
+            "p50": 21.434163,
+            "p95": 24.75695,
+            "max": 25.158085,
+            "min": 19.919884
+          },
+          "receiver_packet": {
+            "n": 39,
+            "p50": 0.032458,
+            "p95": 0.419541,
+            "max": 1.017875,
+            "min": 0.015583
+          },
+          "receiver_to_line": {
+            "n": 39,
+            "p50": 0.346708,
+            "p95": 0.792084,
+            "max": 1.113708,
+            "min": 0.231875
+          },
+          "local_line_after_json_write": {
+            "n": 39,
+            "p50": 0.13375,
+            "p95": 0.370459,
+            "max": 0.536916,
+            "min": 0.085583
+          }
+        },
+        "True": {
+          "e2e": {
+            "n": 1,
+            "p50": 134.437125,
+            "p95": 134.437125,
+            "max": 134.437125,
+            "min": 134.437125
+          },
+          "mixed": {
+            "n": 1,
+            "p50": 41.002695,
+            "p95": 41.002695,
+            "max": 41.002695,
+            "min": 41.002695
+          },
+          "receiver_packet": {
+            "n": 1,
+            "p50": 18.211291,
+            "p95": 18.211291,
+            "max": 18.211291,
+            "min": 18.211291
+          },
+          "receiver_to_line": {
+            "n": 1,
+            "p50": 2.134375,
+            "p95": 2.134375,
+            "max": 2.134375,
+            "min": 2.134375
+          },
+          "local_line_after_json_write": {
+            "n": 1,
+            "p50": 1.077416,
+            "p95": 1.077416,
+            "max": 1.077416,
+            "min": 1.077416
+          }
+        }
+      },
+      "all_publication_lateness": {
+        "n": 244,
+        "p50": 0.573631,
+        "p95": 4.063246,
+        "max": 19.398684,
+        "min": 0.024162
+      },
+      "publications": 244,
+      "newer_response_at_publish": 0,
+      "unique_scan": {
+        "n": 247,
+        "p50": 0.019479,
+        "p95": 0.034804,
+        "max": 0.068185,
+        "min": 0.002496
+      },
+      "unique_status": {
+        "n": 247,
+        "p50": 0.000957,
+        "p95": 0.148861,
+        "max": 0.196828,
+        "min": 5.9e-05
+      }
+    }
+  },
+  "diagnostic_candidate_slowest_five": [
+    {
+      "input_id": "observation-round2-candidate/input-42",
+      "count": 42,
+      "frame_id": 319,
+      "first_response_ready_id": 747,
+      "first_response_pull_id": 747,
+      "first_raw_id": 746,
+      "selected_id": 749,
+      "encoded_bytes": 3402,
+      "key_frame": false,
+      "metrics": {
+        "e2e": 135.4025,
+        "mac_input": 0.19325,
+        "linux_total": 97.172504,
+        "input_delivery": 27.691569,
+        "app_draw": 12.493218,
+        "draw_to_raw": 20.839976,
+        "raw_to_i420": 5.259415,
+        "i420_to_publish": 29.510142,
+        "publish_to_encode": 0.088484,
+        "encode": 1.243808,
+        "encoded_to_agent_write": 0.045892,
+        "mixed": 20.836621,
+        "parse_decode": 2.206625,
+        "decode_to_selected": 0.0625,
+        "selected_to_commit": 0.1685,
+        "commit_to_transaction": 1.943292,
+        "transaction_to_main": 0.033167,
+        "transaction_to_match": 12.819208,
+        "decode_to_match": 14.9935,
+        "query_uncertainty": 2.080083,
+        "scan": 0.018269,
+        "status": 0.00059,
+        "publication_lateness": 0.605024,
+        "sender_local": 0.078576,
+        "sender_parse": 0.004683,
+        "quic_local_write": 0.01091,
+        "receiver_packet": 0.02675,
+        "receiver_restore": 0.008708,
+        "receiver_serialize": 0.01025,
+        "receiver_to_line": 0.30375,
+        "local_line_after_json_write": 0.105583
+      },
+      "mac": {
+        "codec": "h264",
+        "count": 42,
+        "decode_completed_ns": 655126038830541,
+        "decoded": 655126038830541,
+        "draw_end": 655126053824041,
+        "encoded_height": 810,
+        "encoded_width": 1470,
+        "frame_id": 319,
+        "geometry_revision": 1,
+        "hardware_decoder": true,
+        "height": 809,
+        "key_frame": false,
+        "mac_first_successful_query": {
+          "end_ns": 655126053820916,
+          "expected_surface_id": 441,
+          "observed_surface_id": 441,
+          "start_ns": 655126053806166
+        },
+        "mac_last_failed_query": {
+          "end_ns": 655126051754625,
+          "expected_surface_id": 441,
+          "observed_surface_id": 534,
+          "start_ns": 655126051740833
+        },
+        "mac_query_count": 8,
+        "mac_query_total_ns": 112458,
+        "mac_renderer_match_ns": 655126053824041,
+        "mac_stages": {
+          "commit_begin": 655126039009750,
+          "commit_return": 655126039061541,
+          "completion_on_main": 655126041038000,
+          "enqueue_begin": 655126038943000,
+          "enqueue_end": 655126039006541,
+          "probe_started": 655126041041958,
+          "transaction_completion": 655126041004833
+        },
+        "mode": "pointer",
+        "received": 655126036623916,
+        "received_ns": 655126036623916,
+        "selected": 655126038893041,
+        "seq": 325,
+        "session_id": "observation-round2-candidate-session",
+        "start": 655125918421541,
+        "stream_id": 1,
+        "type": "frame",
+        "version": 1,
+        "warmup": false,
+        "width": 1470,
+        "window_id": 3092,
+        "wire_bytes": 4802,
+        "write_end": 655125918614791,
+        "write_start": 655125918601583
+      },
+      "agent": {
+        "bytes": 4802,
+        "encode_end": 150995337606205,
+        "encode_start": 150995336362397,
+        "encoded_bytes": 3402,
+        "event": "sent",
+        "feedback_id": 319,
+        "key_frame": false,
+        "selection": {
+          "eligible_ns": 150995335668889,
+          "encode_start_ns": 150995336362397,
+          "interval_ns": 33333000,
+          "latest_at_encode": {
+            "epoch": 3,
+            "id": 749,
+            "marker": 42,
+            "produced_ns": 150995331052203,
+            "raw_id": 748,
+            "raw_ns": 150995326352958,
+            "ready_ns": 150995331061163
+          },
+          "latest_at_publish": {
+            "epoch": 3,
+            "id": 749,
+            "marker": 42,
+            "produced_ns": 150995331052203,
+            "raw_id": 748,
+            "raw_ns": 150995326352958,
+            "ready_ns": 150995331061163
+          },
+          "newer_ready": false,
+          "newer_response_ready": false,
+          "publish_ns": 150995336277713,
+          "selected": {
+            "epoch": 3,
+            "id": 749,
+            "marker": 42,
+            "produced_ns": 150995331052203,
+            "raw_id": 748,
+            "raw_ns": 150995326352958,
+            "ready_ns": 150995331061163
+          }
+        },
+        "stages": {
+          "capture_end": 150995331133506,
+          "capture_start": 150995331100703,
+          "converted_first": 150995278970172,
+          "converted_last": 150995331060915,
+          "converted_matching": 150995306761372,
+          "count": 42,
+          "dispatched": 150995240511983,
+          "encode_end": 150995337606205,
+          "encode_start": 150995336362397,
+          "input_end": 150995248186653,
+          "interval": 33333000,
+          "publish": 150995336273913,
+          "pull_first": 150995275991821,
+          "raw_first": 150995275932293,
+          "raw_last": 150995326366735,
+          "raw_matching": 150995301500325,
+          "received": 150995240479593,
+          "scan_end": 150995327229435,
+          "scan_start": 150995327211166,
+          "selection": {
+            "eligible_ns": 150995335668889,
+            "encode_start_ns": 150995336362397,
+            "interval_ns": 33333000,
+            "latest_at_encode": {
+              "epoch": 3,
+              "id": 749,
+              "marker": 42,
+              "produced_ns": 150995331052203,
+              "raw_id": 748,
+              "raw_ns": 150995326352958,
+              "ready_ns": 150995331061163
+            },
+            "latest_at_publish": {
+              "epoch": 3,
+              "id": 749,
+              "marker": 42,
+              "produced_ns": 150995331052203,
+              "raw_id": 748,
+              "raw_ns": 150995326352958,
+              "ready_ns": 150995331061163
+            },
+            "newer_ready": false,
+            "newer_response_ready": false,
+            "publish_ns": 150995336277713,
+            "selected": {
+              "epoch": 3,
+              "id": 749,
+              "marker": 42,
+              "produced_ns": 150995331052203,
+              "raw_id": 748,
+              "raw_ns": 150995326352958,
+              "ready_ns": 150995331061163
+            }
+          },
+          "status_end": 150995327235679,
+          "status_start": 150995327235089,
+          "write": 150995337627876
+        },
+        "window_id": 3092,
+        "write_begin": 150995337636995,
+        "write_end": 150995337652097
+      },
+      "first_response_ready": {
+        "epoch": 3,
+        "id": 747,
+        "marker": 42,
+        "produced_ns": 150995306680559,
+        "raw_id": 746,
+        "raw_ns": 150995301390622,
+        "ready_ns": 150995306691982
+      },
+      "first_response_pull": {
+        "event": "i420_pull",
+        "marker": 42,
+        "pull_ns": 150995306763771,
+        "stamp": {
+          "epoch": 3,
+          "id": 747,
+          "marker": 42,
+          "produced_ns": 150995306680559,
+          "raw_id": 746,
+          "raw_ns": 150995301390622,
+          "ready_ns": 150995306691982
+        }
+      },
+      "first_raw_pull": {
+        "event": "raw_pull",
+        "marker": 42,
+        "pull_ns": 150995301504356,
+        "stamp": {
+          "epoch": 1,
+          "id": 746,
+          "marker": null,
+          "produced_ns": 150995301390622,
+          "raw_id": 0,
+          "raw_ns": 0,
+          "ready_ns": 150995301399988
+        }
+      },
+      "linux_network": {
+        "packet_assembled": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "assemble_begin_ns": 150995337699557,
+            "binary_bytes": 3402
+          },
+          "event": "packet_assembled",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150995337704240,
+          "window_id": 3092
+        },
+        "quic_write_begin": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 3402,
+            "metadata_bytes": 255
+          },
+          "event": "quic_write_begin",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150995337730673,
+          "window_id": 3092
+        },
+        "quic_write_complete": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 3402,
+            "metadata_bytes": 255,
+            "write_begin_ns": 150995337730673
+          },
+          "event": "quic_write_complete",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150995337741583,
+          "window_id": 3092
+        }
+      },
+      "mac_network": {
+        "quic_read_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 3402,
+            "first_byte_ns": 655126036293416,
+            "metadata_bytes": 255
+          },
+          "event": "quic_read_complete",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655126036320166,
+          "window_id": 3092
+        },
+        "packet_restored": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 3402,
+            "restore_begin_ns": 655126036459875
+          },
+          "event": "packet_restored",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655126036468583,
+          "window_id": 3092
+        },
+        "json_write_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "json_line_bytes": 4802,
+            "serialize_begin_ns": 655126036494750,
+            "serialize_end_ns": 655126036505000
+          },
+          "event": "json_write_complete",
+          "frame_id": 319,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655126036518333,
+          "window_id": 3092
+        }
+      }
+    },
+    {
+      "input_id": "observation-round2-candidate/input-5",
+      "count": 5,
+      "frame_id": 91,
+      "first_response_ready_id": 195,
+      "first_response_pull_id": 195,
+      "first_raw_id": 194,
+      "selected_id": 195,
+      "encoded_bytes": 137727,
+      "key_frame": true,
+      "metrics": {
+        "e2e": 134.437125,
+        "mac_input": 0.150292,
+        "linux_total": 78.299388,
+        "input_delivery": 16.157111,
+        "app_draw": 10.114857,
+        "draw_to_raw": 19.628663,
+        "raw_to_i420": 5.13008,
+        "i420_to_publish": 25.030237,
+        "publish_to_encode": 0.108987,
+        "encode": 1.900291,
+        "encoded_to_agent_write": 0.229162,
+        "mixed": 41.002695,
+        "parse_decode": 4.288334,
+        "decode_to_selected": 0.053916,
+        "selected_to_commit": 0.164875,
+        "commit_to_transaction": 4.098084,
+        "transaction_to_main": 0.041666,
+        "transaction_to_match": 6.379541,
+        "decode_to_match": 10.696416,
+        "query_uncertainty": 1.278166,
+        "scan": 0.019976,
+        "status": 0.000407,
+        "publication_lateness": 0.1664,
+        "sender_local": 0.3059,
+        "sender_parse": 0.090574,
+        "quic_local_write": 0.026898,
+        "receiver_packet": 18.211291,
+        "receiver_restore": 0.127667,
+        "receiver_serialize": 0.094667,
+        "receiver_to_line": 2.134375,
+        "local_line_after_json_write": 1.077416
+      },
+      "mac": {
+        "codec": "h264",
+        "count": 5,
+        "decode_completed_ns": 655118109886875,
+        "decoded": 655118109886875,
+        "draw_end": 655118120583291,
+        "encoded_height": 810,
+        "encoded_width": 1470,
+        "frame_id": 91,
+        "geometry_revision": 1,
+        "hardware_decoder": true,
+        "height": 809,
+        "key_frame": true,
+        "mac_first_successful_query": {
+          "end_ns": 655118120580041,
+          "expected_surface_id": 441,
+          "observed_surface_id": 441,
+          "start_ns": 655118120569291
+        },
+        "mac_last_failed_query": {
+          "end_ns": 655118119319708,
+          "expected_surface_id": 441,
+          "observed_surface_id": 534,
+          "start_ns": 655118119301875
+        },
+        "mac_query_count": 5,
+        "mac_query_total_ns": 110291,
+        "mac_renderer_match_ns": 655118120583291,
+        "mac_stages": {
+          "commit_begin": 655118110058083,
+          "commit_return": 655118110105666,
+          "completion_on_main": 655118114245416,
+          "enqueue_begin": 655118109962541,
+          "enqueue_end": 655118110053333,
+          "probe_started": 655118114248583,
+          "transaction_completion": 655118114203750
+        },
+        "mode": "key",
+        "received": 655118105598541,
+        "received_ns": 655118105598541,
+        "selected": 655118109940791,
+        "seq": 97,
+        "session_id": "observation-round2-candidate-session",
+        "start": 655117986146166,
+        "stream_id": 1,
+        "type": "frame",
+        "version": 1,
+        "warmup": false,
+        "width": 1470,
+        "window_id": 3092,
+        "wire_bytes": 183899,
+        "write_end": 655117986296458,
+        "write_start": 655117986291708
+      },
+      "agent": {
+        "bytes": 183899,
+        "encode_end": 150987385168858,
+        "encode_start": 150987383268567,
+        "encoded_bytes": 137727,
+        "event": "sent",
+        "feedback_id": 91,
+        "key_frame": true,
+        "selection": {
+          "eligible_ns": 150987382993180,
+          "encode_start_ns": 150987383268567,
+          "interval_ns": 33333000,
+          "latest_at_encode": {
+            "epoch": 3,
+            "id": 195,
+            "marker": 5,
+            "produced_ns": 150987358050737,
+            "raw_id": 194,
+            "raw_ns": 150987352898117,
+            "ready_ns": 150987358060123
+          },
+          "latest_at_publish": {
+            "epoch": 3,
+            "id": 195,
+            "marker": 5,
+            "produced_ns": 150987358050737,
+            "raw_id": 194,
+            "raw_ns": 150987352898117,
+            "ready_ns": 150987358060123
+          },
+          "newer_ready": false,
+          "newer_response_ready": false,
+          "publish_ns": 150987383164928,
+          "selected": {
+            "epoch": 3,
+            "id": 195,
+            "marker": 5,
+            "produced_ns": 150987358050737,
+            "raw_id": 194,
+            "raw_ns": 150987352898117,
+            "ready_ns": 150987358060123
+          }
+        },
+        "stages": {
+          "capture_end": 150987358164534,
+          "capture_start": 150987358118325,
+          "converted_first": 150987334141971,
+          "converted_last": 150987358059697,
+          "converted_matching": 150987358126548,
+          "count": 5,
+          "dispatched": 150987307110472,
+          "encode_end": 150987385168858,
+          "encode_start": 150987383268567,
+          "input_end": 150987309336544,
+          "interval": 33333000,
+          "publish": 150987383159580,
+          "pull_first": 150987323325927,
+          "raw_first": 150987329320287,
+          "raw_last": 150987352906982,
+          "raw_matching": 150987352996662,
+          "received": 150987307098632,
+          "scan_end": 150987373526694,
+          "scan_start": 150987373506718,
+          "selection": {
+            "eligible_ns": 150987382993180,
+            "encode_start_ns": 150987383268567,
+            "interval_ns": 33333000,
+            "latest_at_encode": {
+              "epoch": 3,
+              "id": 195,
+              "marker": 5,
+              "produced_ns": 150987358050737,
+              "raw_id": 194,
+              "raw_ns": 150987352898117,
+              "ready_ns": 150987358060123
+            },
+            "latest_at_publish": {
+              "epoch": 3,
+              "id": 195,
+              "marker": 5,
+              "produced_ns": 150987358050737,
+              "raw_id": 194,
+              "raw_ns": 150987352898117,
+              "ready_ns": 150987358060123
+            },
+            "newer_ready": false,
+            "newer_response_ready": false,
+            "publish_ns": 150987383164928,
+            "selected": {
+              "epoch": 3,
+              "id": 195,
+              "marker": 5,
+              "produced_ns": 150987358050737,
+              "raw_id": 194,
+              "raw_ns": 150987352898117,
+              "ready_ns": 150987358060123
+            }
+          },
+          "status_end": 150987349658458,
+          "status_start": 150987349658051,
+          "write": 150987385190351
+        },
+        "window_id": 3092,
+        "write_begin": 150987385353856,
+        "write_end": 150987385398020
+      },
+      "first_response_ready": {
+        "epoch": 3,
+        "id": 195,
+        "marker": 5,
+        "produced_ns": 150987358050737,
+        "raw_id": 194,
+        "raw_ns": 150987352898117,
+        "ready_ns": 150987358060123
+      },
+      "first_response_pull": {
+        "event": "i420_pull",
+        "marker": 5,
+        "pull_ns": 150987358129343,
+        "stamp": {
+          "epoch": 3,
+          "id": 195,
+          "marker": 5,
+          "produced_ns": 150987358050737,
+          "raw_id": 194,
+          "raw_ns": 150987352898117,
+          "ready_ns": 150987358060123
+        }
+      },
+      "first_raw_pull": {
+        "event": "raw_pull",
+        "marker": 5,
+        "pull_ns": 150987352999263,
+        "stamp": {
+          "epoch": 1,
+          "id": 194,
+          "marker": null,
+          "produced_ns": 150987352898117,
+          "raw_id": 0,
+          "raw_ns": 0,
+          "ready_ns": 150987352907274
+        }
+      },
+      "linux_network": {
+        "packet_assembled": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "assemble_begin_ns": 150987385587612,
+            "binary_bytes": 137727
+          },
+          "event": "packet_assembled",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150987385678186,
+          "window_id": 3092
+        },
+        "quic_write_begin": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 137727,
+            "metadata_bytes": 252
+          },
+          "event": "quic_write_begin",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150987385703920,
+          "window_id": 3092
+        },
+        "quic_write_complete": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 137727,
+            "metadata_bytes": 252,
+            "write_begin_ns": 150987385703920
+          },
+          "event": "quic_write_complete",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150987385730818,
+          "window_id": 3092
+        }
+      },
+      "mac_network": {
+        "quic_read_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 137727,
+            "first_byte_ns": 655118085252875,
+            "metadata_bytes": 252
+          },
+          "event": "quic_read_complete",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655118103464166,
+          "window_id": 3092
+        },
+        "packet_restored": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 137727,
+            "restore_begin_ns": 655118103598916
+          },
+          "event": "packet_restored",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655118103726583,
+          "window_id": 3092
+        },
+        "json_write_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "json_line_bytes": 183899,
+            "serialize_begin_ns": 655118103760208,
+            "serialize_end_ns": 655118103854875
+          },
+          "event": "json_write_complete",
+          "frame_id": 91,
+          "key_frame": true,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655118104521125,
+          "window_id": 3092
+        }
+      }
+    },
+    {
+      "input_id": "observation-round2-candidate/input-13",
+      "count": 13,
+      "frame_id": 137,
+      "first_response_ready_id": 309,
+      "first_response_pull_id": 309,
+      "first_raw_id": 308,
+      "selected_id": 309,
+      "encoded_bytes": 17290,
+      "key_frame": false,
+      "metrics": {
+        "e2e": 127.010083,
+        "mac_input": 0.289875,
+        "linux_total": 84.4509,
+        "input_delivery": 34.101011,
+        "app_draw": 4.98754,
+        "draw_to_raw": 21.189933,
+        "raw_to_i420": 3.936493,
+        "i420_to_publish": 18.371548,
+        "publish_to_encode": 0.100054,
+        "encode": 1.702154,
+        "encoded_to_agent_write": 0.062167,
+        "mixed": 23.378183,
+        "parse_decode": 1.808042,
+        "decode_to_selected": 0.04275,
+        "selected_to_commit": 0.111125,
+        "commit_to_transaction": 1.50975,
+        "transaction_to_main": 0.025083,
+        "transaction_to_match": 15.419458,
+        "decode_to_match": 17.083083,
+        "query_uncertainty": 2.042209,
+        "scan": 0.019018,
+        "status": 0.001121,
+        "publication_lateness": 0.330565,
+        "sender_local": 0.139498,
+        "sender_parse": 0.010472,
+        "quic_local_write": 0.018257,
+        "receiver_packet": 0.108541,
+        "receiver_restore": 0.012667,
+        "receiver_serialize": 0.022875,
+        "receiver_to_line": 0.562875,
+        "local_line_after_json_write": 0.305083
+      },
+      "mac": {
+        "codec": "h264",
+        "count": 13,
+        "decode_completed_ns": 655119702913083,
+        "decoded": 655119702913083,
+        "draw_end": 655119719996166,
+        "encoded_height": 810,
+        "encoded_width": 1470,
+        "frame_id": 137,
+        "geometry_revision": 1,
+        "hardware_decoder": true,
+        "height": 809,
+        "key_frame": false,
+        "mac_first_successful_query": {
+          "end_ns": 655119719993500,
+          "expected_surface_id": 441,
+          "observed_surface_id": 441,
+          "start_ns": 655119719984708
+        },
+        "mac_last_failed_query": {
+          "end_ns": 655119717962125,
+          "expected_surface_id": 441,
+          "observed_surface_id": 534,
+          "start_ns": 655119717951291
+        },
+        "mac_query_count": 9,
+        "mac_query_total_ns": 110543,
+        "mac_renderer_match_ns": 655119719996166,
+        "mac_stages": {
+          "commit_begin": 655119703032583,
+          "commit_return": 655119703066958,
+          "completion_on_main": 655119704601791,
+          "enqueue_begin": 655119702987125,
+          "enqueue_end": 655119703030000,
+          "probe_started": 655119704603958,
+          "transaction_completion": 655119704576708
+        },
+        "mode": "key",
+        "received": 655119701105041,
+        "received_ns": 655119701105041,
+        "selected": 655119702955833,
+        "seq": 143,
+        "session_id": "observation-round2-candidate-session",
+        "start": 655119592986083,
+        "stream_id": 1,
+        "type": "frame",
+        "version": 1,
+        "warmup": false,
+        "width": 1470,
+        "window_id": 3092,
+        "wire_bytes": 23322,
+        "write_end": 655119593275958,
+        "write_start": 655119593266041
+      },
+      "agent": {
+        "bytes": 23322,
+        "encode_end": 150988999574251,
+        "encode_start": 150988997872097,
+        "encoded_bytes": 17290,
+        "event": "sent",
+        "feedback_id": 137,
+        "key_frame": false,
+        "selection": {
+          "eligible_ns": 150988997441478,
+          "encode_start_ns": 150988997872097,
+          "interval_ns": 33333000,
+          "latest_at_encode": {
+            "epoch": 3,
+            "id": 309,
+            "marker": 13,
+            "produced_ns": 150988979292941,
+            "raw_id": 308,
+            "raw_ns": 150988975337742,
+            "ready_ns": 150988979309779
+          },
+          "latest_at_publish": {
+            "epoch": 3,
+            "id": 309,
+            "marker": 13,
+            "produced_ns": 150988979292941,
+            "raw_id": 308,
+            "raw_ns": 150988975337742,
+            "ready_ns": 150988979309779
+          },
+          "newer_ready": false,
+          "newer_response_ready": false,
+          "publish_ns": 150988997776017,
+          "selected": {
+            "epoch": 3,
+            "id": 309,
+            "marker": 13,
+            "produced_ns": 150988979292941,
+            "raw_id": 308,
+            "raw_ns": 150988975337742,
+            "ready_ns": 150988979309779
+          }
+        },
+        "stages": {
+          "capture_end": 150988979423812,
+          "capture_start": 150988979383319,
+          "converted_first": 150988929756375,
+          "converted_last": 150988979309294,
+          "converted_matching": 150988979396331,
+          "count": 13,
+          "dispatched": 150988915203745,
+          "encode_end": 150988999574251,
+          "encode_start": 150988997872097,
+          "input_end": 150988926035978,
+          "interval": 33333000,
+          "publish": 150988997772043,
+          "pull_first": 150988926044875,
+          "raw_first": 150988921410031,
+          "raw_last": 150988975355654,
+          "raw_matching": 150988975460355,
+          "received": 150988915185518,
+          "scan_end": 150988997763175,
+          "scan_start": 150988997744157,
+          "selection": {
+            "eligible_ns": 150988997441478,
+            "encode_start_ns": 150988997872097,
+            "interval_ns": 33333000,
+            "latest_at_encode": {
+              "epoch": 3,
+              "id": 309,
+              "marker": 13,
+              "produced_ns": 150988979292941,
+              "raw_id": 308,
+              "raw_ns": 150988975337742,
+              "ready_ns": 150988979309779
+            },
+            "latest_at_publish": {
+              "epoch": 3,
+              "id": 309,
+              "marker": 13,
+              "produced_ns": 150988979292941,
+              "raw_id": 308,
+              "raw_ns": 150988975337742,
+              "ready_ns": 150988979309779
+            },
+            "newer_ready": false,
+            "newer_response_ready": false,
+            "publish_ns": 150988997776017,
+            "selected": {
+              "epoch": 3,
+              "id": 309,
+              "marker": 13,
+              "produced_ns": 150988979292941,
+              "raw_id": 308,
+              "raw_ns": 150988975337742,
+              "ready_ns": 150988979309779
+            }
+          },
+          "status_end": 150988968767012,
+          "status_start": 150988968765891,
+          "write": 150988999602069
+        },
+        "window_id": 3092,
+        "write_begin": 150988999616433,
+        "write_end": 150988999636418
+      },
+      "first_response_ready": {
+        "epoch": 3,
+        "id": 309,
+        "marker": 13,
+        "produced_ns": 150988979292941,
+        "raw_id": 308,
+        "raw_ns": 150988975337742,
+        "ready_ns": 150988979309779
+      },
+      "first_response_pull": {
+        "event": "i420_pull",
+        "marker": 13,
+        "pull_ns": 150988979400495,
+        "stamp": {
+          "epoch": 3,
+          "id": 309,
+          "marker": 13,
+          "produced_ns": 150988979292941,
+          "raw_id": 308,
+          "raw_ns": 150988975337742,
+          "ready_ns": 150988979309779
+        }
+      },
+      "first_raw_pull": {
+        "event": "raw_pull",
+        "marker": 13,
+        "pull_ns": 150988975464002,
+        "stamp": {
+          "epoch": 1,
+          "id": 308,
+          "marker": null,
+          "produced_ns": 150988975337742,
+          "raw_id": 0,
+          "raw_ns": 0,
+          "ready_ns": 150988975355937
+        }
+      },
+      "linux_network": {
+        "packet_assembled": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "assemble_begin_ns": 150988999711126,
+            "binary_bytes": 17290
+          },
+          "event": "packet_assembled",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150988999721598,
+          "window_id": 3092
+        },
+        "quic_write_begin": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 17290,
+            "metadata_bytes": 255
+          },
+          "event": "quic_write_begin",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150988999775916,
+          "window_id": 3092
+        },
+        "quic_write_complete": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 17290,
+            "metadata_bytes": 255,
+            "write_begin_ns": 150988999775916
+          },
+          "event": "quic_write_complete",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150988999794173,
+          "window_id": 3092
+        }
+      },
+      "mac_network": {
+        "quic_read_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 17290,
+            "first_byte_ns": 655119700433625,
+            "metadata_bytes": 255
+          },
+          "event": "quic_read_complete",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655119700542166,
+          "window_id": 3092
+        },
+        "packet_restored": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 17290,
+            "restore_begin_ns": 655119700665166
+          },
+          "event": "packet_restored",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655119700677833,
+          "window_id": 3092
+        },
+        "json_write_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "json_line_bytes": 23322,
+            "serialize_begin_ns": 655119700693625,
+            "serialize_end_ns": 655119700716500
+          },
+          "event": "json_write_complete",
+          "frame_id": 137,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655119700799958,
+          "window_id": 3092
+        }
+      }
+    },
+    {
+      "input_id": "observation-round2-candidate/input-20",
+      "count": 20,
+      "frame_id": 182,
+      "first_response_ready_id": 415,
+      "first_response_pull_id": 415,
+      "first_raw_id": 414,
+      "selected_id": 417,
+      "encoded_bytes": 15825,
+      "key_frame": false,
+      "metrics": {
+        "e2e": 126.504625,
+        "mac_input": 0.33825,
+        "linux_total": 96.377326,
+        "input_delivery": 25.9305,
+        "app_draw": 3.962425,
+        "draw_to_raw": 22.708697,
+        "raw_to_i420": 3.218959,
+        "i420_to_publish": 38.634595,
+        "publish_to_encode": 0.075359,
+        "encode": 1.776836,
+        "encoded_to_agent_write": 0.069955,
+        "mixed": 22.717257,
+        "parse_decode": 2.091583,
+        "decode_to_selected": 0.04475,
+        "selected_to_commit": 0.1395,
+        "commit_to_transaction": 0.898917,
+        "transaction_to_main": 0.024375,
+        "transaction_to_match": 3.897042,
+        "decode_to_match": 4.980209,
+        "query_uncertainty": 3.858625,
+        "scan": 0.021644,
+        "status": 0.001408,
+        "publication_lateness": 1.013818,
+        "sender_local": 0.094164,
+        "sender_parse": 0.01308,
+        "quic_local_write": 0.014135,
+        "receiver_packet": 0.242959,
+        "receiver_restore": 0.023833,
+        "receiver_serialize": 0.033417,
+        "receiver_to_line": 0.479083,
+        "local_line_after_json_write": 0.163042
+      },
+      "mac": {
+        "codec": "h264",
+        "count": 20,
+        "decode_completed_ns": 655121266529541,
+        "decoded": 655121266529541,
+        "draw_end": 655121271509750,
+        "encoded_height": 810,
+        "encoded_width": 1470,
+        "frame_id": 182,
+        "geometry_revision": 1,
+        "hardware_decoder": true,
+        "height": 809,
+        "key_frame": false,
+        "mac_first_successful_query": {
+          "end_ns": 655121271501500,
+          "expected_surface_id": 774,
+          "observed_surface_id": 774,
+          "start_ns": 655121271476166
+        },
+        "mac_last_failed_query": {
+          "end_ns": 655121267658208,
+          "expected_surface_id": 774,
+          "observed_surface_id": 441,
+          "start_ns": 655121267642875
+        },
+        "mac_query_count": 2,
+        "mac_query_total_ns": 40667,
+        "mac_renderer_match_ns": 655121271509750,
+        "mac_stages": {
+          "commit_begin": 655121266677458,
+          "commit_return": 655121266713791,
+          "completion_on_main": 655121267637083,
+          "enqueue_begin": 655121266596416,
+          "enqueue_end": 655121266670291,
+          "probe_started": 655121267640375,
+          "transaction_completion": 655121267612708
+        },
+        "mode": "pointer",
+        "received": 655121264437958,
+        "received_ns": 655121264437958,
+        "selected": 655121266574291,
+        "seq": 188,
+        "session_id": "observation-round2-candidate-session",
+        "start": 655121145005125,
+        "stream_id": 1,
+        "type": "frame",
+        "version": 1,
+        "warmup": false,
+        "width": 1470,
+        "window_id": 3092,
+        "wire_bytes": 21366,
+        "write_end": 655121145343375,
+        "write_start": 655121145327083
+      },
+      "agent": {
+        "bytes": 21366,
+        "encode_end": 150990563615281,
+        "encode_start": 150990561838445,
+        "encoded_bytes": 15825,
+        "event": "sent",
+        "feedback_id": 182,
+        "key_frame": false,
+        "selection": {
+          "eligible_ns": 150990560749268,
+          "encode_start_ns": 150990561838445,
+          "interval_ns": 33333000,
+          "latest_at_encode": {
+            "epoch": 3,
+            "id": 417,
+            "marker": 20,
+            "produced_ns": 150990544923872,
+            "raw_id": 416,
+            "raw_ns": 150990541440812,
+            "ready_ns": 150990544933101
+          },
+          "latest_at_publish": {
+            "epoch": 3,
+            "id": 417,
+            "marker": 20,
+            "produced_ns": 150990544923872,
+            "raw_id": 416,
+            "raw_ns": 150990541440812,
+            "ready_ns": 150990544933101
+          },
+          "newer_ready": false,
+          "newer_response_ready": false,
+          "publish_ns": 150990561766904,
+          "selected": {
+            "epoch": 3,
+            "id": 417,
+            "marker": 20,
+            "produced_ns": 150990544923872,
+            "raw_id": 416,
+            "raw_ns": 150990541440812,
+            "ready_ns": 150990544933101
+          }
+        },
+        "stages": {
+          "capture_end": 150990544993834,
+          "capture_start": 150990544962642,
+          "converted_first": 150990488951250,
+          "converted_last": 150990544932777,
+          "converted_matching": 150990523121322,
+          "count": 20,
+          "dispatched": 150990467318789,
+          "encode_end": 150990563615281,
+          "encode_start": 150990561838445,
+          "input_end": 150990486371692,
+          "interval": 33333000,
+          "publish": 150990561763086,
+          "pull_first": 150990486377197,
+          "raw_first": 150990492524484,
+          "raw_last": 150990541453859,
+          "raw_matching": 150990519906317,
+          "received": 150990467307910,
+          "scan_end": 150990560647793,
+          "scan_start": 150990560626149,
+          "selection": {
+            "eligible_ns": 150990560749268,
+            "encode_start_ns": 150990561838445,
+            "interval_ns": 33333000,
+            "latest_at_encode": {
+              "epoch": 3,
+              "id": 417,
+              "marker": 20,
+              "produced_ns": 150990544923872,
+              "raw_id": 416,
+              "raw_ns": 150990541440812,
+              "ready_ns": 150990544933101
+            },
+            "latest_at_publish": {
+              "epoch": 3,
+              "id": 417,
+              "marker": 20,
+              "produced_ns": 150990544923872,
+              "raw_id": 416,
+              "raw_ns": 150990541440812,
+              "ready_ns": 150990544933101
+            },
+            "newer_ready": false,
+            "newer_response_ready": false,
+            "publish_ns": 150990561766904,
+            "selected": {
+              "epoch": 3,
+              "id": 417,
+              "marker": 20,
+              "produced_ns": 150990544923872,
+              "raw_id": 416,
+              "raw_ns": 150990541440812,
+              "ready_ns": 150990544933101
+            }
+          },
+          "status_end": 150990535419005,
+          "status_start": 150990535417597,
+          "write": 150990563641816
+        },
+        "window_id": 3092,
+        "write_begin": 150990563664387,
+        "write_end": 150990563685236
+      },
+      "first_response_ready": {
+        "epoch": 3,
+        "id": 415,
+        "marker": 20,
+        "produced_ns": 150990522980920,
+        "raw_id": 414,
+        "raw_ns": 150990519795656,
+        "ready_ns": 150990523014145
+      },
+      "first_response_pull": {
+        "event": "i420_pull",
+        "marker": 20,
+        "pull_ns": 150990523128491,
+        "stamp": {
+          "epoch": 3,
+          "id": 415,
+          "marker": 20,
+          "produced_ns": 150990522980920,
+          "raw_id": 414,
+          "raw_ns": 150990519795656,
+          "ready_ns": 150990523014145
+        }
+      },
+      "first_raw_pull": {
+        "event": "raw_pull",
+        "marker": 20,
+        "pull_ns": 150990519909532,
+        "stamp": {
+          "epoch": 1,
+          "id": 414,
+          "marker": null,
+          "produced_ns": 150990519795656,
+          "raw_id": 0,
+          "raw_ns": 0,
+          "ready_ns": 150990519807492
+        }
+      },
+      "linux_network": {
+        "packet_assembled": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "assemble_begin_ns": 150990563738034,
+            "binary_bytes": 15825
+          },
+          "event": "packet_assembled",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150990563751114,
+          "window_id": 3092
+        },
+        "quic_write_begin": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 15825,
+            "metadata_bytes": 255
+          },
+          "event": "quic_write_begin",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150990563779400,
+          "window_id": 3092
+        },
+        "quic_write_complete": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 15825,
+            "metadata_bytes": 255,
+            "write_begin_ns": 150990563779400
+          },
+          "event": "quic_write_complete",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150990563793535,
+          "window_id": 3092
+        }
+      },
+      "mac_network": {
+        "quic_read_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 15825,
+            "first_byte_ns": 655121263715916,
+            "metadata_bytes": 255
+          },
+          "event": "quic_read_complete",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655121263958875,
+          "window_id": 3092
+        },
+        "packet_restored": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 15825,
+            "restore_begin_ns": 655121264090833
+          },
+          "event": "packet_restored",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655121264114666,
+          "window_id": 3092
+        },
+        "json_write_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "json_line_bytes": 21366,
+            "serialize_begin_ns": 655121264141166,
+            "serialize_end_ns": 655121264174583
+          },
+          "event": "json_write_complete",
+          "frame_id": 182,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655121264274916,
+          "window_id": 3092
+        }
+      }
+    },
+    {
+      "input_id": "observation-round2-candidate/input-36",
+      "count": 36,
+      "frame_id": 281,
+      "first_response_ready_id": 657,
+      "first_response_pull_id": 657,
+      "first_raw_id": 656,
+      "selected_id": 659,
+      "encoded_bytes": 3400,
+      "key_frame": false,
+      "metrics": {
+        "e2e": 125.365958,
+        "mac_input": 0.180917,
+        "linux_total": 96.367214,
+        "input_delivery": 27.321822,
+        "app_draw": 11.084492,
+        "draw_to_raw": 21.797348,
+        "raw_to_i420": 3.31008,
+        "i420_to_publish": 31.285316,
+        "publish_to_encode": 0.133153,
+        "encode": 1.361173,
+        "encoded_to_agent_write": 0.07383,
+        "mixed": 20.608702,
+        "parse_decode": 2.1325,
+        "decode_to_selected": 0.058584,
+        "selected_to_commit": 0.177625,
+        "commit_to_transaction": 2.465916,
+        "transaction_to_main": 0.04,
+        "transaction_to_match": 3.3745,
+        "decode_to_match": 6.076625,
+        "query_uncertainty": 2.057041,
+        "scan": 0.034804,
+        "status": 0.001135,
+        "publication_lateness": 0.360533,
+        "sender_local": 0.079232,
+        "sender_parse": 0.004756,
+        "quic_local_write": 0.011313,
+        "receiver_packet": 0.024833,
+        "receiver_restore": 0.007875,
+        "receiver_serialize": 0.009292,
+        "receiver_to_line": 0.292625,
+        "local_line_after_json_write": 0.112125
+      },
+      "mac": {
+        "codec": "h264",
+        "count": 36,
+        "decode_completed_ns": 655124731048666,
+        "decoded": 655124731048666,
+        "draw_end": 655124737125291,
+        "encoded_height": 810,
+        "encoded_width": 1470,
+        "frame_id": 281,
+        "geometry_revision": 1,
+        "hardware_decoder": true,
+        "height": 809,
+        "key_frame": false,
+        "mac_first_successful_query": {
+          "end_ns": 655124737119291,
+          "expected_surface_id": 441,
+          "observed_surface_id": 441,
+          "start_ns": 655124737101458
+        },
+        "mac_last_failed_query": {
+          "end_ns": 655124735079416,
+          "expected_surface_id": 441,
+          "observed_surface_id": 534,
+          "start_ns": 655124735062250
+        },
+        "mac_query_count": 3,
+        "mac_query_total_ns": 73208,
+        "mac_renderer_match_ns": 655124737125291,
+        "mac_stages": {
+          "commit_begin": 655124731230500,
+          "commit_return": 655124731284875,
+          "completion_on_main": 655124733790791,
+          "enqueue_begin": 655124731151833,
+          "enqueue_end": 655124731226750,
+          "probe_started": 655124733792958,
+          "transaction_completion": 655124733750791
+        },
+        "mode": "pointer",
+        "received": 655124728916166,
+        "received_ns": 655124728916166,
+        "selected": 655124731107250,
+        "seq": 287,
+        "session_id": "observation-round2-candidate-session",
+        "start": 655124611759333,
+        "stream_id": 1,
+        "type": "frame",
+        "version": 1,
+        "warmup": false,
+        "width": 1470,
+        "window_id": 3092,
+        "wire_bytes": 4802,
+        "write_end": 655124611940250,
+        "write_start": 655124611935500
+      },
+      "agent": {
+        "bytes": 4802,
+        "encode_end": 150994029957200,
+        "encode_start": 150994028596027,
+        "encoded_bytes": 3400,
+        "event": "sent",
+        "feedback_id": 281,
+        "key_frame": false,
+        "selection": {
+          "eligible_ns": 150994028102341,
+          "encode_start_ns": 150994028596027,
+          "interval_ns": 33333000,
+          "latest_at_encode": {
+            "epoch": 3,
+            "id": 659,
+            "marker": 36,
+            "produced_ns": 150994024175633,
+            "raw_id": 658,
+            "raw_ns": 150994019690290,
+            "ready_ns": 150994024184835
+          },
+          "latest_at_publish": {
+            "epoch": 3,
+            "id": 659,
+            "marker": 36,
+            "produced_ns": 150994024175633,
+            "raw_id": 658,
+            "raw_ns": 150994019690290,
+            "ready_ns": 150994024184835
+          },
+          "newer_ready": false,
+          "newer_response_ready": false,
+          "publish_ns": 150994028467682,
+          "selected": {
+            "epoch": 3,
+            "id": 659,
+            "marker": 36,
+            "produced_ns": 150994024175633,
+            "raw_id": 658,
+            "raw_ns": 150994019690290,
+            "ready_ns": 150994024184835
+          }
+        },
+        "stages": {
+          "capture_end": 150994024282469,
+          "capture_start": 150994024233147,
+          "converted_first": 150993947694551,
+          "converted_last": 150994024184520,
+          "converted_matching": 150993997172974,
+          "count": 36,
+          "dispatched": 150993933744572,
+          "encode_end": 150994029957200,
+          "encode_start": 150994028596027,
+          "input_end": 150993944843553,
+          "interval": 33333000,
+          "publish": 150994028462874,
+          "pull_first": 150993944857234,
+          "raw_first": 150993941175614,
+          "raw_last": 150994019704712,
+          "raw_matching": 150993993862730,
+          "received": 150993933663816,
+          "scan_end": 150994013272306,
+          "scan_start": 150994013237502,
+          "selection": {
+            "eligible_ns": 150994028102341,
+            "encode_start_ns": 150994028596027,
+            "interval_ns": 33333000,
+            "latest_at_encode": {
+              "epoch": 3,
+              "id": 659,
+              "marker": 36,
+              "produced_ns": 150994024175633,
+              "raw_id": 658,
+              "raw_ns": 150994019690290,
+              "ready_ns": 150994024184835
+            },
+            "latest_at_publish": {
+              "epoch": 3,
+              "id": 659,
+              "marker": 36,
+              "produced_ns": 150994024175633,
+              "raw_id": 658,
+              "raw_ns": 150994019690290,
+              "ready_ns": 150994024184835
+            },
+            "newer_ready": false,
+            "newer_response_ready": false,
+            "publish_ns": 150994028467682,
+            "selected": {
+              "epoch": 3,
+              "id": 659,
+              "marker": 36,
+              "produced_ns": 150994024175633,
+              "raw_id": 658,
+              "raw_ns": 150994019690290,
+              "ready_ns": 150994024184835
+            }
+          },
+          "status_end": 150994013287201,
+          "status_start": 150994013286066,
+          "write": 150994029991978
+        },
+        "window_id": 3092,
+        "write_begin": 150994030020894,
+        "write_end": 150994030031030
+      },
+      "first_response_ready": {
+        "epoch": 3,
+        "id": 657,
+        "marker": 36,
+        "produced_ns": 150993997025287,
+        "raw_id": 656,
+        "raw_ns": 150993993753003,
+        "ready_ns": 150993997045568
+      },
+      "first_response_pull": {
+        "event": "i420_pull",
+        "marker": 36,
+        "pull_ns": 150993997177558,
+        "stamp": {
+          "epoch": 3,
+          "id": 657,
+          "marker": 36,
+          "produced_ns": 150993997025287,
+          "raw_id": 656,
+          "raw_ns": 150993993753003,
+          "ready_ns": 150993997045568
+        }
+      },
+      "first_raw_pull": {
+        "event": "raw_pull",
+        "marker": 36,
+        "pull_ns": 150993993867478,
+        "stamp": {
+          "epoch": 1,
+          "id": 656,
+          "marker": null,
+          "produced_ns": 150993993753003,
+          "raw_id": 0,
+          "raw_ns": 0,
+          "ready_ns": 150993993769854
+        }
+      },
+      "linux_network": {
+        "packet_assembled": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "assemble_begin_ns": 150994030083290,
+            "binary_bytes": 3400
+          },
+          "event": "packet_assembled",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150994030088046,
+          "window_id": 3092
+        },
+        "quic_write_begin": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 3400,
+            "metadata_bytes": 255
+          },
+          "event": "quic_write_begin",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150994030110262,
+          "window_id": 3092
+        },
+        "quic_write_complete": {
+          "clock_domain": "linux_CLOCK_MONOTONIC",
+          "details": {
+            "binary_bytes": 3400,
+            "metadata_bytes": 255,
+            "write_begin_ns": 150994030110262
+          },
+          "event": "quic_write_complete",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 1698234,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 150994030121575,
+          "window_id": 3092
+        }
+      },
+      "mac_network": {
+        "quic_read_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 3400,
+            "first_byte_ns": 655124728598708,
+            "metadata_bytes": 255
+          },
+          "event": "quic_read_complete",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655124728623541,
+          "window_id": 3092
+        },
+        "packet_restored": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "binary_bytes": 3400,
+            "restore_begin_ns": 655124728742958
+          },
+          "event": "packet_restored",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655124728750833,
+          "window_id": 3092
+        },
+        "json_write_complete": {
+          "clock_domain": "mac_uptime",
+          "details": {
+            "json_line_bytes": 4802,
+            "serialize_begin_ns": 655124728783458,
+            "serialize_end_ns": 655124728792750
+          },
+          "event": "json_write_complete",
+          "frame_id": 281,
+          "key_frame": false,
+          "pid": 45608,
+          "session_id": "observation-round2-candidate-session",
+          "timestamp_ns": 655124728804041,
+          "window_id": 3092
+        }
+      }
+    }
+  ],
+  "all_network_key_groups": {
+    "False": {
+      "n": 636,
+      "encoded_bytes_p50": 3330.0,
+      "read_after_first_byte_ms": {
+        "n": 636,
+        "p50": 0.0338755,
+        "p95": 1.584292,
+        "minimum": 0.006292,
+        "maximum": 8.365917,
+        "below_100_ms": 636
+      }
+    },
+    "True": {
+      "n": 23,
+      "encoded_bytes_p50": 146590,
+      "read_after_first_byte_ms": {
+        "n": 23,
+        "p50": 18.228125,
+        "p95": 30.115166,
+        "minimum": 5.442542,
+        "maximum": 45.29025,
+        "below_100_ms": 23
+      }
+    }
+  },
+  "raw_sha256": "ec6f563425890b9389ef12c251b396cc1083e9b667c9dd29174d487a23a2c22b",
+  "provenance": [
+    {
+      "name": "selection-round1-base.json",
+      "sha256": "b4fbfa4ae5fc36cf0a4adb7a44b2f8a37305f7a81df2672ccc2c7912d813a3e7"
+    },
+    {
+      "name": "selection-round1-base.record.json",
+      "sha256": "e287d0229171745f57c022108d3417d8d23d979029d37f2370565fadf16ad40b"
+    },
+    {
+      "name": "selection-round1-base.source.json",
+      "sha256": "009d046452fae0583d8f1acf7970a8d2ffda19143eb4f232431378693b3b80d4"
+    },
+    {
+      "name": "selection-round2-candidate.json",
+      "sha256": "1936d36f1f1830e85c791f79e8e458dbb6e1a273e7a74024718152c373232f9c"
+    },
+    {
+      "name": "selection-round2-candidate.record.json",
+      "sha256": "66c72926bf1d8aa3eae0c9ff9cd29232c74f5171e5e554d81c46cc0fe77f8dce"
+    },
+    {
+      "name": "selection-round2-candidate.source.json",
+      "sha256": "011b8908ec5225af1f79fba2f28d655c75bb2bbdab96a4668951d89c084e3b48"
+    },
+    {
+      "name": "selection-round3-candidate.json",
+      "sha256": "4fab2e5bb90dcaf20707ac80a6626753e520fa0049f418f30417a3a4b0096e8d"
+    },
+    {
+      "name": "selection-round3-candidate.record.json",
+      "sha256": "cf961ab764d1a41c0bb12b1b1fed3b12a7f50b066b5a6f9869235efb26486426"
+    },
+    {
+      "name": "selection-round3-candidate.source.json",
+      "sha256": "16a173206814bc540b0d1d5fc88de33bcc4c52ddc53003a6d97c8f80e88b63ec"
+    },
+    {
+      "name": "selection-round4-base.json",
+      "sha256": "7378cf599eed2d7ca7724480d8214d695b370be31c57ee405e0e773f8d37db9d"
+    },
+    {
+      "name": "selection-round4-base.record.json",
+      "sha256": "da0873fca1e682bffb4e289643299a7bde4beaf9672f75b1ca37ec9f54db3b9d"
+    },
+    {
+      "name": "selection-round4-base.source.json",
+      "sha256": "b3e15aebdcc1dba5e3f7f7928df74bde5d2a5f40aa952dd42d732e8d016059eb"
+    },
+    {
+      "name": "selection-round5-candidate.json",
+      "sha256": "720ed22625873b1d0156c9471d78e537684f8277579ffa01cd5771b504e32488"
+    },
+    {
+      "name": "selection-round5-candidate.record.json",
+      "sha256": "a3b2be51aac00bb53911236e9ba91779f9851fa9a43ac348eaafe8841272aedd"
+    },
+    {
+      "name": "selection-round5-candidate.source.json",
+      "sha256": "38d1ff80f3bc65698dbb2a536faabf38f41eae7872dc8ca754e1739eda602625"
+    },
+    {
+      "name": "selection-round6-base.json",
+      "sha256": "705dd85c71d63e099ac6328e2d4a0a45174ef5ae5f3de0a26171ac0fe2affa99"
+    },
+    {
+      "name": "selection-round6-base.record.json",
+      "sha256": "245ad2eed7c6364ba24a928aa9f2ae9c6b80e97f1d128603c87c965145c845fb"
+    },
+    {
+      "name": "selection-round6-base.source.json",
+      "sha256": "97aecf00e2724e33df972d0f617cd05151b289b24051f5afe16e73a10579f584"
+    },
+    {
+      "name": "selection-round7-base.json",
+      "sha256": "6ec7bbcfd3c5e5ddc5709eade5fa32dac8373015779859c953b8d192f7ddb63e"
+    },
+    {
+      "name": "selection-round7-base.record.json",
+      "sha256": "40fcadb4e1259e1210f5dbc18fcec1032bc2ebb7389dd8807465480a71cde85c"
+    },
+    {
+      "name": "selection-round7-base.source.json",
+      "sha256": "362f21a136f3225beab60ea220d7da3d92c1f3c47678e0df01a20602a93029b6"
+    },
+    {
+      "name": "selection-round8-candidate.json",
+      "sha256": "38ad59c21cb5e659c81ee2252d7121fb2b62447de70c97d0f67816f987fb8cd9"
+    },
+    {
+      "name": "selection-round8-candidate.record.json",
+      "sha256": "3a42464353989209b8a52736e19fb252e1bb8579cfd815446e14fca27120d75e"
+    },
+    {
+      "name": "selection-round8-candidate.source.json",
+      "sha256": "322c375b2a4c254d43aa9707fd776feadde400f241621ac2da5ab76567f49175"
+    },
+    {
+      "name": "linux-network-trace.1698234.jsonl",
+      "sha256": "bf756461fc60c76fae4dd7802a886581889f75309a842e1a783277ea5feaed1f"
+    },
+    {
+      "name": "mac-network-trace.45608.jsonl",
+      "sha256": "aabcfb6063cba1f444339f5418ebb9c0c7c1488671b2435d88f4e33a65aa609b"
+    },
+    {
+      "name": "network-evidence.jsonl",
+      "sha256": "fe185db451c487a17687a51198aff2132ee8a8f56da62091d2715ce4529ff949"
+    },
+    {
+      "name": "observation-round1-base.json",
+      "sha256": "e06d7c92ac7281d7374cb89e1175eaa24567936c35a2dc636458a2e0c594785a"
+    },
+    {
+      "name": "observation-round1-base.record.json",
+      "sha256": "697b2d3e5cadad8e1a4046ff9e2bc6a56d16c9b75928260f1e3515f0fececc8c"
+    },
+    {
+      "name": "observation-round1-base.source.json",
+      "sha256": "45fbef22f65c0450c74017601a03316b6bcaccf8c77b4d4184037e6035ddf59e"
+    },
+    {
+      "name": "observation-round1-base.trace.jsonl",
+      "sha256": "33031a61faa20ed0ea5383164b773bee9a48043c19902cca8080c9091d03f989"
+    },
+    {
+      "name": "observation-round2-candidate.json",
+      "sha256": "ff49e65387d9dbb72fabd6f6e4195e1bf219df6075a2b3e963d7226becc39c36"
+    },
+    {
+      "name": "observation-round2-candidate.record.json",
+      "sha256": "2bc125ecefb2f8e13e4a49b43473795e614a13a6852ddcfdd6e52a1958f8ceeb"
+    },
+    {
+      "name": "observation-round2-candidate.source.json",
+      "sha256": "1db9b0ea552dd0ed1416c427e5823aba7c8820f6f7838434883efd0ff17295a2"
+    },
+    {
+      "name": "observation-round2-candidate.trace.jsonl",
+      "sha256": "da45c030945c19b63f897197a36ccb65dbbd28f361b007bc0fc7a1be4c73ebfe"
+    },
+    {
+      "name": "rounds.json",
+      "sha256": "fdc0a330bdeeb6e5c4597d2512c9e367f0d7cd479ecccd7322860556452ca046"
+    }
+  ],
+  "deployment": {
+    "installed_agent_sha256": "5ec6e63429bd055aa93df5e99d13c74bfaf0a30ed06aa7dcd084e94e639cbcba",
+    "previous_agent_sha256": "90a8f5c455fadbd673f1bb61f0e37e49af86577934f0ec1c62fb1e3764690f51",
+    "agent_restart_local_time": "2026-10-26 22:36:21 +0800",
+    "original_source_processes_preserved": true,
+    "chatgpt_reconnected": true,
+    "chatgpt_received_pixels": [
+      1470,
+      797
+    ],
+    "chatgpt_local_points": [
+      1470,
+      797
+    ],
+    "production_network_not_restarted": true,
+    "temporary_services_stopped": 3,
+    "temporary_pairing_credentials_removed": true
+  }
+}
