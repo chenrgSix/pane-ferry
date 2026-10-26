@@ -106,6 +106,13 @@ impl Queue {
     }
 }
 type Shared = Arc<(Mutex<Queue>, Condvar)>;
+#[derive(Clone)]
+pub struct VideoFeedback(Arc<Mutex<VideoQos>>);
+impl VideoFeedback {
+    pub fn acknowledge(&self, frame_id: u64) {
+        self.0.lock().unwrap().acknowledge(frame_id, Instant::now());
+    }
+}
 pub struct Output {
     queue: Shared,
     socket: UnixStream,
@@ -163,11 +170,11 @@ impl Output {
     pub fn keyframe(&self, id: u32) -> Result<()> {
         self.push(Pending::KeyFrame(id))
     }
+    pub fn feedback_handle(&self) -> VideoFeedback {
+        VideoFeedback(self.qos.clone())
+    }
     pub fn video_feedback(&self, frame_id: u64) {
-        self.qos
-            .lock()
-            .unwrap()
-            .acknowledge(frame_id, Instant::now());
+        self.feedback_handle().acknowledge(frame_id);
     }
     pub fn frame_interval(&self) -> Duration {
         self.qos.lock().unwrap().interval(Instant::now())

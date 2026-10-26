@@ -1273,6 +1273,42 @@ fn win_value(
     }
     v
 }
+/// Presentation acknowledgements describe the client/network, not time spent
+/// behind capture or window maintenance. Apply them on arrival; input and all
+/// other control requests retain their original bounded FIFO and wake socket.
+fn read_requests(
+    input: UnixStream,
+    tx: mpsc::SyncSender<Request>,
+    mut notify: UnixStream,
+    mut acknowledge: impl FnMut(u64),
+) {
+    let mut input = BufReader::new(input);
+    let mut first = true;
+    loop {
+        match read_line_limit(&mut input, 65536) {
+            Ok(Some(line)) if line.len() <= 65536 => {
+                match paneferry_protocol::parse_request(&line) {
+                    Ok(req) => {
+                        // The first message still reaches the hello validator.
+                        if !first {
+                            if let Request::VideoFeedback { frame_id } = req {
+                                acknowledge(frame_id);
+                                continue;
+                            }
+                        }
+                        first = false;
+                        if tx.send(req).is_err() {
+                            break;
+                        }
+                        let _ = notify.write(&[1]);
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ => break,
+        }
+    }
+}
 fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let video_fps_limit = configured_video_fps_limit()?;
     struct Shutdown(UnixStream);
@@ -1285,31 +1321,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     out.set_write_timeout(Some(Duration::from_secs(3)))?;
     let input = out.try_clone()?;
     let (tx, rx) = mpsc::sync_channel(16);
-    let (mut wake, mut notify) = UnixStream::pair()?;
+    let (mut wake, notify) = UnixStream::pair()?;
     wake.set_nonblocking(true)?;
     notify.set_nonblocking(true)?;
-    thread::spawn(move || {
-        let mut input = BufReader::new(input);
-        loop {
-            match read_line_limit(&mut input, 65536) {
-                Ok(Some(line)) if line.len() <= 65536 => {
-                    match paneferry_protocol::parse_request(&line) {
-                        Ok(req) => {
-                            if tx.send(req).is_err() {
-                                break;
-                            }
-                            // A full wake socket is already readable. Never
-                            // block the request reader on notification bytes.
-                            let _ = notify.write(&[1]);
-                        }
-                        Err(_) => break,
-                    }
-                }
-                _ => break,
-            }
-        }
-    });
     let mut out = output::Output::new(out)?;
+    let feedback = out.feedback_handle();
+    thread::spawn(move || read_requests(input, tx, notify, |id| feedback.acknowledge(id)));
     match rx.recv_timeout(Duration::from_secs(10))? {
         Request::Hello { version: 1 } => {}
         _ => bail!("hello version 1 required"),
@@ -2044,6 +2061,55 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn request_reader_applies_feedback_without_waiting_for_control_dispatch() {
+        let (input, mut controller) = UnixStream::pair().unwrap();
+        let (notify, _wake) = UnixStream::pair().unwrap();
+        let (tx, rx) = mpsc::sync_channel(16);
+        let (feedback, applied) = mpsc::channel();
+        let task = thread::spawn(move || {
+            read_requests(input, tx, notify, |id| feedback.send(id).unwrap())
+        });
+        controller.write_all(concat!(
+            "{\"version\":1,\"type\":\"hello\"}\n",
+            "{\"version\":1,\"type\":\"input.key\",\"window_id\":42,\"keysym\":97,\"pressed\":true}\n",
+            "{\"version\":1,\"type\":\"video.feedback\",\"frame_id\":7}\n",
+            "{\"version\":1,\"type\":\"input.key\",\"window_id\":42,\"keysym\":97,\"pressed\":false}\n",
+        ).as_bytes()).unwrap();
+        // The controller/capture owner has not consumed even hello yet.
+        assert_eq!(applied.recv_timeout(Duration::from_secs(1)).unwrap(), 7);
+        assert!(matches!(rx.recv().unwrap(), Request::Hello { version: 1 }));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Request::Key { pressed: true, .. }
+        ));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            Request::Key { pressed: false, .. }
+        ));
+        drop(controller);
+        task.join().unwrap();
+    }
+    #[test]
+    fn feedback_cannot_bypass_the_initial_hello_validation() {
+        let (input, mut controller) = UnixStream::pair().unwrap();
+        let (notify, _wake) = UnixStream::pair().unwrap();
+        let (tx, rx) = mpsc::sync_channel(16);
+        let task = thread::spawn(move || {
+            read_requests(input, tx, notify, |_| {
+                panic!("first request bypassed hello")
+            })
+        });
+        controller
+            .write_all(b"{\"version\":1,\"type\":\"video.feedback\",\"frame_id\":7}\n")
+            .unwrap();
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Request::VideoFeedback { frame_id: 7 }
+        ));
+        drop(controller);
+        task.join().unwrap();
+    }
     #[test]
     fn publisher_video_limit_preserves_default_and_rejects_invalid_configuration() {
         assert_eq!(
