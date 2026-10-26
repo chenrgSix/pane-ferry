@@ -1,6 +1,8 @@
 """Contract check used inside wayland_smoke's private compositor only."""
 import base64
 import json
+import re
+import subprocess
 import time
 
 
@@ -9,6 +11,16 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
     bridge = Bridge(env)
     original_layout = monitor_layout()
     original_text = json.loads(state.read_text())['text']
+    def x11_backing(process, xid, width, height):
+        current = next(w for w in bridge.call(op='list')['result'] if w['pid'] == process.pid)
+        if (current['client_width'], current['client_height']) != (width, height):
+            return None
+        geometry = subprocess.check_output(['xwininfo', '-id', str(xid)], env=env, text=True)
+        raw = tuple(int(re.search(r'\b'+axis+r':\s+(\d+)', geometry)[1]) for axis in ['Width', 'Height'])
+        # GDK scale and Xwayland's retained backing density are independent.
+        # Query both ends, including after a private-output scale transition.
+        density = next((n for n in range(1, 5) if abs(raw[0]-width*n) <= 1 and abs(raw[1]-height*n) <= 1), None)
+        return raw if density else None
     try:
         targets = [('Wayland', app, state)]
         if with_xwayland:
@@ -49,17 +61,18 @@ def verify(peer, sock, env, state, app, fixture, scratch, log, start, wait, Peer
                     if actual['native']:
                         assert (actual['width'], actual['height']) == (width, height), actual
                     else:
-                        wait(lambda: (json.loads(record.read_text())['width'], json.loads(record.read_text())['height']) == (width, height))
+                        backing = wait(lambda: x11_backing(process, identity, width, height))
                     assert json.loads(record.read_text())['scale'] == source_scale
                     assert json.loads(record.read_text())['text'] == original_text and process.poll() is None
                     if (width, height) == (900, 700):
                         # The GTK child is allocated after the source window
                         # resize, proving the application laid out new content.
+                        allocation_width = width if actual['native'] else backing[0] / source_scale
                         def entry_after_reflow():
                             allocated = json.loads(record.read_text())['entry_width']
-                            return allocated if width * .6 < allocated <= width else None
+                            return allocated if allocation_width * .6 < allocated <= allocation_width else None
                         allocation = wait(entry_after_reflow)
-                        assert allocation <= width, (kind, width, allocation)
+                        assert allocation <= allocation_width, (kind, allocation_width, allocation)
                     print(json.dumps(dict(backend=kind, logical=[width, height], received=list(pixels),
                                           source_scale=source_scale, entry_width=json.loads(record.read_text())['entry_width'],
                                           pid=process.pid, preserved=True)), flush=True)

@@ -26,6 +26,9 @@ def verify(sock, env, fixture, scratch, log, start, wait, Peer, Bridge):
         original_hints = hints()
         assert b'minimum size: 480 by 600' in original_hints
         original_text = json.loads(record.read_text())['text']
+        def native_size():
+            info = subprocess.check_output(['xwininfo', '-id', str(xid)], env=env, text=True)
+            return tuple(int(re.search(r'\b'+axis+r':\s+(\d+)', info)[1]) for axis in ['Width', 'Height'])
 
         # Change only the private compositor after this X11 window already
         # exists. Mutter 50 otherwise caches the former stage-space minimum.
@@ -53,7 +56,7 @@ def verify(sock, env, fixture, scratch, log, start, wait, Peer, Bridge):
             assert (frame['width'], frame['height']) == expected, (width, height, frame['width'], frame['height'])
             assert frame['codec'] == 'h264'
             native = tuple(n * 2 for n in expected)
-            wait(lambda: (json.loads(record.read_text())['width'], json.loads(record.read_text())['height']) == native)
+            wait(lambda: native_size() == native)
             assert hints() == original_hints, 'application constraints were modified'
             assert app.poll() is None and json.loads(record.read_text())['text'] == original_text
             print(json.dumps({'requested': [width, height], 'received': list(expected), 'native': native,
