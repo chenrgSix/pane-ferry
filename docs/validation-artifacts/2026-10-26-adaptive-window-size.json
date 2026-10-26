@@ -140,5 +140,10 @@
     "real minimum sizes and character grids are preserved; reconciliation is bounded",
     "the installed extension file loads at the next normal GNOME login; current live fix was verified with the old loaded extension",
     "no new latency benchmark in this change"
-  ]
+  ],
+  "validation_correction": {
+    "status": "incomplete_visual_acceptance",
+    "reason": "The original check confirmed dimensions and letterbox removal but missed doubled UI controls.",
+    "followup": "2026-10-26-xwayland-logical-density.json"
+  }
 }

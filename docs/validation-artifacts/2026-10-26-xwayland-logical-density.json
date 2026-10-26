@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-26",
+  "commit": "a57e1ab",
+  "address": "10.0.1.66",
+  "cause": "Raw Xwayland backing pixels were incorrectly used as logical client size, halving application layout and doubling displayed controls.",
+  "isolated_gnome": {
+    "source_logical": [
+      900,
+      701
+    ],
+    "source_backing": [
+      1800,
+      1402
+    ],
+    "wire_visible": [
+      900,
+      701
+    ],
+    "source_density": 2,
+    "decoded_red_bounds": [
+      40,
+      40,
+      120,
+      70
+    ],
+    "button_logical_size": [
+      100,
+      36
+    ],
+    "nested_popup_sizes_positions_and_parents": "passed",
+    "unchanged_WM_NORMAL_HINTS": "passed",
+    "attached_display_scale_changes": [
+      1.25,
+      1.0,
+      1.25
+    ],
+    "bounded_resize_attempts": [
+      2,
+      1
+    ],
+    "no_application_restart": true
+  },
+  "checks": {
+    "local_workspace_passed": 113,
+    "local_workspace_ignored": 13,
+    "final_agent_x11_tests": "passed",
+    "ubuntu_agent_include_ignored_passed": 48,
+    "clippy": "completed with existing warnings",
+    "private_gnome_wayland_and_xwayland_logical_sizes": "5 sizes each and same-session reconnect passed",
+    "private_gnome_density_controls_and_popups": "passed"
+  },
+  "deployed": {
+    "agent_sha256": "90a8f5c455fadbd673f1bb61f0e37e49af86577934f0ec1c62fb1e3764690f51",
+    "agent_pid": 1493987,
+    "mac_host_pid": 41713,
+    "mac_host_sha256": "4653bde31e39d5c07c5bc17ac863e63346e11ac3ef6ec59414cfff3c80883f85",
+    "extension_reloaded": false
+  },
+  "live_verification": {
+    "native_pixels": [
+      2940,
+      1602
+    ],
+    "wire_pixels": [
+      1470,
+      801
+    ],
+    "local_points": [
+      1470,
+      801
+    ],
+    "controls_and_sidebar_normal_size_visually_checked": true,
+    "file_menu_click_and_placement": "passed",
+    "source_maximize_then_automatic_recovery": [
+      [
+        1536,
+        752
+      ],
+      [
+        1470,
+        801
+      ]
+    ],
+    "desktop_scale": 1.25,
+    "source_minimum_hints": [
+      480,
+      600
+    ],
+    "original_application_pids": [
+      3664772,
+      3837316,
+      4042507
+    ],
+    "original_start_times_preserved": true
+  },
+  "limits": [
+    "High-density source capture remains necessary; only encoded/wire output is 1x.",
+    "No new end-to-end latency benchmark.",
+    "The existing bounded Mac reconciliation can need a second resize after a live desktop scale transition.",
+    "Private fixture decoding and live ChatGPT UI were verified; this does not certify every third-party application or mixed-monitor layout."
+  ]
+}
