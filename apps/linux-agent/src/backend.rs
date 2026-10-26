@@ -30,6 +30,10 @@ pub trait WindowBackend: Send {
     fn metadata_ready(&self) -> bool {
         false
     }
+    /// Structural changes wake discovery without polling at the video cadence.
+    fn metadata_events(&self) -> bool {
+        false
+    }
     /// Drain readiness without pixel work when false. When true, also submit
     /// and collect ready samples without waiting; publication has its own cap.
     fn pump_capture_events(&mut self, prepare_pixels: bool) -> Result<()>;
@@ -89,6 +93,12 @@ impl WindowBackend for X11 {
     }
     fn scan(&mut self) -> Result<Vec<Window>> {
         X11::scan(self)
+    }
+    fn metadata_ready(&self) -> bool {
+        X11::metadata_ready(self)
+    }
+    fn metadata_events(&self) -> bool {
+        X11::metadata_events(self)
     }
     fn pump_capture_events(&mut self, _prepare_pixels: bool) -> Result<()> {
         X11::pump_capture_events(self)

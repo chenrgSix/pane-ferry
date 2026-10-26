@@ -123,6 +123,12 @@ impl WindowBackend for LogicalX11 {
         self.windows = next;
         Ok(self.windows.values().cloned().collect())
     }
+    fn metadata_ready(&self) -> bool {
+        self.source.metadata_ready()
+    }
+    fn metadata_events(&self) -> bool {
+        self.source.metadata_events()
+    }
     fn pump_capture_events(&mut self, _: bool) -> Result<()> {
         self.source.pump_capture_events()
     }

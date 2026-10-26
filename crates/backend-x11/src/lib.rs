@@ -21,6 +21,7 @@ mod controller_copy;
 mod controller_text;
 mod damage;
 mod inventory;
+mod metadata_events;
 mod related_windows;
 mod shared_capture;
 mod window_size;
@@ -76,6 +77,7 @@ pub struct Backend {
     scale_factor: u8,
     shared_capture: RefCell<shared_capture::SharedCapture>,
     damage: RefCell<damage::Damage>,
+    metadata: metadata_events::MetadataEvents,
     desktop_input: Option<Arc<dyn DesktopInput>>,
     desktop_geometry: Option<Box<dyn DesktopGeometry>>,
     size_adjustments: HashMap<u32, window_size::Adjustment>,
@@ -94,6 +96,12 @@ impl Backend {
         self.desktop_geometry
             .as_ref()
             .map_or_else(|| Ok(HashMap::new()), |g| g.logical_layout())
+    }
+    pub fn metadata_events(&self) -> bool {
+        self.metadata.enabled()
+    }
+    pub fn metadata_ready(&self) -> bool {
+        self.metadata.pending()
     }
     pub fn prepare_input(&self) {
         if let Some(input) = &self.desktop_input {
@@ -173,6 +181,7 @@ impl Backend {
         let mut atoms = HashMap::new();
         for name in [
             "_NET_CLIENT_LIST",
+            "_NET_CLIENT_LIST_STACKING",
             "_NET_WM_NAME",
             "_NET_WM_WINDOW_TYPE",
             "_NET_WM_WINDOW_TYPE_TOOLTIP",
@@ -185,6 +194,7 @@ impl Backend {
             "_NET_WM_WINDOW_TYPE_DIALOG",
             "UTF8_STRING",
             "WM_TRANSIENT_FOR",
+            "WM_NORMAL_HINTS",
             "WM_PROTOCOLS",
             "WM_DELETE_WINDOW",
             "_NET_ACTIVE_WINDOW",
@@ -217,6 +227,7 @@ impl Backend {
         }
         let shared_capture = RefCell::new(shared_capture::SharedCapture::new(&conn));
         let damage = RefCell::new(damage::Damage::new(&conn));
+        let metadata = metadata_events::MetadataEvents::new(&conn, root);
         Ok(Self {
             conn,
             root,
@@ -232,6 +243,7 @@ impl Backend {
             scale_factor: 1,
             shared_capture,
             damage,
+            metadata,
             desktop_input: None,
             desktop_geometry: None,
             size_adjustments: HashMap::new(),
@@ -441,6 +453,7 @@ impl Backend {
         self.size_adjustments.clear();
     }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
+        self.metadata.clear();
         let wm = self
             .prop(self.root, "_NET_SUPPORTING_WM_CHECK", AtomEnum::WINDOW)
             .ok()
@@ -492,6 +505,7 @@ impl Backend {
                 self.size_adjustments.remove(&id);
                 continue;
             }
+            self.metadata.watch(&self.conn, id, a.your_event_mask);
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
@@ -635,7 +649,12 @@ impl Backend {
     }
     fn next_event(&self) -> Result<Option<x11rb::protocol::Event>> {
         for _ in 0..256 {
-            match self.conn.poll_for_event()? {
+            let event = self.conn.poll_for_event()?;
+            if let Some(event) = &event {
+                self.metadata
+                    .notify(event, self.root, &self.windows, &self.atoms);
+            }
+            match event {
                 Some(x11rb::protocol::Event::DamageNotify(event)) => {
                     self.damage.borrow_mut().notify(&event)
                 }

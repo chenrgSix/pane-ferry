@@ -54,15 +54,14 @@ fn scan_interval(
     attached: bool,
     has_windows: bool,
     recent_window_action: bool,
-    composed_scene: bool,
+    event_driven_metadata: bool,
 ) -> Duration {
-    // A composed scene discovers/places popups in the compositor before paint.
-    // PipeWire readiness independently wakes capture; synchronous metadata RPCs
-    // at video cadence only delay those wakes. Keep fast initial discovery and
-    // per-window popup discovery, plus the usual bounded liveness/metadata scan.
+    // Composed scenes place popups before paint. X11 structural notifications
+    // independently wake discovery. Keep fast polling for other backends and
+    // initial discovery, plus a bounded periodic liveness/metadata fallback.
     if !attached {
         Duration::from_secs(1)
-    } else if !has_windows || (recent_window_action && !composed_scene) {
+    } else if !has_windows || (recent_window_action && !event_driven_metadata) {
         ACTIVE_SCAN_INTERVAL
     } else {
         IDLE_SCAN_INTERVAL
@@ -1369,13 +1368,14 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let mut capture_fd = None;
         let mut capture_pending = false;
         let mut metadata_ready = false;
-        let mut composed_scene = false;
+        let mut event_driven_metadata = false;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             let sid = s.id.clone();
-            composed_scene = s.scene.is_some();
+            event_driven_metadata = s.scene.is_some();
             if !s.has_exited()? {
                 if let Some(b) = &mut s.backend {
+                    event_driven_metadata |= b.metadata_events();
                     for id in out.take_refreshes() {
                         if b.windows().contains_key(&id) {
                             retry_windows.insert(id);
@@ -1443,7 +1443,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     lease.is_some(),
                     !known.is_empty(),
                     last_window_action.elapsed() < Duration::from_millis(500),
-                    composed_scene,
+                    event_driven_metadata,
                 )
                 .saturating_sub(last_scan.elapsed())
             };
@@ -1903,7 +1903,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     lease.is_some(),
                     !known.is_empty(),
                     last_window_action.elapsed() < Duration::from_millis(500),
-                    composed_scene,
+                    event_driven_metadata,
                 );
         let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
         if !scan_due && !capture_due {
