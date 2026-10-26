@@ -1,0 +1,36 @@
+{
+  "revision": "9fdbf86",
+  "mac_template_sha256": "cba9624158553a9f1cc8058b42c4d20f0e935b1bf1fd0561a698f19773a7c834",
+  "signature_verified": true,
+  "retired_title_absent_from_binary": true,
+  "validation": "automatic reconnect, retained 30 FPS selection, no page-scale command or action",
+  "source_chatgpt_pid_preserved": 3664772,
+  "running_named_host_pid": 54937,
+  "running_named_host_sha256": "cba9624158553a9f1cc8058b42c4d20f0e935b1bf1fd0561a698f19773a7c834",
+  "visible_menu_items": [
+    "自动适应窗口",
+    "适应可用屏幕",
+    "全屏显示",
+    "设置分辨率…",
+    "原始像素大小",
+    "帧率：30 帧/秒"
+  ],
+  "visible_fps_choices": [
+    30,
+    60
+  ],
+  "received_pixels": [
+    1470,
+    797
+  ],
+  "local_points": [
+    1470,
+    797
+  ],
+  "observed_recent_fps": 29,
+  "client_only_change": true,
+  "legacy_agent_protocol_retained_for_compatibility": true,
+  "latency_not_remeasured": true,
+  "temporary_build_cache_logical_bytes_removed": 149622981,
+  "available_disk_bytes_after": 26164977664
+}
