@@ -48,6 +48,10 @@ fn window(r:&Request)->Option<u32> {
     }
 }
 pub fn request(stage:&str,r:&Request) {
+    if let Request::VideoFeedback{frame_id}=r {
+        crate::selection_probe::trace(json!({"event":"video_feedback","stage":stage,"frame_id":frame_id,"timestamp_ns":now()}));
+        return;
+    }
     let Some(id)=window(r) else{return};
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     if stage=="received" {
@@ -178,7 +182,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     caps_structure: unsafe extern''')
     edit('video.rs', 'pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink', 'pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! identity name=probe_ready signal-handoffs=true ! appsink')
     edit('video_frame.rs', '! appsink name=sink sync=false max-buffers=1 drop=true', '! identity name=probe_ready signal-handoffs=true ! appsink name=sink sync=false max-buffers=1 drop=true')
-    edit('main.rs', 'if tx.send(req).is_err() {', 'stage_probe::request("received", &req);\n                            if tx.send(req).is_err() {')
+    edit('main.rs', 'Ok(req) => {', 'Ok(req) => {\n                            stage_probe::request("received", &req);')
     edit('main.rs', 'if triggers_fast_scan(&req) {', 'let probe_input = stage_probe::is_input(&req);\n            stage_probe::request("dispatched", &req);\n            if triggers_fast_scan(&req) {')
     edit('main.rs', 'if let Err(e) = result {', 'if probe_input {stage_probe::input_end();}\n            if let Err(e) = result {')
     edit('main.rs', 'let status = b.input_status();', 'stage_probe::status(true);\n                let status = b.input_status();\n                stage_probe::status(false);')
@@ -215,6 +219,12 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
          '            crate::selection_probe::trace(json!({"event":"encoder_duplicate","window_id":id,"timestamp_ns":crate::stage_probe::now(),"stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,crate::stage_probe::now())}));\n            return Ok(None);\n        }\n        // At most 8 MP')
     edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        crate::selection_probe::encoding(Arc::as_ptr(&job.image) as usize,probe_encode);\n        let packet = state.encoder.encode_frame(&job.image)?;')
     edit('output_worker.rs', '"stream_id":state.encoder.stream,', '"_agent_stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,probe_encode),\n            "stream_id":state.encoder.stream,')
+    qos = source / 'video_qos.rs'
+    q = qos.read_text()
+    anchor = '        let excess = delay.saturating_sub(baseline);'
+    if q.count(anchor) != 1:
+        raise ValueError('QoS timing anchor changed')
+    qos.write_text(q.replace(anchor, anchor + '\n        crate::selection_probe::trace(serde_json::json!({"event":"qos_feedback","frame_id":id,"timestamp_ns":crate::stage_probe::now(),"target":self.target,"cap":self.cap,"pending":self.pending.len(),"delay_ns":delay.as_nanos(),"baseline_ns":baseline.as_nanos(),"excess_ns":excess.as_nanos()}));'))
     edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;', 'if value["_agent_stages"].is_object() {value["_agent_stages"]["write"]=json!(crate::stage_probe::now());}\n        let mut bytes = serde_json::to_vec(&value)?;')
     edit('output.rs', 'socket.write_all(&bytes)?;', 'let probe_write=crate::stage_probe::now();\n        socket.write_all(&bytes)?;\n        crate::selection_probe::sent(&value,bytes.len(),probe_write,crate::stage_probe::now());')
     if trace_only:
