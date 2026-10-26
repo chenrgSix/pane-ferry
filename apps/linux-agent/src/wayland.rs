@@ -258,7 +258,9 @@ impl Backend {
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
             bail!("approved existing process unavailable")
         }
-        let scale = if scene.is_some() { scale } else { 2 };
+        // Ordinary windows and composed scenes use the negotiated density.
+        // Forcing 2 here makes a normal 1x attachment render/encode four times
+        // as many pixels, then advertises that forced density back to clients.
         let mut rpc = Rpc::new()?;
         rpc.call(json!({"op":"acquire", "id":target.info.id, "pid":target.identity.pid,"scale":scale,"scene":scene}))?;
         rpc.call(json!({"op":"focus", "window_id":target.info.window_id}))?;

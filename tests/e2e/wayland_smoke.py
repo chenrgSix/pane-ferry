@@ -281,12 +281,19 @@ try:
                 started=peer.request('app.launch','session.started',app_id=app_id,request_id='take-original',backend='native',attach=False)
                 assert app.poll() is None and json.loads(state.read_text())['text']=='preserved fixture contents'
                 snap=peer.request('session.resume','session.snapshot',session_id=started['session_id'])
-                window=snap['windows'][0]['window_id'];frame=peer.until('frame')
+                metadata=snap['windows'][0]
+                assert metadata['scale_factor']==1, 'ordinary attachment must not force a 2x source output'
+                window=metadata['window_id'];frame=peer.until('frame')
                 assert frame['window_id']==window
+                logical=json.loads(state.read_text())
+                # GTK's client size can exclude server decorations. Compare
+                # captured pixels with the compositor's logical frame instead.
+                placement=metadata['presentation']
+                assert logical['scale']==1 and (frame['width'],frame['height'])==(placement['width'],placement['height']), (metadata,logical)
                 print('Initial capture:',frame['width'],frame['height'],flush=True)
                 assert frame['codec']=='h264' and base64.b64decode(frame['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
                 sizes=[]
-                for width,height in [(1200,700),(2940,1604),(2940,1846),(800,500)]:
+                for width,height in [(1470,809),(1200,700),(2940,1604),(2940,1846),(800,500)]:
                     peer.send(type='window.configure',window_id=window,width=width,height=height)
                     print('Requested:',width,height,flush=True)
                     until=time.monotonic()+15
@@ -296,7 +303,7 @@ try:
                         if (frame['width'],frame['height'])==(width,height):break
                     assert (frame['width'],frame['height'])==(width,height),frame.keys()
                     assert frame['codec']=='h264' and frame['encoded_width'] in (width,width+1) and frame['encoded_height'] in (height,height+1)
-                    assert json.loads(state.read_text())['scale']==2, 'client must redraw at output density, not upscale its screenshot'
+                    assert json.loads(state.read_text())['scale']==1, 'ordinary attachment must retain its negotiated 1x output during resize'
                     assert json.loads(other_state.read_text())['scale']==1, 'another native application stays on its original output'
                     assert all(monitor_layout()[key]==value for key,value in baseline_monitors.items())
                     sizes.append((frame['width'],frame['height']))
@@ -318,6 +325,7 @@ try:
                 reused=peer.request('app.launch','session.started',app_id=app_id,request_id='reuse-original',backend='native',attach=False)
                 assert reused['session_id']==started['session_id']
                 snap=peer.request('session.resume','session.snapshot',session_id=started['session_id']);peer.until('frame')
+                assert snap['windows'][0]['scale_factor']==1, 'reacquisition must keep the negotiated 1x density'
                 assert app.poll() is None and json.loads(state.read_text())['text']=='preserved fixture contents'
                 peer.send(type='window.configure',window_id=window,width=960,height=540)
                 deadline=time.monotonic()+15
@@ -327,7 +335,7 @@ try:
                 assert encoded.get('codec')=='h264' and encoded['key_frame'],encoded.keys()
                 assert base64.b64decode(encoded['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
                 print('PASS: cropped native PipeWire pixels enter the H.264 encoder at 960x540')
-                print('PASS: native Wayland inventory, original application scale=2, Retina PipeWire pixels, resize, oversized request rejection, reconnect and preserved process/content',sizes)
+                print('PASS: native Wayland inventory, ordinary 1x source and PipeWire pixels, resize, oversized request rejection, reconnect and preserved process/content',sizes)
                 if a.with_xwayland:
                     # Discover only this private compositor's Xwayland. Never
                     # guess :0 or read the real graphical login's authority.
