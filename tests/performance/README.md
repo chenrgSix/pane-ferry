@@ -86,8 +86,18 @@ python3 tests/performance/live_end_to_end.py --build-dir /tmp/paneferry-live-pro
 python3 tests/performance/live_end_to_end.py --build-dir /tmp/paneferry-live-probe \
   --peer PAIRED_DEVICE_ID --state /absolute/path/to/network-state \
   --helper /absolute/path/to/paneferry-network --app wayland-PID-START-WINDOW \
-  --width 2940 --height 1618 --samples 40 --output /tmp/live-result.json
+  --width 2940 --height 1618 --scale 2 --fps 30 --samples 40 --output /tmp/live-result.json
 ```
+
+`--scale` 只覆盖临时探针副本的启动请求，不修改已安装程序。对照分辨率时，固定同一个帧率，
+交错运行 `--width 1470 --height 809 --scale 1` 与 `--width 2940 --height 1618 --scale 2`。
+每轮重启自有夹具并同时传入对应像素宽高和缩放；给夹具添加 `--logical-content`，保持两组
+相同的逻辑页面、文字大小和本机显示区域，避免把不同布局当成密度收益。黑白计数标记仍用固定
+物理坐标。源端每轮核对输入顺序、绘制尺寸和实际缩放；探针结果核对协商的帧率。
+
+CoreVideo 计时先记录对应缓冲已显示的时间，再直接读取 NV12 亮度平面的 8 个标记点，
+避免正常采样时为识别标记回读整帧 CGImage。验证此识别与计时边界可运行
+`python3 tests/performance/live_probe_unit.py`，无需连接远端或注入用户应用。
 
 方向键与点击交错，各预热 2 次、正式采样 40 次；8 位视觉标记必须匹配才记录。每轮核对
 远端 JSONL 中的输入计数、输入种类、绘制尺寸与缩放，保留原始数据及失败轮次。

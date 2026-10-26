@@ -50,6 +50,12 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     ]
     for before, after in replacements:
         text = replace(text, before, after)
+    if probe_source.name == 'LiveProbe.swift':
+        # Benchmark-only override: reproduce 2x with the current publisher,
+        # keeping every other product path identical to the 1x measurement.
+        text = replace(text, 'launch["scale_factor"] = 1', 'launch["scale_factor"] = Probe.scale')
+        text = replace(text, 'if type == "video.ready" {',
+                       'if type == "video.ready" { Probe.negotiatedFPS = object["max_fps"] as? Int;')
     main.write_text(text)
     surface = source / 'SurfaceView.swift'
     if (source / 'VideoFrame.swift').exists():
@@ -72,6 +78,7 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
     probe = probe_source.read_text()
     if (source / 'VideoFrame.swift').exists():
         probe = probe.replace('context menu AppKit draw completion', 'context menu renderer displayed-buffer availability')
+        probe = probe.replace('"AppKit draw completion"', '"renderer displayed-buffer availability"')
         if probe_source.name == 'PopupProbe.swift':
             probe = replace(probe, '        if sceneMode {\n            result["source_geometry"]',
                 '        result["video_counts"] = ["selected": selectedVideoCount, "presented": presentedVideoCount, "matched": matchedVideoCount]\n        if sceneMode {\n            result["source_geometry"]')
@@ -98,8 +105,10 @@ def main():
     parser.add_argument('--build-only', action='store_true')
     for name in ('peer', 'state', 'helper', 'app', 'output'):
         parser.add_argument('--' + name)
-    parser.add_argument('--width', type=int, default=2940)
-    parser.add_argument('--height', type=int, default=1618)
+    parser.add_argument('--width', type=int, default=1470)
+    parser.add_argument('--height', type=int, default=809)
+    parser.add_argument('--scale', type=int, choices=(1, 2), default=1)
+    parser.add_argument('--fps', type=int, choices=(30, 60), default=60)
     parser.add_argument('--samples', type=int, default=40)
     args = parser.parse_args()
     if not 1 <= args.samples <= 120:
@@ -111,14 +120,17 @@ def main():
         parser.error('run requires --peer --state --helper --app --output')
     binary = args.build_dir.resolve() / 'PaneFerry Live Probe.app/Contents/MacOS/PaneFerryLiveProbe'
     env = dict(os.environ, PROBE_WIDTH=str(args.width), PROBE_HEIGHT=str(args.height),
-               PROBE_SAMPLES=str(args.samples), PROBE_OUTPUT=str(Path(args.output).resolve()))
+               PROBE_SCALE=str(args.scale), PROBE_SAMPLES=str(args.samples),
+               PROBE_OUTPUT=str(Path(args.output).resolve()))
     subprocess.run([str(binary), '--native-peer', args.peer, '--native-state', args.state,
-                    '--native-helper', args.helper, '--app', args.app], env=env, check=True,
+                    '--native-helper', args.helper, '--app', args.app, '--fps', str(args.fps)], env=env, check=True,
                    timeout=100)
     result = json.loads(Path(args.output).read_text())
     rows = [row for row in result['frames'] if not row['warmup']]
     assert len(rows) == args.samples * 2 and 'error' not in result, result.get('error')
     assert all(row['codec'] == 'h264' and row['hardware_decoder'] for row in rows)
+    assert result['scale'] == args.scale and result['negotiated_fps'] == args.fps, result
+    assert result['endpoint'] == 'renderer displayed-buffer availability', result['endpoint']
     print(json.dumps({'output': args.output, 'samples': len(rows), 'hardware_decoder': True}))
 
 

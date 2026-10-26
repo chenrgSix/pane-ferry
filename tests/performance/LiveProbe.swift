@@ -1,6 +1,7 @@
 // Opt-in hooks for the installed Agent and production QUIC path; no server instrumentation.
 // Synthetic test input only; never reads the controller clipboard.
 import AppKit
+import CoreVideo
 
 enum Probe {
     static let lock = NSLock()
@@ -14,13 +15,15 @@ enum Probe {
     static let samples = Int(ProcessInfo.processInfo.environment["PROBE_SAMPLES"] ?? "30")!
     static let width = Int(ProcessInfo.processInfo.environment["PROBE_WIDTH"]!)!
     static let height = Int(ProcessInfo.processInfo.environment["PROBE_HEIGHT"]!)!
+    static let scale = Int(ProcessInfo.processInfo.environment["PROBE_SCALE"] ?? "1")!
+    static var negotiatedFPS: Int?
     static let output = ProcessInfo.processInfo.environment["PROBE_OUTPUT"]!
     static func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
     static func configure(_ host: HostedWindow) {
         host.fixedPixels = (width, height)
         let available = (host.window.screen ?? NSScreen.main!).visibleFrame.size
-        let ratio = min(1 / host.window.backingScaleFactor,
+        let ratio = min(1 / CGFloat(scale),
                         min(available.width / CGFloat(width), (available.height - 30) / CGFloat(height)))
         host.window.setContentSize(NSSize(width: CGFloat(width) * ratio, height: CGFloat(height) * ratio))
         host.window.center()
@@ -36,6 +39,7 @@ enum Probe {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { waitForWindow() }; return
         }
         guard !started else { return }; started = true
+        guard host.rendering.scale == scale else { finish(error: "source density does not match the test"); return }
         // Exclude transport startup, first keyframe and decoder allocation from steady-state samples.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { next() }
     }
@@ -55,6 +59,7 @@ enum Probe {
         frames[ObjectIdentifier(image)] = value
     }
     static func marker(_ image: CGImage) -> Int? {
+        guard image.width >= 256, image.height > 16 else { return nil }
         guard let crop = image.cropping(to: CGRect(x: 0, y: 16, width: 256, height: 1)) else { return nil }
         var pixels = [UInt8](repeating: 0, count: 256 * 4)
         return pixels.withUnsafeMutableBytes { bytes in
@@ -71,19 +76,36 @@ enum Probe {
         }
     }
     static func observedVideo(_ frame: VideoFrame, object: [String: Any], completed: UInt64) {
-        guard current != nil, let image = frame.image else { return }
-        lock.lock(); frames[ObjectIdentifier(image)] = object; lock.unlock()
-        drew(image, timestamp: completed)
+        guard current != nil, let value = videoMarker(frame) else { return }
+        matched(value, object: object, completed: completed)
+    }
+    static func videoMarker(_ frame: VideoFrame) -> Int? {
+        guard frame.width >= 256, frame.height > 16 else { return nil }
+        guard let buffer = frame.pixelBuffer,
+              [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange].contains(CVPixelBufferGetPixelFormatType(buffer)),
+              CVPixelBufferGetWidthOfPlane(buffer, 0) >= 256,
+              CVPixelBufferGetHeightOfPlane(buffer, 0) > 16 else { return frame.image.flatMap { marker($0) } }
+        guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
+        let row = base.advanced(by: 16 * CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)).assumingMemoryBound(to: UInt8.self)
+        var value = 0
+        for bit in 0..<8 where row[16 + bit * 32] > 128 { value |= 1 << bit }
+        return value
     }
     static func drew(_ image: CGImage, timestamp: UInt64? = nil) {
         let completed = timestamp ?? now() // End of actual NSImage.draw; sampling overhead is excluded.
-        guard let marker = marker(image) else { return }
+        guard let value = marker(image) else { return }
+        lock.lock(); let object = frames[ObjectIdentifier(image)]; lock.unlock()
+        matched(value, object: object, completed: completed)
+    }
+    static func matched(_ marker: Int, object: [String: Any]?, completed: UInt64) {
         lock.lock()
         if let expected = current?["count"] as? Int, marker > expected {
             lock.unlock(); finish(error: "fixture emitted an unexpected input marker"); return
         }
         guard let pending = current, pending["count"] as? Int == marker,
-              var frame = frames[ObjectIdentifier(image)] else { lock.unlock(); return }
+              var frame = object else { lock.unlock(); return }
         for (key, value) in pending { frame[key] = value }
         frame["draw_end"] = completed
         rows.append(frame); current = nil
@@ -120,8 +142,11 @@ enum Probe {
         lock.lock(); let values = rows; lock.unlock()
         var result: [String: Any] = ["frames":values, "width":width, "height":height]
         result["expected_samples_per_mode"] = samples
+        result["scale"] = delegate?.windows.values.first?.rendering.scale
+        result["negotiated_fps"] = negotiatedFPS
+        result["local_points"] = delegate?.windows.values.first.map { [Double($0.surface.bounds.width), Double($0.surface.bounds.height)] }
         result["pending"] = current
-        result["last_marker"] = delegate?.windows.values.first?.surface.image.flatMap { marker($0) }
+        result["last_marker"] = delegate?.windows.values.first?.surface.displayFrame.flatMap { videoMarker($0) }
         result["session_id"] = delegate?.session
         result["endpoint"] = "AppKit draw completion"
         result["injection"] = "SurfaceView input handlers"

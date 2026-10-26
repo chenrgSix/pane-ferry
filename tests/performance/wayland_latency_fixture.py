@@ -13,6 +13,7 @@ log = Path(sys.argv[1]).open('w', buffering=1)
 width, height = map(int, sys.argv[2:4])
 animated = sys.argv[4] == 'animated'
 initial_scale = int(sys.argv[5]) if len(sys.argv) > 5 else 2
+logical_content = '--logical-content' in sys.argv[6:]
 app = Gtk.Application(application_id='io.paneferry.LiveLatencyFixture')
 count = tick = 0
 last_drawn = -1
@@ -42,13 +43,19 @@ def activate(application):
     def draw(widget, context):
         global last_drawn
         scale = window.get_scale_factor()
-        context.scale(1 / scale, 1 / scale)
-        for y in range(0, widget.get_allocated_height() * scale, 64):
-            for x in range(0, widget.get_allocated_width() * scale, 128):
+        context.save()
+        units = 1 if logical_content else scale
+        if not logical_content: context.scale(1 / scale, 1 / scale)
+        for y in range(0, widget.get_allocated_height() * units, 64):
+            for x in range(0, widget.get_allocated_width() * units, 128):
                 context.set_source_rgb((x % 251) / 251, (y % 239) / 239, .7)
                 context.rectangle(x, y, 128, 64); context.fill()
                 context.set_source_rgb(.1, .1, .1)
                 context.move_to(x + 8, y + 30); context.show_text(f'Latency {x}:{y}')
+        context.restore()
+        # Fixed physical marker coordinates keep probe recognition independent
+        # of density; the page itself retains identical logical content.
+        context.scale(1 / scale, 1 / scale)
         for bit in range(8):
             value = (count >> bit) & 1
             context.set_source_rgb(value, value, value)
@@ -58,7 +65,8 @@ def activate(application):
         signature = (count, widget.get_allocated_width(), widget.get_allocated_height(), scale)
         if signature != last_drawn:
             record('draw', width=widget.get_allocated_width() * scale,
-                   height=widget.get_allocated_height() * scale, scale=scale)
+                   height=widget.get_allocated_height() * scale, scale=scale,
+                   logical_content=logical_content)
             last_drawn = signature
 
     def key(widget, event):
