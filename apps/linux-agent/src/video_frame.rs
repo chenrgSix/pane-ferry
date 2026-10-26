@@ -17,7 +17,7 @@ enum Storage {
     Image(Arc<CapturedImage>),
     I420(Sample),
 }
-struct Sample(Object, &'static Api);
+pub(super) struct Sample(pub(super) Object, pub(super) &'static Api);
 impl Drop for Sample {
     fn drop(&mut self) {
         unsafe { (self.1.sample_unref)(self.0) };

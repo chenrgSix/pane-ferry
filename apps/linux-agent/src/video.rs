@@ -13,7 +13,7 @@ use std::{
 
 #[path = "video_frame.rs"]
 mod frame;
-use frame::{CropConverter, CropSpec};
+use frame::{CropConverter, CropSpec, Sample};
 pub use frame::{Format, Frame};
 
 type Object = *mut c_void;
@@ -230,6 +230,7 @@ pub struct PipeWireCapture {
     signal: libc::c_ulong,
     converter: RefCell<Option<CropConverter>>,
     converter_window: Cell<Option<WindowCrop>>,
+    pending_geometry: RefCell<Option<Sample>>,
     wake: Arc<FrameWake>,
 }
 /// All streams in one session share a single pollable wake. The appsink
@@ -329,6 +330,7 @@ impl PipeWireCapture {
             signal: 0,
             converter: RefCell::new(None),
             converter_window: Cell::new(None),
+            pending_geometry: RefCell::new(None),
             wake: wake.clone(),
         };
         if sink.is_null() {
@@ -355,21 +357,36 @@ impl PipeWireCapture {
     pub fn pull_monitor(&self) -> Result<Option<Frame>> {
         self.pull_inner(None)
     }
+    pub fn has_pending_geometry(&self) -> bool {
+        self.pending_geometry.borrow().is_some()
+    }
     fn pull_inner(&self, window: Option<WindowCrop>) -> Result<Option<Frame>> {
         if self.converter_window.get() != window {
             self.converter.borrow_mut().take();
             self.converter_window.set(window);
         }
         let sample = unsafe { (self.api.pull)(self.sink, 0) };
-        if sample.is_null() {
-            return self
-                .converter
-                .borrow()
-                .as_ref()
-                .map_or(Ok(None), |c| c.pull(0));
-        }
+        let sample = if sample.is_null() {
+            match self.pending_geometry.borrow_mut().take() {
+                Some(sample) => sample,
+                None => {
+                    return self
+                        .converter
+                        .borrow()
+                        .as_ref()
+                        .map_or(Ok(None), |c| c.pull(0))
+                }
+            }
+        } else {
+            // Keep only the latest producer sample. A frame may arrive before
+            // its compositor geometry, especially when preparation is not
+            // delayed until the next video publication deadline.
+            self.pending_geometry.borrow_mut().take();
+            Sample(sample, self.api)
+        };
+        let mut geometry_pending = false;
         let result = (|| {
-            let caps = unsafe { (self.api.sample_caps)(sample) };
+            let caps = unsafe { (self.api.sample_caps)(sample.0) };
             if caps.is_null() {
                 bail!("invalid PipeWire caps")
             }
@@ -392,7 +409,7 @@ impl PipeWireCapture {
             {
                 bail!("invalid PipeWire dimensions")
             }
-            let buffer = unsafe { (self.api.sample_buffer)(sample) };
+            let buffer = unsafe { (self.api.sample_buffer)(sample.0) };
             if buffer.is_null() {
                 bail!("missing PipeWire buffer")
             }
@@ -415,6 +432,7 @@ impl PipeWireCapture {
                     let Some(frame) =
                         window_pixel_crop(frame, buffer, scale, (crop_width, crop_height))
                     else {
+                        geometry_pending = true;
                         return Ok(None);
                     };
                     // Mutter's CPU renderer composites multi-surface windows
@@ -459,7 +477,11 @@ impl PipeWireCapture {
             converter.submit(buffer)?;
             converter.pull(0)
         })();
-        unsafe { (self.api.sample_unref)(sample) };
+        if geometry_pending {
+            // Static windows need not repaint after metadata catches up. Do
+            // not lose their only resized frame or copy its pixel allocation.
+            self.pending_geometry.replace(Some(sample));
+        }
         result
     }
 }
@@ -481,6 +503,7 @@ fn window_pixel_crop(
 
 impl Drop for PipeWireCapture {
     fn drop(&mut self) {
+        self.pending_geometry.get_mut().take();
         unsafe {
             (self.api.state)(self.pipeline, STATE_NULL);
             if !self.sink.is_null() {
@@ -878,6 +901,103 @@ mod tests {
         assert_eq!(unsafe { (api().unwrap().size)(buffer) }, 64 * 48 * 3 / 2);
         unsafe { (api().unwrap().mini_unref)(buffer) };
         wake.drain();
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer; a static resize frame must survive late geometry metadata"]
+    fn resized_sample_survives_late_geometry_without_another_repaint() {
+        let api = api().unwrap();
+        let wake = Arc::new(FrameWake::new().unwrap());
+        let capture = PipeWireCapture::from_description(
+            c"appsrc name=input is-live=true format=time caps=video/x-raw,format=BGRx,width=64,height=48,framerate=60/1 ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false",
+            wake.clone(),
+        ).unwrap();
+        let source = unsafe { (api.get)(capture.pipeline, c"input".as_ptr()) };
+        assert!(!source.is_null());
+        // gst_buffer_add_video_crop_meta is a public header macro over these
+        // two exported functions, rather than an exported function itself.
+        let (add_meta, crop_info): (
+            unsafe extern "C" fn(Object, *const c_void, Object) -> *mut VideoCropMeta,
+            unsafe extern "C" fn() -> *const c_void,
+        ) = unsafe {
+            let core = libc::dlopen(c"libgstreamer-1.0.so.0".as_ptr(), libc::RTLD_NOW);
+            let video = libc::dlopen(c"libgstvideo-1.0.so.0".as_ptr(), libc::RTLD_NOW);
+            assert!(!core.is_null() && !video.is_null());
+            let add = libc::dlsym(core, c"gst_buffer_add_meta".as_ptr());
+            let info = libc::dlsym(video, c"gst_video_crop_meta_get_info".as_ptr());
+            assert!(!add.is_null() && !info.is_null());
+            (std::mem::transmute(add), std::mem::transmute(info))
+        };
+        let mut ready = libc::pollfd {
+            fd: wake.event_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let mut originals = Vec::new();
+        let mut expected = None;
+        // A newer incompatible sample replaces the retained one, rather than
+        // accumulating producer leases while compositor metadata catches up.
+        for value in [64, 192] {
+            let original = Arc::new(CapturedImage {
+                width: 64,
+                height: 48,
+                data: vec![value; 64 * 48 * 4],
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            });
+            let buffer = Frame::from_image(original.clone())
+                .input_buffer(api)
+                .unwrap();
+            let converter = CropConverter::new(
+                api,
+                CropSpec {
+                    source_width: 64,
+                    source_height: 48,
+                    region: [0, 0, 64, 48],
+                },
+            )
+            .unwrap();
+            expected = Some(converter.convert(buffer).unwrap());
+            drop(converter);
+            unsafe {
+                let crop = add_meta(buffer, crop_info(), ptr::null_mut());
+                assert!(!crop.is_null());
+                (*crop).x = 0;
+                (*crop).y = 0;
+                (*crop).width = 64;
+                (*crop).height = 48;
+                assert_eq!((api.push)(source, buffer), 0);
+            }
+            assert_eq!(unsafe { libc::poll(&mut ready, 1, 1000) }, 1);
+            wake.drain();
+            assert!(capture
+                .pull([0, 0, 128, 96], (128, 96), 1.0)
+                .unwrap()
+                .is_none());
+            originals.push(original);
+        }
+        unsafe { (api.unref)(source) };
+        // No more input buffers or repaint requests. Only metadata changes.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let frame = loop {
+            if let Some(frame) = capture.pull([0, 0, 64, 48], (64, 48), 1.0).unwrap() {
+                break frame;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "resize frame was lost before metadata arrived"
+            );
+            unsafe { libc::poll(&mut ready, 1, 20) };
+            wake.drain();
+        };
+        assert!(
+            frame.same_pixels(&expected.unwrap()),
+            "must retain the latest sample"
+        );
+        drop(capture);
+        assert!(originals.iter().all(|image| Arc::strong_count(image) == 1));
     }
 
     #[test]

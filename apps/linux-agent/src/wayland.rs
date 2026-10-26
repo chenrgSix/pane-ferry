@@ -674,9 +674,13 @@ impl WindowBackend for Backend {
         }
         self.infos = current;
         self.windows = windows;
-        let needs_initial_frame = streams.values().any(|stream| stream.image.is_none());
+        let needs_frame = streams
+            .values()
+            .any(|stream| stream.image.is_none() || stream.capture.has_pending_geometry());
         drop(streams);
-        if needs_initial_frame {
+        if needs_frame {
+            // A static resize can produce its single PipeWire frame before
+            // scope metadata. Retry that retained sample with the new geometry.
             self.pull_frames()?;
         }
         Ok(self.windows.values().cloned().collect())
