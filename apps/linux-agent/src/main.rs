@@ -250,9 +250,13 @@ impl Session {
             // Input backends still validate the target/geometry for every event.
             // Full compositor inventory is only a liveness check: do not put
             // several synchronous list RPCs in front of every wheel/key event.
+            // An active private readback must not make this health query wait
+            // on the X server in the controller thread. Retry when it completes.
             if let Some(window) = self.root_window.filter(|_| {
-                self.last_existing_window_check
-                    .is_none_or(|last| last.elapsed() >= IDLE_SCAN_INTERVAL)
+                self.backend.as_ref().is_none_or(|b| b.maintenance_ready())
+                    && self
+                        .last_existing_window_check
+                        .is_none_or(|last| last.elapsed() >= IDLE_SCAN_INTERVAL)
             }) {
                 self.last_existing_window_check = Some(Instant::now());
                 self.exited |= self

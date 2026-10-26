@@ -305,7 +305,7 @@ impl Backend {
     pub fn capture_delay(&self, interval: Duration) -> Option<Duration> {
         let capture = self.async_capture.as_ref()?;
         let frames = capture.frames.borrow();
-        if frames.active.is_some() {
+        if frames.active.is_some() || capture.pending() {
             return None;
         }
         frames
@@ -343,7 +343,11 @@ impl Backend {
         let Some(capture) = &self.async_capture else {
             return Ok(());
         };
-        if self.metadata_ready()
+        // Publish an already completed snapshot before asking the X server to
+        // read another one. Input/metadata still need server replies, so starting
+        // a readback here can otherwise block consumption of its predecessor.
+        if capture.pending()
+            || self.metadata_ready()
             || self
                 .capture_delay(interval)
                 .is_none_or(|delay| !delay.is_zero())
@@ -678,6 +682,39 @@ mod tests {
         })?;
         let snapshot = backend.take_capture(&window, 320, 240)?;
         assert_eq!(&snapshot.data[..3], &[0, 255, 0]);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a private Xvfb DISPLAY with DAMAGE and SHM; run serially"]
+    fn completed_snapshot_is_consumed_before_admitting_the_next_readback() -> Result<()> {
+        let (mut backend, painter, window) = fixture()?;
+        paint(&painter, window.window_id, 320, 240, 0xff0000)?;
+        backend.enable_async_capture()?;
+        backend.prepare_capture(Duration::ZERO)?;
+        wait(|| {
+            backend.pump_capture_events()?;
+            Ok(backend.capture_pending())
+        })?;
+        paint(&painter, window.window_id, 320, 240, 0x00ff00)?;
+        backend.pump_capture_events()?;
+        for _ in 0..128 {
+            backend.prepare_capture(Duration::ZERO)?;
+            assert!(
+                !backend.capture_busy(),
+                "ready pixels precede another readback"
+            );
+            assert_eq!(backend.capture_delay(Duration::ZERO), None);
+        }
+        let first = backend.take_capture(&window, 320, 240)?;
+        assert_eq!(&first.data[..3], &[0, 0, 255]);
+        wait(|| {
+            backend.pump_capture_events()?;
+            backend.prepare_capture(Duration::ZERO)?;
+            Ok(backend.capture_pending())
+        })?;
+        let second = backend.take_capture(&window, 320, 240)?;
+        assert_eq!(&second.data[..3], &[0, 255, 0]);
         Ok(())
     }
 
