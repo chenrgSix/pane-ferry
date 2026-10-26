@@ -2,7 +2,7 @@
 use anyhow::Result;
 use paneferry_backend_x11::{Backend as X11, CopiedText};
 use paneferry_protocol::Window;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 mod logical_x11;
 pub use logical_x11::LogicalX11;
 
@@ -22,6 +22,15 @@ pub trait WindowBackend: Send {
     /// An explicit launch/resume may retry a previously failed size adjustment.
     fn retry_window_adjustments(&mut self) {}
     fn event_fd(&self) -> std::os::fd::RawFd;
+    fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
+        None
+    }
+    fn capture_delay(&self, _interval: Duration) -> Option<Duration> {
+        None
+    }
+    fn maintenance_ready(&self) -> bool {
+        true
+    }
     fn events_pending(&self) -> Result<bool> {
         Ok(false)
     }
@@ -40,6 +49,9 @@ pub trait WindowBackend: Send {
     /// Drain readiness without pixel work when false. When true, also submit
     /// and collect ready samples without waiting; publication has its own cap.
     fn pump_capture_events(&mut self, prepare_pixels: bool) -> Result<()>;
+    fn prepare_capture(&mut self, _interval: Duration) -> Result<()> {
+        self.pump_capture_events(true)
+    }
     fn capture_pending(&self) -> bool;
     fn capture_needed(&self, window: u32) -> bool;
     fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>>;
@@ -88,6 +100,15 @@ impl WindowBackend for X11 {
     fn event_fd(&self) -> std::os::fd::RawFd {
         X11::event_fd(self)
     }
+    fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
+        X11::capture_completion_fd(self)
+    }
+    fn capture_delay(&self, interval: Duration) -> Option<Duration> {
+        X11::capture_delay(self, interval)
+    }
+    fn maintenance_ready(&self) -> bool {
+        !X11::capture_busy(self)
+    }
     fn events_pending(&self) -> Result<bool> {
         X11::events_pending(self)
     }
@@ -109,6 +130,10 @@ impl WindowBackend for X11 {
     fn pump_capture_events(&mut self, _prepare_pixels: bool) -> Result<()> {
         X11::pump_capture_events(self)
     }
+    fn prepare_capture(&mut self, interval: Duration) -> Result<()> {
+        X11::pump_capture_events(self)?;
+        X11::prepare_capture(self, interval)
+    }
     fn capture_pending(&self) -> bool {
         X11::capture_pending(self)
     }
@@ -116,7 +141,8 @@ impl WindowBackend for X11 {
         X11::capture_needed(self, window)
     }
     fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {
-        X11::capture(self, window).map(|image| Arc::new(image.into()))
+        X11::take_capture(self, window, window.width, window.height)
+            .map(|image| Arc::new(crate::video::Frame::from_image(image)))
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         X11::configure(self, id, width, height)

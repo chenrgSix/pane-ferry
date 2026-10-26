@@ -32,6 +32,7 @@ pub fn receive(
     receiver: &Receiver<Request>,
     wake: &mut UnixStream,
     x11: Option<RawFd>,
+    completed: Option<RawFd>,
     timeout: Duration,
 ) -> Result<Request, RecvTimeoutError> {
     match receiver.try_recv() {
@@ -47,6 +48,11 @@ pub fn receive(
         },
         libc::pollfd {
             fd: x11.unwrap_or(-1),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: completed.unwrap_or(-1),
             events: libc::POLLIN,
             revents: 0,
         },
@@ -131,6 +137,37 @@ pub fn coalesce(
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    #[test]
+    fn completed_readback_wakes_control_without_consuming_its_notification() {
+        use std::io::Write;
+        let (_sender, receiver) = mpsc::channel();
+        let (mut wake, _notify) = UnixStream::pair().unwrap();
+        wake.set_nonblocking(true).unwrap();
+        let (mut completed, mut writer) = UnixStream::pair().unwrap();
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(10));
+            writer.write_all(&[7]).unwrap();
+        });
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            receive(
+                &receiver,
+                &mut wake,
+                None,
+                Some(completed.as_raw_fd()),
+                Duration::from_secs(2)
+            ),
+            Err(RecvTimeoutError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "the completion fd must interrupt control polling"
+        );
+        let mut byte = [0];
+        completed.read_exact(&mut byte).unwrap();
+        assert_eq!(byte, [7], "only the capture owner drains completion bytes");
+        sender.join().unwrap();
+    }
     #[test]
     fn queued_input_precedes_capture_but_cannot_starve_maintenance() {
         let (sender, receiver) = mpsc::channel();
@@ -338,19 +375,19 @@ mod tests {
         });
         let started = Instant::now();
         assert!(matches!(
-            receive(&receiver, &mut wake, None, Duration::from_secs(3)),
+            receive(&receiver, &mut wake, None, None, Duration::from_secs(3)),
             Ok(Request::List {})
         ));
         assert!(started.elapsed() < Duration::from_secs(1));
         for _ in 0..2 {
             assert!(matches!(
-                receive(&receiver, &mut wake, None, Duration::ZERO),
+                receive(&receiver, &mut wake, None, None, Duration::ZERO),
                 Ok(Request::List {})
             ));
         }
         drop(thread.join().unwrap());
         assert!(matches!(
-            receive(&receiver, &mut wake, None, Duration::ZERO),
+            receive(&receiver, &mut wake, None, None, Duration::ZERO),
             Err(RecvTimeoutError::Disconnected)
         ));
     }

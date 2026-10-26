@@ -1057,6 +1057,7 @@ fn launch(
         if let Ok(mut b) = Backend::connect(&disp) {
             b.set_private_display_dpi(scale_factor)?;
             b.set_scale_factor(scale_factor)?;
+            b.enable_async_capture()?;
             s.backend = Some(Box::new(b));
             break;
         }
@@ -1383,6 +1384,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         }
         let mut text_pending = false;
         let mut capture_fd = None;
+        let mut capture_completion_fd = None;
+        let mut capture_prepare_delay = None;
+        let mut maintenance_ready = true;
         let mut capture_events_pending = false;
         let mut capture_pending = false;
         let mut metadata_ready = false;
@@ -1430,6 +1434,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     // queued (or waking poll) must run before preparing pixels.
                     b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
+                    capture_completion_fd = b.capture_completion_fd();
+                    capture_prepare_delay = b.capture_delay(out.frame_interval());
+                    maintenance_ready = b.maintenance_ready();
                     capture_events_pending = b.events_pending()?;
                     capture_pending = visible_capture_pending(b.as_ref());
                     metadata_ready = b.metadata_ready();
@@ -1441,13 +1448,24 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             // Wake as soon as selection data arrives; retain a bounded timeout
             // for deadlines and shutdown instead of sleeping between each round trip.
             if let Some(fd) = capture_fd {
-                let mut event = libc::pollfd {
-                    fd,
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
+                let mut events = [
+                    libc::pollfd {
+                        fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                    libc::pollfd {
+                        fd: capture_completion_fd.unwrap_or(-1),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                ];
                 unsafe {
-                    libc::poll(&mut event, 1, if capture_events_pending { 0 } else { 5 });
+                    libc::poll(
+                        events.as_mut_ptr(),
+                        2,
+                        if capture_events_pending { 0 } else { 5 },
+                    );
                 }
             }
             None
@@ -1455,7 +1473,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             pending_request.take()
         } else {
             let frame_interval = out.frame_interval();
-            let scan_delay = if metadata_ready {
+            let scan_delay = if !maintenance_ready {
+                // Completion normally wakes this immediately. Keep a bounded
+                // health/shutdown check if an X server stops replying.
+                IDLE_SCAN_INTERVAL
+            } else if metadata_ready {
                 Duration::ZERO
             } else {
                 scan_interval(
@@ -1474,9 +1496,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             let timeout = if capture_events_pending {
                 Duration::ZERO
             } else {
-                scan_delay.min(frame_delay)
+                scan_delay
+                    .min(frame_delay)
+                    .min(capture_prepare_delay.unwrap_or(Duration::MAX))
             };
-            match input_queue::receive(&rx, &mut wake, capture_fd, timeout) {
+            match input_queue::receive(&rx, &mut wake, capture_fd, capture_completion_fd, timeout) {
                 Ok(r) => Some(r),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
                 Err(_) => break,
@@ -1908,9 +1932,21 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
             if let Some(b) = s.backend.as_mut() {
-                b.pump_capture_events(true)?;
-                capture_pending = visible_capture_pending(b.as_ref());
+                b.pump_capture_events(false)?;
                 metadata_ready = b.metadata_ready();
+                let maintenance_due = metadata_ready
+                    || last_scan.elapsed()
+                        >= scan_interval(
+                            lease.is_some(),
+                            !known.is_empty(),
+                            last_window_action.elapsed() < Duration::from_millis(500),
+                            event_driven_metadata,
+                        );
+                if !maintenance_due || b.capture_completion_fd().is_none() {
+                    b.prepare_capture(out.frame_interval())?;
+                }
+                maintenance_ready = b.maintenance_ready();
+                capture_pending = visible_capture_pending(b.as_ref());
             }
         }
         // The current input has already run. Do not make continuous input
@@ -1921,14 +1957,15 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         {
             continue;
         }
-        let scan_due = metadata_ready
-            || last_scan.elapsed()
-                >= scan_interval(
-                    lease.is_some(),
-                    !known.is_empty(),
-                    last_window_action.elapsed() < Duration::from_millis(500),
-                    event_driven_metadata,
-                );
+        let scan_due = maintenance_ready
+            && (metadata_ready
+                || last_scan.elapsed()
+                    >= scan_interval(
+                        lease.is_some(),
+                        !known.is_empty(),
+                        last_window_action.elapsed() < Duration::from_millis(500),
+                        event_driven_metadata,
+                    ));
         let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
         if !scan_due && !capture_due {
             continue;
@@ -1988,7 +2025,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 // metadata, including destroy events drained by X11 here.
                 let due_after_maintenance = last_capture.elapsed() >= out.frame_interval();
                 if due_after_maintenance {
-                    b.pump_capture_events(true)?;
+                    b.prepare_capture(out.frame_interval())?;
                     windows = b.windows().values().cloned().collect();
                 }
                 retry_windows.retain(|id| {

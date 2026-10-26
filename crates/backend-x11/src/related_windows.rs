@@ -13,13 +13,13 @@ use std::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Identity {
-    pid: u32,
+pub(super) struct Identity {
+    pub(super) pid: u32,
     started: u64,
     executable: PathBuf,
 }
 impl Identity {
-    fn read(pid: u32) -> Result<(Self, u32)> {
+    pub(super) fn read(pid: u32) -> Result<(Self, u32)> {
         let root = PathBuf::from(format!("/proc/{pid}"));
         if fs::metadata(&root)?.uid() != unsafe { libc::geteuid() } {
             bail!("foreign process")
@@ -40,7 +40,7 @@ impl Identity {
             fields.get(1).context("missing parent")?.parse()?,
         ))
     }
-    fn current(&self) -> bool {
+    pub(super) fn current(&self) -> bool {
         Self::read(self.pid).is_ok_and(|(now, _)| now == *self)
     }
     fn descendant_of(&self, root: &Self) -> bool {

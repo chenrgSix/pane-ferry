@@ -49,7 +49,11 @@ impl Frame {
             Storage::I420(_) => self.width as usize * self.height as usize,
         }
     }
+    #[cfg(test)]
     pub fn scaled_image(image: CapturedImage, width: u32, height: u32) -> Result<Self> {
+        Self::scaled_shared_image(Arc::new(image), width, height)
+    }
+    pub fn scaled_shared_image(image: Arc<CapturedImage>, width: u32, height: u32) -> Result<Self> {
         paneferry_protocol::dimensions(image.width, image.height)?;
         paneferry_protocol::dimensions(width, height)?;
         anyhow::ensure!(
@@ -59,7 +63,7 @@ impl Frame {
         Ok(Self {
             width,
             height,
-            storage: Storage::Image(Arc::new(image)),
+            storage: Storage::Image(image),
         })
     }
     pub fn format(&self) -> Format {

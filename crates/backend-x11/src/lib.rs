@@ -16,12 +16,14 @@ use x11rb::{
     rust_connection::{DefaultStream, RustConnection},
     wrapper::ConnectionExt as _,
 };
+mod async_capture;
 pub mod clipboard_store;
 mod controller_copy;
 mod controller_text;
 mod damage;
 mod inventory;
 mod metadata_events;
+mod readback;
 mod related_windows;
 mod render_scale;
 mod shared_capture;
@@ -72,6 +74,8 @@ pub struct Backend {
     process_id: Option<u32>,
     root_window: Option<u32>,
     existing_display: Option<u16>,
+    connection_source: Option<async_capture::ConnectionSource>,
+    async_capture: Option<async_capture::AsyncCapture>,
     window_scope: Option<related_windows::Scope>,
     text_transfer: Option<TextTransfer>,
     copy_transfer: Option<CopyTransfer>,
@@ -131,9 +135,11 @@ impl Backend {
     /// while disconnected and its last damage was already acknowledged.
     pub fn refresh_capture(&self) {
         self.damage.borrow_mut().refresh();
+        self.invalidate_async_capture(None, false);
     }
     pub fn refresh_window(&self, id: u32) {
         self.damage.borrow_mut().retry(id);
+        self.invalidate_async_capture(Some(id), false);
     }
     /// Readiness only; ownership remains with this backend for the controller lease.
     pub fn event_fd(&self) -> std::os::fd::RawFd {
@@ -142,13 +148,19 @@ impl Backend {
     }
     pub fn connect(display: &str) -> Result<Self> {
         let (conn, n) = x11rb::connect(Some(display))?;
-        Self::from_connection(conn, n, None)
+        let mut backend = Self::from_connection(conn, n, None)?;
+        backend.connection_source = Some(async_capture::ConnectionSource::Display(display.into()));
+        Ok(backend)
     }
     pub fn connect_existing(display: u16, authority: &Path, process_id: u32) -> Result<Self> {
         let conn = authenticated_connection(display, authority)?;
         conn.composite_query_version(0, 4)?.reply()?;
         let mut backend = Self::from_connection(conn, 0, Some(process_id))?;
         backend.existing_display = Some(display);
+        backend.connection_source = Some(async_capture::ConnectionSource::Existing(
+            display,
+            authority.into(),
+        ));
         Ok(backend)
     }
     /// Restrict an explicitly selected existing window, including its dialogs.
@@ -242,6 +254,8 @@ impl Backend {
             process_id,
             root_window: None,
             existing_display: None,
+            connection_source: None,
+            async_capture: None,
             window_scope: None,
             text_transfer: None,
             copy_transfer: None,
@@ -613,6 +627,7 @@ impl Backend {
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
         self.visuals.retain(|id, _| self.windows.contains_key(id));
         self.damage.borrow_mut().sync(&self.conn, &self.windows)?;
+        self.sync_async_capture();
         Ok(out)
     }
     fn fit_oversized_window(&mut self, id: u32, current: (u32, u32), popup: bool) -> Result<()> {
@@ -677,6 +692,24 @@ impl Backend {
             if let Some((event, _)) = &event {
                 self.metadata
                     .notify(event, self.root, &self.windows, &self.atoms);
+                use x11rb::protocol::Event;
+                let changed = match event {
+                    Event::DestroyNotify(e) => Some(e.window),
+                    Event::UnmapNotify(e) => Some(e.window),
+                    Event::MapNotify(e) => Some(e.window),
+                    Event::ReparentNotify(e) => Some(e.window),
+                    Event::ConfigureNotify(e)
+                        if self.windows.get(&e.window).is_some_and(|w| {
+                            (w.width, w.height) != (u32::from(e.width), u32::from(e.height))
+                        }) =>
+                    {
+                        Some(e.window)
+                    }
+                    _ => None,
+                };
+                if let Some(id) = changed {
+                    self.invalidate_async_capture(Some(id), true);
+                }
             }
             match event {
                 Some((x11rb::protocol::Event::DamageNotify(event), sequence)) => {
@@ -690,20 +723,24 @@ impl Backend {
     pub fn pump_capture_events(&self) -> Result<()> {
         // A transfer's event handler must see its own selection/property events.
         if self.text_transfer.is_some() || self.copy_transfer.is_some() {
-            return Ok(());
+            return self.poll_async_capture();
         }
         for _ in 0..256 {
             if self.next_event()?.is_none() {
                 break;
             }
         }
-        Ok(())
+        self.poll_async_capture()
     }
     pub fn capture_pending(&self) -> bool {
-        self.damage.borrow().pending()
+        self.async_capture
+            .as_ref()
+            .map_or_else(|| self.damage.borrow().pending(), |c| c.pending())
     }
     pub fn capture_needed(&self, window: u32) -> bool {
-        self.damage.borrow().needed(window)
+        self.async_capture
+            .as_ref()
+            .map_or_else(|| self.damage.borrow().needed(window), |c| c.needed(window))
     }
     pub fn capture(&self, w: &Window) -> Result<CapturedImage> {
         self.capture_scaled(w, w.width, w.height)
@@ -721,91 +758,20 @@ impl Backend {
         self.damage
             .borrow_mut()
             .acknowledge(&self.conn, w.window_id)?;
-        // A compositor redirects existing desktop windows. Naming that pixmap
-        // lets us capture this window even when another window covers it.
-        let pixmap = if self.process_id.is_some() {
-            let id = self.conn.generate_id()?;
-            self.conn
-                .composite_name_window_pixmap(w.window_id, id)?
-                .check()
-                .ok()
-                .map(|_| id)
-        } else {
-            None
-        };
-        let mut size = (w.width, w.height);
-        let mut visual_override = None;
-        let image = (|| -> Result<_> {
-            let mut drawable = pixmap.unwrap_or(w.window_id);
-            if let Some(visual) = self.visuals.get(&w.window_id) {
-                if let Some((scaled, target_visual)) = self
-                    .render_scale
-                    .borrow_mut()
-                    .capture_drawable(&self.conn, drawable, *visual, size, wanted)?
-                {
-                    drawable = scaled;
-                    size = wanted;
-                    visual_override = Some(target_visual);
-                }
-            }
-            if let Some(image) = self
-                .shared_capture
-                .borrow_mut()
-                .capture(&self.conn, drawable, size.0, size.1)
-            {
-                return Ok(image);
-            }
-            let image = self
-                .conn
-                .get_image(
-                    ImageFormat::Z_PIXMAP,
-                    drawable,
-                    0,
-                    0,
-                    size.0 as u16,
-                    size.1 as u16,
-                    u32::MAX,
-                )?
-                .reply()?;
-            Ok((image.depth, image.visual, image.data))
-        })();
-        if let Some(pixmap) = pixmap {
-            self.conn.free_pixmap(pixmap)?;
-        }
-        let (depth, visual_id, data) = image?;
-        let visual_id = if let Some(visual) = visual_override {
-            visual
-        } else if visual_id == 0 {
-            self.conn
-                .get_window_attributes(w.window_id)?
-                .reply()?
-                .visual
-        } else {
-            visual_id
-        };
-        let setup = self.conn.setup();
-        let f = setup
-            .pixmap_formats
-            .iter()
-            .find(|f| f.depth == depth)
-            .ok_or_else(|| anyhow::anyhow!("missing pixel format"))?;
-        let visual = setup
-            .roots
-            .iter()
-            .flat_map(|s| &s.allowed_depths)
-            .flat_map(|d| &d.visuals)
-            .find(|v| v.visual_id == visual_id)
-            .ok_or_else(|| anyhow::anyhow!("missing visual"))?;
-        Ok(CapturedImage {
-            width: size.0,
-            height: size.1,
-            data,
-            bpp: f.bits_per_pixel,
-            pad: f.scanline_pad,
-            little: setup.image_byte_order == ImageOrder::LSB_FIRST,
-            masks: (visual.red_mask, visual.green_mask, visual.blue_mask),
-        })
+        readback::capture(
+            &self.conn,
+            &mut self.shared_capture.borrow_mut(),
+            &mut self.render_scale.borrow_mut(),
+            &readback::Surface {
+                window: w.window_id,
+                source: (w.width, w.height),
+                target: wanted,
+                visual: self.visuals.get(&w.window_id).copied(),
+                composite: self.process_id.is_some(),
+            },
+        )
     }
+
     fn known(&self, id: u32) -> Result<()> {
         if !self.windows.contains_key(&id) || !self.belongs_to_process(id) {
             bail!("unknown window")

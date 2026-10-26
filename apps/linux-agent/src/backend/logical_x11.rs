@@ -28,6 +28,14 @@ impl LogicalX11 {
             native_sizes: HashMap::new(),
         };
         backend.scan()?;
+        backend.source.enable_async_capture()?;
+        backend.source.set_capture_sizes(
+            backend
+                .windows
+                .iter()
+                .map(|(id, w)| (*id, (w.width, w.height)))
+                .collect(),
+        );
         Ok(backend)
     }
     fn native_size(&self, id: u32, width: u32, height: u32) -> Result<(u32, u32)> {
@@ -61,6 +69,15 @@ impl WindowBackend for LogicalX11 {
     }
     fn event_fd(&self) -> std::os::fd::RawFd {
         self.source.event_fd()
+    }
+    fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.source.capture_completion_fd()
+    }
+    fn capture_delay(&self, interval: Duration) -> Option<Duration> {
+        self.source.capture_delay(interval)
+    }
+    fn maintenance_ready(&self) -> bool {
+        !self.source.capture_busy()
     }
     fn events_pending(&self) -> Result<bool> {
         self.source.events_pending()
@@ -125,6 +142,12 @@ impl WindowBackend for LogicalX11 {
         self.native_sizes.retain(|id, _| next.contains_key(id));
         self.densities.retain(|id, _| next.contains_key(id));
         self.windows = next;
+        self.source.set_capture_sizes(
+            self.windows
+                .iter()
+                .map(|(id, w)| (*id, (w.width, w.height)))
+                .collect(),
+        );
         Ok(self.windows.values().cloned().collect())
     }
     fn metadata_ready(&self) -> bool {
@@ -135,6 +158,10 @@ impl WindowBackend for LogicalX11 {
     }
     fn pump_capture_events(&mut self, _: bool) -> Result<()> {
         self.source.pump_capture_events()
+    }
+    fn prepare_capture(&mut self, interval: Duration) -> Result<()> {
+        self.source.pump_capture_events()?;
+        self.source.prepare_capture(interval)
     }
     fn capture_pending(&self) -> bool {
         self.source.capture_pending()
@@ -152,10 +179,8 @@ impl WindowBackend for LogicalX11 {
             .windows
             .get(&window.window_id)
             .context("unknown window")?;
-        let image = self
-            .source
-            .capture_scaled(raw, window.width, window.height)?;
-        crate::video::Frame::scaled_image(image, window.width, window.height).map(Arc::new)
+        let image = self.source.take_capture(raw, window.width, window.height)?;
+        crate::video::Frame::scaled_shared_image(image, window.width, window.height).map(Arc::new)
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         let (width, height) = self.native_size(id, width, height)?;
