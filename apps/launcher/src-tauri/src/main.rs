@@ -165,6 +165,7 @@ fn spawn_host(
     endpoint: &Device,
     session_id: &str,
     icon_png: Option<String>,
+    video_fps: u8,
 ) -> Result<u32, String> {
     // Icons are already in the launcher catalog/window cache. Deliver once over
     // stdin, without command-line image data, temporary files or another scan.
@@ -178,7 +179,9 @@ fn spawn_host(
         .arg("--native-helper")
         .arg(network::binary(app)?)
         .arg("--session")
-        .arg(session_id);
+        .arg(session_id)
+        .arg("--fps")
+        .arg(video_fps.to_string());
     if icon.is_some() {
         command.arg("--icon-stdin");
     }
@@ -202,6 +205,29 @@ fn spawn_host(
     });
     Ok(pid)
 }
+fn requested_video_fps(value: Option<u8>) -> Result<u8, transport::Error> {
+    match value.unwrap_or(60) {
+        fps @ (30 | 60) => Ok(fps),
+        _ => Err(transport::Error::Invalid("请选择 30 或 60 帧/秒。")),
+    }
+}
+#[cfg(test)]
+mod frame_rate_tests {
+    use super::*;
+    #[test]
+    fn default_and_explicit_choices_are_bounded_before_any_remote_operation() {
+        assert_eq!(requested_video_fps(None).unwrap(), 60);
+        for fps in [30, 60] {
+            assert_eq!(requested_video_fps(Some(fps)).unwrap(), fps);
+        }
+        for fps in [0, 1, 24, 31, 59, 61, 90, 255] {
+            assert!(matches!(
+                requested_video_fps(Some(fps)),
+                Err(transport::Error::Invalid(_))
+            ));
+        }
+    }
+}
 #[tauri::command]
 async fn resume_session(
     app: tauri::AppHandle,
@@ -209,8 +235,10 @@ async fn resume_session(
     session_id: String,
     icon_png: Option<String>,
     app_name: Option<String>,
+    video_fps: Option<u8>,
 ) -> Result<LaunchResult, RequestFailure> {
     endpoint.validate()?;
+    let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&session_id)?;
     let session = transport::sessions(&network::target(&app, &endpoint)?)
         .await
@@ -230,6 +258,7 @@ async fn resume_session(
         &endpoint,
         &session_id,
         icon_png,
+        video_fps,
     )
     .map_err(RequestFailure::local)?;
     Ok(LaunchResult {
@@ -249,8 +278,10 @@ async fn launch_app(
     scene: Option<transport::SceneSize>,
     icon_png: Option<String>,
     app_name: Option<String>,
+    video_fps: Option<u8>,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
+    let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&app_id)?;
     transport::validate_id(&request_id)?;
     let path =
@@ -262,8 +293,7 @@ async fn launch_app(
                 code: None,
             }
         })?;
-    // The UI resolves auto against its current display before assigning the
-    // request ID. Existing sessions retain their source scale on reuse.
+    // Startup uses ordinary resolution. Existing sessions retain source scale.
     let scale = render_scale.unwrap_or(1);
     let session = transport::launch_native(
         &network::target(&app, &endpoint)?,
@@ -273,15 +303,20 @@ async fn launch_app(
         scene,
     )
     .await?;
-    let pid =
-        spawn_host(&app, path, &endpoint, &session.session_id, icon_png).map_err(|message| {
-            LaunchFailure {
-                kind: "client",
-                message,
-                retry_same_request: true,
-                code: None,
-            }
-        })?;
+    let pid = spawn_host(
+        &app,
+        path,
+        &endpoint,
+        &session.session_id,
+        icon_png,
+        video_fps,
+    )
+    .map_err(|message| LaunchFailure {
+        kind: "client",
+        message,
+        retry_same_request: true,
+        code: None,
+    })?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),
@@ -300,8 +335,10 @@ async fn start_desktop(
     monitor_id: String,
     monitor_name: String,
     request_id: String,
+    video_fps: Option<u8>,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
+    let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&monitor_id)?;
     transport::validate_id(&request_id)?;
     let name = format!(
@@ -323,14 +360,14 @@ async fn start_desktop(
     let session =
         transport::start_desktop(&network::target(&app, &endpoint)?, &monitor_id, &request_id)
             .await?;
-    let pid = spawn_host(&app, path, &endpoint, &session.session_id, None).map_err(|message| {
-        LaunchFailure {
+    let pid = spawn_host(&app, path, &endpoint, &session.session_id, None, video_fps).map_err(
+        |message| LaunchFailure {
             kind: "client",
             message,
             retry_same_request: true,
             code: None,
-        }
-    })?;
+        },
+    )?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),

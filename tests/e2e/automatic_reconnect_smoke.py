@@ -39,7 +39,7 @@ with (root/'requests').open('a', buffering=1) as log:
             line,pending=pending.split(b'\\n',1)
             if not line: continue
             item=json.loads(line); log.write(json.dumps(item)+'\\n')
-            if item['type']=='hello': emit(type='hello', capabilities=['input.text.commit','native.h264'])
+            if item['type']=='hello': emit(type='hello', capabilities=['input.text.commit','native.h264','video.qos'], video_max_fps=60)
             if item['type']=='video.enable': emit(type='video.ready', codec='h264')
             if item['type']=='session.resume':
                 emit(type='session.snapshot', session_id='retained', seq=100 if n==1 else 1,

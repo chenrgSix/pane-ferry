@@ -199,6 +199,42 @@ test("optional scene canvas is bounded, retained on retries, and switches a deta
   } finally { mounted.unmount(); }
 });
 
+test("30/60 frame preference persists and reaches launch, resume and whole desktop without duplicating requests", async () => {
+  const saved = storage();
+  saved.setItem("lan-remoteapp.connection", JSON.stringify({endpoint, videoFPS:30}));
+  let mounted = mount(saved, {
+    launch_app: () => { throw {message:"connection", retrySameRequest:true}; },
+    start_desktop: () => ({session_id:"screen",display:"0",pid:123,message:"started"}),
+  });
+  try {
+    await settled(mounted.state);
+    assert.equal(mounted.state.videoFPS, 30);
+    await mounted.state.launch(app);
+    const first = actions(mounted).at(-1).args;
+    assert.equal(first.videoFps, 30);
+    mounted.state.videoFPS = 60; mounted.state.save();
+    await mounted.state.launch(app);
+    assert.equal(actions(mounted).at(-1).args.videoFps, 60);
+    assert.equal(actions(mounted).at(-1).args.requestId, first.requestId,
+      "frame selection is a receiver option, not a second application launch");
+    await mounted.state.resume("remote", "Firefox");
+    assert.equal(actions(mounted).at(-1).args.videoFps, 60);
+    await mounted.state.openDesktop({id:"DP-1",name:"Monitor",width:1920,height:1080,primary:true});
+    assert.equal(mounted.calls.filter(c => c.command === "start_desktop").at(-1).args.videoFps, 60);
+    mounted.state.videoFPS = 30; mounted.state.save();
+  } finally { mounted.unmount(); }
+  mounted = mount(saved);
+  try { await settled(mounted.state); assert.equal(mounted.state.videoFPS, 30); }
+  finally { mounted.unmount(); }
+  for (const invalid of [undefined, 0, 90, "30", false]) {
+    const old = storage();
+    old.setItem("lan-remoteapp.connection", JSON.stringify({endpoint, videoFPS:invalid}));
+    mounted = mount(old);
+    try { await settled(mounted.state); assert.equal(mounted.state.videoFPS, 60); }
+    finally { mounted.unmount(); }
+  }
+});
+
 test("scene preference follows source capabilities while compatibility sessions resume normally", async () => {
   const supported = {...window("native-source"), application_scene:true};
   const compatibility = {...window("compat-source", "compat"), application_scene:false};

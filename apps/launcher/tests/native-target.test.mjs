@@ -22,7 +22,7 @@ test("migration preserves both peers' caches and ambiguous launches, removes leg
   ]);
   const storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
   retireLegacyPreferences(storage); retireLegacyPreferences(storage);
-  assert.deepEqual(JSON.parse(data.get("lan-remoteapp.connection")),{endpoint:a,applicationScene:true});
+  assert.deepEqual(JSON.parse(data.get("lan-remoteapp.connection")),{endpoint:a,applicationScene:true,videoFPS:60});
   assert.deepEqual(JSON.parse(data.get("lan-remoteapp.app-catalogs.v1")),catalogs.slice(0,2));
   assert.deepEqual(JSON.parse(data.get("lan-remoteapp.pending-launches")),pending.slice(0,2));
   assert.equal(data.has("lan-remoteapp.devices"),false);

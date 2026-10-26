@@ -37,6 +37,7 @@ const endpoint = ref<Endpoint>({ peerId: "" }),
   monitorWarning = ref(""),
   search = ref("");
 const busy = ref(false),
+  videoFPS = ref<30 | 60>(60),
   applicationScene = ref(false),
   error = ref(""),
   notice = ref(""),
@@ -227,13 +228,14 @@ function save() {
   try {
     storage?.setItem(
       "lan-remoteapp.connection",
-      JSON.stringify({ endpoint: endpoint.value, applicationScene: applicationScene.value }),
+      JSON.stringify({ endpoint: endpoint.value, applicationScene: applicationScene.value, videoFPS: videoFPS.value }),
     );
   } catch {}
 }
 try {
   const saved = JSON.parse(storage?.getItem("lan-remoteapp.connection") || "null");
   applicationScene.value = saved?.applicationScene === true;
+  videoFPS.value = saved?.videoFPS === 30 ? 30 : 60;
   if (validPeerId(saved?.endpoint?.peerId)) endpoint.value = { peerId: saved.endpoint.peerId };
 } catch {}
 function restoreCatalog() {
@@ -380,6 +382,7 @@ async function launch(app: LaunchTarget) {
       appName: app.name,
       requestId,
       renderScale: scale,
+      videoFps: videoFPS.value,
       scene,
       iconPng: app.icon_png ?? null,
     });
@@ -423,6 +426,7 @@ async function openDesktop(monitor: DesktopMonitor) {
   try {
     const result = await invoke<Result>("start_desktop", {
       endpoint: sent, monitorId: monitor.id, monitorName: monitor.name, requestId: attempts.id(key),
+      videoFps: videoFPS.value,
     });
     attempts.resolve(key);
     if (signature() === endpointKey(sent)) record(`Ubuntu 桌面 · ${monitor.name}`, result);
@@ -448,6 +452,7 @@ async function resume(sessionId: string, name: string, iconPng?: string | null) 
       sessionId,
       appName: name,
       iconPng: iconPng ?? null,
+      videoFps: videoFPS.value,
     });
     if (signature() === endpointKey(sent)) record(name, result);
   } catch (e) {
@@ -689,6 +694,7 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
+          <div class="setting-row"><div><label for="video-fps">默认帧率上限</label><p class="hint">新打开或重新连接的窗口使用所选上限。已打开的窗口可在“显示 → 帧率”中即时切换；实际帧率随画面内容和连接状态变化。</p></div><select id="video-fps" v-model.number="videoFPS" :disabled="busy" @change="save"><option :value="30">30 帧/秒</option><option :value="60">60 帧/秒</option></select></div>
           <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
           <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">远端窗口跟随本机内容区的逻辑宽高，保留应用现有缩放，画面等比显示。可在应用窗口的“显示”菜单中适应屏幕，或指定远端像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
         </section>

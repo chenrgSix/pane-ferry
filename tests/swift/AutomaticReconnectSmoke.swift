@@ -151,6 +151,7 @@ struct AutomaticReconnectSmoke {
         precondition(isFixtureIcon(NSApp.applicationIconImage),
                      "Ubuntu icon content is applied to this application's Dock tile")
         until { app.windows[42] != nil }
+        let rate = NSMenuItem(); rate.tag = 30; app.selectVideoFPS(rate)
         RunLoop.current.run(until: Date().addingTimeInterval(0.03)); app.pump()
         let original = app.windows[42]!
         original.fixedPixels = (800, 600)
@@ -205,6 +206,8 @@ struct AutomaticReconnectSmoke {
         let requests = try String(contentsOf: root.appendingPathComponent("requests"), encoding: .utf8)
         let values = try requests.split(separator:"\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String:Any] }
         precondition(values.filter { $0["type"] as? String == "session.resume" }.count == 2)
+        precondition(values.filter { $0["type"] as? String == "video.enable" }.compactMap { $0["max_fps"] as? Int } == [60,30],
+                     "automatic reconnect must retain the live 30 FPS choice")
         precondition(!values.contains { $0["type"] as? String == "app.launch" })
         precondition(!requests.contains("offline input") && !requests.contains("stale queued input"))
         let count = try String(contentsOf: root.appendingPathComponent("connections"), encoding: .utf8)

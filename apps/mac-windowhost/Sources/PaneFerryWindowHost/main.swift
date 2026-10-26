@@ -6,9 +6,8 @@ import Network
 let maximumLine = 16 * 1024 * 1024
 let maximumPixels = 8_000_000
 let maximumVideoFPS = 90
-func automaticVideoFPS(displayHz: Int, publisherMax: Int = maximumVideoFPS) -> Int {
-    let refresh = displayHz > 0 ? displayHz : 60
-    return min(refresh, max(1, min(publisherMax, maximumVideoFPS)))
+func effectiveVideoFPS(requested: Int, publisherMax: Int = maximumVideoFPS) -> Int {
+    min(requested, max(1, min(publisherMax, maximumVideoFPS)))
 }
 func unsignedInteger(_ value: Any?) -> UInt64? {
     guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
@@ -21,12 +20,13 @@ struct Options {
     let app: String?
     let session: String?
     var iconFromStdin = false
+    var requestedVideoFPS = 60
     let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps"]
         while i < args.count {
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
@@ -42,6 +42,9 @@ struct Options {
               let helper = values["--native-helper"], helper.hasPrefix("/"), !helper.contains("\0")
         else { throw HostError.message("必须指定已配对设备和本机网络组件。") }
         let native = NativeRoute(peer: peer, state: state, helper: helper)
+        guard let fps = Int(values["--fps"] ?? "60"), [30, 60].contains(fps) else {
+            throw HostError.message("帧率必须选择 30 或 60。")
+        }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
         for id in [app, session].compactMap({ $0 }) {
@@ -49,7 +52,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, native: native)
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -329,9 +332,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var poll: Timer?
     var statusItem: NSStatusItem?
     var rateMenuItem: NSMenuItem?
+    var rateChoices: [NSMenuItem] = []
     var capabilities = Set<String>()
     var videoFPS = 60
-    var displayHz = 60
+    var requestedVideoFPS = 60
     var publisherMaxVideoFPS = maximumVideoFPS
     var lastVideoFeedback: TimeInterval = 0
     var lastFrameRateRefresh: TimeInterval = 0
@@ -353,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(native: options.native) }
     init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
         self.options = options
+        requestedVideoFPS = options.requestedVideoFPS
         self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -379,8 +384,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         displayMenu.addItem(withTitle: "ChatGPT 页面高清（2×）", action: #selector(togglePageScale), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
-        let rateItem = NSMenuItem(title: "帧率：自动", action: nil, keyEquivalent: "")
-        rateItem.isEnabled = false; rateMenuItem = rateItem; displayMenu.addItem(rateItem)
+        let rateItem = NSMenuItem(title: "帧率", action: nil, keyEquivalent: "")
+        let rates = NSMenu(title: "帧率"); rateItem.submenu = rates
+        for fps in [30, 60] {
+            let choice = NSMenuItem(title: "\(fps) 帧/秒", action: #selector(selectVideoFPS(_:)), keyEquivalent: "")
+            choice.tag = fps; choice.target = self; rates.addItem(choice); rateChoices.append(choice)
+        }
+        rateMenuItem = rateItem; displayMenu.addItem(rateItem); updateRateMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
         startConnection()
@@ -400,19 +410,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showAbout() {
-        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。帧率按本机显示器与远端能力自动协商，协议最高 90 fps，并随画面反馈调整。新应用按本机显示倍率请求 100% 或 200% 启动缩放，实际效果取决于应用。输入法在控制端组合，剪贴板只由主动操作触发。")
+        alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。可在显示菜单选择 30 或 60 帧/秒上限，实际帧率随画面和连接状态变化。新应用和新画布使用普通 1× 分辨率。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
     @objc func screenParametersChanged(_ notification: Notification) { refreshVideoFPS(); attachParents() }
     func updateRateMenu() {
-        rateMenuItem?.title = !ready ? "帧率：自动协商中" : capabilities.contains("video.qos")
-            ? "帧率：自动 · 屏幕 \(displayHz) Hz · 上限 \(videoFPS) fps"
-            : "帧率：远端固定 60 fps"
+        rateMenuItem?.title = ready && videoFPS < requestedVideoFPS
+            ? "帧率：\(requestedVideoFPS) 帧/秒（远端上限 \(videoFPS)）" : "帧率：\(requestedVideoFPS) 帧/秒"
+        for choice in rateChoices { choice.state = choice.tag == requestedVideoFPS ? .on : .off }
     }
-    func refreshVideoFPS(displayRefresh: Int? = nil) {
-        let screens = windows.values.filter { $0.remoteVisible }.compactMap { $0.window.screen }
-        let refresh = displayRefresh ?? (screens.isEmpty ? NSScreen.main?.maximumFramesPerSecond : screens.map(\.maximumFramesPerSecond).max()) ?? 60
-        displayHz = refresh > 0 ? refresh : 60
-        let selected = automaticVideoFPS(displayHz: displayHz, publisherMax: publisherMaxVideoFPS)
+    @objc func selectVideoFPS(_ sender: NSMenuItem) {
+        guard [30, 60].contains(sender.tag) else { return }
+        requestedVideoFPS = sender.tag
+        refreshVideoFPS()
+    }
+    func refreshVideoFPS() {
+        let selected = effectiveVideoFPS(requested: requestedVideoFPS, publisherMax: publisherMaxVideoFPS)
         updateRateMenu()
         guard selected != videoFPS else { return }
         videoFPS = selected
@@ -430,6 +442,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         send(["type": "window.page-scale", "window_id": host.id, "scale": host.pageScale == 2 ? 1 : 2])
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(selectVideoFPS(_:)) {
+            menuItem.state = menuItem.tag == requestedVideoFPS ? .on : .off
+            return !ready || capabilities.contains("video.qos")
+        }
         if menuItem.action == #selector(togglePageScale) {
             menuItem.state = activeHost()?.pageScale == 2 ? .on : .off
             return ready && capabilities.contains("window.page-scale") && activeHost()?.pageScaleSupported == true
