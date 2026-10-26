@@ -1368,6 +1368,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let mut text_pending = false;
         let mut capture_fd = None;
         let mut capture_pending = false;
+        let mut metadata_ready = false;
         let mut composed_scene = false;
         if let Some(l) = &lease {
             let mut s = l.0.lock().unwrap();
@@ -1412,6 +1413,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
                     capture_pending = visible_capture_pending(b.as_ref());
+                    metadata_ready = b.metadata_ready();
                 }
             }
         }
@@ -1434,13 +1436,17 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             pending_request.take()
         } else {
             let frame_interval = out.frame_interval();
-            let scan_delay = scan_interval(
-                lease.is_some(),
-                !known.is_empty(),
-                last_window_action.elapsed() < Duration::from_millis(500),
-                composed_scene,
-            )
-            .saturating_sub(last_scan.elapsed());
+            let scan_delay = if metadata_ready {
+                Duration::ZERO
+            } else {
+                scan_interval(
+                    lease.is_some(),
+                    !known.is_empty(),
+                    last_window_action.elapsed() < Duration::from_millis(500),
+                    composed_scene,
+                )
+                .saturating_sub(last_scan.elapsed())
+            };
             let frame_delay = if capture_pending {
                 frame_interval.saturating_sub(last_capture.elapsed())
             } else {
@@ -1880,6 +1886,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             if let Some(b) = s.backend.as_mut() {
                 b.pump_capture_events(true)?;
                 capture_pending = visible_capture_pending(b.as_ref());
+                metadata_ready = b.metadata_ready();
             }
         }
         // The current input has already run. Do not make continuous input
@@ -1890,13 +1897,14 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         {
             continue;
         }
-        let scan_due = last_scan.elapsed()
-            >= scan_interval(
-                lease.is_some(),
-                !known.is_empty(),
-                last_window_action.elapsed() < Duration::from_millis(500),
-                composed_scene,
-            );
+        let scan_due = metadata_ready
+            || last_scan.elapsed()
+                >= scan_interval(
+                    lease.is_some(),
+                    !known.is_empty(),
+                    last_window_action.elapsed() < Duration::from_millis(500),
+                    composed_scene,
+                );
         let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
         if !scan_due && !capture_due {
             continue;

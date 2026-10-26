@@ -25,6 +25,11 @@ pub trait WindowBackend: Send {
     fn existing_window_exists(&self, window: u32) -> bool;
     fn includes_window(&self, id: u32) -> bool;
     fn scan(&mut self) -> Result<Vec<Window>>;
+    /// A completed background snapshot wakes the capture owner so new geometry
+    /// is consumed without waiting for the next periodic scan.
+    fn metadata_ready(&self) -> bool {
+        false
+    }
     /// Drain readiness without pixel work when false. When true, also submit
     /// and collect ready samples without waiting; publication has its own cap.
     fn pump_capture_events(&mut self, prepare_pixels: bool) -> Result<()>;

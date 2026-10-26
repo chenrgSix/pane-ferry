@@ -228,7 +228,7 @@ struct Stream {
 }
 pub struct Backend {
     rpc: RefCell<AsyncRpc>,
-    scene_alive: bool,
+    root_alive: bool,
     target: Target,
     input: Arc<dyn DesktopInput>,
     keymap: X11,
@@ -267,17 +267,23 @@ impl Backend {
         let keymap =
             X11::connect_existing(desktop.display, &desktop.authority, target.identity.pid)?;
         let cancel = rpc.wire.get_ref().try_clone()?;
-        let rpc = AsyncRpc::new(move |value| rpc.call(value), cancel)?;
+        let frame_wake = Arc::new(FrameWake::new()?);
+        let notify = frame_wake.clone();
+        let rpc = AsyncRpc::new(
+            move |value| rpc.call(value),
+            cancel,
+            move || notify.notify(),
+        )?;
         Ok(Self {
             rpc: RefCell::new(rpc),
-            scene_alive: true,
+            root_alive: true,
             target,
             input,
             keymap,
             windows: HashMap::new(),
             infos: HashMap::new(),
             streams: RefCell::new(HashMap::new()),
-            frame_wake: Arc::new(FrameWake::new()?),
+            frame_wake,
             pending_pull: false,
             copied: None,
             scene,
@@ -448,11 +454,11 @@ impl WindowBackend for Backend {
         Some(self.input.status())
     }
     fn resume_capture(&mut self) {
+        self.rpc.get_mut().invalidate_snapshot();
         if self.scene.is_some() {
             // GNOME retires an idle output after detach. PipeWire may assign
             // the replacement the SAME numeric node ID. Never reuse a cached
             // pipeline/image (or an old metadata reply) across controllers.
-            self.rpc.get_mut().invalidate_snapshot();
             self.streams.get_mut().clear();
             self.scene_node = None;
             self.pending_pull = false;
@@ -477,26 +483,21 @@ impl WindowBackend for Backend {
         if process_identity(self.target.identity.pid).ok().as_ref() != Some(&self.target.identity) {
             return false;
         }
-        if self.scene.is_some() {
-            return self.scene_alive;
-        }
-        match self.call("list", id) {
-            Ok(value) => serde_json::from_value::<Vec<Info>>(value).map_or(true, |windows| {
-                windows
-                    .iter()
-                    .any(|w| w.window_id == id && w.id == self.target.info.id)
-            }),
-            // Locking the desktop or a transient bridge outage suspends capture;
-            // it must not destroy the session or report that Firefox exited.
-            Err(_) => true,
-        }
+        // Scope snapshots (and their recovery on "unknown window") update root
+        // liveness. A periodic liveness check must not synchronously enumerate
+        // GNOME while the capture/input owner holds the session lock.
+        id == self.target.info.window_id && self.root_alive
     }
     fn includes_window(&self, id: u32) -> bool {
         self.windows.contains_key(&id)
     }
+    fn metadata_ready(&self) -> bool {
+        self.rpc.borrow().metadata_ready()
+    }
     fn scan(&mut self) -> Result<Vec<Window>> {
-        // The fixed scene's pixels and popup placement come from GNOME, not
-        // these periodic metadata queries. Never stall PipeWire/input on them.
+        // Both ordinary windows and scenes read completed metadata snapshots.
+        // No steady-state compositor query may block PipeWire/publication while
+        // this owner holds the session lock. Foreground commands remain ordered.
         let snapshot = if self.scene.is_some() {
             match self.rpc.borrow_mut().poll_snapshot()? {
                 Some(result) => Some(result.map_err(anyhow::Error::msg)),
@@ -505,13 +506,19 @@ impl WindowBackend for Backend {
         } else {
             None
         };
-        let scope = match snapshot.as_ref().map_or_else(
-            || self.call("scope", self.target.info.window_id),
-            |result| match result {
+        let scope = if let Some(result) = snapshot.as_ref() {
+            match result {
                 Ok(value) => Ok(value["scope"].clone()),
                 Err(error) => Err(anyhow::anyhow!(error.to_string())),
-            },
-        ) {
+            }
+        } else {
+            let scope = self.rpc.borrow_mut().poll_scope()?;
+            match scope {
+                Some(scope) => scope.map_err(anyhow::Error::msg),
+                None => return Ok(self.windows.values().cloned().collect()),
+            }
+        };
+        let scope = match scope {
             Err(error) if error.to_string() == "unknown window" => {
                 // Distinguish a destroyed root from an extension lease lost
                 // while locked. This recovery query is never on the steady
@@ -521,7 +528,7 @@ impl WindowBackend for Backend {
                 if !live.iter().any(|w| {
                     w.window_id == self.target.info.window_id && w.id == self.target.info.id
                 }) {
-                    self.scene_alive = false;
+                    self.root_alive = false;
                     self.windows.clear();
                     self.infos.clear();
                     self.streams.get_mut().clear();
@@ -533,8 +540,12 @@ impl WindowBackend for Backend {
                 rpc.call(json!({"op":"acquire", "id":self.target.info.id, "pid":self.target.identity.pid,"scale":self.scale,"scene":self.scene}))?;
                 self.streams.get_mut().clear();
                 let cancel = rpc.wire.get_ref().try_clone()?;
-                self.rpc
-                    .replace(AsyncRpc::new(move |value| rpc.call(value), cancel)?);
+                let notify = self.frame_wake.clone();
+                self.rpc.replace(AsyncRpc::new(
+                    move |value| rpc.call(value),
+                    cancel,
+                    move || notify.notify(),
+                )?);
                 // Reacquisition changed the lease/output. Wait for fresh metadata.
                 return Ok(vec![]);
             }
@@ -544,10 +555,10 @@ impl WindowBackend for Backend {
         if let Some(snapshot) = snapshot {
             let snapshot = snapshot?;
             let windows: Vec<Info> = serde_json::from_value(snapshot["list"].clone())?;
-            self.scene_alive = windows
+            self.root_alive = windows
                 .iter()
                 .any(|w| w.window_id == self.target.info.window_id && w.id == self.target.info.id);
-            if !self.scene_alive {
+            if !self.root_alive {
                 return Ok(vec![]);
             }
             return self.scan_scene(discovered, snapshot["scene"].clone());
@@ -555,6 +566,9 @@ impl WindowBackend for Backend {
         if discovered.len() > 16 {
             bail!("wayland_bridge_failed")
         }
+        self.root_alive = discovered
+            .iter()
+            .any(|w| w.window_id == self.target.info.window_id && w.id == self.target.info.id);
         let mut infos = Vec::new();
         for info in discovered {
             match info.validate() {
@@ -734,6 +748,9 @@ impl WindowBackend for Backend {
         let scale = info.scale;
         self.rpc.borrow_mut().call(json!({"op":"resize","window_id":id,
             "width":(f64::from(width)/scale).round().max(1.0) as u32,"height":(f64::from(height)/scale).round().max(1.0) as u32}))?;
+        // A scope requested before this configure cannot describe the new
+        // geometry. Consume only a fresh snapshot before releasing resized pixels.
+        self.rpc.borrow_mut().invalidate_snapshot();
         Ok(())
     }
     fn focus(&self, id: u32) -> Result<()> {

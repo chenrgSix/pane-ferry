@@ -253,7 +253,7 @@ impl FrameWake {
     pub fn event_fd(&self) -> std::os::fd::RawFd {
         self.reader.as_raw_fd()
     }
-    fn notify(&self) {
+    pub(crate) fn notify(&self) {
         let mut state = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         if !state.1 && state.0.write(&[1]).is_ok() {
             state.1 = true;
