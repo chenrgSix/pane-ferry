@@ -111,6 +111,92 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires a private Xvfb DISPLAY with DAMAGE"]
+    fn buffered_event_backlog_remains_ready_after_a_bounded_drain() -> Result<()> {
+        use std::os::fd::AsRawFd;
+        let (writer, screen) = x11rb::connect(None)?;
+        let root = writer.setup().roots[screen].root;
+        let mut backend = Backend::connect(&std::env::var("DISPLAY")?)?;
+        let id = writer.generate_id()?;
+        writer
+            .create_window(
+                x11rb::COPY_DEPTH_FROM_PARENT,
+                id,
+                root,
+                0,
+                0,
+                320,
+                240,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )?
+            .check()?;
+        writer.map_window(id)?.check()?;
+        writer
+            .change_property32(
+                PropMode::REPLACE,
+                root,
+                backend.atom("_NET_CLIENT_LIST"),
+                AtomEnum::WINDOW,
+                &[id],
+            )?
+            .check()?;
+        backend.scan()?;
+        backend.pump_capture_events()?;
+        backend.capture(&backend.windows[&id])?;
+        backend.pump_capture_events()?;
+        backend.metadata.clear();
+        let property = writer
+            .intern_atom(false, b"_PANEFERRY_BUFFERED_EVENT_TEST")?
+            .reply()?
+            .atom;
+        for value in 0..600u32 {
+            writer.change_property32(
+                PropMode::REPLACE,
+                id,
+                property,
+                AtomEnum::CARDINAL,
+                &[value],
+            )?;
+        }
+        writer.get_input_focus()?.reply()?;
+        backend.conn.get_input_focus()?.reply()?;
+        backend.pump_capture_events()?;
+        // All remaining notifications are already in x11rb, not the socket.
+        let mut fd = libc::pollfd {
+            fd: backend.conn.stream().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut fd, 1, 0) }, 0);
+        assert!(
+            backend.events_pending()?,
+            "a drained socket must not hide buffered work"
+        );
+        assert!(
+            backend.events_pending()?,
+            "repeated readiness checks must not consume the event"
+        );
+        assert!(
+            matches!(backend.next_event()?, Some(Event::PropertyNotify(e)) if e.window == id && e.atom == property)
+        );
+        assert!(
+            !backend.metadata_ready(),
+            "unrelated properties must not force full metadata scans"
+        );
+        for _ in 0..4 {
+            backend.pump_capture_events()?;
+        }
+        assert!(
+            !backend.events_pending()?,
+            "once drained, the scheduler may sleep again"
+        );
+        writer.destroy_window(id)?.check()?;
+        Ok(())
+    }
+    #[test]
     #[ignore = "requires a private Xvfb DISPLAY with DAMAGE; run with xvfb-run"]
     fn metadata_changes_wake_discovery_while_pixel_damage_only_wakes_capture() -> Result<()> {
         let (conn, screen) = x11rb::connect(None)?;

@@ -79,6 +79,7 @@ pub struct Backend {
     shared_capture: RefCell<shared_capture::SharedCapture>,
     damage: RefCell<damage::Damage>,
     metadata: metadata_events::MetadataEvents,
+    pending_event: RefCell<Option<(x11rb::protocol::Event, u64)>>,
     render_scale: RefCell<render_scale::RenderScale>,
     visuals: HashMap<u32, u32>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
@@ -248,6 +249,7 @@ impl Backend {
             shared_capture,
             damage,
             metadata,
+            pending_event: RefCell::new(None),
             render_scale,
             visuals: HashMap::new(),
             desktop_input: None,
@@ -655,18 +657,32 @@ impl Backend {
         }
         Ok(())
     }
+    /// Peek without taking an event away from clipboard/selection handlers.
+    /// A synchronous reply or a bounded drain can leave events in x11rb even
+    /// when the socket is no longer readable.
+    pub fn events_pending(&self) -> Result<bool> {
+        let mut pending = self.pending_event.borrow_mut();
+        if pending.is_none() {
+            *pending = self.conn.poll_for_event_with_sequence()?;
+        }
+        Ok(pending.is_some())
+    }
     fn next_event(&self) -> Result<Option<x11rb::protocol::Event>> {
         for _ in 0..256 {
-            let event = self.conn.poll_for_event()?;
-            if let Some(event) = &event {
+            let queued = self.pending_event.borrow_mut().take();
+            let event = match queued {
+                Some(event) => Some(event),
+                None => self.conn.poll_for_event_with_sequence()?,
+            };
+            if let Some((event, _)) = &event {
                 self.metadata
                     .notify(event, self.root, &self.windows, &self.atoms);
             }
             match event {
-                Some(x11rb::protocol::Event::DamageNotify(event)) => {
-                    self.damage.borrow_mut().notify(&event)
+                Some((x11rb::protocol::Event::DamageNotify(event), sequence)) => {
+                    self.damage.borrow_mut().notify(&event, sequence)
                 }
-                event => return Ok(event),
+                event => return Ok(event.map(|(event, _)| event)),
             }
         }
         Ok(None)

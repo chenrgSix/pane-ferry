@@ -1366,6 +1366,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         }
         let mut text_pending = false;
         let mut capture_fd = None;
+        let mut capture_events_pending = false;
         let mut capture_pending = false;
         let mut metadata_ready = false;
         let mut event_driven_metadata = false;
@@ -1412,6 +1413,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     // queued (or waking poll) must run before preparing pixels.
                     b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
+                    capture_events_pending = b.events_pending()?;
                     capture_pending = visible_capture_pending(b.as_ref());
                     metadata_ready = b.metadata_ready();
                 }
@@ -1428,7 +1430,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     revents: 0,
                 };
                 unsafe {
-                    libc::poll(&mut event, 1, 5);
+                    libc::poll(&mut event, 1, if capture_events_pending { 0 } else { 5 });
                 }
             }
             None
@@ -1452,7 +1454,12 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             } else {
                 Duration::MAX
             };
-            match input_queue::receive(&rx, &mut wake, capture_fd, scan_delay.min(frame_delay)) {
+            let timeout = if capture_events_pending {
+                Duration::ZERO
+            } else {
+                scan_delay.min(frame_delay)
+            };
+            match input_queue::receive(&rx, &mut wake, capture_fd, timeout) {
                 Ok(r) => Some(r),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
                 Err(_) => break,

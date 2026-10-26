@@ -62,6 +62,9 @@ impl WindowBackend for LogicalX11 {
     fn event_fd(&self) -> std::os::fd::RawFd {
         self.source.event_fd()
     }
+    fn events_pending(&self) -> Result<bool> {
+        self.source.events_pending()
+    }
     fn existing_window_exists(&self, id: u32) -> bool {
         self.source.existing_window_exists(id)
     }

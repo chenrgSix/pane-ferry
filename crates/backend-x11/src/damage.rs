@@ -12,6 +12,7 @@ struct Tracked {
     damage: Option<u32>,
     revision: u64,
     dirty: bool,
+    rearmed_at: u64,
 }
 pub(super) struct Damage {
     enabled: bool,
@@ -71,14 +72,15 @@ impl Damage {
                     damage,
                     revision: window.geometry_revision,
                     dirty: true,
+                    rearmed_at: 0,
                 },
             );
         }
         Ok(())
     }
-    pub fn notify(&mut self, event: &NotifyEvent) {
+    pub fn notify(&mut self, event: &NotifyEvent, sequence: u64) {
         if let Some(window) = self.windows.get_mut(&event.drawable) {
-            if window.damage == Some(event.damage) {
+            if window.damage == Some(event.damage) && sequence >= window.rearmed_at {
                 window.dirty = true;
             }
         }
@@ -96,7 +98,13 @@ impl Damage {
             if let Some(id) = tracked.damage {
                 // Rearm before reading pixels; any painting during/after this
                 // capture will issue another notification, so it cannot be lost.
-                connection.damage_subtract(id, 0u32, 0u32)?.check()?;
+                let request = connection.damage_subtract(id, 0u32, 0u32)?;
+                let sequence = request.sequence_number();
+                request.check()?;
+                // Replies can buffer an older notification until after this
+                // readback. It describes pixels already covered by the snapshot.
+                // Equal/newer sequence numbers belong to the rearmed region.
+                tracked.rearmed_at = sequence;
                 tracked.dirty = false;
             }
         }
@@ -121,6 +129,120 @@ mod tests {
         xproto::{ConnectionExt as _, CreateGCAux, CreateWindowAux, Rectangle, WindowClass},
         Event,
     };
+    #[test]
+    fn rearm_sequence_keeps_new_damage_across_16_bit_wrap() {
+        let mut tracker = Damage {
+            enabled: true,
+            windows: HashMap::from([(
+                42,
+                Tracked {
+                    damage: Some(7),
+                    revision: 1,
+                    dirty: false,
+                    rearmed_at: 65_540,
+                },
+            )]),
+        };
+        let event = NotifyEvent {
+            drawable: 42,
+            damage: 7,
+            sequence: 3,
+            ..Default::default()
+        };
+        tracker.notify(&event, 65_539);
+        assert!(!tracker.pending());
+        tracker.notify(&event, 65_540);
+        assert!(
+            tracker.pending(),
+            "damage generated after rearm can share its request sequence"
+        );
+    }
+    #[test]
+    #[ignore = "requires a private Xvfb DISPLAY with DAMAGE and MIT-SHM"]
+    fn buffered_damage_covered_by_a_snapshot_does_not_request_another_capture() -> Result<()> {
+        use x11rb::protocol::xproto::{AtomEnum, PropMode};
+        use x11rb::wrapper::ConnectionExt as _;
+        let (painter, screen) = x11rb::connect(None)?;
+        let root = painter.setup().roots[screen].root;
+        let mut backend = crate::Backend::connect(&std::env::var("DISPLAY")?)?;
+        let id = painter.generate_id()?;
+        painter
+            .create_window(
+                x11rb::COPY_DEPTH_FROM_PARENT,
+                id,
+                root,
+                10,
+                20,
+                320,
+                240,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )?
+            .check()?;
+        painter.map_window(id)?.check()?;
+        painter
+            .change_property32(
+                PropMode::REPLACE,
+                root,
+                backend.atom("_NET_CLIENT_LIST"),
+                AtomEnum::WINDOW,
+                &[id],
+            )?
+            .check()?;
+        backend.scan()?;
+        let window = backend.windows[&id].clone();
+        backend.pump_capture_events()?;
+        backend.capture(&window)?;
+        backend.pump_capture_events()?;
+        assert!(!backend.capture_pending());
+        let gc = painter.generate_id()?;
+        painter
+            .create_gc(gc, id, &CreateGCAux::new().foreground(0xff0000))?
+            .check()?;
+        let paint = || -> Result<()> {
+            painter
+                .poly_fill_rectangle(
+                    id,
+                    gc,
+                    &[Rectangle {
+                        x: 0,
+                        y: 0,
+                        width: 320,
+                        height: 240,
+                    }],
+                )?
+                .check()?;
+            Ok(())
+        };
+        paint()?;
+        // A synchronous reply pulls the older Damage notification into the
+        // client library. Deliberately leave it there until after the snapshot.
+        backend.conn.get_input_focus()?.reply()?;
+        let image = backend.capture(&window)?;
+        assert_eq!(&image.data[..3], &[0, 0, 255]);
+        backend.pump_capture_events()?;
+        assert!(!backend.capture_pending(), "a queued pre-readback event already covered by the snapshot must not spend another frame interval");
+        painter
+            .change_gc(
+                gc,
+                &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00ff00),
+            )?
+            .check()?;
+        paint()?;
+        backend.conn.get_input_focus()?.reply()?;
+        backend.pump_capture_events()?;
+        assert!(
+            backend.capture_needed(id),
+            "painting after rearm must remain pending"
+        );
+        let next = backend.capture(&window)?;
+        assert_eq!(&next.data[..3], &[0, 255, 0]);
+        painter.free_gc(gc)?;
+        painter.destroy_window(id)?.check()?;
+        Ok(())
+    }
     #[test]
     #[ignore = "requires a private Xvfb DISPLAY with DAMAGE; run with xvfb-run"]
     fn dirty_windows_rearm_and_ignore_unapproved_drawables() {
@@ -169,9 +291,9 @@ mod tests {
         tracker.sync(&connection, &windows).unwrap();
         let pump = |tracker: &mut Damage| {
             connection.get_input_focus().unwrap().reply().unwrap();
-            while let Some(event) = connection.poll_for_event().unwrap() {
+            while let Some((event, sequence)) = connection.poll_for_event_with_sequence().unwrap() {
                 if let Event::DamageNotify(event) = event {
-                    tracker.notify(&event);
+                    tracker.notify(&event, sequence);
                 }
             }
         };

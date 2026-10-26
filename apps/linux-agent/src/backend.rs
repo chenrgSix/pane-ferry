@@ -22,6 +22,9 @@ pub trait WindowBackend: Send {
     /// An explicit launch/resume may retry a previously failed size adjustment.
     fn retry_window_adjustments(&mut self) {}
     fn event_fd(&self) -> std::os::fd::RawFd;
+    fn events_pending(&self) -> Result<bool> {
+        Ok(false)
+    }
     fn existing_window_exists(&self, window: u32) -> bool;
     fn includes_window(&self, id: u32) -> bool;
     fn scan(&mut self) -> Result<Vec<Window>>;
@@ -84,6 +87,9 @@ impl WindowBackend for X11 {
     }
     fn event_fd(&self) -> std::os::fd::RawFd {
         X11::event_fd(self)
+    }
+    fn events_pending(&self) -> Result<bool> {
+        X11::events_pending(self)
     }
     fn existing_window_exists(&self, window: u32) -> bool {
         X11::existing_window_exists(self, window)
