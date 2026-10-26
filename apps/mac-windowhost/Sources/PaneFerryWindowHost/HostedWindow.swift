@@ -31,8 +31,6 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var rendering: RenderGeometry
     var mediaMode: String?
     var scaleMode = "unknown"
-    var pageScaleSupported = false
-    var pageScale = 1
     var resolutionNotice: String? { didSet { updateSubtitle() } }
     var inputNotice: String? { didSet { updateSubtitle() } }
     var onScreenChange: (() -> Void)?
@@ -297,7 +295,6 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         case "verified": parts.append("应用缩放 \(rendering.scale * 100)%")
         default: parts.append("应用缩放未报告")
         }
-        if pageScale == 2 { parts.append("页面高清 2×") }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
         if hasReceivedFrame {
             if recentFrames.isEmpty {

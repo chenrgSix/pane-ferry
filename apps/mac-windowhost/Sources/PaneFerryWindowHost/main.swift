@@ -382,7 +382,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "适应可用屏幕", action: #selector(fitScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
-        displayMenu.addItem(withTitle: "ChatGPT 页面高清（2×）", action: #selector(togglePageScale), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
         let rateItem = NSMenuItem(title: "帧率", action: nil, keyEquivalent: "")
         let rates = NSMenu(title: "帧率"); rateItem.submenu = rates
@@ -436,19 +435,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func fitScreen() { activeHost()?.fitToScreen() }
     @objc func actualPixels() { activeHost()?.showActualPixels() }
     @objc func fullScreen() { activeHost()?.window.toggleFullScreen(nil) }
-    @objc func togglePageScale() {
-        guard let host = activeHost(), host.pageScaleSupported, capabilities.contains("window.page-scale") else { return }
-        host.fixedPixels = nil
-        send(["type": "window.page-scale", "window_id": host.id, "scale": host.pageScale == 2 ? 1 : 2])
-    }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(selectVideoFPS(_:)) {
             menuItem.state = menuItem.tag == requestedVideoFPS ? .on : .off
             return !ready || capabilities.contains("video.qos")
-        }
-        if menuItem.action == #selector(togglePageScale) {
-            menuItem.state = activeHost()?.pageScale == 2 ? .on : .off
-            return ready && capabilities.contains("window.page-scale") && activeHost()?.pageScaleSupported == true
         }
         if menuItem.action == #selector(setResolution) { return activeHost()?.fixedCanvas != true }
         if menuItem.action == #selector(automaticResolution) {
@@ -682,17 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
             if code.hasPrefix("page_scale_") {
-                let message: String
-                switch code {
-                case "page_scale_restart_required": message = "专用高清尚未准备，普通窗口仍可使用。如需开启，请先保存 Ubuntu 上的工作，再运行 paneferry-agent prepare-chatgpt <主进程PID>。命令会按需重启 ChatGPT；完成后重新连接并手动开启高清。"
-                case "page_scale_target_ambiguous": message = "无法唯一对应 ChatGPT 页面与窗口。请错开窗口的位置或尺寸后重试。"
-                case "page_scale_unsupported": message = "此模式仅支持已准备好的 ChatGPT 主窗口，源端缩放需为 1×。"
-                case "page_scale_parking_unavailable": message = "Ubuntu 无法创建目标窗口的虚拟显示器，未开启页面高清。请检查 GNOME 虚拟显示器支持后重试。"
-                case "page_scale_parking_lost": message = "目标窗口已离开虚拟显示器或显示器布局发生变化，已停止页面高清并尝试恢复原位置。"
-                case "page_scale_restore_incomplete": message = "页面高清恢复未完成，请检查 Ubuntu 上的目标窗口。"
-                default: message = "页面高清连接中断或尺寸未生效，已结束适配并尝试恢复目标窗口。"
-                }
-                alert(message); return
+                alert("远端旧版显示模式无法继续，请重新连接普通窗口。"); return
             }
             if code == "resolution_limited" {
                 if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
@@ -915,8 +895,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.surface.remoteClipboardShortcuts = capabilities.contains("clipboard.remote-only")
         host.revision = rev
         host.scaleMode = object["scale_mode"] as? String ?? "unknown"
-        host.pageScaleSupported = object["page_scale_supported"] as? Bool ?? false
-        host.pageScale = object["page_scale_factor"] as? Int ?? 1
         host.window.title = String((object["title"] as? String ?? "Linux 应用").prefix(512))
         host.applyRemoteGeometry(width: w, height: h, rendering: rendering)
         if let parent = parentID { parents[id] = parent; host.relatedWindow = true }
