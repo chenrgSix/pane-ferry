@@ -1932,14 +1932,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 }
                 continue;
             }
-            retry_windows.retain(|id| {
-                windows
-                    .iter()
-                    .any(|window| window.window_id == *id && window.visible)
-            });
-            // A continuously repainting large window must not always get the
-            // first admission attempt ahead of a previously skipped snapshot.
-            prioritize_recaptures(&mut windows, &retry_windows);
             let existing = s.existing.is_some();
             let desktop_mode = s.desktop_monitor.is_some();
             let scaled_window = s.page_scale.as_ref().map(|z| z.window);
@@ -1956,6 +1948,24 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         )?;
                     }
                 }
+                // Metadata/input-status queries can outlive the frame deadline
+                // or a conversion completion. Select again after this work,
+                // immediately before publication, without waiting for conversion.
+                // Pair any new pixels with their updated geometry before sending
+                // metadata, including destroy events drained by X11 here.
+                let due_after_maintenance = last_capture.elapsed() >= out.frame_interval();
+                if due_after_maintenance {
+                    b.pump_capture_events(true)?;
+                    windows = b.windows().values().cloned().collect();
+                }
+                retry_windows.retain(|id| {
+                    windows
+                        .iter()
+                        .any(|window| window.window_id == *id && window.visible)
+                });
+                // A continuously repainting large window must not always get the
+                // first admission attempt ahead of a previously skipped snapshot.
+                prioritize_recaptures(&mut windows, &retry_windows);
                 for id in known.keys().filter(|id| !b.windows().contains_key(id)) {
                     send(
                         &mut out,
@@ -1988,7 +1998,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             &sid,
                         )?;
                     }
-                    if !capture_due || !w.visible || !b.capture_needed(w.window_id) {
+                    if !due_after_maintenance || !w.visible || !b.capture_needed(w.window_id) {
                         continue;
                     }
                     if pending_request.is_none() {
