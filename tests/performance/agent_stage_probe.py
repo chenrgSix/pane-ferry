@@ -90,7 +90,8 @@ pub fn publish(pointer:usize) {
 pub fn capture(window:u32,pointer:usize,start:u64) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     let Some(i)=s.inputs.get(&window).cloned() else{return};
-    let v=json!({"count":i.count,"received":i.received,"dispatched":i.dispatched,
+    static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(1);
+    let v=json!({"capture_id":NEXT_CAPTURE.fetch_add(1,Ordering::Relaxed),"count":i.count,"received":i.received,"dispatched":i.dispatched,
         "input_end":i.input_end,"capture_start":start,"capture_end":now(),"status_start":STATUS_START.get(),"status_end":STATUS_END.get(),"raw_first":s.raw_first,"raw_last":s.raw_last,"converted_first":s.converted_first,"converted_last":s.converted_last,"pull_first":s.pull_first,"raw_matching":s.raw_matching,"converted_matching":s.converted_matching,"interval":INTERVAL.get()});
     if s.frames.len()>128 {s.frames.clear();}
     s.frames.insert(pointer,v);
@@ -210,6 +211,8 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     edit('main.rs', 'out.frame(w, image, &sid)?;', 'stage_probe::publish(Arc::as_ptr(&image) as usize);\n                        out.frame(w, image, &sid)?;')
     edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')
     edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(*id, Arc::as_ptr(&image) as usize, probe_capture);\n                crate::selection_probe::capture(Arc::as_ptr(&image) as usize);\n                stream.image = Some(image);')
+    edit('output_worker.rs', '            return Ok(None);\n        }\n        // At most 8 MP',
+         '            crate::selection_probe::trace(json!({"event":"encoder_duplicate","window_id":id,"timestamp_ns":crate::stage_probe::now(),"stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,crate::stage_probe::now())}));\n            return Ok(None);\n        }\n        // At most 8 MP')
     edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        crate::selection_probe::encoding(Arc::as_ptr(&job.image) as usize,probe_encode);\n        let packet = state.encoder.encode_frame(&job.image)?;')
     edit('output_worker.rs', '"stream_id":state.encoder.stream,', '"_agent_stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,probe_encode),\n            "stream_id":state.encoder.stream,')
     edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;', 'if value["_agent_stages"].is_object() {value["_agent_stages"]["write"]=json!(crate::stage_probe::now());}\n        let mut bytes = serde_json::to_vec(&value)?;')
