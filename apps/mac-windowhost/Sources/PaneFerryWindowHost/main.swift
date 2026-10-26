@@ -1002,9 +1002,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         connected = false; clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardJob = nil; clipboardTimer?.invalidate(); clipboardDeferred.removeAll()
         poll?.invalidate(); poll = nil
         // Give the serial write queue a brief opportunity, then close local transport only.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        // AppKit may enter a nested termination loop before this main-queue
+        // callback returns. A run-loop timer can reply there; another main-queue
+        // block cannot run until the outer callback has finished.
+        let completion = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in
             self?.transport.disconnect(); sender.reply(toApplicationShouldTerminate: true)
         }
+        RunLoop.main.add(completion, forMode: .common)
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) { stopping = true; NotificationCenter.default.removeObserver(self); networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
