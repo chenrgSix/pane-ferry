@@ -105,6 +105,11 @@ pub fn frame(pointer:usize,start:u64)->Value {
     if v.is_object() {v["encode_start"]=json!(start);v["encode_end"]=json!(now());v["selection"]=crate::selection_probe::frame(pointer);}
     v
 }
+pub fn x11_source(pointer:usize, source:usize) {
+    if let Some(frame)=STATE.get_or_init(Default::default).lock().unwrap().frames.get_mut(&pointer) {
+        frame["source_image_data"]=json!(source);
+    }
+}
 '''
 
 def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False, x11_capture_stages=False):
@@ -153,7 +158,33 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         (backend / 'capture_probe.rs').write_bytes((ROOT / 'tests/performance/x11_capture_probe.rs').read_bytes())
         lib = backend / 'lib.rs'
         text = lib.read_text()
-        replacements = [
+        if (backend / 'readback.rs').exists():
+            text = text.replace('mod damage;', 'mod damage;\nmod capture_probe;')
+            lib.write_text(text)
+            readback = backend / 'readback.rs'
+            text = readback.read_text()
+            replacements = [
+                ('    let pixmap = if surface.composite {', '    let mut probe = crate::capture_probe::CaptureProbe::new(surface.window);\n    let pixmap = if surface.composite {'),
+                ('    let mut size = surface.source;', '    probe.mark("named_pixmap");\n    let mut size = surface.source;'),
+                ('        if let Some(image) = shared.capture(', '        probe.mark("scaled");\n        if let Some(image) = shared.capture('),
+                ('            return Ok(image);', '            probe.mark("readback");\n            return Ok(image);'),
+                ('        Ok((image.depth, image.visual, image.data))', '        probe.mark("readback_fallback");\n        Ok((image.depth, image.visual, image.data))'),
+                ('    Ok(CapturedImage {', '    let image = CapturedImage {'),
+                ('    })\n}', '    };\n    probe.image(&image, surface.target);\n    probe.mark("metadata");\n    Ok(image)\n}'),
+            ]
+            worker = backend / 'async_capture.rs'
+            work = worker.read_text()
+            anchor = '        capture\n            .worker\n            .submit'
+            if work.count(anchor) != 1:
+                raise ValueError('asynchronous capture admission anchor changed')
+            worker.write_text(work.replace(anchor, '        crate::capture_probe::queued(id);\n' + anchor))
+            for before, after in replacements:
+                if text.count(before) != 1:
+                    raise ValueError('X11 readback timing anchor changed: ' + before[:80])
+                text = text.replace(before, after)
+            readback.write_text(text)
+        else:
+            replacements = [
             ('mod damage;', 'mod damage;\nmod capture_probe;'),
             ('fn capture_image(&self, w: &Window, wanted: (u32, u32)) -> Result<CapturedImage> {',
              'fn capture_image(&self, w: &Window, wanted: (u32, u32)) -> Result<CapturedImage> {\n        let mut probe = capture_probe::CaptureProbe::new(w.window_id);'),
@@ -164,12 +195,19 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
             ('                return Ok(image);\n            }\n            let image = self', '                probe.mark("readback");\n                return Ok(image);\n            }\n            let image = self'),
             ('            Ok((image.depth, image.visual, image.data))', '            probe.mark("readback_fallback");\n            Ok((image.depth, image.visual, image.data))'),
             ('        Ok(CapturedImage {', '        probe.mark("metadata");\n        Ok(CapturedImage {'),
-        ]
-        for before, after in replacements:
-            if text.count(before) != 1:
-                raise ValueError('X11 capture timing anchor changed: ' + before[:80])
-            text = text.replace(before, after)
-        lib.write_text(text)
+            ]
+            for before, after in replacements:
+                if text.count(before) != 1:
+                    raise ValueError('X11 capture timing anchor changed: ' + before[:80])
+                text = text.replace(before, after)
+            # Give the old synchronous path the same snapshot identity/marker.
+            start=text.index('    fn capture_image(')
+            end=text.index('    fn known(', start)
+            block=text[start:end]
+            block=block.replace('Ok(CapturedImage {', 'let image = CapturedImage {')
+            at=block.rindex('})')
+            block=block[:at]+'};\n        probe.image(&image, wanted);\n        Ok(image)'+block[at+2:]
+            lib.write_text(text[:start]+block+text[end:])
     edit('wayland_rpc.rs', 'Call(Value, SyncSender<Reply>),', 'Call(Value, SyncSender<Reply>, u64),')
     edit_many('wayland_rpc.rs', 'Work::Call(value, reply) => {', 'Work::Call(value, reply, probe_id) => {', 2)
     edit_many('wayland_rpc.rs', 'let _ = reply.send(invoke(&mut call, value));',
@@ -191,8 +229,9 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
          'let answer: Value = serde_json::from_slice(&line)?;\n crate::stage_probe::rpc_event(probe_id,"rpc_completed");')
     edit('backend/logical_x11.rs', 'fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {',
          'fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {\n        let probe_capture=crate::stage_probe::now();')
-    edit('backend/logical_x11.rs', 'crate::video::Frame::scaled_image(image, window.width, window.height).map(Arc::new)',
-         'let frame=Arc::new(crate::video::Frame::scaled_image(image, window.width, window.height)?);\n crate::stage_probe::capture(window.window_id,Arc::as_ptr(&frame) as usize,probe_capture);\n Ok(frame)')
+    constructor = 'scaled_shared_image' if 'scaled_shared_image' in (source/'backend/logical_x11.rs').read_text() else 'scaled_image'
+    edit('backend/logical_x11.rs', f'crate::video::Frame::{constructor}(image, window.width, window.height).map(Arc::new)',
+         f'let probe_source=image.data.as_ptr() as usize;\n let frame=Arc::new(crate::video::Frame::{constructor}(image, window.width, window.height)?);\n crate::stage_probe::capture(window.window_id,Arc::as_ptr(&frame) as usize,probe_capture);\n crate::stage_probe::x11_source(Arc::as_ptr(&frame) as usize,probe_source);\n Ok(frame)')
     (source / 'stage_probe.rs').write_text(MODULE)
     for name in ['selection_probe.rs', 'selection_gstreamer.rs']:
         (source / name).write_text((ROOT / 'tests/performance' / name).read_text())
@@ -232,7 +271,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         }
         crate::selection_probe::selected(output as usize);
         Ok(Some(Frame {''')
-    edit('main.rs', 'let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        selection_probe::deadline(last_capture.elapsed().as_nanos() as u64,frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;')
+    edit('main.rs', 'let capture_due = capture_pending', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        selection_probe::deadline(last_capture.elapsed().as_nanos() as u64,frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending')
     edit('main.rs', 'let mut windows = if !s.has_exited()? && scan_due {\n                match s.scan_windows() {', 'let mut windows = if !s.has_exited()? && scan_due {\n                stage_probe::scan(true);\n                let probe_scan_result=s.scan_windows();\n                stage_probe::scan(false);\n                match probe_scan_result {')
     edit('main.rs', 'out.frame(w, image, &sid)?;', 'stage_probe::publish(Arc::as_ptr(&image) as usize);\n                        out.frame(w, image, &sid)?;')
     edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')

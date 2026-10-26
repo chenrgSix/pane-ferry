@@ -1,5 +1,23 @@
 //! Diagnostic archive only: wall/CPU checkpoints without recording any pixels.
-use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
+};
+
+static QUEUED: OnceLock<Mutex<HashMap<u32, u64>>> = OnceLock::new();
+pub fn queued(window: u32) {
+    let mut jobs = QUEUED.get_or_init(Default::default).lock().unwrap();
+    if jobs.len() > 64 {
+        jobs.clear();
+    }
+    jobs.insert(window, clock(libc::CLOCK_MONOTONIC));
+}
 
 fn clock(id: libc::clockid_t) -> u64 {
     let mut t = libc::timespec {
@@ -11,17 +29,60 @@ fn clock(id: libc::clockid_t) -> u64 {
 }
 
 pub struct CaptureProbe {
+    id: u64,
     window: u32,
+    queued_ns: Option<u64>,
+    image_data: Option<usize>,
+    marker: Option<u64>,
     points: Vec<serde_json::Value>,
 }
 impl CaptureProbe {
     pub fn new(window: u32) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
         let mut s = Self {
+            id: NEXT.fetch_add(1, Ordering::Relaxed),
             window,
+            queued_ns: QUEUED
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap()
+                .remove(&window),
+            image_data: None,
+            marker: None,
             points: Vec::with_capacity(8),
         };
         s.mark("start");
         s
+    }
+    pub fn image(&mut self, image: &crate::CapturedImage, target: (u32, u32)) {
+        self.image_data = Some(image.data.as_ptr() as usize);
+        // Only the opt-in counter fixture uses these eight diagnostic squares.
+        // No pixels or arbitrary user text are recorded.
+        if image.bpp != 32 || image.pad != 32 || !image.little || target.0 == 0 || target.1 == 0 {
+            return;
+        }
+        let scale = image.width / target.0;
+        if scale == 0
+            || image.width != target.0 * scale
+            || image.height != target.1 * scale
+            || image.width <= 241 * scale
+            || image.height <= 16 * scale
+        {
+            return;
+        }
+        let mut marker = 0;
+        for bit in 0..8 {
+            let offset = ((16 * scale) as usize * image.width as usize
+                + (16 + bit * 32) as usize * scale as usize)
+                * 4;
+            let Some(value) = image.data.get(offset) else {
+                return;
+            };
+            if *value > 128 {
+                marker |= 1 << bit;
+            }
+        }
+        self.marker = Some(marker);
     }
     pub fn mark(&mut self, stage: &str) {
         self.points.push(serde_json::json!({
@@ -36,7 +97,8 @@ impl Drop for CaptureProbe {
         let Some(path) = std::env::var_os("PANEFERRY_PROBE_TRACE") else {
             return;
         };
-        let event = serde_json::json!({"event":"x11_capture", "window_id":self.window, "points":self.points});
+        let event = serde_json::json!({"event":"x11_capture", "readback_id":self.id, "window_id":self.window,
+            "queued_ns":self.queued_ns, "image_data":self.image_data, "marker":self.marker, "points":self.points});
         if let Ok(mut bytes) = serde_json::to_vec(&event) {
             bytes.push(b'\n');
             if let Ok(mut file) = OpenOptions::new()
