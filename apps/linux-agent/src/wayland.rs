@@ -681,9 +681,9 @@ impl WindowBackend for Backend {
         }
         Ok(self.windows.values().cloned().collect())
     }
-    fn pump_capture_events(&mut self, frame_due: bool) -> Result<()> {
+    fn pump_capture_events(&mut self, prepare_pixels: bool) -> Result<()> {
         self.pending_pull |= self.frame_wake.drain();
-        if frame_due && self.pending_pull {
+        if prepare_pixels && self.pending_pull {
             self.pending_pull = false;
             self.pull_frames()?;
         }

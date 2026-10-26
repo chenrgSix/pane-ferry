@@ -1407,7 +1407,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     }
                     text_pending = b.text_pending();
                     // Drain readiness without copying pixels. Requests already
-                    // queued (or waking poll) must run before a due frame pull.
+                    // queued (or waking poll) must run before preparing pixels.
                     b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
                     capture_pending = visible_capture_pending(b.as_ref());
@@ -1869,6 +1869,18 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )?;
             }
         }
+        // Preparing capture pixels is asynchronous and nonblocking. Feed raw
+        // samples and collect converted samples as they arrive, after input.
+        // Gating both steps on the video deadline makes each pipeline stage
+        // wait another frame interval and retains producer buffers meanwhile.
+        // Only encoding/publication below is limited by the negotiated FPS.
+        if let Some(l) = &lease {
+            let mut s = l.0.lock().unwrap();
+            if let Some(b) = s.backend.as_mut() {
+                b.pump_capture_events(true)?;
+                capture_pending = visible_capture_pending(b.as_ref());
+            }
+        }
         // The current input has already run. Do not make continuous input
         // postpone visual feedback beyond the negotiated frame deadline.
         let frame_interval = out.frame_interval();
@@ -1876,19 +1888,6 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed(), frame_due)
         {
             continue;
-        }
-        let frame_interval = out.frame_interval();
-        if capture_pending && last_capture.elapsed() >= frame_interval {
-            // A frame may have arrived while poll waited for the frame deadline.
-            // Pull the newest sample now; otherwise capture() can resend the
-            // previous image and delay the new frame by another interval.
-            if let Some(l) = &lease {
-                let mut s = l.0.lock().unwrap();
-                if let Some(b) = s.backend.as_mut() {
-                    b.pump_capture_events(true)?;
-                    capture_pending = visible_capture_pending(b.as_ref());
-                }
-            }
         }
         let scan_due = last_scan.elapsed()
             >= scan_interval(

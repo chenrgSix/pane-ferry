@@ -23,7 +23,9 @@ pub trait WindowBackend: Send {
     fn existing_window_exists(&self, window: u32) -> bool;
     fn includes_window(&self, id: u32) -> bool;
     fn scan(&mut self) -> Result<Vec<Window>>;
-    fn pump_capture_events(&mut self, frame_due: bool) -> Result<()>;
+    /// Drain readiness without pixel work when false. When true, also submit
+    /// and collect ready samples without waiting; publication has its own cap.
+    fn pump_capture_events(&mut self, prepare_pixels: bool) -> Result<()>;
     fn capture_pending(&self) -> bool;
     fn capture_needed(&self, window: u32) -> bool;
     fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>>;
@@ -78,7 +80,7 @@ impl WindowBackend for X11 {
     fn scan(&mut self) -> Result<Vec<Window>> {
         X11::scan(self)
     }
-    fn pump_capture_events(&mut self, _frame_due: bool) -> Result<()> {
+    fn pump_capture_events(&mut self, _prepare_pixels: bool) -> Result<()> {
         X11::pump_capture_events(self)
     }
     fn capture_pending(&self) -> bool {

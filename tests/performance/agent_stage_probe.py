@@ -96,7 +96,7 @@ def instrument(destination, revision):
     edit('video_frame.rs', 'self.signal = connect_wake(self.api, self.sink, wake)?;', 'crate::stage_probe::sink(self.sink as usize,false);\n        self.signal = connect_wake(self.api, self.sink, wake)?;')
     edit('video.rs', 'let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };', 'crate::stage_probe::wake(_sink as usize);\n    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };')
     edit('video.rs', 'let sample = unsafe { (self.api.pull)(self.sink, 0) };', 'crate::stage_probe::pulling();\n        let sample = unsafe { (self.api.pull)(self.sink, 0) };')
-    edit('main.rs', 'if capture_pending && last_capture.elapsed() >= frame_interval {', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        if capture_pending && last_capture.elapsed() >= frame_interval {')
+    edit('main.rs', 'let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;', 'stage_probe::interval(frame_interval.as_nanos() as u64);\n        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;')
     edit('wayland.rs', 'let result = if self.scene.is_some() {', 'let probe_capture = crate::stage_probe::now();\n            let result = if self.scene.is_some() {')
     edit('wayland.rs', 'stream.image = Some(Arc::new(image));', 'let image = Arc::new(image);\n                crate::stage_probe::capture(*id, Arc::as_ptr(&image) as usize, probe_capture);\n                stream.image = Some(image);')
     edit('output_worker.rs', 'let packet = state.encoder.encode_frame(&job.image)?;', 'let probe_encode = crate::stage_probe::now();\n        let packet = state.encoder.encode_frame(&job.image)?;')
