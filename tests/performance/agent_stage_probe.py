@@ -107,7 +107,7 @@ pub fn frame(pointer:usize,start:u64)->Value {
 }
 '''
 
-def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False):
+def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False, x11_capture_stages=False):
     if trace_only and not stages:
         raise ValueError('trace-only requires stage instrumentation')
     destination.mkdir(parents=True, exist_ok=False)
@@ -148,6 +148,28 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     if not stages:
         print(destination)
         return
+    if x11_capture_stages:
+        backend = destination / 'crates/backend-x11/src'
+        (backend / 'capture_probe.rs').write_bytes((ROOT / 'tests/performance/x11_capture_probe.rs').read_bytes())
+        lib = backend / 'lib.rs'
+        text = lib.read_text()
+        replacements = [
+            ('mod damage;', 'mod damage;\nmod capture_probe;'),
+            ('fn capture_image(&self, w: &Window, wanted: (u32, u32)) -> Result<CapturedImage> {',
+             'fn capture_image(&self, w: &Window, wanted: (u32, u32)) -> Result<CapturedImage> {\n        let mut probe = capture_probe::CaptureProbe::new(w.window_id);'),
+            ('        self.known(w.window_id)?;\n        self.damage', '        self.known(w.window_id)?;\n        probe.mark("known");\n        self.damage'),
+            ('            .acknowledge(&self.conn, w.window_id)?;', '            .acknowledge(&self.conn, w.window_id)?;\n        probe.mark("acknowledged");'),
+            ('        let mut size = (w.width, w.height);', '        probe.mark("named_pixmap");\n        let mut size = (w.width, w.height);'),
+            ('            if let Some(image) = self\n                .shared_capture', '            probe.mark("scaled");\n            if let Some(image) = self\n                .shared_capture'),
+            ('                return Ok(image);\n            }\n            let image = self', '                probe.mark("readback");\n                return Ok(image);\n            }\n            let image = self'),
+            ('            Ok((image.depth, image.visual, image.data))', '            probe.mark("readback_fallback");\n            Ok((image.depth, image.visual, image.data))'),
+            ('        Ok(CapturedImage {', '        probe.mark("metadata");\n        Ok(CapturedImage {'),
+        ]
+        for before, after in replacements:
+            if text.count(before) != 1:
+                raise ValueError('X11 capture timing anchor changed: ' + before[:80])
+            text = text.replace(before, after)
+        lib.write_text(text)
     edit('wayland_rpc.rs', 'Call(Value, SyncSender<Reply>),', 'Call(Value, SyncSender<Reply>, u64),')
     edit_many('wayland_rpc.rs', 'Work::Call(value, reply) => {', 'Work::Call(value, reply, probe_id) => {', 2)
     edit_many('wayland_rpc.rs', 'let _ = reply.send(invoke(&mut call, value));',
@@ -241,8 +263,11 @@ if __name__ == '__main__':
     p.add_argument('--isolated-state', action='store_true', help='require a private PANEFERRY_PROBE_STATE; keep HOME and installed desktop integration untouched')
     p.add_argument('--no-stages', action='store_true', help='archive only (plus optional isolated state), without timing instrumentation')
     p.add_argument('--trace-only', action='store_true', help='keep frame metadata unchanged; write timings only to PANEFERRY_PROBE_TRACE')
+    p.add_argument('--x11-capture-stages', action='store_true', help='diagnostic-only wall and thread CPU checkpoints inside X11 readback')
     p.add_argument('--source-override', action='append', default=[], help='copy this explicit working-tree file before instrumenting the archive')
     a=p.parse_args()
     if a.trace_only and a.no_stages:
         p.error('--trace-only and --no-stages are mutually exclusive')
-    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override, a.trace_only)
+    if a.x11_capture_stages and a.no_stages:
+        p.error('--x11-capture-stages requires stage instrumentation')
+    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override, a.trace_only, a.x11_capture_stages)
