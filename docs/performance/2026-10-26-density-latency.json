@@ -1,0 +1,524 @@
+{
+  "date": "2026-10-26",
+  "product_revision": "be644ba",
+  "probe_revision": "9bfc131",
+  "transport": "production paired QUIC over utun4/EasyTier",
+  "endpoint": "renderer displayed-buffer availability",
+  "input": "SurfaceView keyDown and mouseDown",
+  "workload": "test-owned native GTK Wayland; identical logical grid/text, fixed-pixel counter and small animation updated every 33 ms",
+  "order": [
+    2,
+    1,
+    1,
+    2,
+    1,
+    2,
+    2,
+    1
+  ],
+  "samples_per_mode_per_round": 30,
+  "warmups_per_mode_per_round": 2,
+  "hashes": {
+    "probe": "fb04773ae594e8459520114462e87cc51c60a6ff828aa25eb0237bdf03b767ef",
+    "window_host": "a03d2321ad5d91f19da3dba4949593abda45bd217cd51a4dd6a5e977a9c75f84",
+    "network": "df7a0869677123a56b386bc8f8f62e79404bce6d1400bc44324afaedcb411a6f",
+    "fixture": "0dbccf4548d85b168d25fe0be479eacc32e2cef6d6280ebab90328ac472aaa17"
+  },
+  "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+  "groups": {
+    "1": {
+      "source_pixels": [
+        1470,
+        809
+      ],
+      "rounds": 4,
+      "negotiated_max_fps": 30,
+      "local_points": [
+        1467,
+        805
+      ],
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 123.47833349999999,
+          "p95_ms": 167.3285,
+          "minimum_ms": 84.830292,
+          "maximum_ms": 884.83025
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 120.45075,
+          "p95_ms": 164.070166,
+          "minimum_ms": 84.830292,
+          "maximum_ms": 216.959583
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 124.047854,
+          "p95_ms": 168.550209,
+          "minimum_ms": 89.85425,
+          "maximum_ms": 884.83025
+        }
+      },
+      "stages": {
+        "input_to_write_end": {
+          "samples": 240,
+          "median_ms": 0.2884795,
+          "p95_ms": 1.215917,
+          "minimum_ms": 0.095583,
+          "maximum_ms": 1.506458
+        },
+        "write_end_to_received": {
+          "samples": 240,
+          "median_ms": 109.6466875,
+          "p95_ms": 152.575042,
+          "minimum_ms": 72.9215,
+          "maximum_ms": 849.825084
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 2.729479,
+          "p95_ms": 3.5745,
+          "minimum_ms": 1.065,
+          "maximum_ms": 27.964333
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.07725,
+          "p95_ms": 0.111875,
+          "minimum_ms": 0.02875,
+          "maximum_ms": 9.008417
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 8.799146,
+          "p95_ms": 16.252708,
+          "minimum_ms": 1.959,
+          "maximum_ms": 22.409542
+        }
+      },
+      "source_input_to_draw": {
+        "samples": 240,
+        "median_ms": 2.1824244999999998,
+        "p95_ms": 13.730184,
+        "minimum_ms": 1.246148,
+        "maximum_ms": 29.590094
+      }
+    },
+    "2": {
+      "source_pixels": [
+        2940,
+        1618
+      ],
+      "rounds": 4,
+      "negotiated_max_fps": 30,
+      "local_points": [
+        1467,
+        805
+      ],
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 168.70129200000002,
+          "p95_ms": 226.386042,
+          "minimum_ms": 103.072208,
+          "maximum_ms": 457.7865
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 163.48333300000002,
+          "p95_ms": 208.092709,
+          "minimum_ms": 104.677375,
+          "maximum_ms": 293.439375
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 173.2290835,
+          "p95_ms": 235.69575,
+          "minimum_ms": 103.072208,
+          "maximum_ms": 457.7865
+        }
+      },
+      "stages": {
+        "input_to_write_end": {
+          "samples": 240,
+          "median_ms": 0.29204149999999995,
+          "p95_ms": 1.353959,
+          "minimum_ms": 0.0605,
+          "maximum_ms": 1.630042
+        },
+        "write_end_to_received": {
+          "samples": 240,
+          "median_ms": 153.53339599999998,
+          "p95_ms": 209.030042,
+          "minimum_ms": 95.438541,
+          "maximum_ms": 445.815458
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 3.6400835000000002,
+          "p95_ms": 7.2665,
+          "minimum_ms": 1.67875,
+          "maximum_ms": 14.80275
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.0727085,
+          "p95_ms": 0.434042,
+          "minimum_ms": 0.022875,
+          "maximum_ms": 3.964833
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 8.789188,
+          "p95_ms": 17.07475,
+          "minimum_ms": 1.668791,
+          "maximum_ms": 26.442292
+        }
+      },
+      "source_input_to_draw": {
+        "samples": 240,
+        "median_ms": 7.460065999999999,
+        "p95_ms": 34.576715,
+        "minimum_ms": 4.790995,
+        "maximum_ms": 48.642417
+      }
+    }
+  },
+  "comparison": {
+    "median_ms": {
+      "reduction_ms": 45.22295850000003,
+      "reduction_percent": 26.806527658365546
+    },
+    "p95_ms": {
+      "reduction_ms": 59.05754200000001,
+      "reduction_percent": 26.087095069226933
+    }
+  },
+  "rounds": [
+    {
+      "name": "round1-2x",
+      "scale": 2,
+      "fps": 30,
+      "width": 2940,
+      "height": 1618,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 155.869125,
+          "p95": 205.222875,
+          "minimum": 104.677375,
+          "maximum": 293.439375
+        },
+        "pointer": {
+          "n": 30,
+          "median": 152.5084795,
+          "p95": 203.2015,
+          "minimum": 103.072208,
+          "maximum": 210.230334
+        },
+        "all": {
+          "n": 60,
+          "median": 153.61822949999998,
+          "p95": 203.2015,
+          "minimum": 103.072208,
+          "maximum": 293.439375
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 20.9538325,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round2-1x",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 109.697125,
+          "p95": 135.35575,
+          "minimum": 84.830292,
+          "maximum": 156.4585
+        },
+        "pointer": {
+          "n": 30,
+          "median": 114.2689585,
+          "p95": 149.237375,
+          "minimum": 89.85425,
+          "maximum": 158.941917
+        },
+        "all": {
+          "n": 60,
+          "median": 110.9434375,
+          "p95": 140.845584,
+          "minimum": 84.830292,
+          "maximum": 158.941917
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.831218542,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round3-1x",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 127.669,
+          "p95": 175.45125,
+          "minimum": 101.500333,
+          "maximum": 216.959583
+        },
+        "pointer": {
+          "n": 30,
+          "median": 130.574875,
+          "p95": 168.550209,
+          "minimum": 105.235542,
+          "maximum": 168.734708
+        },
+        "all": {
+          "n": 60,
+          "median": 129.3394375,
+          "p95": 168.550209,
+          "minimum": 101.500333,
+          "maximum": 216.959583
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.697210417,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round4-2x",
+      "scale": 2,
+      "fps": 30,
+      "width": 2940,
+      "height": 1618,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 167.5974165,
+          "p95": 201.200792,
+          "minimum": 134.723542,
+          "maximum": 208.092709
+        },
+        "pointer": {
+          "n": 30,
+          "median": 173.1265205,
+          "p95": 294.703708,
+          "minimum": 136.264833,
+          "maximum": 318.861833
+        },
+        "all": {
+          "n": 60,
+          "median": 168.405271,
+          "p95": 202.875667,
+          "minimum": 134.723542,
+          "maximum": 318.861833
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 22.316873375,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round5-1x",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 126.24714549999999,
+          "p95": 153.688791,
+          "minimum": 91.943792,
+          "maximum": 167.3285
+        },
+        "pointer": {
+          "n": 30,
+          "median": 121.84975,
+          "p95": 151.587375,
+          "minimum": 90.236417,
+          "maximum": 168.846917
+        },
+        "all": {
+          "n": 60,
+          "median": 123.1193545,
+          "p95": 151.587375,
+          "minimum": 90.236417,
+          "maximum": 168.846917
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.185307416,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round6-2x",
+      "scale": 2,
+      "fps": 30,
+      "width": 2940,
+      "height": 1618,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 170.0485005,
+          "p95": 226.386042,
+          "minimum": 108.66825,
+          "maximum": 231.653375
+        },
+        "pointer": {
+          "n": 30,
+          "median": 189.413104,
+          "p95": 330.082375,
+          "minimum": 118.005208,
+          "maximum": 457.7865
+        },
+        "all": {
+          "n": 60,
+          "median": 178.2728125,
+          "p95": 240.779584,
+          "minimum": 108.66825,
+          "maximum": 457.7865
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 23.326888958,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round7-2x",
+      "scale": 2,
+      "fps": 30,
+      "width": 2940,
+      "height": 1618,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 166.7911875,
+          "p95": 189.252625,
+          "minimum": 123.832125,
+          "maximum": 219.836791
+        },
+        "pointer": {
+          "n": 30,
+          "median": 172.160021,
+          "p95": 226.94875,
+          "minimum": 115.850791,
+          "maximum": 233.998042
+        },
+        "all": {
+          "n": 60,
+          "median": 169.417375,
+          "p95": 219.836791,
+          "minimum": 115.850791,
+          "maximum": 233.998042
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 22.814274458,
+      "stop_returncode": 0
+    },
+    {
+      "name": "round8-1x",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 131.73289549999998,
+          "p95": 171.539,
+          "minimum": 107.485625,
+          "maximum": 176.729
+        },
+        "pointer": {
+          "n": 30,
+          "median": 136.356146,
+          "p95": 381.689708,
+          "minimum": 101.771708,
+          "maximum": 884.83025
+        },
+        "all": {
+          "n": 60,
+          "median": 134.45527099999998,
+          "p95": 176.729,
+          "minimum": 101.771708,
+          "maximum": 884.83025
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 21.477358625,
+      "stop_returncode": 0
+    }
+  ],
+  "tail_counts": {
+    "1": {
+      "over_200ms": 3,
+      "over_300ms": 2,
+      "over_500ms": 1
+    },
+    "2": {
+      "over_200ms": 36,
+      "over_300ms": 4,
+      "over_500ms": 0
+    }
+  }
+}
