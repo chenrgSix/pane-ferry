@@ -114,6 +114,13 @@ enum Probe {
     }
     static func next() {
         guard let host = delegate?.windows.values.first else { finish(error: "test window disappeared"); return }
+        // A compositor/output change invalidates the comparison and its input
+        // coordinates. Stop before injecting into a different source layout.
+        guard host.remoteVisible, host.rendering.scale == scale,
+              host.surface.remoteWidth == width, host.surface.remoteHeight == height,
+              host.surface.displayFrame?.width == width, host.surface.displayFrame?.height == height else {
+            finish(error: "source geometry changed during measurement"); return
+        }
         if count == (samples + 2) * 2 { finish(error: nil); return }
         count += 1
         let mode = ["key", "pointer"][(count - 1) % 2]
