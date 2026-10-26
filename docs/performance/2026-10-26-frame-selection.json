@@ -1,0 +1,528 @@
+{
+  "status": "paused at user request; latency increase versus historical baseline remains unresolved",
+  "source_commit": "bda43cf",
+  "mac_probe_commit": "9eb1070",
+  "agent_probe_commit": "2d26f0a",
+  "formal": {
+    "base": {
+      "n": 240,
+      "median_ms": 124.61583350000001,
+      "p95_ms": 175.84025,
+      "minimum_ms": 60.782208,
+      "maximum_ms": 220.587917,
+      "under_100ms": 50
+    },
+    "candidate": {
+      "n": 240,
+      "median_ms": 118.504625,
+      "p95_ms": 166.584042,
+      "minimum_ms": 44.001583,
+      "maximum_ms": 284.307125,
+      "under_100ms": 62
+    }
+  },
+  "mac_stages": {
+    "base": {
+      "write": {
+        "n": 240,
+        "median_ms": 0.2952085,
+        "p95_ms": 1.494667,
+        "minimum_ms": 0.067541,
+        "maximum_ms": 2.672083,
+        "under_100ms": 240
+      },
+      "remote_round_trip": {
+        "n": 240,
+        "median_ms": 113.06747949999999,
+        "p95_ms": 161.588958,
+        "minimum_ms": 49.193542,
+        "maximum_ms": 215.572083,
+        "under_100ms": 77
+      },
+      "decode": {
+        "n": 240,
+        "median_ms": 2.4613535,
+        "p95_ms": 3.134833,
+        "minimum_ms": 0.861417,
+        "maximum_ms": 4.296209,
+        "under_100ms": 240
+      },
+      "main_queue": {
+        "n": 240,
+        "median_ms": 0.0658955,
+        "p95_ms": 0.098584,
+        "minimum_ms": 0.025041,
+        "maximum_ms": 7.166292,
+        "under_100ms": 240
+      },
+      "selected_to_buffer_match": {
+        "n": 240,
+        "median_ms": 8.6187085,
+        "p95_ms": 16.948041,
+        "minimum_ms": 2.189125,
+        "maximum_ms": 18.659,
+        "under_100ms": 240
+      },
+      "enqueue": {
+        "n": 240,
+        "median_ms": 0.0685625,
+        "p95_ms": 0.09875,
+        "minimum_ms": 0.022458,
+        "maximum_ms": 0.182666,
+        "under_100ms": 240
+      },
+      "commit": {
+        "n": 240,
+        "median_ms": 0.053396,
+        "p95_ms": 0.085333,
+        "minimum_ms": 0.006583,
+        "maximum_ms": 0.111458,
+        "under_100ms": 240
+      },
+      "transaction_wait": {
+        "n": 240,
+        "median_ms": 2.6802080000000004,
+        "p95_ms": 5.359625,
+        "minimum_ms": 0.152875,
+        "maximum_ms": 11.93275,
+        "under_100ms": 240
+      },
+      "completion_main": {
+        "n": 240,
+        "median_ms": 0.040458,
+        "p95_ms": 0.073333,
+        "minimum_ms": 0.011,
+        "maximum_ms": 0.173625,
+        "under_100ms": 240
+      },
+      "probe_to_buffer_match": {
+        "n": 240,
+        "median_ms": 5.628354,
+        "p95_ms": 13.793458,
+        "minimum_ms": 0.024542,
+        "maximum_ms": 16.105875,
+        "under_100ms": 240
+      }
+    },
+    "candidate": {
+      "write": {
+        "n": 240,
+        "median_ms": 0.2530205,
+        "p95_ms": 1.100042,
+        "minimum_ms": 0.089,
+        "maximum_ms": 1.4795,
+        "under_100ms": 240
+      },
+      "remote_round_trip": {
+        "n": 240,
+        "median_ms": 105.091854,
+        "p95_ms": 153.864917,
+        "minimum_ms": 38.0595,
+        "maximum_ms": 264.005542,
+        "under_100ms": 107
+      },
+      "decode": {
+        "n": 240,
+        "median_ms": 2.4210835,
+        "p95_ms": 3.312,
+        "minimum_ms": 0.804959,
+        "maximum_ms": 4.213792,
+        "under_100ms": 240
+      },
+      "main_queue": {
+        "n": 240,
+        "median_ms": 0.0652915,
+        "p95_ms": 0.102125,
+        "minimum_ms": 0.018958,
+        "maximum_ms": 19.076125,
+        "under_100ms": 240
+      },
+      "selected_to_buffer_match": {
+        "n": 240,
+        "median_ms": 9.852479500000001,
+        "p95_ms": 16.497875,
+        "minimum_ms": 1.563084,
+        "maximum_ms": 17.843083,
+        "under_100ms": 240
+      },
+      "enqueue": {
+        "n": 240,
+        "median_ms": 0.0666665,
+        "p95_ms": 0.095917,
+        "minimum_ms": 0.013875,
+        "maximum_ms": 0.188666,
+        "under_100ms": 240
+      },
+      "commit": {
+        "n": 240,
+        "median_ms": 0.049937,
+        "p95_ms": 0.080417,
+        "minimum_ms": 0.003666,
+        "maximum_ms": 0.101417,
+        "under_100ms": 240
+      },
+      "transaction_wait": {
+        "n": 240,
+        "median_ms": 2.6739794999999997,
+        "p95_ms": 5.559,
+        "minimum_ms": 0.2085,
+        "maximum_ms": 12.980542,
+        "under_100ms": 240
+      },
+      "completion_main": {
+        "n": 240,
+        "median_ms": 0.042417,
+        "p95_ms": 0.081,
+        "minimum_ms": 0.013125,
+        "maximum_ms": 7.566958,
+        "under_100ms": 240
+      },
+      "probe_to_buffer_match": {
+        "n": 240,
+        "median_ms": 6.1323745,
+        "p95_ms": 13.550167,
+        "minimum_ms": 0.021125,
+        "maximum_ms": 16.378,
+        "under_100ms": 240
+      }
+    }
+  },
+  "rounds": [
+    {
+      "name": "selection-round1-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 124.61583350000001,
+          "p95": 150.409875,
+          "minimum": 60.782208,
+          "maximum": 166.261458
+        },
+        "pointer": {
+          "n": 30,
+          "median": 136.829542,
+          "p95": 176.802833,
+          "minimum": 90.798375,
+          "maximum": 177.246209
+        },
+        "all": {
+          "n": 60,
+          "median": 127.66187500000001,
+          "p95": 171.696417,
+          "minimum": 60.782208,
+          "maximum": 177.246209
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.55866525,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round2-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 106.89835400000001,
+          "p95": 148.600708,
+          "minimum": 75.192625,
+          "maximum": 164.644791
+        },
+        "pointer": {
+          "n": 30,
+          "median": 118.80668800000001,
+          "p95": 160.443083,
+          "minimum": 60.513583,
+          "maximum": 165.576083
+        },
+        "all": {
+          "n": 60,
+          "median": 117.01906199999999,
+          "p95": 155.865291,
+          "minimum": 60.513583,
+          "maximum": 165.576083
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.151171708,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round3-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 102.14781199999999,
+          "p95": 160.3095,
+          "minimum": 81.918333,
+          "maximum": 162.476917
+        },
+        "pointer": {
+          "n": 30,
+          "median": 127.593646,
+          "p95": 161.857042,
+          "minimum": 91.563166,
+          "maximum": 166.741375
+        },
+        "all": {
+          "n": 60,
+          "median": 116.0967085,
+          "p95": 160.3095,
+          "minimum": 81.918333,
+          "maximum": 166.741375
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.337874083,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round4-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 123.0286255,
+          "p95": 177.778708,
+          "minimum": 72.625125,
+          "maximum": 197.572667
+        },
+        "pointer": {
+          "n": 30,
+          "median": 129.85722950000002,
+          "p95": 171.413709,
+          "minimum": 90.065833,
+          "maximum": 211.052416
+        },
+        "all": {
+          "n": 60,
+          "median": 125.384792,
+          "p95": 175.84025,
+          "minimum": 72.625125,
+          "maximum": 211.052416
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.427326,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round5-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 116.93716649999999,
+          "p95": 142.785,
+          "minimum": 76.247958,
+          "maximum": 152.084541
+        },
+        "pointer": {
+          "n": 30,
+          "median": 118.94339550000001,
+          "p95": 168.291208,
+          "minimum": 69.287959,
+          "maximum": 170.249542
+        },
+        "all": {
+          "n": 60,
+          "median": 118.94339550000001,
+          "p95": 152.084541,
+          "minimum": 69.287959,
+          "maximum": 170.249542
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.033728834,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round6-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 118.8387915,
+          "p95": 169.628709,
+          "minimum": 71.028291,
+          "maximum": 177.419209
+        },
+        "pointer": {
+          "n": 30,
+          "median": 118.8794375,
+          "p95": 166.433042,
+          "minimum": 77.258792,
+          "maximum": 169.925792
+        },
+        "all": {
+          "n": 60,
+          "median": 118.8794375,
+          "p95": 166.433042,
+          "minimum": 71.028291,
+          "maximum": 177.419209
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.633916166,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round7-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 120.593042,
+          "p95": 204.413959,
+          "minimum": 76.880667,
+          "maximum": 220.587917
+        },
+        "pointer": {
+          "n": 30,
+          "median": 135.09562499999998,
+          "p95": 201.143125,
+          "minimum": 88.88075,
+          "maximum": 210.850667
+        },
+        "all": {
+          "n": 60,
+          "median": 127.0146875,
+          "p95": 201.143125,
+          "minimum": 76.880667,
+          "maximum": 220.587917
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.992629625,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round8-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 114.4596665,
+          "p95": 168.324834,
+          "minimum": 44.001583,
+          "maximum": 182.671667
+        },
+        "pointer": {
+          "n": 30,
+          "median": 136.0655835,
+          "p95": 233.962041,
+          "minimum": 56.586083,
+          "maximum": 284.307125
+        },
+        "all": {
+          "n": 60,
+          "median": 125.42820850000001,
+          "p95": 197.221584,
+          "minimum": 44.001583,
+          "maximum": 284.307125
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 21.319100583,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    }
+  ],
+  "installed_agent_sha256": "b8ab5811defd4682eeb1c87cf71b4db1d0713bb3620864922ffdb5eda2262b5a",
+  "production_agent_pid": 550192,
+  "production_network_pid": 4014903,
+  "endpoint": "renderer displayed-buffer availability",
+  "historical_baseline_ms": {
+    "median": 69.373,
+    "p95": 99.9831
+  }
+}
