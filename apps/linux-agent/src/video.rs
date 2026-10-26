@@ -60,6 +60,7 @@ runtime_api! {
     parse: unsafe extern "C" fn(*const c_char, *mut Object) -> Object => (core, c"gst_parse_launch"),
     get: unsafe extern "C" fn(Object, *const c_char) -> Object => (core, c"gst_bin_get_by_name"),
     state: unsafe extern "C" fn(Object, c_int) -> c_int => (core, c"gst_element_set_state"),
+    pipeline_clock: unsafe extern "C" fn(Object, Object) -> () => (core, c"gst_pipeline_use_clock"),
     unref: unsafe extern "C" fn(Object) -> () => (core, c"gst_object_unref"),
     free_error: unsafe extern "C" fn(Object) -> () => (glib, c"g_error_free"),
     copy_region: unsafe extern "C" fn(Object, c_uint, usize, usize) -> Object => (core, c"gst_buffer_copy_region"),
@@ -322,6 +323,12 @@ impl PipeWireCapture {
         if pipeline.is_null() {
             bail!("wayland_capture_unavailable")
         }
+        // The compositor already paces PipeWire production. This capture-only
+        // pipeline must deliver ready samples immediately, rather than also
+        // waiting on GstBaseSrc's presentation clock before reaching appsink.
+        // appsink sync=false alone only removes the sink's clock wait.
+        // Encoding/publication is independently capped by the controller.
+        unsafe { (api.pipeline_clock)(pipeline, ptr::null_mut()) };
         let sink = unsafe { (api.get)(pipeline, c"frames".as_ptr()) };
         let capture = Self {
             api,
@@ -901,6 +908,25 @@ mod tests {
         assert_eq!(unsafe { (api().unwrap().size)(buffer) }, 64 * 48 * 3 / 2);
         unsafe { (api().unwrap().mini_unref)(buffer) };
         wake.drain();
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer; ready capture samples must not wait on presentation timestamps"]
+    fn raw_capture_does_not_wait_for_source_presentation_clock() {
+        let started = std::time::Instant::now();
+        let capture = PipeWireCapture::from_description(
+            c"videotestsrc num-buffers=2 is-live=true ! video/x-raw,format=BGRx,width=64,height=48,framerate=1/1 ! appsink name=frames max-buffers=1 drop=false sync=false enable-last-sample=false",
+            Arc::new(FrameWake::new().unwrap()),
+        ).unwrap();
+        for _ in 0..2 {
+            let sample = unsafe { (capture.api.pull)(capture.sink, 2_000_000_000) };
+            assert!(!sample.is_null());
+            unsafe { (capture.api.sample_unref)(sample) };
+        }
+        // With the default source clock, the second timestamp waits one second
+        // even though appsink sync=false. PipeWire itself remains event driven;
+        // this synthetic producer isolates that additional clock wait.
+        assert!(started.elapsed() < Duration::from_millis(500));
     }
 
     #[test]
