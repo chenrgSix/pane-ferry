@@ -11,6 +11,7 @@ struct ControllerInputSmoke {
         verifyLogicalViewport()
         verifyRealtimeHover()
         verifyHiddenSourceWindow()
+        verifyRemoteResizeReconciliation()
         try! verifyClipboardBundles()
         let surface = SurfaceView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         surface.remoteID = 42
@@ -145,6 +146,67 @@ struct ControllerInputSmoke {
         print("PASS: Retina point/pixel mapping, resize round trip and bounded render dimensions")
         print("PASS: automatic viewport resolution, live resize tracking, stale geometry isolation and manual/automatic switching")
         print("PASS: controller close detaches once; remote destruction stays local")
+    }
+
+    private static func verifyRemoteResizeReconciliation() {
+        var sent: [[String: Any]] = []
+        let host = HostedWindow(id: 93, width: 900, height: 600, revision: 1, scale: 1,
+                                popup: false, disconnect: {}) { sent.append($0) }
+        defer { host.closeLocally() }
+        host.remoteVisible = true
+        host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        let target = host.requestedPixels!
+        let viewport = host.surface.bounds.size
+        let scale = RenderGeometry(scale: 1)!
+        func wait(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
+        func geometry(_ width: Int, _ height: Int) { host.applyRemoteGeometry(width: width, height: height, rendering: scale) }
+        func requests() -> [[String: Any]] { sent.filter { $0["type"] as? String == "window.configure" } }
+
+        // A source maximize after an already matched viewport must recover
+        // without requiring another local drag or a menu action.
+        geometry(3072, 1504)
+        wait(0.45)
+        precondition(requests().count == 1 && requests()[0]["width"] as? Int == target.width &&
+                     requests()[0]["height"] as? Int == target.height)
+        geometry(target.width, target.height)
+        wait(0.45)
+        precondition(requests().count == 1 && host.surface.bounds.size == viewport)
+
+        // Transient geometry that settles by itself must not cause a resize.
+        geometry(3072, 1504); geometry(target.width, target.height)
+        wait(0.45)
+        precondition(requests().count == 1)
+        geometry(target.width, target.height + 1)
+        wait(0.45)
+        precondition(requests().count == 1, "one pixel of compositor rounding must not cause repeated requests")
+
+        // A constrained app or lost reply cannot produce a feedback loop.
+        geometry(1000, 700)
+        wait(0.85)
+        precondition(requests().count == 3)
+        for _ in 0..<10 { geometry(1000, 700) }
+        wait(0.45)
+        precondition(requests().count == 3)
+
+        geometry(target.width, target.height)
+        geometry(3072, 1504)
+        host.applyRemoteVisibility(false)
+        wait(0.45)
+        precondition(requests().count == 3, "hidden source cancels pending resize")
+        host.applyRemoteVisibility(true)
+        wait(0.45)
+        precondition(requests().count == 4, "restoration reconciles the original viewport")
+        geometry(target.width, target.height)
+        for mode in ["related", "desktop", "session"] {
+            host.relatedWindow = mode == "related"; host.desktopMode = mode == "desktop"; host.sessionMode = mode == "session"
+            geometry(3072, 1504); wait(0.45)
+            precondition(requests().count == 4, "source-sized children and fixed canvases are not resized")
+            geometry(target.width, target.height)
+        }
+        host.relatedWindow = false; host.desktopMode = false; host.sessionMode = false
+        geometry(3072, 1504); host.closeLocally(); wait(0.45)
+        precondition(requests().count == 4, "closing cancels reconciliation")
+        print("PASS: source resize reconciliation, transient suppression, bounded retries, visibility and fixed-canvas isolation")
     }
 
     private static func verifyReleaseAfterShrink() {

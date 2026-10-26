@@ -39,6 +39,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var fixedPixels: (width: Int, height: Int)?
     private(set) var requestedPixels: (width: Int, height: Int)?
     private var resolutionTimer: Timer?
+    private var reconciliationTimer: Timer?
+    private var reconciliationAttempts = 2
     private var resolutionDelayed = false
     private var recentFrames: [TimeInterval] = []
     private var hasReceivedFrame = false
@@ -99,6 +101,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         window.ignoresMouseEvents = overlay && value.passive
         window.hasShadow = !overlay // Don't add a second native shadow to source pixels.
         if overlay { resizeTimer?.invalidate(); resizeTimer = nil }
+        if overlay || related { cancelResolutionReconciliation() }
         else { removeOverflowViewport() }
     }
     func sceneDisplacement(relativeTo parent: HostedWindow) -> CGPoint {
@@ -189,6 +192,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if !visible {
             surface.releaseInput(); surface.unmarkText()
             resizeTimer?.invalidate(); resizeTimer = nil
+            cancelResolutionReconciliation()
             if let scroll = overflowViewport {
                 applyingRemote = true
                 scroll.contentView.scroll(to: .zero)
@@ -207,6 +211,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
             } else { window.orderOut(nil) }
         }
         if !visible && (relatedWindow || popup) { window.orderOut(nil) }
+        if visible && changed { reconcileResolution() }
         updateSubtitle()
     }
     @objc func restoreSourceWindow() {
@@ -230,6 +235,36 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         // A source can move to another monitor. Keep the local logical size
         // and convert it using the newly reported source density only.
         if scaleChanged && fixedPixels == nil && !relatedWindow { windowDidResize(Notification(name: NSWindow.didResizeNotification)) }
+        reconcileResolution()
+    }
+    private func cancelResolutionReconciliation() {
+        reconciliationTimer?.invalidate(); reconciliationTimer = nil
+    }
+    private func matchesRequestedSize(width: Int, height: Int) -> Bool {
+        guard let target = requestedPixels else { return false }
+        // Integer compositor coordinates at 2x can round an odd pixel request
+        // by one pixel. Keep displaying the real dimensions, without retrying
+        // a physically unrepresentable half logical pixel.
+        return abs(target.width - width) <= 1 && abs(target.height - height) <= 1
+    }
+    private func reconcileResolution() {
+        guard requestedPixels != nil else { return }
+        if matchesRequestedSize(width: surface.remoteWidth, height: surface.remoteHeight) {
+            cancelResolutionReconciliation(); reconciliationAttempts = 2
+            return
+        }
+        // Source maximization/restoration can change geometry without an AppKit
+        // resize. Reassert the controller's viewport after transient replies
+        // settle, but stop if a WM minimum/increment prevents an exact match.
+        guard !fixedCanvas, !relatedWindow, !popup, remoteVisible, !closeRequested, !allowClose,
+              resolutionNotice == nil, reconciliationAttempts > 0,
+              resizeTimer == nil, reconciliationTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.reconciliationTimer = nil
+            self.sendResize(reconciling: true)
+        }
+        reconciliationTimer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     func updateSubtitle() {
         let now = ProcessInfo.processInfo.systemUptime
@@ -242,7 +277,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if desktopMode { parts.append("远端显示器原始画面") }
         if sessionMode { parts.append("应用会话画面") }
         if let target = requestedPixels {
-            let matched = frame?.width == target.width && frame?.height == target.height
+            let matched = frame.map { matchesRequestedSize(width: $0.width, height: $0.height) } ?? false
             if !matched {
                 parts.append("目标 \(target.width) × \(target.height)")
                 parts.append(resolutionDelayed ? "远端尚未匹配 · 等比显示" : "等待重绘 · 等比显示")
@@ -290,6 +325,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         guard !closeRequested else { return false }
         closeRequested = true
         resizeTimer?.invalidate(); resizeTimer = nil
+        cancelResolutionReconciliation()
         surface.releaseInput()
         // A native close only detaches this controller. The user can still
         // close the source application from inside its own window.
@@ -319,20 +355,27 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         onScreenChange?()
         if !applyingRemote { onLayoutChange?() }
     }
-    private func sendResize() {
+    private func sendResize(reconciling: Bool = false) {
         resizeTimer?.invalidate(); resizeTimer = nil
-        guard !fixedCanvas, !applyingRemote, remoteVisible, !popup else { return }
+        cancelResolutionReconciliation()
+        guard !fixedCanvas, !applyingRemote, remoteVisible, !popup, !closeRequested, !allowClose else { return }
+        if reconciling {
+            guard !relatedWindow, resolutionNotice == nil, reconciliationAttempts > 0 else { return }
+            reconciliationAttempts -= 1
+        } else { reconciliationAttempts = 2 }
         guard let pixels = fixedPixels ?? rendering.pixels(forLogicalSize: surface.bounds.size) else { return }
         requestedPixels = pixels
         resolutionNotice = nil
         resolutionTimer?.invalidate(); resolutionDelayed = false
         updateSubtitle()
-        if pixels.width == surface.remoteWidth && pixels.height == surface.remoteHeight { return }
+        if matchesRequestedSize(width: surface.remoteWidth, height: surface.remoteHeight) { return }
         transmit(["type": "window.configure", "window_id": id, "width": pixels.width, "height": pixels.height])
         let timer = Timer(timeInterval: 1.5, repeats: false) { [weak self] _ in
             self?.resolutionDelayed = true; self?.updateSubtitle()
         }
         resolutionTimer = timer; RunLoop.main.add(timer, forMode: .common)
+        // A rejected/no-op configure need not generate another geometry event.
+        reconcileResolution()
     }
     func useAutomaticResolution() {
         fixedPixels = nil
@@ -352,6 +395,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         windowDidResize(Notification(name: NSWindow.didResizeNotification))
     }
     func closeLocally() {
+        cancelResolutionReconciliation()
         resizeTimer?.invalidate(); resolutionTimer?.invalidate(); allowClose = true; surface.transmit = nil
         if let scroll = overflowViewport {
             NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scroll.contentView)
