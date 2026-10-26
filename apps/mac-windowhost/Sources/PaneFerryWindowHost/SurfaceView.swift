@@ -90,9 +90,9 @@ final class SurfaceView: NSView, NSTextInputClient {
             videoCanvas = canvas; textOverlay = overlay
         }
         guard let canvas = videoCanvas else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
         canvas.frame = imageRect; canvas.isHidden = false
         canvas.display.frame = canvas.bounds
-        CATransaction.begin(); CATransaction.setDisableActions(true)
         CATransaction.setCompletionBlock { [weak self, weak frame] in
             DispatchQueue.main.async {
                 guard let self = self, let frame = frame else { return }
@@ -111,9 +111,15 @@ final class SurfaceView: NSView, NSTextInputClient {
     }
     override func layout() {
         super.layout()
+        // AppKit can relayout a layer-backed view when it becomes active.
+        // Video geometry must follow the content rect immediately; Core
+        // Animation's default bounds/position animation would zoom old pixels
+        // inside an otherwise unchanged native window.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
         videoCanvas?.frame = imageRect
         if let canvas = videoCanvas { canvas.display.frame = canvas.bounds }
         textOverlay?.frame = bounds
+        CATransaction.commit()
     }
     override func updateTrackingAreas() {
         if let tracking = tracking { removeTrackingArea(tracking) }
