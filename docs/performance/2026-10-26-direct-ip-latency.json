@@ -1,0 +1,535 @@
+{
+  "date": "2026-10-26",
+  "product_revision": "be644ba",
+  "probe_revision": "1f987ce",
+  "endpoint": "renderer displayed-buffer availability",
+  "workload": "native GTK Wayland fixture, 1470x809 pixels at 1x, identical logical grid/text and 33ms small animation",
+  "negotiated_max_fps": 30,
+  "samples_per_path": 240,
+  "round_order": [
+    "overlay",
+    "lan",
+    "lan",
+    "overlay",
+    "lan",
+    "overlay",
+    "overlay",
+    "lan"
+  ],
+  "local_points": [
+    1467,
+    805
+  ],
+  "addresses": {
+    "lan": "192.168.1.254:42424",
+    "overlay": "10.0.1.66:42424"
+  },
+  "interfaces": {
+    "lan": "en0",
+    "overlay": "utun4"
+  },
+  "same_pinned_identity": true,
+  "connection_proof": [
+    {
+      "path": "lan",
+      "event": "connection_opened",
+      "remote": "192.168.1.254:42424"
+    },
+    {
+      "path": "overlay",
+      "event": "connection_opened",
+      "remote": "10.0.1.66:42424"
+    }
+  ],
+  "probe_sha256": "4112871d555e0e205dd50a9c418f604bc3d1d851dfb8596a6a2b087869ea0d5a",
+  "network_sha256": "df7a0869677123a56b386bc8f8f62e79404bce6d1400bc44324afaedcb411a6f",
+  "agent_sha256": "7e856273980ca724c2efc563bf3e10c1cfeb261f683de4a8d2ab815524b311d6",
+  "groups": {
+    "overlay": {
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 118.4347295,
+          "p95_ms": 154.8615,
+          "minimum_ms": 60.331416,
+          "maximum_ms": 197.891667
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 119.887958,
+          "p95_ms": 150.81725,
+          "minimum_ms": 60.331416,
+          "maximum_ms": 162.057875
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 117.1838545,
+          "p95_ms": 160.360291,
+          "minimum_ms": 74.13,
+          "maximum_ms": 197.891667
+        }
+      },
+      "stages": {
+        "input_to_write_end": {
+          "samples": 240,
+          "median_ms": 0.2625835,
+          "p95_ms": 1.093792,
+          "minimum_ms": 0.085375,
+          "maximum_ms": 1.706833
+        },
+        "write_end_to_received": {
+          "samples": 240,
+          "median_ms": 105.194,
+          "p95_ms": 141.16025,
+          "minimum_ms": 49.965209,
+          "maximum_ms": 180.200916
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 2.45675,
+          "p95_ms": 3.833584,
+          "minimum_ms": 0.821875,
+          "maximum_ms": 6.182042
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.07256199999999999,
+          "p95_ms": 0.144833,
+          "minimum_ms": 0.021041,
+          "maximum_ms": 3.6245
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 9.616417,
+          "p95_ms": 17.076167,
+          "minimum_ms": 1.601209,
+          "maximum_ms": 20.047875
+        }
+      },
+      "ping": {
+        "samples": 8,
+        "minimum_ms": 5.793,
+        "mean_ms": 9.217,
+        "maximum_ms": 19.558,
+        "stddev_ms": 4.158,
+        "loss_percent": 0
+      }
+    },
+    "lan": {
+      "latency": {
+        "all": {
+          "samples": 240,
+          "median_ms": 118.7698125,
+          "p95_ms": 150.276208,
+          "minimum_ms": 66.308,
+          "maximum_ms": 169.301
+        },
+        "key": {
+          "samples": 120,
+          "median_ms": 118.228396,
+          "p95_ms": 143.104542,
+          "minimum_ms": 68.612917,
+          "maximum_ms": 169.301
+        },
+        "pointer": {
+          "samples": 120,
+          "median_ms": 119.03162449999999,
+          "p95_ms": 153.172834,
+          "minimum_ms": 66.308,
+          "maximum_ms": 169.08575
+        }
+      },
+      "stages": {
+        "input_to_write_end": {
+          "samples": 240,
+          "median_ms": 0.279458,
+          "p95_ms": 1.125667,
+          "minimum_ms": 0.071125,
+          "maximum_ms": 1.75475
+        },
+        "write_end_to_received": {
+          "samples": 240,
+          "median_ms": 105.0805,
+          "p95_ms": 135.252542,
+          "minimum_ms": 59.953208,
+          "maximum_ms": 158.097667
+        },
+        "parse_decode": {
+          "samples": 240,
+          "median_ms": 2.537896,
+          "p95_ms": 3.422291,
+          "minimum_ms": 0.797417,
+          "maximum_ms": 4.614333
+        },
+        "main_queue": {
+          "samples": 240,
+          "median_ms": 0.07268749999999999,
+          "p95_ms": 0.115959,
+          "minimum_ms": 0.020458,
+          "maximum_ms": 7.378833
+        },
+        "display_buffer": {
+          "samples": 240,
+          "median_ms": 9.721167000000001,
+          "p95_ms": 17.0375,
+          "minimum_ms": 2.104042,
+          "maximum_ms": 18.945625
+        }
+      },
+      "ping": {
+        "samples": 8,
+        "minimum_ms": 2.763,
+        "mean_ms": 4.383,
+        "maximum_ms": 6.941,
+        "stddev_ms": 1.253,
+        "loss_percent": 0
+      }
+    }
+  },
+  "comparison": {
+    "median_reduction_ms": -0.33508299999999736,
+    "median_reduction_percent": -0.28292630161324206,
+    "p95_reduction_ms": 4.58529200000001
+  },
+  "rounds": [
+    {
+      "path": "overlay",
+      "name": "final1-overlay",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 118.0917295,
+          "p95": 145.930459,
+          "minimum": 60.331416,
+          "maximum": 154.8615
+        },
+        "pointer": {
+          "n": 30,
+          "median": 115.05208350000001,
+          "p95": 154.847416,
+          "minimum": 77.752459,
+          "maximum": 162.969834
+        },
+        "all": {
+          "n": 60,
+          "median": 117.9848755,
+          "p95": 150.925292,
+          "minimum": 60.331416,
+          "maximum": 162.969834
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.932124667,
+      "stop_returncode": 0
+    },
+    {
+      "path": "lan",
+      "name": "final2-lan",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 124.35997950000001,
+          "p95": 145.4825,
+          "minimum": 68.612917,
+          "maximum": 169.301
+        },
+        "pointer": {
+          "n": 30,
+          "median": 127.0322085,
+          "p95": 161.902,
+          "minimum": 66.308,
+          "maximum": 169.08575
+        },
+        "all": {
+          "n": 60,
+          "median": 126.77841649999999,
+          "p95": 159.528042,
+          "minimum": 66.308,
+          "maximum": 169.301
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.583700583,
+      "stop_returncode": 0
+    },
+    {
+      "path": "lan",
+      "name": "final3-lan",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 108.24795850000001,
+          "p95": 143.427417,
+          "minimum": 91.244459,
+          "maximum": 165.784959
+        },
+        "pointer": {
+          "n": 30,
+          "median": 116.0591045,
+          "p95": 142.374208,
+          "minimum": 84.116292,
+          "maximum": 151.932917
+        },
+        "all": {
+          "n": 60,
+          "median": 112.08993749999999,
+          "p95": 142.374208,
+          "minimum": 84.116292,
+          "maximum": 165.784959
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.772722542,
+      "stop_returncode": 0
+    },
+    {
+      "path": "overlay",
+      "name": "final4-overlay",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 135.18879149999998,
+          "p95": 160.317875,
+          "minimum": 100.48275,
+          "maximum": 162.057875
+        },
+        "pointer": {
+          "n": 30,
+          "median": 130.31760450000002,
+          "p95": 170.046833,
+          "minimum": 90.392167,
+          "maximum": 197.891667
+        },
+        "all": {
+          "n": 60,
+          "median": 134.999729,
+          "p95": 162.057875,
+          "minimum": 90.392167,
+          "maximum": 197.891667
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.95876975,
+      "stop_returncode": 0
+    },
+    {
+      "path": "lan",
+      "name": "final5-lan",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 119.32989549999999,
+          "p95": 145.984584,
+          "minimum": 99.411666,
+          "maximum": 155.407792
+        },
+        "pointer": {
+          "n": 30,
+          "median": 127.23400000000001,
+          "p95": 159.8235,
+          "minimum": 105.212834,
+          "maximum": 160.3145
+        },
+        "all": {
+          "n": 60,
+          "median": 123.5843335,
+          "p95": 155.407792,
+          "minimum": 99.411666,
+          "maximum": 160.3145
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.544882792,
+      "stop_returncode": 0
+    },
+    {
+      "path": "overlay",
+      "name": "final6-overlay",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 115.266854,
+          "p95": 148.447125,
+          "minimum": 90.817583,
+          "maximum": 155.360333
+        },
+        "pointer": {
+          "n": 30,
+          "median": 114.8274585,
+          "p95": 159.851875,
+          "minimum": 84.57775,
+          "maximum": 171.277375
+        },
+        "all": {
+          "n": 60,
+          "median": 115.266854,
+          "p95": 148.777333,
+          "minimum": 84.57775,
+          "maximum": 171.277375
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.936407167,
+      "stop_returncode": 0
+    },
+    {
+      "path": "overlay",
+      "name": "final7-overlay",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 116.3973955,
+          "p95": 149.814916,
+          "minimum": 82.082834,
+          "maximum": 150.81725
+        },
+        "pointer": {
+          "n": 30,
+          "median": 106.1010205,
+          "p95": 152.734583,
+          "minimum": 74.13,
+          "maximum": 164.404625
+        },
+        "all": {
+          "n": 60,
+          "median": 110.339875,
+          "p95": 149.814916,
+          "minimum": 74.13,
+          "maximum": 164.404625
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.514285208,
+      "stop_returncode": 0
+    },
+    {
+      "path": "lan",
+      "name": "final8-lan",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 110.9406665,
+          "p95": 136.448708,
+          "minimum": 82.394083,
+          "maximum": 139.270334
+        },
+        "pointer": {
+          "n": 30,
+          "median": 107.790375,
+          "p95": 128.382666,
+          "minimum": 77.556667,
+          "maximum": 131.536625
+        },
+        "all": {
+          "n": 60,
+          "median": 108.151792,
+          "p95": 134.028958,
+          "minimum": 77.556667,
+          "maximum": 139.270334
+        }
+      },
+      "local_points": [
+        1467,
+        805
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.465243792,
+      "stop_returncode": 0
+    }
+  ],
+  "excluded_attempts": [
+    {
+      "name": "lan-preflight",
+      "reason": "startup validation, eight samples"
+    },
+    {
+      "name": "path1-overlay",
+      "reason": "preliminary, sixty samples"
+    },
+    {
+      "name": "path2-lan",
+      "reason": "preliminary, sixty samples"
+    },
+    {
+      "name": "path3-lan",
+      "reason": "source geometry changed to 2x; timeout with only one non-warmup response"
+    }
+  ],
+  "production_address_changed": false
+}
