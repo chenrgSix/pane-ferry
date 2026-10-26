@@ -169,7 +169,7 @@ pub fn sent(value: &Value, bytes: usize, start: u64, end: u64) {
         return;
     }
     trace(
-        json!({"event":"sent","selection":s["selection"],"encode_start":s["encode_start"],
+        json!({"event":"sent","stages":s,"selection":s["selection"],"encode_start":s["encode_start"],
         "encode_end":s["encode_end"],"write_begin":start,"write_end":end,"bytes":bytes,
         "feedback_id":value["frame_id"],"window_id":value["window_id"]}),
     );

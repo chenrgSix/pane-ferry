@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Instrument a fresh git-archive copy, never the working tree or installed Agent.
 
-Only diagnostic frame identities, fixture counts and timestamps are added to
-frame metadata. Run one sequential key/click probe/controller; do not use this
-binary in production.
+Only diagnostic frame identities, fixture counts and timestamps are collected.
+By default they extend frame metadata; --trace-only keeps the wire metadata
+unchanged and stores timings in the private PANEFERRY_PROBE_TRACE file instead.
+Run one sequential key/click probe/controller; do not use this binary in production.
 """
 import argparse
 from pathlib import Path
@@ -88,7 +89,9 @@ pub fn frame(pointer:usize,start:u64)->Value {
 }
 '''
 
-def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=()):
+def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False):
+    if trace_only and not stages:
+        raise ValueError('trace-only requires stage instrumentation')
     destination.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryFile() as archive:
         subprocess.run(['git', 'archive', revision], cwd=ROOT, stdout=archive, check=True)
@@ -165,6 +168,11 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     edit('output_worker.rs', '"stream_id":state.encoder.stream,', '"_agent_stages":crate::stage_probe::frame(Arc::as_ptr(&job.image) as usize,probe_encode),\n            "stream_id":state.encoder.stream,')
     edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;', 'if value["_agent_stages"].is_object() {value["_agent_stages"]["write"]=json!(crate::stage_probe::now());}\n        let mut bytes = serde_json::to_vec(&value)?;')
     edit('output.rs', 'socket.write_all(&bytes)?;', 'let probe_write=crate::stage_probe::now();\n        socket.write_all(&bytes)?;\n        crate::selection_probe::sent(&value,bytes.len(),probe_write,crate::stage_probe::now());')
+    if trace_only:
+        edit('output.rs', 'let mut bytes = serde_json::to_vec(&value)?;',
+             'let probe_stages = value.as_object_mut().and_then(|v| v.remove("_agent_stages"));\n        let mut bytes = serde_json::to_vec(&value)?;')
+        edit('output.rs', 'crate::selection_probe::sent(&value,bytes.len(),probe_write,crate::stage_probe::now());',
+             'let probe_done=crate::stage_probe::now();\n        if let Some(stages)=probe_stages {value["_agent_stages"]=stages;}\n        crate::selection_probe::sent(&value,bytes.len(),probe_write,probe_done);')
     print(destination)
 
 if __name__ == '__main__':
@@ -173,6 +181,9 @@ if __name__ == '__main__':
     p.add_argument('--revision', default='HEAD')
     p.add_argument('--isolated-state', action='store_true', help='require a private PANEFERRY_PROBE_STATE; keep HOME and installed desktop integration untouched')
     p.add_argument('--no-stages', action='store_true', help='archive only (plus optional isolated state), without timing instrumentation')
+    p.add_argument('--trace-only', action='store_true', help='keep frame metadata unchanged; write timings only to PANEFERRY_PROBE_TRACE')
     p.add_argument('--source-override', action='append', default=[], help='copy this explicit working-tree file before instrumenting the archive')
     a=p.parse_args()
-    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override)
+    if a.trace_only and a.no_stages:
+        p.error('--trace-only and --no-stages are mutually exclusive')
+    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override, a.trace_only)
