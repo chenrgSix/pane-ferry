@@ -1,5 +1,6 @@
 //! Existing Xwayland windows keep their native backing density. The receiver
-//! sees logical client pixels; downsampling belongs to the encoding worker.
+//! sees logical client pixels; reduce on the server before readback when supported,
+//! retaining the encoding worker conversion as a compatibility fallback.
 use super::*;
 use anyhow::{bail, Context};
 use paneferry_backend_x11::LogicalLayout;
@@ -148,7 +149,9 @@ impl WindowBackend for LogicalX11 {
             .windows
             .get(&window.window_id)
             .context("unknown window")?;
-        let image = self.source.capture(raw)?;
+        let image = self
+            .source
+            .capture_scaled(raw, window.width, window.height)?;
         crate::video::Frame::scaled_image(image, window.width, window.height).map(Arc::new)
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {

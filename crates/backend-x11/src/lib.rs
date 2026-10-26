@@ -23,6 +23,7 @@ mod damage;
 mod inventory;
 mod metadata_events;
 mod related_windows;
+mod render_scale;
 mod shared_capture;
 mod window_size;
 pub use controller_copy::CopiedText;
@@ -78,6 +79,8 @@ pub struct Backend {
     shared_capture: RefCell<shared_capture::SharedCapture>,
     damage: RefCell<damage::Damage>,
     metadata: metadata_events::MetadataEvents,
+    render_scale: RefCell<render_scale::RenderScale>,
+    visuals: HashMap<u32, u32>,
     desktop_input: Option<Arc<dyn DesktopInput>>,
     desktop_geometry: Option<Box<dyn DesktopGeometry>>,
     size_adjustments: HashMap<u32, window_size::Adjustment>,
@@ -228,6 +231,7 @@ impl Backend {
         let shared_capture = RefCell::new(shared_capture::SharedCapture::new(&conn));
         let damage = RefCell::new(damage::Damage::new(&conn));
         let metadata = metadata_events::MetadataEvents::new(&conn, root);
+        let render_scale = RefCell::new(render_scale::RenderScale::new(&conn, root));
         Ok(Self {
             conn,
             root,
@@ -244,6 +248,8 @@ impl Backend {
             shared_capture,
             damage,
             metadata,
+            render_scale,
+            visuals: HashMap::new(),
             desktop_input: None,
             desktop_geometry: None,
             size_adjustments: HashMap::new(),
@@ -506,6 +512,7 @@ impl Backend {
                 continue;
             }
             self.metadata.watch(&self.conn, id, a.your_event_mask);
+            self.visuals.insert(id, a.visual);
             let Ok(g) = self.conn.get_geometry(id)?.reply() else {
                 continue;
             };
@@ -602,6 +609,7 @@ impl Backend {
             self.release_all();
         }
         self.windows = out.iter().cloned().map(|w| (w.window_id, w)).collect();
+        self.visuals.retain(|id, _| self.windows.contains_key(id));
         self.damage.borrow_mut().sync(&self.conn, &self.windows)?;
         Ok(out)
     }
@@ -682,13 +690,17 @@ impl Backend {
         self.damage.borrow().needed(window)
     }
     pub fn capture(&self, w: &Window) -> Result<CapturedImage> {
-        let result = self.capture_image(w);
+        self.capture_scaled(w, w.width, w.height)
+    }
+    pub fn capture_scaled(&self, w: &Window, width: u32, height: u32) -> Result<CapturedImage> {
+        paneferry_protocol::dimensions(width, height)?;
+        let result = self.capture_image(w, (width, height));
         if result.is_err() {
             self.damage.borrow_mut().retry(w.window_id);
         }
         result
     }
-    fn capture_image(&self, w: &Window) -> Result<CapturedImage> {
+    fn capture_image(&self, w: &Window, wanted: (u32, u32)) -> Result<CapturedImage> {
         self.known(w.window_id)?;
         self.damage
             .borrow_mut()
@@ -705,12 +717,25 @@ impl Backend {
         } else {
             None
         };
+        let mut size = (w.width, w.height);
+        let mut visual_override = None;
         let image = (|| -> Result<_> {
-            let drawable = pixmap.unwrap_or(w.window_id);
+            let mut drawable = pixmap.unwrap_or(w.window_id);
+            if let Some(visual) = self.visuals.get(&w.window_id) {
+                if let Some((scaled, target_visual)) = self
+                    .render_scale
+                    .borrow_mut()
+                    .capture_drawable(&self.conn, drawable, *visual, size, wanted)?
+                {
+                    drawable = scaled;
+                    size = wanted;
+                    visual_override = Some(target_visual);
+                }
+            }
             if let Some(image) = self
                 .shared_capture
                 .borrow_mut()
-                .capture(&self.conn, drawable, w.width, w.height)
+                .capture(&self.conn, drawable, size.0, size.1)
             {
                 return Ok(image);
             }
@@ -721,8 +746,8 @@ impl Backend {
                     drawable,
                     0,
                     0,
-                    w.width as u16,
-                    w.height as u16,
+                    size.0 as u16,
+                    size.1 as u16,
                     u32::MAX,
                 )?
                 .reply()?;
@@ -732,7 +757,9 @@ impl Backend {
             self.conn.free_pixmap(pixmap)?;
         }
         let (depth, visual_id, data) = image?;
-        let visual_id = if visual_id == 0 {
+        let visual_id = if let Some(visual) = visual_override {
+            visual
+        } else if visual_id == 0 {
             self.conn
                 .get_window_attributes(w.window_id)?
                 .reply()?
@@ -754,8 +781,8 @@ impl Backend {
             .find(|v| v.visual_id == visual_id)
             .ok_or_else(|| anyhow::anyhow!("missing visual"))?;
         Ok(CapturedImage {
-            width: w.width,
-            height: w.height,
+            width: size.0,
+            height: size.1,
             data,
             bpp: f.bits_per_pixel,
             pad: f.scanline_pad,
