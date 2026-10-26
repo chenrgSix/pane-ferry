@@ -42,6 +42,10 @@ def build_archive(destination, revision):
          '        let probe_first=crate::probe::now();\n        // Idle streams are valid. Once a packet begins,')
     edit('framing.rs', '            reader.read_exact(&mut payload).await?;',
          '            reader.read_exact(&mut payload).await?;\n            crate::probe::frame("quic_read_complete",&value,crate::probe::now(),serde_json::json!({"first_byte_ns":probe_first,"binary_bytes":binary,"metadata_bytes":meta}));')
+    edit('service.rs', 'within(Instant::now()+TIMEOUT, "media header", Packet::new(json!({"op":"media","channel":channel,"window_id":window}),0)?.write(&mut send)).await?;',
+         'let header=Packet::new(json!({"op":"media","channel":channel,"window_id":window}),0)?;\n let mut probe_offset=16+serde_json::to_vec(&header.value)?.len() as u64;\n within(Instant::now()+TIMEOUT,"media header",header.write(&mut send)).await?;')
+    edit('service.rs', 'while let Some(packet) = rx.recv().await { tokio::time::timeout(TIMEOUT,packet.write(&mut send)).await??; }',
+         'while let Some(packet) = rx.recv().await {\n crate::probe::progress(connection.clone(),&packet.value,u64::from(send.id()),probe_offset);\n probe_offset+=16+serde_json::to_vec(&packet.value)?.len() as u64+packet.payload.len() as u64;\n tokio::time::timeout(TIMEOUT,packet.write(&mut send)).await??; }')
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)

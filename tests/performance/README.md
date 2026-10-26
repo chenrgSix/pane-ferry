@@ -68,6 +68,12 @@ CLOCK_MONOTONIC；只在同一端做差。完整 Mac 响应区间扣除 Agent �
 选帧诊断的 `--trace-only` 模式只写本地 JSONL，不把 `_agent_stages` 放进协议。
 其中 `ready`、`raw_pull`、`i420_pull` 分别保留样本身份、就绪时间和实际读取时间，
 避免把首个响应样本与最终编码样本混为一谈；`status_start/status_end` 单独记录输入状态查询。
+`rpc_queued/rpc_started/rpc_completed` 用同一个本地 RPC ID 拆开排队和执行，
+区分 foreground、metadata、bridge 和 desktop；只记录操作名和测试计数，不记录输入内容。
+X11 兼容路径也记录 capture 和编码边界；其编码前不是 I420，因此 selection 字段可为空。
+夹具的 `after_paint` 只表示 GTK 绘制阶段结束，不等于 GPU 完成或屏幕已显示。
+Xwayland 保持 2× backing、输出 1× 时可加 `--output-markers`，让视觉计数的位置随输出归一化；
+源端真实尺寸和缩放仍应单独核验。
 
 ## 网络与显示边界诊断
 
@@ -83,6 +89,9 @@ QUIC 写出完成表示本地异步写入完成，不是远端收到；`first_by
 本地时间，不是网卡硬件时间戳。Mac 服务端的 JSON 写出终点是到本地 bridge 的 Unix socket，
 后续 bridge 到探针完整行的交付仍须用探针 `received` 计时。
 Linux 用 CLOCK_MONOTONIC，Mac 用 CLOCK_UPTIME_RAW，与 Swift uptime 对齐；跨端绝对值不能相减。
+关键帧附近另采样 `quic_progress`，保留发送流 ID、消息起始字节偏移、窗口、ACK、
+丢包、流控阻塞和 UDP 字节计数。它是定时统计采样，不是逐包 qlog，也不直接提供 bytes-in-flight；
+一次采样中的字节增量可能包含相邻视频消息，不应全归给当前关键帧。
 
 显示探针记录最后一次未匹配与第一次匹配查询的起止时间、预期和实际 IOSurface ID。
 它们约束的是 renderer 缓冲查询的观测窗口，不能当作精确 presentation 时间或面板亮起时间；

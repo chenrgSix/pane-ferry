@@ -50,3 +50,34 @@ pub fn frame(event: &str, value: &Value, timestamp_ns: u64, details: Value) {
         }
     }
 }
+
+pub fn progress(connection: quinn::Connection, value: &Value, stream: u64, offset: u64) {
+    if value["key_frame"] != true {
+        return;
+    }
+    let value = value.clone();
+    tokio::spawn(async move {
+        let begin = now();
+        for _ in 0..100 {
+            let s = connection.stats();
+            frame(
+                "quic_progress",
+                &value,
+                now(),
+                json!({"stream_id":stream,"message_offset":offset,"begin_ns":begin,
+                    "cwnd":s.path.cwnd,"rtt_us":s.path.rtt.as_micros(),
+                    "mtu":s.path.current_mtu,"tx_bytes":s.udp_tx.bytes,"rx_bytes":s.udp_rx.bytes,
+                    "tx_datagrams":s.udp_tx.datagrams,"rx_datagrams":s.udp_rx.datagrams,
+                    "lost_packets":s.path.lost_packets,"lost_bytes":s.path.lost_bytes,
+                    "congestion_events":s.path.congestion_events,
+                    "rx_acks":s.frame_rx.acks,"tx_data_blocked":s.frame_tx.data_blocked,
+                    "tx_stream_data_blocked":s.frame_tx.stream_data_blocked,
+                    "rx_max_data":s.frame_rx.max_data,"rx_max_stream_data":s.frame_rx.max_stream_data}),
+            );
+            if connection.close_reason().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    });
+}

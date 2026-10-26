@@ -14,9 +14,11 @@ width, height = map(int, sys.argv[2:4])
 animated = sys.argv[4] == 'animated'
 initial_scale = int(sys.argv[5]) if len(sys.argv) > 5 else 2
 logical_content = '--logical-content' in sys.argv[6:]
+output_markers = '--output-markers' in sys.argv[6:]
 app = Gtk.Application(application_id='io.paneferry.LiveLatencyFixture')
 count = tick = 0
 last_drawn = -1
+last_painted = -1
 
 
 def record(kind, **extra):
@@ -56,6 +58,11 @@ def activate(application):
         # Fixed physical marker coordinates keep probe recognition independent
         # of density; the page itself retains identical logical content.
         context.scale(1 / scale, 1 / scale)
+        if output_markers:
+            # Xwayland may keep a 2x backing buffer while the receiver gets 1x.
+            # Keep the visual counter at fixed receiver coordinates in that case.
+            context.scale(widget.get_allocated_width() * scale / width,
+                          widget.get_allocated_height() * scale / height)
         for bit in range(8):
             value = (count >> bit) & 1
             context.set_source_rgb(value, value, value)
@@ -85,10 +92,18 @@ def activate(application):
         area.queue_draw()
         return True
 
+    def after_paint(clock):
+        global last_painted
+        if count != last_painted:
+            record('after_paint', frame_counter=clock.get_frame_counter(),
+                   frame_time_us=clock.get_frame_time())
+            last_painted = count
+
     area.connect('draw', draw)
     area.connect('button-press-event', click)
     area.connect('key-press-event', key)
     window.show_all(); area.grab_focus()
+    area.get_frame_clock().connect('after-paint', after_paint)
     if animated:
         GLib.timeout_add(33, animate)
 

@@ -13,13 +13,25 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = r'''
-use std::{cell::Cell, collections::HashMap, sync::{Mutex, OnceLock}};
+use std::{cell::Cell, collections::HashMap, sync::{Mutex, OnceLock, atomic::{AtomicU64, Ordering}}};
 use serde_json::{json, Value};
 use paneferry_protocol::Request;
 pub fn now() -> u64 {
     let mut t = libc::timespec {tv_sec:0,tv_nsec:0};
     assert_eq!(unsafe {libc::clock_gettime(libc::CLOCK_MONOTONIC,&mut t)},0);
     t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+}
+pub fn rpc_queued(role:&str,op:&str)->u64 {
+    static NEXT:AtomicU64=AtomicU64::new(1);
+    let id=NEXT.fetch_add(1,Ordering::Relaxed);
+    let s=STATE.get_or_init(Default::default).lock().unwrap();
+    let count=s.active.and_then(|w|s.inputs.get(&w)).map(|i|i.count);
+    drop(s);
+    crate::selection_probe::trace(json!({"event":"rpc_queued","rpc_id":id,"role":role,"op":op,"count":count,"timestamp_ns":now()}));
+    id
+}
+pub fn rpc_event(id:u64,event:&str) {
+    crate::selection_probe::trace(json!({"event":event,"rpc_id":id,"timestamp_ns":now()}));
 }
 #[derive(Default,Clone)]
 struct Input { count:u64, received:u64, dispatched:u64, input_end:u64 }
@@ -114,6 +126,13 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         if text.count(before) != 1:
             raise ValueError(f'instrumentation anchor changed in {name}: {before[:80]}')
         p.write_text(text.replace(before, after))
+
+    def edit_many(name, before, after, expected):
+        p = source / name
+        text = p.read_text()
+        if text.count(before) != expected:
+            raise ValueError(f'instrumentation anchor count changed in {name}: {before[:80]}')
+        p.write_text(text.replace(before, after))
     if isolated_state:
         # Test-only builds never bind the installed Agent's socket or change
         # HOME. Its existing desktop permission can be restored independently.
@@ -124,6 +143,29 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     if not stages:
         print(destination)
         return
+    edit('wayland_rpc.rs', 'Call(Value, SyncSender<Reply>),', 'Call(Value, SyncSender<Reply>, u64),')
+    edit_many('wayland_rpc.rs', 'Work::Call(value, reply) => {', 'Work::Call(value, reply, probe_id) => {', 2)
+    edit_many('wayland_rpc.rs', 'let _ = reply.send(invoke(&mut call, value));',
+              'crate::stage_probe::rpc_event(probe_id,"rpc_started");\n let result=invoke(&mut call,value);\n crate::stage_probe::rpc_event(probe_id,"rpc_completed");\n let _ = reply.send(result);', 2)
+    edit('wayland_rpc.rs', 'pub fn call(&mut self, value: Value) -> Result<Value> {',
+         'pub fn call(&mut self, value: Value) -> Result<Value> {\n        let probe_id=crate::stage_probe::rpc_queued("foreground",value["op"].as_str().unwrap_or("unknown"));')
+    edit('wayland_rpc.rs', '.send(Work::Call(value, sender))?', '.send(Work::Call(value, sender, probe_id))?')
+    edit('wayland_rpc.rs', 'snapshot[op] = invoke(&mut call, json!({"op":op}))?;',
+         'let probe_id=crate::stage_probe::rpc_queued("metadata",op);\n crate::stage_probe::rpc_event(probe_id,"rpc_started");\n let result=invoke(&mut call,json!({"op":op}));\n crate::stage_probe::rpc_event(probe_id,"rpc_completed");\n snapshot[op]=result?;')
+    for op in ('resize', 'scene_point'):
+        edit('wayland_rpc.rs', f'Work::Call(json!({{"op":"{op}"}}), reply)', f'Work::Call(json!({{"op":"{op}"}}), reply, 0)')
+    edit('desktop_input.rs', 'let mut slot = self.inner.broker.lock().unwrap();',
+         'let probe_id=crate::stage_probe::rpc_queued("desktop",request["type"].as_str().unwrap_or("unknown"));\n        let mut slot = self.inner.broker.lock().unwrap();\n        crate::stage_probe::rpc_event(probe_id,"rpc_started");')
+    edit('desktop_input.rs', 'let result = broker.call(request);',
+         'let result = broker.call(request);\n        crate::stage_probe::rpc_event(probe_id,"rpc_completed");')
+    edit('wayland.rs', 'fn call(&mut self, value: Value) -> Result<Value> {',
+         'fn call(&mut self, value: Value) -> Result<Value> {\n let probe_id=crate::stage_probe::rpc_queued("bridge",value["op"].as_str().unwrap_or("unknown"));\n crate::stage_probe::rpc_event(probe_id,"rpc_started");')
+    edit('wayland.rs', 'let answer: Value = serde_json::from_slice(&line)?;',
+         'let answer: Value = serde_json::from_slice(&line)?;\n crate::stage_probe::rpc_event(probe_id,"rpc_completed");')
+    edit('backend/logical_x11.rs', 'let image = self.source.capture(raw)?;',
+         'let probe_capture=crate::stage_probe::now();\n        let image = self.source.capture(raw)?;')
+    edit('backend/logical_x11.rs', 'crate::video::Frame::scaled_image(image, window.width, window.height).map(Arc::new)',
+         'let frame=Arc::new(crate::video::Frame::scaled_image(image, window.width, window.height)?);\n crate::stage_probe::capture(window.window_id,Arc::as_ptr(&frame) as usize,probe_capture);\n Ok(frame)')
     (source / 'stage_probe.rs').write_text(MODULE)
     for name in ['selection_probe.rs', 'selection_gstreamer.rs']:
         (source / name).write_text((ROOT / 'tests/performance' / name).read_text())

@@ -184,7 +184,7 @@ pub fn sent(value: &Value, bytes: usize, start: u64, end: u64) {
         "key_frame":value["key_frame"],"feedback_id":value["frame_id"],"window_id":value["window_id"]}),
     );
 }
-fn trace(v: Value) {
+pub(crate) fn trace(v: Value) {
     static FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
     let f = FILE.get_or_init(|| {
         Mutex::new(std::env::var_os("PANEFERRY_PROBE_TRACE").and_then(|p| {
