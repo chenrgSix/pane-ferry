@@ -1,0 +1,884 @@
+{
+  "date": "2026-10-26",
+  "address": "10.0.1.66",
+  "route_interface": "utun4",
+  "icmp_rtt_ms": {
+    "n": 4,
+    "minimum": 17.843,
+    "average": 19.477,
+    "maximum": 21.857
+  },
+  "endpoint": "renderer displayed-buffer availability",
+  "source_pixels": [
+    1470,
+    809
+  ],
+  "local_points": [
+    1460,
+    801
+  ],
+  "scale": 1,
+  "negotiated_fps": 30,
+  "maximum_screen_fps": 60,
+  "formal": {
+    "base": {
+      "n": 240,
+      "median_ms": 102.3263755,
+      "p95_ms": 151.890375,
+      "minimum_ms": 60.796542,
+      "maximum_ms": 235.258458,
+      "under_100ms": 103
+    },
+    "candidate": {
+      "n": 240,
+      "median_ms": 93.062792,
+      "p95_ms": 127.491375,
+      "minimum_ms": 53.405792,
+      "maximum_ms": 166.404834,
+      "under_100ms": 152
+    }
+  },
+  "formal_rounds": [
+    {
+      "name": "selection-round1-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 104.2410415,
+          "p95": 143.45825,
+          "minimum": 70.040708,
+          "maximum": 166.823166
+        },
+        "pointer": {
+          "n": 30,
+          "median": 93.31812550000001,
+          "p95": 151.890375,
+          "minimum": 72.087167,
+          "maximum": 152.290875
+        },
+        "all": {
+          "n": 60,
+          "median": 101.1106465,
+          "p95": 143.45825,
+          "minimum": 70.040708,
+          "maximum": 166.823166
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.963953542,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round2-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 92.7173545,
+          "p95": 124.208208,
+          "minimum": 70.286959,
+          "maximum": 143.511917
+        },
+        "pointer": {
+          "n": 30,
+          "median": 94.826104,
+          "p95": 137.105541,
+          "minimum": 76.896042,
+          "maximum": 150.370375
+        },
+        "all": {
+          "n": 60,
+          "median": 93.88806199999999,
+          "p95": 129.589334,
+          "minimum": 70.286959,
+          "maximum": 150.370375
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.555148166,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round3-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 91.27437499999999,
+          "p95": 121.9915,
+          "minimum": 53.405792,
+          "maximum": 160.278375
+        },
+        "pointer": {
+          "n": 30,
+          "median": 85.738313,
+          "p95": 117.176333,
+          "minimum": 65.742916,
+          "maximum": 134.46975
+        },
+        "all": {
+          "n": 60,
+          "median": 86.287438,
+          "p95": 118.70625,
+          "minimum": 53.405792,
+          "maximum": 160.278375
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 16.864248292,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round4-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 120.04675,
+          "p95": 154.659667,
+          "minimum": 76.78425,
+          "maximum": 161.446125
+        },
+        "pointer": {
+          "n": 30,
+          "median": 117.313875,
+          "p95": 209.437666,
+          "minimum": 75.389542,
+          "maximum": 235.258458
+        },
+        "all": {
+          "n": 60,
+          "median": 118.3194165,
+          "p95": 194.067708,
+          "minimum": 75.389542,
+          "maximum": 235.258458
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 19.15459875,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round5-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 95.981729,
+          "p95": 126.672542,
+          "minimum": 56.374334,
+          "maximum": 142.406333
+        },
+        "pointer": {
+          "n": 30,
+          "median": 92.843646,
+          "p95": 121.82225,
+          "minimum": 69.704458,
+          "maximum": 166.404834
+        },
+        "all": {
+          "n": 60,
+          "median": 94.216125,
+          "p95": 125.121417,
+          "minimum": 56.374334,
+          "maximum": 166.404834
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 18.103744208,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    },
+    {
+      "name": "selection-round6-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 94.4973335,
+          "p95": 118.731333,
+          "minimum": 61.207375,
+          "maximum": 132.401417
+        },
+        "pointer": {
+          "n": 30,
+          "median": 101.760771,
+          "p95": 122.676792,
+          "minimum": 61.33625,
+          "maximum": 126.873125
+        },
+        "all": {
+          "n": 60,
+          "median": 100.724063,
+          "p95": 118.731333,
+          "minimum": 61.207375,
+          "maximum": 132.401417
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.204057167,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round7-base",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 96.238771,
+          "p95": 130.011625,
+          "minimum": 60.796542,
+          "maximum": 135.217667
+        },
+        "pointer": {
+          "n": 30,
+          "median": 99.2012085,
+          "p95": 139.242125,
+          "minimum": 70.83525,
+          "maximum": 143.939042
+        },
+        "all": {
+          "n": 60,
+          "median": 97.533646,
+          "p95": 130.011625,
+          "minimum": 60.796542,
+          "maximum": 143.939042
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.43405925,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "base"
+    },
+    {
+      "name": "selection-round8-candidate",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 30,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 30,
+          "median": 92.581875,
+          "p95": 127.491375,
+          "minimum": 71.518791,
+          "maximum": 135.26
+        },
+        "pointer": {
+          "n": 30,
+          "median": 96.26781249999999,
+          "p95": 135.384958,
+          "minimum": 65.973542,
+          "maximum": 161.084042
+        },
+        "all": {
+          "n": 60,
+          "median": 93.550792,
+          "p95": 135.070292,
+          "minimum": 65.973542,
+          "maximum": 161.084042
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 64,
+      "wall_seconds": 17.078618625,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "candidate"
+    }
+  ],
+  "formal_mac_stages": {
+    "base": {
+      "input_write": {
+        "n": 240,
+        "median_ms": 0.245729,
+        "p95_ms": 1.14,
+        "minimum_ms": 0.039917,
+        "maximum_ms": 2.17,
+        "under_100ms": 240
+      },
+      "remote_round_trip": {
+        "n": 240,
+        "median_ms": 90.820333,
+        "p95_ms": 136.141167,
+        "minimum_ms": 49.100334,
+        "maximum_ms": 225.698166,
+        "under_100ms": 174
+      },
+      "decode": {
+        "n": 240,
+        "median_ms": 2.3289169999999997,
+        "p95_ms": 3.060083,
+        "minimum_ms": 0.840209,
+        "maximum_ms": 5.56425,
+        "under_100ms": 240
+      },
+      "main_queue": {
+        "n": 240,
+        "median_ms": 0.06693750000000001,
+        "p95_ms": 0.09875,
+        "minimum_ms": 0.022333,
+        "maximum_ms": 5.976625,
+        "under_100ms": 240
+      },
+      "selected_buffer": {
+        "n": 240,
+        "median_ms": 9.367208000000002,
+        "p95_ms": 17.154,
+        "minimum_ms": 1.628209,
+        "maximum_ms": 18.78775,
+        "under_100ms": 240
+      }
+    },
+    "candidate": {
+      "input_write": {
+        "n": 240,
+        "median_ms": 0.23925,
+        "p95_ms": 1.148875,
+        "minimum_ms": 0.039333,
+        "maximum_ms": 1.727542,
+        "under_100ms": 240
+      },
+      "remote_round_trip": {
+        "n": 240,
+        "median_ms": 80.866542,
+        "p95_ms": 114.737291,
+        "minimum_ms": 45.609375,
+        "maximum_ms": 147.974208,
+        "under_100ms": 198
+      },
+      "decode": {
+        "n": 240,
+        "median_ms": 2.257396,
+        "p95_ms": 3.023834,
+        "minimum_ms": 0.73525,
+        "maximum_ms": 5.8045,
+        "under_100ms": 240
+      },
+      "main_queue": {
+        "n": 240,
+        "median_ms": 0.0640835,
+        "p95_ms": 0.095375,
+        "minimum_ms": 0.014167,
+        "maximum_ms": 0.134792,
+        "under_100ms": 240
+      },
+      "selected_buffer": {
+        "n": 240,
+        "median_ms": 8.825125,
+        "p95_ms": 17.329792,
+        "minimum_ms": 0.939542,
+        "maximum_ms": 18.64375,
+        "under_100ms": 240
+      }
+    }
+  },
+  "instrumentation_comparison": {
+    "normal": {
+      "n": 80,
+      "median_ms": 99.209937,
+      "p95_ms": 136.054083,
+      "minimum_ms": 66.399833,
+      "maximum_ms": 224.55425,
+      "under_100ms": 42
+    },
+    "trace": {
+      "n": 80,
+      "median_ms": 95.8953545,
+      "p95_ms": 131.701583,
+      "minimum_ms": 67.51125,
+      "maximum_ms": 137.986208,
+      "under_100ms": 43
+    },
+    "wire": {
+      "n": 80,
+      "median_ms": 94.33366699999999,
+      "p95_ms": 117.248041,
+      "minimum_ms": 56.730125,
+      "maximum_ms": 141.209875,
+      "under_100ms": 47
+    }
+  },
+  "instrumentation_rounds": [
+    {
+      "name": "observation-round1-normal",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 111.396833,
+          "p95": 147.383375,
+          "minimum": 77.270541,
+          "maximum": 224.55425
+        },
+        "pointer": {
+          "n": 20,
+          "median": 102.2333335,
+          "p95": 153.285542,
+          "minimum": 66.399833,
+          "maximum": 157.807375
+        },
+        "all": {
+          "n": 40,
+          "median": 107.8291045,
+          "p95": 153.285542,
+          "minimum": 66.399833,
+          "maximum": 224.55425
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 14.126367125,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "normal"
+    },
+    {
+      "name": "observation-round2-trace",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 113.39541700000001,
+          "p95": 131.701583,
+          "minimum": 83.6775,
+          "maximum": 137.986208
+        },
+        "pointer": {
+          "n": 20,
+          "median": 94.0111665,
+          "p95": 133.058875,
+          "minimum": 72.59175,
+          "maximum": 135.249917
+        },
+        "all": {
+          "n": 40,
+          "median": 101.9638125,
+          "p95": 133.058875,
+          "minimum": 72.59175,
+          "maximum": 137.986208
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 14.137312958,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "trace"
+    },
+    {
+      "name": "observation-round3-wire",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 101.6267915,
+          "p95": 109.981083,
+          "minimum": 70.782125,
+          "maximum": 141.209875
+        },
+        "pointer": {
+          "n": 20,
+          "median": 92.149521,
+          "p95": 109.78275,
+          "minimum": 73.980917,
+          "maximum": 111.657459
+        },
+        "all": {
+          "n": 40,
+          "median": 94.807771,
+          "p95": 109.981083,
+          "minimum": 70.782125,
+          "maximum": 141.209875
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 13.500558292,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "wire"
+    },
+    {
+      "name": "observation-round4-wire",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 87.939667,
+          "p95": 108.05725,
+          "minimum": 56.730125,
+          "maximum": 108.431833
+        },
+        "pointer": {
+          "n": 20,
+          "median": 100.316125,
+          "p95": 120.897,
+          "minimum": 74.726042,
+          "maximum": 133.478084
+        },
+        "all": {
+          "n": 40,
+          "median": 92.968938,
+          "p95": 119.975958,
+          "minimum": 56.730125,
+          "maximum": 133.478084
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 13.255164667,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "wire"
+    },
+    {
+      "name": "observation-round5-trace",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 93.5430205,
+          "p95": 127.5935,
+          "minimum": 75.812542,
+          "maximum": 136.466709
+        },
+        "pointer": {
+          "n": 20,
+          "median": 95.977271,
+          "p95": 117.530875,
+          "minimum": 67.51125,
+          "maximum": 117.659292
+        },
+        "all": {
+          "n": 40,
+          "median": 94.408604,
+          "p95": 123.710292,
+          "minimum": 67.51125,
+          "maximum": 136.466709
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 13.521569083,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "trace"
+    },
+    {
+      "name": "observation-round6-normal",
+      "scale": 1,
+      "fps": 30,
+      "width": 1470,
+      "height": 809,
+      "samples_per_mode": 20,
+      "status": "passed",
+      "summary": {
+        "key": {
+          "n": 20,
+          "median": 93.9080835,
+          "p95": 123.087666,
+          "minimum": 71.510042,
+          "maximum": 125.010083
+        },
+        "pointer": {
+          "n": 20,
+          "median": 91.24875,
+          "p95": 116.366125,
+          "minimum": 71.106,
+          "maximum": 135.554041
+        },
+        "all": {
+          "n": 40,
+          "median": 92.6195,
+          "p95": 123.087666,
+          "minimum": 71.106,
+          "maximum": 135.554041
+        }
+      },
+      "local_points": [
+        1460,
+        801
+      ],
+      "source_input_count": 44,
+      "wall_seconds": 13.016132083,
+      "stop_returncode": 0,
+      "workload": "animated",
+      "variant": "normal"
+    }
+  ],
+  "trace_only_stages": {
+    "input_write": {
+      "n": 80,
+      "median_ms": 0.213896,
+      "p95_ms": 1.33575
+    },
+    "read_dispatch": {
+      "n": 80,
+      "median_ms": 0.0254605,
+      "p95_ms": 4.344275
+    },
+    "dispatch_app": {
+      "n": 80,
+      "median_ms": 5.538823,
+      "p95_ms": 16.944518
+    },
+    "app_draw": {
+      "n": 80,
+      "median_ms": 2.3538055,
+      "p95_ms": 18.351043
+    },
+    "draw_first_raw": {
+      "n": 80,
+      "median_ms": 14.0433695,
+      "p95_ms": 28.909841
+    },
+    "raw_first_convert": {
+      "n": 80,
+      "median_ms": 4.773647,
+      "p95_ms": 22.256626
+    },
+    "first_convert_publish": {
+      "n": 80,
+      "median_ms": 11.7045535,
+      "p95_ms": 33.566081
+    },
+    "completed_publish": {
+      "n": 80,
+      "median_ms": 7.877213,
+      "p95_ms": 32.416958
+    },
+    "frame_age_at_write": {
+      "n": 80,
+      "median_ms": 22.6473375,
+      "p95_ms": 41.494668
+    },
+    "encode_queue": {
+      "n": 80,
+      "median_ms": 0.1046015,
+      "p95_ms": 0.190783
+    },
+    "encode": {
+      "n": 80,
+      "median_ms": 2.133792,
+      "p95_ms": 3.564703
+    },
+    "net_bridge_remaining": {
+      "n": 80,
+      "median_ms": 31.5126675,
+      "p95_ms": 35.521659
+    },
+    "decode": {
+      "n": 80,
+      "median_ms": 2.25325,
+      "p95_ms": 2.995416
+    },
+    "main": {
+      "n": 80,
+      "median_ms": 0.0618745,
+      "p95_ms": 0.09525
+    },
+    "selected_buffer": {
+      "n": 80,
+      "median_ms": 10.1882085,
+      "p95_ms": 16.584167
+    },
+    "enqueue": {
+      "n": 80,
+      "median_ms": 0.0628955,
+      "p95_ms": 0.109167
+    },
+    "commit": {
+      "n": 80,
+      "median_ms": 0.047104,
+      "p95_ms": 0.0695
+    },
+    "CA_wait": {
+      "n": 80,
+      "median_ms": 2.5261250000000004,
+      "p95_ms": 3.391125
+    },
+    "CA_to_main": {
+      "n": 80,
+      "median_ms": 0.0391875,
+      "p95_ms": 0.050667
+    },
+    "probe_match": {
+      "n": 80,
+      "median_ms": 7.7693545,
+      "p95_ms": 14.22425
+    }
+  },
+  "pacing": {
+    "trace": {
+      "sent": 529,
+      "newer_ready": 0,
+      "newer_response_ready": 0,
+      "publication_intervals": {
+        "n": 646,
+        "median_ms": 34.254225500000004,
+        "p95_ms": 44.817144,
+        "minimum_ms": 33.373324,
+        "maximum_ms": 98.411599,
+        "under_100ms": 646
+      },
+      "actual_send_intervals": {
+        "n": 527,
+        "median_ms": 34.443647,
+        "p95_ms": 44.252997,
+        "minimum_ms": 24.646063,
+        "maximum_ms": 98.693727,
+        "under_100ms": 527
+      },
+      "max_sent_in_1s": 29
+    },
+    "wire": {
+      "sent": 521,
+      "newer_ready": 0,
+      "newer_response_ready": 0,
+      "publication_intervals": {
+        "n": 637,
+        "median_ms": 34.269153,
+        "p95_ms": 44.389336,
+        "minimum_ms": 33.342335,
+        "maximum_ms": 106.56497,
+        "under_100ms": 636
+      },
+      "actual_send_intervals": {
+        "n": 519,
+        "median_ms": 34.373978,
+        "p95_ms": 43.47257,
+        "minimum_ms": 30.155806,
+        "maximum_ms": 55.053514,
+        "under_100ms": 519
+      },
+      "max_sent_in_1s": 30
+    }
+  },
+  "production_agent_source": "bda43cf",
+  "diagnostic_tool_source": "56617e3",
+  "production_agent_sha256": "b8ab5811defd4682eeb1c87cf71b4db1d0713bb3620864922ffdb5eda2262b5a",
+  "production_changed": false,
+  "historical_extra_50ms": "not reproduced; historical cause not established"
+}
