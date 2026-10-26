@@ -1128,15 +1128,22 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
         width: u32,
         height: u32,
     ) -> Result<Option<(i32, i32)>> {
-        let Some(id) = self.input_targets.borrow().get(&window).copied() else {
-            return Ok(None);
-        };
+        let id = self.input_targets.borrow().get(&window).copied();
         if process_identity(self.identity.pid).ok().as_ref() != Some(&self.identity) {
             bail!("approved existing process unavailable")
         }
-        let point = self.rpc.borrow_mut().call(
-            json!({"op":"locate_x11","window_id":id,"x":x,"y":y,"width":width,"height":height}),
-        )?;
+        let mut request = json!({"op":"locate_x11","x":x,"y":y,"width":width,"height":height});
+        if let Some(id) = id {
+            request["window_id"] = json!(id);
+        } else {
+            // The backend retains fresh XRES checks on this legacy path. Keep
+            // compositor coordinate conversion/panning even without a binding.
+            if !self.scoped(window)? {
+                return Ok(None);
+            }
+            request["xwindow"] = json!(window);
+        }
+        let point = self.rpc.borrow_mut().call(request)?;
         let x = i32::try_from(point["x"].as_i64().context("wayland_bridge_failed")?)?;
         let y = i32::try_from(point["y"].as_i64().context("wayland_bridge_failed")?)?;
         Ok(Some((x, y)))
@@ -1160,6 +1167,8 @@ mod tests {
                 // Same XID, different compositor object: never rebind on input.
                 json!({"result":[{"xwindow":42,"window_id":88}]}),
                 json!({"error":"window_unavailable"}),
+                json!({"result":[{"xwindow":42,"window_id":77}]}),
+                json!({"result":{"x":12,"y":34}}),
             ] {
                 let line = read_line_limit(&mut wire, 4096)?.context("missing request")?;
                 requests.push(serde_json::from_slice(&line)?);
@@ -1188,16 +1197,21 @@ mod tests {
             "unknown window"
         );
         assert!(!geometry.input_target(43, true)?);
+        geometry.input_targets.borrow_mut().clear();
+        assert_eq!(geometry.pointer(42, 1, 2, 100, 100)?, Some((12, 34)));
         let requests = fixture.join().unwrap()?;
         assert_eq!(requests[0], json!({"op":"focus","window_id":77}));
         assert_eq!(requests[1]["op"], "locate_x11");
         assert_eq!(requests[1]["window_id"], 77);
-        assert!(requests.iter().all(|r| r.get("xwindow").is_none()));
+        assert!(requests[..4].iter().all(|r| r.get("xwindow").is_none()));
         assert_eq!(requests[2]["op"], "scope");
         assert_eq!(
             requests[3], requests[0],
             "no list/acquire fallback during input"
         );
+        assert_eq!(requests[4]["op"], "scope");
+        assert_eq!(requests[5]["xwindow"], 42);
+        assert!(requests[5].get("window_id").is_none());
         Ok(())
     }
     #[test]
