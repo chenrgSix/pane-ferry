@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--agent', required=True, type=Path)
-p.add_argument('--private-bus', action='store_true')
+p.add_argument('--private-bus', action='store_true', help=argparse.SUPPRESS)
 p.add_argument('--with-xwayland', action='store_true')
 p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
 p.add_argument('--xwayland-resize-only', action='store_true', help='test live scaling and maximized Xwayland resize in the private compositor')
@@ -37,6 +37,17 @@ p.add_argument('--application-scene-only', action='store_true', help='test one s
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
+if a.private_bus:
+    parent_bus = os.environ.get('PANEFERRY_SMOKE_PARENT_BUS')
+    current_bus = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
+    if parent_bus is None or not current_bus or current_bus == parent_bus:
+        p.error('--private-bus is internal; omit it to create an isolated bus')
+    owner = subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.freedesktop.DBus',
+                            '--object-path', '/org/freedesktop/DBus', '--method',
+                            'org.freedesktop.DBus.NameHasOwner', 'org.gnome.Shell'],
+                           capture_output=True, text=True, check=True)
+    if owner.stdout.strip() != '(false,)':
+        p.error('refusing to start a fixture on a bus that already owns GNOME Shell')
 if a.xwayland_resize_only and not a.with_xwayland:
     p.error('--xwayland-resize-only requires --with-xwayland')
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
@@ -47,6 +58,7 @@ if not a.private_bus:
         conf.write_text('''<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
 <policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>''')
         # No activation of the user's calendar, keyring, document portal or IM.
+        isolated_env = dict(os.environ, PANEFERRY_SMOKE_PARENT_BUS=os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''))
         raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
             *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
             *(['--xwayland-resize-only'] if a.xwayland_resize_only else []),
@@ -56,7 +68,7 @@ if not a.private_bus:
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--window-tree-only'] if a.window_tree_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
-            *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])]))
+            *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])], env=isolated_env))
 root = Path(__file__).resolve().parents[2]
 children = []
 
