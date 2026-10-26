@@ -162,8 +162,8 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
          'fn call(&mut self, value: Value) -> Result<Value> {\n let probe_id=crate::stage_probe::rpc_queued("bridge",value["op"].as_str().unwrap_or("unknown"));\n crate::stage_probe::rpc_event(probe_id,"rpc_started");')
     edit('wayland.rs', 'let answer: Value = serde_json::from_slice(&line)?;',
          'let answer: Value = serde_json::from_slice(&line)?;\n crate::stage_probe::rpc_event(probe_id,"rpc_completed");')
-    edit('backend/logical_x11.rs', 'let image = self.source.capture(raw)?;',
-         'let probe_capture=crate::stage_probe::now();\n        let image = self.source.capture(raw)?;')
+    edit('backend/logical_x11.rs', 'fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {',
+         'fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {\n        let probe_capture=crate::stage_probe::now();')
     edit('backend/logical_x11.rs', 'crate::video::Frame::scaled_image(image, window.width, window.height).map(Arc::new)',
          'let frame=Arc::new(crate::video::Frame::scaled_image(image, window.width, window.height)?);\n crate::stage_probe::capture(window.window_id,Arc::as_ptr(&frame) as usize,probe_capture);\n Ok(frame)')
     (source / 'stage_probe.rs').write_text(MODULE)
