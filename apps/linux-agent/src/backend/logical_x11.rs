@@ -73,6 +73,9 @@ impl WindowBackend for LogicalX11 {
     fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
         self.source.capture_completion_fd()
     }
+    fn capture_is_paced(&self) -> bool {
+        true
+    }
     fn capture_delay(&self, interval: Duration) -> Option<Duration> {
         self.source.capture_delay(interval)
     }

@@ -25,6 +25,11 @@ pub trait WindowBackend: Send {
     fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
         None
     }
+    /// Readback admission already enforces the negotiated sampling interval.
+    /// Completed immutable snapshots must not wait through another FPS gate.
+    fn capture_is_paced(&self) -> bool {
+        false
+    }
     fn capture_delay(&self, _interval: Duration) -> Option<Duration> {
         None
     }
@@ -102,6 +107,9 @@ impl WindowBackend for X11 {
     }
     fn capture_completion_fd(&self) -> Option<std::os::fd::RawFd> {
         X11::capture_completion_fd(self)
+    }
+    fn capture_is_paced(&self) -> bool {
+        true
     }
     fn capture_delay(&self, interval: Duration) -> Option<Duration> {
         X11::capture_delay(self, interval)

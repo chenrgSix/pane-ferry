@@ -87,6 +87,13 @@ fn prioritize_recaptures(windows: &mut [Window], retries: &HashSet<u32>) {
     windows.sort_by_key(|window| !retries.contains(&window.window_id));
 }
 
+fn publication_delay(paced: bool, since: Duration, interval: Duration) -> Duration {
+    if paced {
+        Duration::ZERO
+    } else {
+        interval.saturating_sub(since)
+    }
+}
 fn visible_capture_pending(backend: &dyn backend::WindowBackend) -> bool {
     backend.capture_pending()
         && backend
@@ -1386,6 +1393,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         let mut capture_fd = None;
         let mut capture_completion_fd = None;
         let mut capture_prepare_delay = None;
+        let mut capture_is_paced = false;
         let mut maintenance_ready = true;
         let mut capture_events_pending = false;
         let mut capture_pending = false;
@@ -1435,6 +1443,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     b.pump_capture_events(false)?;
                     capture_fd = Some(b.event_fd());
                     capture_completion_fd = b.capture_completion_fd();
+                    capture_is_paced = b.capture_is_paced();
                     capture_prepare_delay = b.capture_delay(out.frame_interval());
                     maintenance_ready = b.maintenance_ready();
                     capture_events_pending = b.events_pending()?;
@@ -1489,7 +1498,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 .saturating_sub(last_scan.elapsed())
             };
             let frame_delay = if capture_pending {
-                frame_interval.saturating_sub(last_capture.elapsed())
+                publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
             } else {
                 Duration::MAX
             };
@@ -1946,13 +1955,16 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     b.prepare_capture(out.frame_interval())?;
                 }
                 maintenance_ready = b.maintenance_ready();
+                capture_is_paced = b.capture_is_paced();
                 capture_pending = visible_capture_pending(b.as_ref());
             }
         }
         // The current input has already run. Do not make continuous input
         // postpone visual feedback beyond the negotiated frame deadline.
         let frame_interval = out.frame_interval();
-        let frame_due = capture_pending && last_capture.elapsed() >= frame_interval;
+        let frame_due = capture_pending
+            && publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
+                .is_zero();
         if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed(), frame_due)
         {
             continue;
@@ -1966,7 +1978,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         last_window_action.elapsed() < Duration::from_millis(500),
                         event_driven_metadata,
                     ));
-        let capture_due = capture_pending && last_capture.elapsed() >= frame_interval;
+        let capture_due = capture_pending
+            && publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
+                .is_zero();
         if !scan_due && !capture_due {
             continue;
         }
@@ -2023,7 +2037,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 // immediately before publication, without waiting for conversion.
                 // Pair any new pixels with their updated geometry before sending
                 // metadata, including destroy events drained by X11 here.
-                let due_after_maintenance = last_capture.elapsed() >= out.frame_interval();
+                let due_after_maintenance =
+                    b.capture_is_paced() || last_capture.elapsed() >= out.frame_interval();
                 if due_after_maintenance {
                     b.prepare_capture(out.frame_interval())?;
                     windows = b.windows().values().cloned().collect();
@@ -2098,6 +2113,22 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paced_readbacks_publish_when_complete_without_charging_another_frame_period() {
+        let interval = Duration::from_micros(33_333);
+        let mut last_published = Duration::ZERO;
+        for started in [0, 33_333, 66_666, 99_999] {
+            let ready = Duration::from_micros(started + 25_000);
+            let published = ready + publication_delay(true, ready - last_published, interval);
+            assert_eq!(published, ready, "readback already admitted at 30 FPS");
+            last_published = published;
+        }
+        assert_eq!(
+            publication_delay(false, Duration::from_micros(25_000), interval),
+            Duration::from_micros(8_333),
+            "an unpaced producer still needs the output FPS gate"
+        );
+    }
     #[test]
     fn request_reader_applies_feedback_without_waiting_for_control_dispatch() {
         let (input, mut controller) = UnixStream::pair().unwrap();
