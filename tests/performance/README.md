@@ -65,6 +65,29 @@ Linux Agent 可通过 `PANEFERRY_VIDEO_MAX_FPS=30` 限制视频上限，取值�
 CLOCK_MONOTONIC；只在同一端做差。完整 Mac 响应区间扣除 Agent 内部区间可估计双向传输与桥接残差，
 不能把两台机器的绝对时间戳相减。插桩存在开销，最终结果还需用无插桩正式构建复测。
 
+选帧诊断的 `--trace-only` 模式只写本地 JSONL，不把 `_agent_stages` 放进协议。
+其中 `ready`、`raw_pull`、`i420_pull` 分别保留样本身份、就绪时间和实际读取时间，
+避免把首个响应样本与最终编码样本混为一谈；`status_start/status_end` 单独记录输入状态查询。
+
+## 网络与显示边界诊断
+
+`python3 tests/performance/network_stage_probe.py /tmp/fresh-network-copy --revision HEAD`
+生成独立源码副本；在副本中构建 `paneferry-network`，并在两端临时服务环境中设置
+`PANEFERRY_NETWORK_PROBE_TRACE=/private/directory/network-trace`，得到按 PID 分开的
+0600 JSONL 文件。该构建不自动部署，不改变协议字段，也不记录视频负载。
+使用隔离的网络状态目录，结束后停止自建服务并清理复制的配对凭据。
+
+以 `session_id + frame_id` 关联发送端 `packet_assembled/quic_write_begin/quic_write_complete`
+与接收端 `quic_read_complete/packet_restored/json_write_complete`。
+QUIC 写出完成表示本地异步写入完成，不是远端收到；`first_byte_ns` 是读取到包首字节后的
+本地时间，不是网卡硬件时间戳。Mac 服务端的 JSON 写出终点是到本地 bridge 的 Unix socket，
+后续 bridge 到探针完整行的交付仍须用探针 `received` 计时。
+Linux 用 CLOCK_MONOTONIC，Mac 用 CLOCK_UPTIME_RAW，与 Swift uptime 对齐；跨端绝对值不能相减。
+
+显示探针记录最后一次未匹配与第一次匹配查询的起止时间、预期和实际 IOSurface ID。
+它们约束的是 renderer 缓冲查询的观测窗口，不能当作精确 presentation 时间或面板亮起时间；
+没有前一次失败查询时，不推定额外下界。正式对照和两端插桩的诊断结果应分开统计。
+
 ## 当前版本：已部署 Agent 的 Wayland/QUIC 实测
 
 `live_end_to_end.py` 构建当前 WindowHost 的临时计时副本，连接已配对的生产网络服务和

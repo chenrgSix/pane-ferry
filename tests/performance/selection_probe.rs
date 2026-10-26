@@ -87,7 +87,16 @@ pub fn ready(sink: usize) {
     if let Some(stamp) = s.buffers.get_mut(&buffer) {
         stamp.ready_ns = crate::stage_probe::now();
         let stamp = stamp.clone();
-        s.latest.insert(sink, stamp);
+        s.latest.insert(sink, stamp.clone());
+        drop(s);
+        trace(json!({"event":"ready","stamp":stamp}));
+    }
+}
+pub fn pulled(buffer: usize, marker: u64, raw: bool) {
+    let stamp = state().lock().unwrap().buffers.get(&buffer).cloned();
+    if let Some(stamp) = stamp {
+        trace(json!({"event":if raw {"raw_pull"} else {"i420_pull"},
+            "stamp":stamp,"marker":marker,"pull_ns":crate::stage_probe::now()}));
     }
 }
 pub fn raw_timestamp(buffer: usize) -> Option<u64> {
@@ -171,7 +180,8 @@ pub fn sent(value: &Value, bytes: usize, start: u64, end: u64) {
     trace(
         json!({"event":"sent","stages":s,"selection":s["selection"],"encode_start":s["encode_start"],
         "encode_end":s["encode_end"],"write_begin":start,"write_end":end,"bytes":bytes,
-        "feedback_id":value["frame_id"],"window_id":value["window_id"]}),
+        "encoded_bytes":value["data"].as_str().map(|v|v.trim_end_matches('=').len()*3/4),
+        "key_frame":value["key_frame"],"feedback_id":value["frame_id"],"window_id":value["window_id"]}),
     );
 }
 fn trace(v: Value) {

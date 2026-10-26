@@ -29,14 +29,22 @@ extension Probe {
         let deadline = now() + 1_000_000_000
         var queries = 0
         var queryNanoseconds: UInt64 = 0
+        var lastFailedQuery: [String: UInt64]?
+        var firstSuccessfulQuery: [String: UInt64]?
         func inspect() {
             guard surface.displayFrame === frame else { return }
             if let buffer = frame.pixelBuffer {
                 let queryStart = now()
                 let displayedBuffer = surface.displayedPixelBuffer()
-                queryNanoseconds += now() - queryStart
+                let queryEnd = now()
+                queryNanoseconds += queryEnd - queryStart
                 queries += 1
+                let observedSurface = displayedBuffer.flatMap { CVPixelBufferGetIOSurface($0) }.map { IOSurfaceGetID($0.takeUnretainedValue()) }
+                let expectedSurface = CVPixelBufferGetIOSurface(buffer).map { IOSurfaceGetID($0.takeUnretainedValue()) }
+                let query: [String: UInt64] = ["start_ns": queryStart, "end_ns": queryEnd,
+                    "observed_surface_id": UInt64(observedSurface ?? 0), "expected_surface_id": UInt64(expectedSurface ?? 0)]
                 guard let displayed = displayedBuffer else {
+                    lastFailedQuery = query
                     if now() < deadline { DispatchQueue.main.asyncAfter(deadline: .now() + 0.001, execute: inspect) }
                     return
                 }
@@ -44,9 +52,11 @@ extension Probe {
                     CVPixelBufferGetIOSurface(buffer).map { two in IOSurfaceGetID(one.takeUnretainedValue()) == IOSurfaceGetID(two.takeUnretainedValue()) }
                 } ?? false
                 guard displayed === buffer || sameSurface else {
+                    lastFailedQuery = query
                     if now() < deadline { DispatchQueue.main.asyncAfter(deadline: .now() + 0.001, execute: inspect) }
                     return
                 }
+                firstSuccessfulQuery = query
             }
             matchedVideoCount += 1
             let completed = now()
@@ -57,6 +67,8 @@ extension Probe {
             value["mac_query_count"] = queries
             value["mac_query_total_ns"] = queryNanoseconds
             value["mac_renderer_match_ns"] = completed
+            if let query = lastFailedQuery { value["mac_last_failed_query"] = query }
+            if let query = firstSuccessfulQuery { value["mac_first_successful_query"] = query }
             observedVideo(frame, object: value, completed: completed)
         }
         inspect()

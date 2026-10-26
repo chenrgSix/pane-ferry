@@ -26,7 +26,7 @@ struct Input { count:u64, received:u64, dispatched:u64, input_end:u64 }
 #[derive(Default)]
 struct State { inputs:HashMap<u32,Input>, active:Option<u32>, sinks:HashMap<usize,bool>, raw_first:u64, raw_last:u64, converted_first:u64, converted_last:u64, pull_first:u64, raw_matching:u64, converted_matching:u64, frames:HashMap<usize,Value> }
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-thread_local! { static WINDOW:Cell<Option<u32>>=const { Cell::new(None) }; static INTERVAL:Cell<u64>=const { Cell::new(0) }; static SCAN_START:Cell<u64>=const {Cell::new(0)}; static SCAN_END:Cell<u64>=const {Cell::new(0)}; }
+thread_local! { static WINDOW:Cell<Option<u32>>=const { Cell::new(None) }; static INTERVAL:Cell<u64>=const { Cell::new(0) }; static SCAN_START:Cell<u64>=const {Cell::new(0)}; static SCAN_END:Cell<u64>=const {Cell::new(0)}; static STATUS_START:Cell<u64>=const {Cell::new(0)}; static STATUS_END:Cell<u64>=const {Cell::new(0)}; }
 pub fn is_input(r:&Request)->bool { window(r).is_some() }
 fn window(r:&Request)->Option<u32> {
     match r {
@@ -69,6 +69,7 @@ pub fn pixels(raw:bool,marker:u64) {
 }
 pub fn interval(n:u64){INTERVAL.set(n);}
 pub fn scan(start:bool){if start{SCAN_START.set(now());}else{SCAN_END.set(now());}}
+pub fn status(start:bool){if start{STATUS_START.set(now());}else{STATUS_END.set(now());}}
 pub fn publish(pointer:usize) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     if let Some(v)=s.frames.get_mut(&pointer){v["publish"]=json!(now());v["scan_start"]=json!(SCAN_START.get());v["scan_end"]=json!(SCAN_END.get());}
@@ -78,7 +79,7 @@ pub fn capture(window:u32,pointer:usize,start:u64) {
     let mut s=STATE.get_or_init(Default::default).lock().unwrap();
     let Some(i)=s.inputs.get(&window).cloned() else{return};
     let v=json!({"count":i.count,"received":i.received,"dispatched":i.dispatched,
-        "input_end":i.input_end,"capture_start":start,"capture_end":now(),"raw_first":s.raw_first,"raw_last":s.raw_last,"converted_first":s.converted_first,"converted_last":s.converted_last,"pull_first":s.pull_first,"raw_matching":s.raw_matching,"converted_matching":s.converted_matching,"interval":INTERVAL.get()});
+        "input_end":i.input_end,"capture_start":start,"capture_end":now(),"status_start":STATUS_START.get(),"status_end":STATUS_END.get(),"raw_first":s.raw_first,"raw_last":s.raw_last,"converted_first":s.converted_first,"converted_last":s.converted_last,"pull_first":s.pull_first,"raw_matching":s.raw_matching,"converted_matching":s.converted_matching,"interval":INTERVAL.get()});
     if s.frames.len()>128 {s.frames.clear();}
     s.frames.insert(pointer,v);
 }
@@ -137,6 +138,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
     edit('main.rs', 'if tx.send(req).is_err() {', 'stage_probe::request("received", &req);\n                            if tx.send(req).is_err() {')
     edit('main.rs', 'if triggers_fast_scan(&req) {', 'let probe_input = stage_probe::is_input(&req);\n            stage_probe::request("dispatched", &req);\n            if triggers_fast_scan(&req) {')
     edit('main.rs', 'if let Err(e) = result {', 'if probe_input {stage_probe::input_end();}\n            if let Err(e) = result {')
+    edit('main.rs', 'let status = b.input_status();', 'stage_probe::status(true);\n                let status = b.input_status();\n                stage_probe::status(false);')
     edit('video.rs', 'let signal = connect_wake(api, sink, wake)?;', 'crate::stage_probe::sink(sink as usize,true);\n        selection_gstreamer::connect(api,pipeline,sink,true,0,0)?;\n        let signal = connect_wake(api, sink, wake)?;')
     edit('video_frame.rs', 'self.signal = connect_wake(self.api, self.sink, wake)?;', 'crate::stage_probe::sink(self.sink as usize,false);\n        selection_gstreamer::connect(self.api,self.pipeline,self.sink,false,self.spec.region[2],self.spec.region[3])?;\n        self.signal = connect_wake(self.api, self.sink, wake)?;')
     edit('video.rs', 'let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };', 'crate::stage_probe::wake(_sink as usize);\n    crate::selection_probe::ready(_sink as usize);\n    let wake = unsafe { &*data.cast::<Arc<FrameWake>>() };')
@@ -148,6 +150,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
                 let mut marker=0u64;
                 for bit in 0..8 {let offset=((spec.region[1]+16) as usize*spec.source_width as usize+spec.region[0] as usize+16+bit*32)*4;if bytes.get(offset).is_some_and(|v|*v>128){marker|=1<<bit;}}
                 crate::stage_probe::pixels(true,marker);
+                crate::selection_probe::pulled(buffer as usize,marker,true);
             }
             converter.submit(buffer)?;''')
     edit('video_frame.rs', 'Ok(Some(Frame {', '''if width>=256 && height>16 {
@@ -156,6 +159,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
             let mut marker=0u64;
             for bit in 0..8 {let offset=16*w.next_multiple_of(4)+16+bit*32;if bytes.get(offset).is_some_and(|v|*v>128){marker|=1<<bit;}}
             crate::stage_probe::pixels(false,marker);
+            crate::selection_probe::pulled(output as usize,marker,false);
         }
         crate::selection_probe::selected(output as usize);
         Ok(Some(Frame {''')
