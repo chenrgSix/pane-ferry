@@ -47,6 +47,9 @@ pub(super) fn capture(
                 visual_override = Some(target_visual);
             }
         }
+        if let Some(mapped) = render.capture_linear(conn, drawable) {
+            return Ok(mapped);
+        }
         if let Some(image) = shared.capture(conn, drawable, size.0, size.1) {
             return Ok(image);
         }

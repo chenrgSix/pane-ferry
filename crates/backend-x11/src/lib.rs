@@ -22,6 +22,7 @@ mod controller_copy;
 mod controller_text;
 mod damage;
 mod inventory;
+mod linear_capture;
 mod metadata_events;
 mod readback;
 mod related_windows;
