@@ -18,6 +18,7 @@ if command -v node >/dev/null; then
   node tests/unit/application_scene.mjs
   node tests/unit/virtual_output_lifecycle.mjs
   node tests/unit/window_presentation.mjs
+  node tests/unit/bridge_scheduling.mjs
   python3 tests/e2e/electron_page_scale_unit.py
 fi
 if command -v npm >/dev/null; then

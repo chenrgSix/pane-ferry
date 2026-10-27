@@ -66,6 +66,16 @@ export default class PaneFerry extends Extension {
         if (lease?.scene) lease.scene.close();
         else lease?.output?.close();
     }
+    prepareOutput(lease) {
+        lease.lastUse = GLib.get_monotonic_time();
+        if (lease.cancelled) throw new Error('window_unavailable');
+        // Awaiting even an already-resolved Promise yields to the shell's main
+        // loop. Input and geometry queries need no such turn when this lease
+        // has no Wayland output to provision, or its output is already ready.
+        if (lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND ||
+            (lease.output && !lease.opening && !lease.suspending)) return null;
+        return this.ensureOutput(lease);
+    }
     async ensureOutput(lease) {
         lease.lastUse = GLib.get_monotonic_time();
         if (lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND) return;
@@ -109,7 +119,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 4, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 5, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             window_kind: windowKind(w, Meta.WindowType), stack_order: order,
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
@@ -172,7 +182,7 @@ export default class PaneFerry extends Extension {
                 const lease = {owner, root, output: null, scale: r.scale ?? 2, canvas: r.scene ?? null};
                 this.leases.set(token, lease);
                 lease.unmanaged = root.connect('unmanaged', () => this.release(token));
-                try { await this.ensureOutput(lease); }
+                try { const ready = this.prepareOutput(lease); if (ready) await ready; }
                 catch (error) { this.release(token); throw error; }
                 if (this.leases.get(token) !== lease) throw new Error('window_unavailable');
                 result = {token, window: this.describe(root)};
@@ -199,7 +209,8 @@ export default class PaneFerry extends Extension {
                 }
                 else {
                     if (!this.windows().includes(lease.root)) throw new Error('window_unavailable');
-                    await this.ensureOutput(lease);
+                    const ready = this.prepareOutput(lease);
+                    if (ready) await ready;
                     if (this.leases.get(r.token) !== lease) throw new Error('window_unavailable');
                     const scope = this.scope(lease.root);
                     let w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
