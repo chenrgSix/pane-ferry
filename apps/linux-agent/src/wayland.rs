@@ -1028,23 +1028,6 @@ impl X11Geometry {
     }
 }
 impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
-    fn input_point(
-        &self,
-        window: u32,
-        point: (i32, i32),
-        size: (u32, u32),
-        focus: bool,
-    ) -> Result<Option<(i32, i32)>> {
-        if !self.input_targets.borrow().contains_key(&window) {
-            return Ok(None);
-        }
-        if focus {
-            self.input_target(window, true)?;
-        }
-        // locate_x11 verifies the same pinned compositor object and current
-        // client dimensions. A preceding full scope query adds no authority.
-        self.pointer(window, point.0, point.1, size.0, size.1)
-    }
     fn input_target(&self, window: u32, focus: bool) -> Result<bool> {
         let Some(id) = self.input_targets.borrow().get(&window).copied() else {
             return Ok(false);
@@ -1187,10 +1170,6 @@ mod tests {
                 json!({"error":"window_unavailable"}),
                 json!({"result":[{"xwindow":42,"window_id":77}]}),
                 json!({"result":{"x":12,"y":34}}),
-                json!({"result":{"x":12,"y":34}}),
-                json!({"result":{}}),
-                json!({"result":{"x":12,"y":34}}),
-                json!({"error":"window_unavailable"}),
             ] {
                 let line = read_line_limit(&mut wire, 4096)?.context("missing request")?;
                 requests.push(serde_json::from_slice(&line)?);
@@ -1221,17 +1200,6 @@ mod tests {
         assert!(!geometry.input_target(43, true)?);
         geometry.input_targets.borrow_mut().clear();
         assert_eq!(geometry.pointer(42, 1, 2, 100, 100)?, Some((12, 34)));
-        geometry.input_targets.borrow_mut().insert(42, 77);
-        assert_eq!(
-            geometry.input_point(42, (1, 2), (100, 100), false)?,
-            Some((12, 34))
-        );
-        assert_eq!(
-            geometry.input_point(42, (1, 2), (100, 100), true)?,
-            Some((12, 34))
-        );
-        assert!(geometry.input_point(42, (1, 2), (100, 100), false).is_err());
-        assert_eq!(geometry.input_point(43, (1, 2), (100, 100), true)?, None);
         let requests = fixture.join().unwrap()?;
         assert_eq!(requests[0], json!({"op":"focus","window_id":77}));
         assert_eq!(requests[1]["op"], "locate_x11");
@@ -1245,19 +1213,6 @@ mod tests {
         assert_eq!(requests[4]["op"], "scope");
         assert_eq!(requests[5]["xwindow"], 42);
         assert!(requests[5].get("window_id").is_none());
-        assert_eq!(
-            requests[6]["op"], "locate_x11",
-            "a bound move needs one validation/translation RPC"
-        );
-        assert_eq!(
-            requests[7]["op"], "focus",
-            "button presses retain popup-safe compositor focus"
-        );
-        assert_eq!(requests[8]["op"], "locate_x11");
-        assert_eq!(requests[9]["op"], "locate_x11");
-        assert!(requests[6..]
-            .iter()
-            .all(|r| r["window_id"] == 77 && r.get("xwindow").is_none()));
         Ok(())
     }
     #[test]

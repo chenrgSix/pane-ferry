@@ -51,18 +51,6 @@ pub trait DesktopGeometry: Send {
     fn input_target(&self, _window: u32, _focus: bool) -> Result<bool> {
         Ok(false)
     }
-    /// A compositor may validate its pinned object while translating the point.
-    /// Some replaces a separate input_target call: identity, dimensions and any
-    /// requested focus must already be checked, without rebinding a reused XID.
-    fn input_point(
-        &self,
-        _window: u32,
-        _point: (i32, i32),
-        _size: (u32, u32),
-        _focus: bool,
-    ) -> Result<Option<(i32, i32)>> {
-        Ok(None)
-    }
     fn logical_layout(&self, _owners: &HashMap<u32, u32>) -> Result<HashMap<u32, LogicalLayout>> {
         Ok(HashMap::new())
     }
@@ -1025,26 +1013,6 @@ impl Backend {
         if pressed || button == 0 {
             self.require_input()?;
         }
-        if let (Some(input), Some(geometry), Some(scope)) = (
-            &self.desktop_input,
-            &self.desktop_geometry,
-            &self.window_scope,
-        ) {
-            anyhow::ensure!(scope.current(id), "unknown window");
-            let focus = button != 0 && pressed;
-            if focus && !w.visible {
-                bail!("window is hidden")
-            }
-            match geometry.input_point(id, (x, y), (w.width, w.height), focus) {
-                Ok(Some((px, py))) => return input.pointer(px, py, button, pressed),
-                Ok(None) => {} // Other compositors retain the existing checks.
-                Err(_) if button > 0 && !pressed => {
-                    input.release_all();
-                    return Ok(());
-                }
-                Err(error) => return Err(error),
-            }
-        }
         let compositor = self.compositor_input(id, button != 0 && pressed)?;
         if !compositor {
             self.known(id)?;
@@ -1135,15 +1103,6 @@ impl Backend {
         Ok(code)
     }
     pub fn key(&self, id: u32, keysym: u32, pressed: bool) -> Result<()> {
-        if !pressed {
-            if let Some(input) = &self.desktop_input {
-                anyhow::ensure!(self.windows.contains_key(&id), "unknown window");
-                // The broker only releases this controller's held key. No new
-                // focus or input authority is acquired by a key-up, and waiting
-                // for the compositor here delays both cleanup and publication.
-                return input.key(self.keycode(keysym)?, false);
-            }
-        }
         if pressed {
             self.require_input()?;
         }
@@ -1246,9 +1205,6 @@ fn authenticated_connection(display: u16, authority: &Path) -> Result<RustConnec
     )?;
     Ok(conn)
 }
-
-#[cfg(test)]
-mod input_tests;
 
 #[cfg(test)]
 mod geometry_tests {
