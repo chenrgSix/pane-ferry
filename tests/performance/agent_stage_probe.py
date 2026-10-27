@@ -127,7 +127,8 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         target = (destination / relative).resolve()
         if (relative.is_absolute() or '..' in relative.parts
                 or not original.is_relative_to(ROOT.resolve()) or not original.is_file()
-                or not target.is_relative_to(destination.resolve()) or not target.is_file()):
+                or not target.is_relative_to(destination.resolve())
+                or (target.exists() and not target.is_file()) or not target.parent.is_dir()):
             raise ValueError('source override must be a repository-relative file')
         target.write_bytes(original.read_bytes())
     def edit(name, before, after):
@@ -182,7 +183,28 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
                 if text.count(before) != 1:
                     raise ValueError('X11 readback timing anchor changed: ' + before[:80])
                 text = text.replace(before, after)
+            if 'render.capture_linear' in text:
+                text = text.replace('        if let Some(mapped) = render.capture_linear',
+                                    '        probe.mark("scaled");\n        if let Some(mapped) = render.capture_linear')
+                text = text.replace('            return Ok(mapped);',
+                                    '            probe.mark("mapped_readback");\n            return Ok(mapped);')
             readback.write_text(text)
+            linear = backend / 'linear_capture.rs'
+            if linear.exists():
+                body = linear.read_text()
+                checkpoints = [
+                    ('            let reset = if let Some(fence) = self.fence {', 'linear_submit_start'),
+                    ('            let end = Instant::now() + Duration::from_secs(1);', 'linear_export_received'),
+                    ('            sync(self.fd.as_raw_fd(), false)?;', 'linear_fence_ready'),
+                    ('            let row = self.size.0 as usize * 4;', 'linear_copy_start'),
+                    ('            sync(self.fd.as_raw_fd(), true)?;', 'linear_copy_end'),
+                    ('            std::mem::forget(end);', 'linear_coherency_ended'),
+                ]
+                for anchor, stage in checkpoints:
+                    if body.count(anchor) != 1:
+                        raise ValueError('linear timing anchor changed: ' + anchor[:80])
+                    body = body.replace(anchor, '            crate::capture_probe::detail("' + stage + '");\n' + anchor)
+                linear.write_text(body)
             # Keep the actual request/reply path intact: no extra flush or X11
             # synchronization is inserted by these diagnostic checkpoints.
             shared = backend / 'shared_capture.rs'
