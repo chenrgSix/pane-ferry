@@ -7,6 +7,7 @@ unchanged and stores timings in the private PANEFERRY_PROBE_TRACE file instead.
 Run one sequential key/click probe/controller; do not use this binary in production.
 """
 import argparse
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -112,7 +113,7 @@ pub fn x11_source(pointer:usize, source:usize) {
 }
 '''
 
-def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False, x11_capture_stages=False):
+def instrument(destination, revision, isolated_state=False, stages=True, source_overrides=(), trace_only=False, x11_capture_stages=False, codec_stages=False):
     if trace_only and not stages:
         raise ValueError('trace-only requires stage instrumentation')
     destination.mkdir(parents=True, exist_ok=False)
@@ -278,6 +279,29 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         (source / name).write_text((ROOT / 'tests/performance' / name).read_text())
     edit('main.rs', 'static STOP:', 'mod stage_probe;\nmod selection_probe;\nstatic STOP:')
     edit('video.rs', 'type Object =', '#[path="selection_gstreamer.rs"]\nmod selection_gstreamer;\ntype Object =')
+    if codec_stages:
+        (source / 'codec_probe.rs').write_bytes((ROOT / 'tests/performance/codec_probe.rs').read_bytes())
+        edit('video.rs', 'type Object =', '#[path="codec_probe.rs"]\nmod codec_probe;\ntype Object =')
+        edit('video.rs', 'caps_structure: unsafe extern', '''probe_pad: unsafe extern "C" fn(Object, *const c_char) -> Object => (core, c"gst_element_get_static_pad"),
+    probe_install: unsafe extern "C" fn(Object, c_uint, unsafe extern "C" fn(Object,Object,Object)->c_int, Object, Option<Destroy>) -> libc::c_ulong => (core, c"gst_pad_add_probe"),
+    probe_remove: unsafe extern "C" fn(Object, libc::c_ulong) -> () => (core, c"gst_pad_remove_probe"),
+    caps_structure: unsafe extern''')
+        edit('video.rs', '    first_frame_fallback: Option<u8>,', '    first_frame_fallback: Option<u8>,\n    codec_probe: Option<codec_probe::Probe>,')
+        edit('video.rs', '            first_frame_fallback: None,', '            first_frame_fallback: None,\n            codec_probe: None,')
+        edit('video.rs', '        Ok(encoder)\n    }', '        encoder.codec_probe = Some(codec_probe::Probe::new(api, pipeline)?);\n        Ok(encoder)\n    }')
+        edit('video.rs', '        let buffer = image.input_buffer(self.api)?;', '        if let Some(p)=&self.codec_probe {p.begin();}\n        let buffer = image.input_buffer(self.api)?;\n        if let Some(p)=&self.codec_probe {p.mark("input.wrapped");}')
+        edit('video.rs', '        let sample = unsafe { (self.api.pull)(self.sink, 2_000_000_000) };', '        if let Some(p)=&self.codec_probe {p.mark("input.pushed");}\n        let sample = unsafe { (self.api.pull)(self.sink, 2_000_000_000) };\n        if let Some(p)=&self.codec_probe {p.mark("output.pulled");}')
+        edit('video.rs', '        Ok(Packet { bytes, keyframe })', '        if let Some(p)=&self.codec_probe {p.finish(image);}\n        Ok(Packet { bytes, keyframe })')
+        # Keep pad references until STATE_NULL stops streaming callbacks.
+        edit('video.rs', '            if !self.source.is_null() {\n                (self.api.unref)(self.source);', '            self.codec_probe.take();\n            if !self.source.is_null() {\n                (self.api.unref)(self.source);')
+        path = source / 'video.rs'
+        body = path.read_text()
+        start = body.index('fn pipeline_for_format(')
+        end = body.index('\nimpl Encoder', start)
+        labels = {'videobox': 'padding', 'videoscale': 'scaling', 'videoconvert': 'conversion', 'videoconvertscale': 'conversion'}
+        block = re.sub(r'\b(videobox|videoscale|videoconvert|videoconvertscale)(?=\s)',
+                       lambda m: m[0] + ' name=probe_' + labels[m[0]], body[start:end])
+        path.write_text(body[:start] + block + body[end:])
     edit('video.rs', 'caps_structure: unsafe extern', '''probe_caps: unsafe extern "C" fn(*const c_char) -> Object => (core, c"gst_caps_from_string"),
     probe_add_reference: unsafe extern "C" fn(Object, Object, u64, u64) -> Object => (core, c"gst_buffer_add_reference_timestamp_meta"),
     probe_get_reference: unsafe extern "C" fn(Object, Object) -> Object => (core, c"gst_buffer_get_reference_timestamp_meta"),
@@ -344,10 +368,13 @@ if __name__ == '__main__':
     p.add_argument('--no-stages', action='store_true', help='archive only (plus optional isolated state), without timing instrumentation')
     p.add_argument('--trace-only', action='store_true', help='keep frame metadata unchanged; write timings only to PANEFERRY_PROBE_TRACE')
     p.add_argument('--x11-capture-stages', action='store_true', help='diagnostic-only wall and thread CPU checkpoints inside X11 readback')
+    p.add_argument('--codec-stages', action='store_true', help='diagnostic-only buffer pad timings for conversion, padding and H.264')
     p.add_argument('--source-override', action='append', default=[], help='copy this explicit working-tree file before instrumenting the archive')
     a=p.parse_args()
     if a.trace_only and a.no_stages:
         p.error('--trace-only and --no-stages are mutually exclusive')
     if a.x11_capture_stages and a.no_stages:
         p.error('--x11-capture-stages requires stage instrumentation')
-    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override, a.trace_only, a.x11_capture_stages)
+    if a.codec_stages and a.no_stages:
+        p.error('--codec-stages requires stage instrumentation')
+    instrument(a.destination.resolve(), a.revision, a.isolated_state, not a.no_stages, a.source_override, a.trace_only, a.x11_capture_stages, a.codec_stages)
