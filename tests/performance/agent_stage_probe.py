@@ -181,7 +181,29 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
             anchor = '        capture\n            .worker\n            .submit'
             if work.count(anchor) != 1:
                 raise ValueError('asynchronous capture admission anchor changed')
-            worker.write_text(work.replace(anchor, '        crate::capture_probe::queued(id);\n' + anchor))
+            work = work.replace(anchor, '        crate::capture_probe::queued(id);\n' + anchor)
+            completion = ('            let valid = self.current_capture(&done.job);'
+                          if 'fn current_capture(' in work else '            let valid = self.known(id).is_ok();')
+            admission = ('        let owner = self.capture_owner(id)?;'
+                         if 'fn capture_owner(' in work else '        self.known(id)?;\n        let owner =')
+            scheduler = [
+                ('            validate()?;\n            let image =',
+                 '            crate::capture_probe::scheduler("worker_owner_before", job.surface.window);\n            validate()?;\n            crate::capture_probe::scheduler("worker_owner_before_done", job.surface.window);\n            let image ='),
+                ('            validate()?;\n            Ok(image)',
+                 '            crate::capture_probe::scheduler("worker_owner_after", job.surface.window);\n            validate()?;\n            crate::capture_probe::scheduler("worker_owner_after_done", job.surface.window);\n            Ok(image)'),
+                (completion, '            crate::capture_probe::scheduler("completion_owner", id);\n'
+                 + completion + '\n            crate::capture_probe::scheduler("completion_owner_done", id);'),
+                (admission, '        crate::capture_probe::scheduler("admission_owner", id);\n' + admission),
+                ('        let slot = &frames.slots[&id];',
+                 '        crate::capture_probe::scheduler("admission_owner_done", id);\n        let slot = &frames.slots[&id];'),
+                ('        self.damage.borrow_mut().acknowledge(&self.conn, id)?;',
+                 '        crate::capture_probe::scheduler("damage_rearm", id);\n        self.damage.borrow_mut().acknowledge(&self.conn, id)?;\n        crate::capture_probe::scheduler("damage_rearm_done", id);'),
+            ]
+            for before, after in scheduler:
+                if work.count(before) != 1:
+                    raise ValueError('X11 scheduler timing anchor changed: ' + before[:80])
+                work = work.replace(before, after)
+            worker.write_text(work)
             for before, after in replacements:
                 if text.count(before) != 1:
                     raise ValueError('X11 readback timing anchor changed: ' + before[:80])

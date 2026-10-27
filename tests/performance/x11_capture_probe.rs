@@ -32,6 +32,26 @@ pub fn queued(window: u32) {
     jobs.insert(window, clock(libc::CLOCK_MONOTONIC));
 }
 
+pub fn scheduler(phase: &str, window: u32) {
+    let Some(path) = std::env::var_os("PANEFERRY_PROBE_TRACE") else {
+        return;
+    };
+    let value = serde_json::json!({"event":"x11_scheduler", "phase":phase,
+        "window_id":window, "timestamp_ns":clock(libc::CLOCK_MONOTONIC),
+        "thread_cpu_ns":clock(libc::CLOCK_THREAD_CPUTIME_ID)});
+    if let Ok(mut bytes) = serde_json::to_vec(&value) {
+        bytes.push(b'\n');
+        if let Ok(mut file) = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .mode(0o600)
+            .open(path)
+        {
+            let _ = file.write_all(&bytes);
+        }
+    }
+}
+
 fn clock(id: libc::clockid_t) -> u64 {
     let mut t = libc::timespec {
         tv_sec: 0,
