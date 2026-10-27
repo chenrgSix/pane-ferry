@@ -209,6 +209,32 @@ impl AsyncCapture {
     }
 }
 impl Backend {
+    fn capture_owner(&self, id: u32) -> Result<Option<Identity>> {
+        if let Some(scope) = &self.window_scope {
+            anyhow::ensure!(self.windows.contains_key(&id), "unknown window");
+            return scope
+                .capture_identity(id)
+                .map(Some)
+                .context("unknown window");
+        }
+        self.known(id)?;
+        if self.process_id.is_some() {
+            Ok(Some(Identity::read(self.client_pid(id)?)?.0))
+        } else {
+            Ok(None)
+        }
+    }
+    fn current_capture(&self, job: &Job) -> bool {
+        if let Some(scope) = &self.window_scope {
+            // The worker has already checked XRES on both sides of the pixel
+            // read. Keep its approved process identity and the event-owned
+            // epoch/geometry barrier; do not wait on Xwayland a third time.
+            return self.windows.contains_key(&job.surface.window)
+                && job.owner.is_some()
+                && scope.capture_identity(job.surface.window).as_ref() == job.owner.as_ref();
+        }
+        self.known(job.surface.window).is_ok()
+    }
     /// Enable before acquiring a controller. Authentication and initial X11
     /// setup happen here, never in response to an input or a capture deadline.
     pub fn enable_async_capture(&mut self) -> Result<()> {
@@ -331,7 +357,7 @@ impl Backend {
                 Err(TryRecvError::Disconnected) => bail!("X11 capture worker stopped"),
             };
             let id = done.job.surface.window;
-            let valid = self.known(id).is_ok();
+            let valid = self.current_capture(&done.job);
             if !capture.frames.borrow_mut().finish(done, valid) {
                 self.damage.borrow_mut().retry(id);
             }
@@ -371,12 +397,7 @@ impl Backend {
         let Some(id) = candidates.first().copied() else {
             return Ok(());
         };
-        self.known(id)?;
-        let owner = if self.process_id.is_some() {
-            Some(Identity::read(self.client_pid(id)?)?.0)
-        } else {
-            None
-        };
+        let owner = self.capture_owner(id)?;
         let slot = &frames.slots[&id];
         let job = Job {
             surface: slot.surface.clone(),
@@ -812,6 +833,79 @@ mod tests {
         assert_eq!(
             received.try_iter().collect::<Vec<_>>(),
             ["press", "release", "pointer"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a private Linux Xvfb DISPLAY with XRES, DAMAGE and SHM; run serially"]
+    fn validated_capture_completion_never_waits_for_the_input_x_server() -> Result<()> {
+        let (mut backend, painter, window) = fixture()?;
+        let id = window.window_id;
+        backend.process_id = Some(std::process::id());
+        backend.root_window = Some(id);
+        backend.existing_display = Some(61005);
+        backend.window_scope = Some(crate::related_windows::Scope::new(
+            61005,
+            std::process::id(),
+            id,
+            &[],
+        )?);
+        backend.enable_async_capture()?;
+        // This owned fixture has no compositor. Keep real worker XRES checks,
+        // but read the source drawable rather than a Composite named pixmap.
+        backend
+            .async_capture
+            .as_ref()
+            .unwrap()
+            .frames
+            .borrow_mut()
+            .slots
+            .get_mut(&id)
+            .unwrap()
+            .surface
+            .composite = false;
+        backend.prepare_capture(Duration::ZERO)?;
+        let fd = backend.capture_completion_fd().unwrap();
+        wait(|| {
+            let mut event = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            Ok(unsafe { libc::poll(&mut event, 1, 0) } > 0)
+        })?;
+        painter.grab_server()?.check()?;
+        let (release, unblock) = mpsc::channel();
+        let ungrab = thread::spawn(move || -> Result<()> {
+            let _ = unblock.recv_timeout(Duration::from_millis(300));
+            painter.ungrab_server()?.check()?;
+            Ok(())
+        });
+        let start = Instant::now();
+        let result = backend.poll_async_capture();
+        let elapsed = start.elapsed();
+        let _ = release.send(());
+        ungrab.join().unwrap()?;
+        result?;
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "completed pixels waited on another X11 owner query: {elapsed:?}"
+        );
+        assert!(backend.capture_pending());
+        assert_eq!(backend.take_capture(&window, 320, 240)?.width, 320);
+        let mut stale = job();
+        stale.surface.window = id;
+        assert!(
+            !backend.current_capture(&stale),
+            "a scoped completion requires the worker's approved identity"
+        );
+        stale.owner = backend.window_scope.as_ref().unwrap().capture_identity(id);
+        assert!(backend.current_capture(&stale));
+        backend.windows.remove(&id);
+        assert!(
+            !backend.current_capture(&stale),
+            "a validated worker cannot restore a destroyed window"
         );
         Ok(())
     }

@@ -135,6 +135,13 @@ impl Scope {
             .get(&id)
             .is_some_and(|m| self.contains(id, m.identity.pid))
     }
+    /// The identity approved by discovery. Pixel reads must still validate the
+    /// X server's current owner on their private connection before and after
+    /// readback; this only avoids resolving the same owner on the input thread.
+    pub fn capture_identity(&self, id: u32) -> Option<Identity> {
+        self.current(id)
+            .then(|| self.members.get(&id).unwrap().identity.clone())
+    }
     pub fn parent(&self, id: u32) -> Option<u32> {
         self.members.get(&id).and_then(|m| m.parent)
     }
@@ -315,5 +322,18 @@ mod tests {
         let scope = Scope::new(61003, root.pid, root.id, &[root]).unwrap();
         assert_eq!(scope.clipboard_pid(root.id, root.pid), Some(root.pid));
         assert_eq!(scope.clipboard_pid(root.id, parent), None);
+    }
+    #[test]
+    fn capture_identity_is_live_scoped_and_pinned_to_process_start() {
+        let root = window(31, None);
+        let mut scope = Scope::new(61006, root.pid, root.id, &[root]).unwrap();
+        let approved = scope.capture_identity(root.id).unwrap();
+        assert_eq!(approved.pid, root.pid);
+        assert!(scope.capture_identity(root.id + 1).is_none());
+        scope.members.get_mut(&root.id).unwrap().identity.started += 1;
+        assert!(
+            scope.capture_identity(root.id).is_none(),
+            "a changed process incarnation cannot authorize a capture"
+        );
     }
 }
