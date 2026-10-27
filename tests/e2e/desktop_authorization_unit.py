@@ -91,6 +91,12 @@ class AuthorizationTests(unittest.TestCase):
         eis.press(1, 10, 30, True, True)
         eis.press(2, 10, 30, True, True)
         eis.press(3, 11, 272, True, False)
+        # A targeted key-up may bypass window queries, but it cannot release
+        # another controller's key or synthesize an unheld key transition.
+        eis.dispatch = lambda: None
+        eis.send(dict(type='key', owner=99, code=38, pressed=False))
+        self.assertEqual(eis.held[(10, 30, True)], {1, 2})
+        self.assertEqual(len(eis.lib.events), 2)
         eis.release(1)
         self.assertEqual(eis.lib.events, [('key', 10, 30, True), ('button', 11, 272, True)])
         eis.release(2)
