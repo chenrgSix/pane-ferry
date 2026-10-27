@@ -183,6 +183,25 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
                     raise ValueError('X11 readback timing anchor changed: ' + before[:80])
                 text = text.replace(before, after)
             readback.write_text(text)
+            # Keep the actual request/reply path intact: no extra flush or X11
+            # synchronization is inserted by these diagnostic checkpoints.
+            shared = backend / 'shared_capture.rs'
+            text = shared.read_text()
+            replacements = [
+                ('        paneferry_protocol::dimensions(width, height)?;',
+                 '        crate::capture_probe::detail("shm_prepare_start");\n        paneferry_protocol::dimensions(width, height)?;'),
+                ('        let reply = connection\n            .shm_get_image(',
+                 '        crate::capture_probe::detail("shm_prepare_end");\n        let pending = connection\n            .shm_get_image('),
+                ('            )?\n            .reply()?;\n        let size = reply.size as usize;',
+                 '            )?;\n        crate::capture_probe::detail("shm_request_queued");\n        let reply = pending.reply()?;\n        crate::capture_probe::detail("shm_reply_received");\n        let size = reply.size as usize;'),
+                ('        let data = unsafe { std::slice::from_raw_parts(region.pointer.as_ptr(), size) }.to_vec();',
+                 '        crate::capture_probe::detail("shm_copy_start");\n        let data = unsafe { std::slice::from_raw_parts(region.pointer.as_ptr(), size) }.to_vec();\n        crate::capture_probe::detail("shm_copy_end");'),
+            ]
+            for before, after in replacements:
+                if text.count(before) != 1:
+                    raise ValueError('SHM timing anchor changed: ' + before[:80])
+                text = text.replace(before, after)
+            shared.write_text(text)
         else:
             replacements = [
             ('mod damage;', 'mod damage;\nmod capture_probe;'),

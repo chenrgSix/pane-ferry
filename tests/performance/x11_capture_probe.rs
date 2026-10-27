@@ -1,5 +1,6 @@
 //! Diagnostic archive only: wall/CPU checkpoints without recording any pixels.
 use std::{
+    cell::RefCell,
     collections::HashMap,
     fs::OpenOptions,
     io::Write,
@@ -11,6 +12,18 @@ use std::{
 };
 
 static QUEUED: OnceLock<Mutex<HashMap<u32, u64>>> = OnceLock::new();
+thread_local! {
+    static DETAILS: RefCell<Option<Vec<serde_json::Value>>> = const { RefCell::new(None) };
+}
+pub fn detail(stage: &str) {
+    DETAILS.with_borrow_mut(|points| {
+        if let Some(points) = points {
+            points.push(serde_json::json!({"stage":stage,
+                "timestamp_ns":clock(libc::CLOCK_MONOTONIC),
+                "thread_cpu_ns":clock(libc::CLOCK_THREAD_CPUTIME_ID)}));
+        }
+    });
+}
 pub fn queued(window: u32) {
     let mut jobs = QUEUED.get_or_init(Default::default).lock().unwrap();
     if jobs.len() > 64 {
@@ -38,6 +51,7 @@ pub struct CaptureProbe {
 }
 impl CaptureProbe {
     pub fn new(window: u32) -> Self {
+        DETAILS.set(Some(Vec::with_capacity(16)));
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let mut s = Self {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
@@ -98,7 +112,8 @@ impl Drop for CaptureProbe {
             return;
         };
         let event = serde_json::json!({"event":"x11_capture", "readback_id":self.id, "window_id":self.window,
-            "queued_ns":self.queued_ns, "image_data":self.image_data, "marker":self.marker, "points":self.points});
+            "queued_ns":self.queued_ns, "image_data":self.image_data, "marker":self.marker, "points":self.points,
+            "details":DETAILS.take().unwrap_or_default()});
         if let Ok(mut bytes) = serde_json::to_vec(&event) {
             bytes.push(b'\n');
             if let Ok(mut file) = OpenOptions::new()
