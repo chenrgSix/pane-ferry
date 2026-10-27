@@ -601,10 +601,7 @@ fn pipeline_for_format(
     let even_height = u64::from(height + height % 2);
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
     let input = match format {
-        // The owned encoder input is already black-padded to these dimensions.
-        // Avoid videobox's per-pixel RGB copy; logical/window dimensions remain
-        // unchanged and the color converter receives exactly the same pixels.
-        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={even_width},height={even_height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=I420"),
+        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert ! video/x-raw,format=I420"),
         Format::ScaledBgrx { width: source_width, height: source_height } => format!(
             "caps=video/x-raw,format=BGRx,width={source_width},height={source_height},framerate={fps}/1 \
             ! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height} \
@@ -743,7 +740,7 @@ impl Encoder {
         {
             bail!("video geometry changed")
         }
-        let buffer = image.encoder_input_buffer(self.api)?;
+        let buffer = image.input_buffer(self.api)?;
         // Unlike the action signal, C appsrc consumes this reference even on error.
         if unsafe { (self.api.push)(self.source, buffer) } != 0 {
             bail!("H.264 input rejected")

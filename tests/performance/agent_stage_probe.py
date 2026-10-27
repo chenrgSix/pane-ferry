@@ -289,8 +289,7 @@ def instrument(destination, revision, isolated_state=False, stages=True, source_
         edit('video.rs', '    first_frame_fallback: Option<u8>,', '    first_frame_fallback: Option<u8>,\n    codec_probe: Option<codec_probe::Probe>,')
         edit('video.rs', '            first_frame_fallback: None,', '            first_frame_fallback: None,\n            codec_probe: None,')
         edit('video.rs', '        Ok(encoder)\n    }', '        encoder.codec_probe = Some(codec_probe::Probe::new(api, pipeline)?);\n        Ok(encoder)\n    }')
-        wrapping = 'encoder_input_buffer' if 'let buffer = image.encoder_input_buffer(self.api)?;' in (source / 'video.rs').read_text() else 'input_buffer'
-        edit('video.rs', f'        let buffer = image.{wrapping}(self.api)?;', f'        if let Some(p)=&self.codec_probe {{p.begin();}}\n        let buffer = image.{wrapping}(self.api)?;\n        if let Some(p)=&self.codec_probe {{p.mark("input.wrapped");}}')
+        edit('video.rs', '        let buffer = image.input_buffer(self.api)?;', '        if let Some(p)=&self.codec_probe {p.begin();}\n        let buffer = image.input_buffer(self.api)?;\n        if let Some(p)=&self.codec_probe {p.mark("input.wrapped");}')
         edit('video.rs', '        let sample = unsafe { (self.api.pull)(self.sink, 2_000_000_000) };', '        if let Some(p)=&self.codec_probe {p.mark("input.pushed");}\n        let sample = unsafe { (self.api.pull)(self.sink, 2_000_000_000) };\n        if let Some(p)=&self.codec_probe {p.mark("output.pulled");}')
         edit('video.rs', '        Ok(Packet { bytes, keyframe })', '        if let Some(p)=&self.codec_probe {p.finish(image);}\n        Ok(Packet { bytes, keyframe })')
         # Keep pad references until STATE_NULL stops streaming callbacks.
