@@ -119,33 +119,66 @@ impl Frame {
         match &self.storage {
             Storage::I420(sample) => Ok(unsafe { (api.mini_ref)((api.sample_buffer)(sample.0)) }),
             Storage::Image(image) => {
-                let pixels = Box::new(match image.bgrx()? {
+                let pixels = match image.bgrx()? {
                     Cow::Borrowed(_) => Pixels::Capture(image.clone()),
                     Cow::Owned(bytes) => Pixels::Converted(bytes),
-                });
-                let bytes = pixels.bytes();
-                let length = bytes.len();
-                let data = bytes.as_ptr().cast_mut().cast();
-                let owner = Box::into_raw(pixels).cast();
-                let buffer = unsafe {
-                    (api.wrap)(
-                        MEMORY_READONLY,
-                        data,
-                        length,
-                        0,
-                        length,
-                        owner,
-                        Some(release_pixels),
-                    )
                 };
-                if buffer.is_null() {
-                    unsafe { release_pixels(owner) };
-                    bail!("cannot wrap video frame")
-                }
-                Ok(buffer)
+                wrapped_pixels(api, pixels)
             }
         }
     }
+    pub(super) fn encoder_input_buffer(&self, api: &'static Api) -> Result<Object> {
+        let Storage::Image(image) = &self.storage else {
+            return self.input_buffer(api);
+        };
+        // Scaled RGB input still uses the existing scale/pad pipeline. Native
+        // I420 and already-even RGB keep their original shared-buffer path.
+        if (image.width, image.height) != (self.width, self.height)
+            || (self.width.is_multiple_of(2) && self.height.is_multiple_of(2))
+        {
+            return self.input_buffer(api);
+        }
+        paneferry_protocol::dimensions(self.width, self.height)?;
+        let source = image.bgrx()?;
+        let row = self.width as usize * 4;
+        let stride = (self.width + self.width % 2) as usize * 4;
+        let rows = (self.height + self.height % 2) as usize;
+        let mut pixels = Vec::with_capacity(stride * rows);
+        if row == stride {
+            pixels.extend_from_slice(&source);
+        } else {
+            for line in source.chunks_exact(row) {
+                pixels.extend_from_slice(line);
+                pixels.extend_from_slice(&[0; 4]);
+            }
+        }
+        pixels.resize(stride * rows, 0);
+        wrapped_pixels(api, Pixels::Converted(pixels))
+    }
+}
+
+fn wrapped_pixels(api: &'static Api, pixels: Pixels) -> Result<Object> {
+    let pixels = Box::new(pixels);
+    let bytes = pixels.bytes();
+    let length = bytes.len();
+    let data = bytes.as_ptr().cast_mut().cast();
+    let owner = Box::into_raw(pixels).cast();
+    let buffer = unsafe {
+        (api.wrap)(
+            MEMORY_READONLY,
+            data,
+            length,
+            0,
+            length,
+            owner,
+            Some(release_pixels),
+        )
+    };
+    if buffer.is_null() {
+        unsafe { release_pixels(owner) };
+        bail!("cannot wrap video frame")
+    }
+    Ok(buffer)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -341,6 +374,79 @@ mod tests {
         assert!(!dense.same_pixels(&normal));
         assert!(dense.same_pixels(&Frame::scaled_image(image(1800, 1402, 0), 900, 701).unwrap()));
         assert!(Frame::scaled_image(image(90, 70, 0), 180, 140).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer; compares padded encoder input with the former videobox path"]
+    fn encoder_padding_preserves_i420_pixels_and_source_ownership() {
+        let api = api().unwrap();
+        for (width, height) in [
+            (64, 48),
+            (65, 47),
+            (641, 483),
+            (1470, 809),
+            (1471, 809),
+            (1470, 810),
+        ] {
+            for scale in [1, 2] {
+                let (sw, sh) = (width * scale, height * scale);
+                let format = if scale == 1 {
+                    Format::Bgrx
+                } else {
+                    Format::ScaledBgrx {
+                        width: sw,
+                        height: sh,
+                    }
+                };
+                let recipe = pipeline_for_format(width, height, 30, EncoderKind::X264, format);
+                let actual_input = recipe.split("! identity datarate=").next().unwrap();
+                let scaling = if scale == 1 {
+                    String::new()
+                } else {
+                    format!("! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height}")
+                };
+                let legacy_input = format!("appsrc name=source is-live=true format=time block=true max-buffers=1 caps=video/x-raw,format=BGRx,width={sw},height={sh},framerate=30/1 {scaling} ! videobox right=-{} bottom=-{} ! videoconvert ! video/x-raw,format=I420", width % 2, height % 2);
+                let make = |input: &str, source_width, source_height| {
+                    CropConverter::from_description(
+                        api,
+                        CropSpec {
+                            source_width,
+                            source_height,
+                            region: [0, 0, width, height],
+                        },
+                        CString::new(format!(
+                            "{input} ! appsink name=sink sync=false max-buffers=1 drop=false"
+                        ))
+                        .unwrap(),
+                    )
+                    .unwrap()
+                };
+                let legacy = make(&legacy_input, sw, sh);
+                let actual = make(
+                    actual_input,
+                    if scale == 1 { width + width % 2 } else { sw },
+                    if scale == 1 { height + height % 2 } else { sh },
+                );
+                let mut originals = Vec::new();
+                for phase in 0..3 {
+                    let original = Arc::new(image(sw, sh, phase));
+                    originals.push(Arc::downgrade(&original));
+                    let frame =
+                        Frame::scaled_shared_image(original.clone(), width, height).unwrap();
+                    let input = Buffer(frame.input_buffer(api).unwrap());
+                    let padded = Buffer(frame.encoder_input_buffer(api).unwrap());
+                    let expected = legacy.convert(input.0).unwrap();
+                    let result = actual.convert(padded.0).unwrap();
+                    assert!(expected.same_pixels(&result), "padding changed {width}x{height} I420 pixels, source scale {scale}, phase {phase}");
+                    drop((expected, result, input, padded, frame, original));
+                }
+                drop((legacy, actual));
+                assert!(
+                    originals.iter().all(|image| image.upgrade().is_none()),
+                    "encoder padding retained source pixels"
+                );
+            }
+        }
     }
     fn buffer(image: &Arc<CapturedImage>) -> Buffer {
         // A compositor backing buffer may exceed the protocol's visible pixel
