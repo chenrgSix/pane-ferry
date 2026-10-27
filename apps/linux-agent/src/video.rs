@@ -572,6 +572,22 @@ enum EncoderKind {
 fn pipeline(width: u32, height: u32, fps: u8, kind: EncoderKind) -> String {
     pipeline_for_format(width, height, fps, kind, Format::Bgrx)
 }
+fn conversion_threads(height: u32) -> usize {
+    let rows = (height + height % 2) as usize;
+    // Tiny tasks do not benefit from extra workers. Keeping at least 200 rows
+    // also avoids GStreamer's own reduction of the requested worker count.
+    let limit = std::thread::available_parallelism()
+        .map_or(1, |n| n.get().min(4))
+        .min((rows / 200).max(1));
+    // I420 shares chroma between two rows. In the generic converter each task
+    // starts at ceil(height / workers); an odd start changes chroma phase.
+    // Choose aligned chunks for every size, retaining serial conversion when
+    // no bounded parallel partition preserves the original pixels.
+    (2..=limit)
+        .rev()
+        .find(|&n| rows.div_ceil(n).is_multiple_of(2))
+        .unwrap_or(1)
+}
 fn pipeline_for_format(
     width: u32,
     height: u32,
@@ -580,6 +596,11 @@ fn pipeline_for_format(
     format: Format,
 ) -> String {
     let bitrate = bitrate(width, height, fps);
+    // Keep the same conversion filters/pixels, but divide rows among a bounded
+    // number of workers. GStreamer's default is one conversion thread even
+    // when the following encoder already uses slice threads. Native I420
+    // frames bypass this converter entirely.
+    let conversion_threads = conversion_threads(height);
     let encoder = match kind {
         // Slice threads finish one frame at a time: no frame-thread/lookahead
         // buffering. Keep the same resolution, bitrate and maximum quantizer.
@@ -601,11 +622,11 @@ fn pipeline_for_format(
     let even_height = u64::from(height + height % 2);
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
     let input = match format {
-        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert ! video/x-raw,format=I420"),
+        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
         Format::ScaledBgrx { width: source_width, height: source_height } => format!(
             "caps=video/x-raw,format=BGRx,width={source_width},height={source_height},framerate={fps}/1 \
             ! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height} \
-            {padding}! videoconvert ! video/x-raw,format=I420"),
+            {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
         Format::I420 => format!("caps=video/x-raw,format=I420,width={even_width},height={even_height},framerate={fps}/1"),
     };
     format!(
