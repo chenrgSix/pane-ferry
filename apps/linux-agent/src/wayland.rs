@@ -1154,6 +1154,7 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
 mod tests {
     use super::*;
     #[test]
+    #[cfg(target_os = "linux")]
     fn x11_input_uses_pinned_compositor_objects_and_rejects_xid_reuse() -> Result<()> {
         use paneferry_backend_x11::DesktopGeometry;
         let (client, server) = UnixStream::pair()?;
