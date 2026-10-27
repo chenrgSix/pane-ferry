@@ -12,7 +12,7 @@ Ubuntu 现提供可双击安装的 `.deb` 包（`paneferry_0.1.1-1_amd64.deb`）
 
 **双向组件（2026-10-22）：** 已加入 Mac 发布、Ubuntu 接收和统一管理入口，每个平台交付一个 窗渡 PaneFerry。设备连接、目录和窗口保留来源设备，预留多设备扩展；实际多设备并发尚未验收。Mac → Ubuntu 已通过真实 H.264 画面、点击、中文与 emoji 提交、双向文本剪贴板、缩放、同会话重连和断开保留应用验证。使用步骤与当前边界见 [Mac 发布指南](docs/mac-publishing.md)。
 
-**原生传输（2026-10-22）：** 两端已接入统一传输、QUIC 可靠流及设备配对，配对控制与默认媒体使用 QUIC。使用方法见[统一传输指南](docs/native-transport.md)；删除 SSH 前后的实机双向回归、多设备隔离和新包范围见[QUIC 独立链路验收](docs/quic-only-validation.md)。
+**原生传输（2026-10-22）：** 两端已接入统一传输、QUIC 可靠流及设备配对，产品仅使用 QUIC。使用方法见[统一传输指南](docs/native-transport.md)；删除 SSH 前后的实机双向回归、多设备隔离和新包范围见[QUIC 独立链路验收](docs/quic-only-validation.md)。
 
 **整桌面模式（实验功能）：** Mac 工作台可按显示器连接 Ubuntu 当前登录的 GNOME 桌面，使用同一配对、QUIC、H.264 和输入链路；关闭本机窗口只断开连接。应用模式仍单独存在，桌面模式不会调整 Ubuntu 显示器或关闭应用。首版范围、实测与部署状态见[整桌面模式](docs/desktop-mode.md)。
 
@@ -64,7 +64,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 
 ## 当前边界
 
-本机兼容接口使用版本化 JSON Lines，网络使用 QUIC 可靠流；Mac 接收端使用 H.264 关键帧/P 帧视频，Ubuntu 接收端维持原有策略。视频采用有损 4:2:0 编码，已实现基于 UDP 的 QUIC 可靠流与 XDamage；另保留可选的原生 WebRTC H.264 媒体试验（见 [WebRTC](docs/webrtc.md)），默认仍为配对 QUIC；未实现 QUIC DATAGRAM、Protobuf 或 Metal。文字在控制端组合后提交，文本、图片与文件复制/粘贴仅由主动操作触发，不做后台同步；格式、大小和缓存限制见[剪贴板说明](docs/clipboard.md)。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与长期性能仍待完整验收。
+本机兼容接口使用版本化 JSON Lines，网络使用 QUIC 可靠流；Mac 接收端使用 H.264 关键帧/P 帧视频，Ubuntu 接收端维持原有策略。视频采用有损 4:2:0 编码，已实现基于 UDP 的 QUIC 可靠流与 XDamage；未实现 WebRTC、QUIC DATAGRAM、Protobuf 或 Metal。文字在控制端组合后提交，文本、图片与文件复制/粘贴仅由主动操作触发，不做后台同步；格式、大小和缓存限制见[剪贴板说明](docs/clipboard.md)。精确输入法候选框位置、Retina 双屏、复杂菜单、GPU 应用、断网恢复矩阵与长期性能仍待完整验收。
 
 不要传输密码、私钥、令牌到聊天或仓库。无需管理员权限运行 Agent；软件拥有运行它的 Linux 用户权限，应用白名单不是 OS 沙箱。建议为远程应用使用专用低权限账户。
 

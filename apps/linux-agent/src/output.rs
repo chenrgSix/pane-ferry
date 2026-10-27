@@ -1,7 +1,6 @@
 //! Bounded H.264 output worker: a slow reader must not stall input.
 use crate::video_qos::VideoQos;
 use anyhow::{bail, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 #[cfg(test)]
 use paneferry_backend_x11::CapturedImage;
 use paneferry_protocol::Window;
@@ -22,12 +21,6 @@ const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
     EnableVideo(u8, bool),
-    EnableWebRtc(u8, bool),
-    WebRtcAnswer(String),
-    WebRtcCandidate(String, String),
-    WebRtcEvent(u64, crate::webrtc::Event),
-    VideoFallback,
-    MediaPulse,
     ConfigureVideo(u8),
     KeyFrame(u32),
     Message(Value, String),
@@ -171,21 +164,6 @@ impl Output {
     pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
         self.push(Pending::EnableVideo(max_fps, feedback))
     }
-    pub fn enable_webrtc(&self, max_fps: u8, feedback: bool) -> Result<()> {
-        if !crate::webrtc::available() {
-            bail!("WebRTC runtime unavailable")
-        }
-        self.push(Pending::EnableWebRtc(max_fps, feedback))
-    }
-    pub fn webrtc_answer(&self, sdp: String) -> Result<()> {
-        self.push(Pending::WebRtcAnswer(sdp))
-    }
-    pub fn webrtc_candidate(&self, candidate: String, mid: String) -> Result<()> {
-        self.push(Pending::WebRtcCandidate(candidate, mid))
-    }
-    pub fn fallback_video(&self) -> Result<()> {
-        self.push(Pending::VideoFallback)
-    }
     pub fn configure_video(&self, max_fps: u8) -> Result<()> {
         self.push(Pending::ConfigureVideo(max_fps))
     }
@@ -224,10 +202,6 @@ fn write_loop(
     let mut generations: HashMap<u32, u64> = HashMap::new();
     let mut geometry: HashMap<u32, Value> = HashMap::new();
     let mut video = false;
-    let mut rtc: Option<crate::webrtc::Peer> = None;
-    let mut rtc_epoch = 0u64;
-    let mut media_frames: HashMap<u32, u64> = HashMap::new();
-    let mut last_pulse = Instant::now();
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -235,29 +209,14 @@ fn write_loop(
                 if queue.closed {
                     return Ok(());
                 }
-                if rtc.is_some() && last_pulse.elapsed() >= Duration::from_secs(1) {
-                    break Pending::MediaPulse;
-                }
                 if !queue.events.is_empty() {
                     break queue.remove(0);
                 }
-                if rtc.is_some() {
-                    let delay = Duration::from_secs(1).saturating_sub(last_pulse.elapsed());
-                    let (next, timed) = shared.1.wait_timeout(queue, delay).unwrap();
-                    queue = next;
-                    if timed.timed_out() {
-                        break Pending::MediaPulse;
-                    }
-                } else {
-                    queue = shared.1.wait(queue).unwrap();
-                }
+                queue = shared.1.wait(queue).unwrap();
             }
         };
         let (mut value, session) = match event {
             Pending::EnableVideo(max_fps, feedback) => {
-                rtc = None;
-                rtc_epoch = rtc_epoch.wrapping_add(1);
-                media_frames.clear();
                 video = true;
                 generations.clear();
                 geometry.clear();
@@ -266,112 +225,6 @@ fn write_loop(
                     .unwrap()
                     .configure(max_fps, feedback, Instant::now());
                 continue;
-            }
-            Pending::EnableWebRtc(max_fps, feedback) => {
-                rtc_epoch = rtc_epoch.wrapping_add(1);
-                let epoch = rtc_epoch;
-                let notifications = shared.clone();
-                rtc = Some(crate::webrtc::Peer::new(move |event| {
-                    let mut queue = notifications.0.lock().unwrap();
-                    if queue.push(Pending::WebRtcEvent(epoch, event)).is_err() {
-                        queue.closed = true;
-                    }
-                    drop(queue);
-                    notifications.1.notify_one();
-                })?);
-                video = true;
-                media_frames.clear();
-                generations.clear();
-                geometry.clear();
-                workers.reset()?;
-                qos.lock()
-                    .unwrap()
-                    .configure(max_fps, feedback, Instant::now());
-                continue;
-            }
-            Pending::WebRtcAnswer(sdp) => {
-                if let Some(peer) = &rtc {
-                    peer.answer(&sdp)?;
-                }
-                continue;
-            }
-            Pending::WebRtcCandidate(candidate, mid) => {
-                if let Some(peer) = &rtc {
-                    peer.candidate(&candidate, &mid)?;
-                }
-                continue;
-            }
-            Pending::WebRtcEvent(epoch, event) => {
-                if epoch != rtc_epoch || rtc.is_none() {
-                    continue;
-                }
-                use crate::webrtc::Event;
-                match event {
-                    Event::Description(sdp) => {
-                        (json!({"type":"webrtc.offer","sdp":sdp}), String::new())
-                    }
-                    Event::Candidate { candidate, mid } => (
-                        json!({"type":"webrtc.candidate","candidate":candidate,"mid":mid}),
-                        String::new(),
-                    ),
-                    Event::Keyframe(id) => {
-                        if geometry.contains_key(&id) {
-                            next_generation += 1;
-                            generations.insert(id, next_generation);
-                            workers.forget(id)?;
-                            shared.0.lock().unwrap().request_refresh(id)?;
-                        }
-                        continue;
-                    }
-                    Event::State(state) if !matches!(state, 4 | 5) => {
-                        let pair = (state == 2)
-                            .then(|| rtc.as_ref().and_then(|p| p.selected_pair()))
-                            .flatten();
-                        (
-                            json!({"type":"webrtc.state","state":state,"pair":pair}),
-                            String::new(),
-                        )
-                    }
-                    Event::State(_) | Event::Failed => {
-                        retire_media(
-                            &mut rtc,
-                            &mut rtc_epoch,
-                            &mut media_frames,
-                            &mut generations,
-                            &workers,
-                            shared,
-                            qos,
-                        )?;
-                        (
-                            json!({"type":"webrtc.failed","code":"media_transport_failed"}),
-                            String::new(),
-                        )
-                    }
-                }
-            }
-            Pending::VideoFallback => {
-                if rtc.is_some() {
-                    retire_media(
-                        &mut rtc,
-                        &mut rtc_epoch,
-                        &mut media_frames,
-                        &mut generations,
-                        &workers,
-                        shared,
-                        qos,
-                    )?;
-                }
-                continue;
-            }
-            Pending::MediaPulse => {
-                last_pulse = Instant::now();
-                if rtc.is_none() {
-                    continue;
-                }
-                (
-                    json!({"type":"webrtc.pulse","frames":media_frames}),
-                    String::new(),
-                )
             }
             Pending::ConfigureVideo(max_fps) => {
                 if !video {
@@ -394,7 +247,6 @@ fn write_loop(
             Pending::Message(value, session) => {
                 match value["type"].as_str() {
                     Some("session.snapshot" | "session.exited") => {
-                        media_frames.clear();
                         generations.clear();
                         geometry.clear();
                         workers.reset()?;
@@ -402,7 +254,6 @@ fn write_loop(
                     Some("window.destroyed") => {
                         let id = value["window_id"].as_u64().unwrap_or(0) as u32;
                         generations.remove(&id);
-                        media_frames.remove(&id);
                         geometry.remove(&id);
                         shared.0.lock().unwrap().refresh.remove(&id);
                         workers.forget(id)?;
@@ -434,31 +285,6 @@ fn write_loop(
                     next_generation += 1;
                     generations.insert(window.window_id, next_generation);
                 }
-                if let Some(peer) = &rtc {
-                    match peer.ready(window.window_id) {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            shared.0.lock().unwrap().request_refresh(window.window_id)?;
-                            continue;
-                        }
-                        Err(_) => {
-                            retire_media(
-                                &mut rtc,
-                                &mut rtc_epoch,
-                                &mut media_frames,
-                                &mut generations,
-                                &workers,
-                                shared,
-                                qos,
-                            )?;
-                            shared.0.lock().unwrap().push(Pending::Message(
-                                json!({"type":"webrtc.failed","code":"track_failed"}),
-                                session,
-                            ))?;
-                            continue;
-                        }
-                    }
-                }
                 if generations.len() > 64 {
                     bail!("video window limit")
                 }
@@ -481,39 +307,6 @@ fn write_loop(
                 if let Some(id) = qos.lock().unwrap().sent(Instant::now()) {
                     encoded.value["frame_id"] = json!(id);
                 }
-                if let Some(peer) = &rtc {
-                    let media_id = media_frames.get(&encoded.window).copied().unwrap_or(0) + 1;
-                    encoded.value["media_frame_id"] = json!(media_id);
-                    if encoded.value.get("frame_id").is_none() {
-                        encoded.value["frame_id"] = json!(media_id);
-                    }
-                    encoded.value["transport"] = json!("webrtc");
-                    encoded.value["version"] = json!(1);
-                    encoded.value["session_id"] = json!(encoded.session);
-                    encoded.value["seq"] = json!(sequence + 1);
-                    let data = encoded.value.as_object_mut().unwrap().remove("data");
-                    let Some(Value::String(data)) = data else {
-                        bail!("missing encoded frame")
-                    };
-                    let bytes = STANDARD.decode(data)?;
-                    let metadata = serde_json::to_vec(&encoded.value)?;
-                    if peer.send(encoded.window, &bytes, &metadata).is_err() {
-                        retire_media(
-                            &mut rtc,
-                            &mut rtc_epoch,
-                            &mut media_frames,
-                            &mut generations,
-                            &workers,
-                            shared,
-                            qos,
-                        )?;
-                        encoded.value = json!({"type":"webrtc.failed","code":"media_send_failed"});
-                    } else {
-                        media_frames.insert(encoded.window, media_id);
-                        sequence += 1;
-                        continue;
-                    }
-                }
                 (encoded.value, encoded.session)
             }
             Pending::EncoderFailed { window, generation } => {
@@ -527,11 +320,6 @@ fn write_loop(
         value["version"] = json!(1);
         value["seq"] = json!(sequence);
         value["session_id"] = json!(session);
-        if rtc.is_some() {
-            // QUIC assigns a delivery sequence after merging its streams.
-            // Direct RTP retains this source identity for lifecycle barriers.
-            value["source_seq"] = json!(sequence);
-        }
         let mut bytes = serde_json::to_vec(&value)?;
         if bytes.len() + 1 > paneferry_protocol::MAX_LINE {
             bail!("outgoing frame too large")
@@ -539,36 +327,6 @@ fn write_loop(
         bytes.push(b'\n');
         socket.write_all(&bytes)?;
     }
-}
-
-// Retire only video generations. The authenticated QUIC control connection,
-// controller lease, application and negotiated frame-rate cap stay alive.
-fn retire_media(
-    rtc: &mut Option<crate::webrtc::Peer>,
-    epoch: &mut u64,
-    frames: &mut HashMap<u32, u64>,
-    generations: &mut HashMap<u32, u64>,
-    workers: &worker::Pool,
-    shared: &Shared,
-    qos: &Arc<Mutex<VideoQos>>,
-) -> Result<()> {
-    *rtc = None;
-    *epoch = epoch.wrapping_add(1);
-    frames.clear();
-    workers.reset()?;
-    let mut queue = shared.0.lock().unwrap();
-    // A resumed static window is described by session.snapshot rather than
-    // window.created. Its active encoder generation must also be recaptured.
-    for id in generations.keys() {
-        queue.request_refresh(*id)?;
-    }
-    generations.clear();
-    drop(queue);
-    let mut state = qos.lock().unwrap();
-    let cap = state.cap();
-    let feedback = state.feedback_enabled();
-    state.configure(cap, feedback, Instant::now());
-    Ok(())
 }
 
 #[cfg(test)]

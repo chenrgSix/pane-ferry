@@ -111,7 +111,3 @@ Ubuntu Wayland / Xwayland 原桌面的键鼠由 **窗渡 PaneFerry Agent** 统�
 ## 协议
 
 参考 `docs/wire-contract.md`。每条请求必须 `version:1`，第一条 hello。请求限制 64 KiB，事件行限制 16 MiB。PNG 全帧 base64，不接受客户端 shell 字符串。慢接收端写超时后断开，进程仍保留。
-
-## 可选原生 WebRTC 媒体
-
-已合并历史原生媒体试验。未安装 runtime 或未发送 `webrtc.enable` 时保持普通 QUIC 路径。组件构建、动态库与许可证部署见 [WebRTC](webrtc.md)；合并源码不代表已更新安装实例或完成跨机性能验收。

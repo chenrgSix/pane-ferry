@@ -10,21 +10,6 @@ BIN_DIR="$(swift build -c release --show-bin-path)"
 APP="dist/PaneFerryWindowHost.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/PaneFerryWindowHost" "$APP/Contents/MacOS/PaneFerryWindowHost"
-WEBRTC_RUNTIME="${REMOTEAPP_WEBRTC_RUNTIME:-../../target/webrtc}"
-if [ -f "$WEBRTC_RUNTIME/libremoteapp_webrtc.dylib" ]; then
-  mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/WebRTC"
-  cp "$WEBRTC_RUNTIME/libremoteapp_webrtc.dylib" "$APP/Contents/Frameworks/"
-  cp -R "$WEBRTC_RUNTIME/licenses" "$APP/Contents/Resources/WebRTC/"
-  cp "$WEBRTC_RUNTIME/libdatachannel-revision.txt" "$APP/Contents/Resources/WebRTC/"
-  cp "$WEBRTC_RUNTIME/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/WebRTC/"
-  codesign --force --sign - "$APP/Contents/Frameworks/libremoteapp_webrtc.dylib"
-elif [ -n "${REMOTEAPP_WEBRTC_RUNTIME:-}" ]; then
-  echo '指定的 WebRTC runtime 缺少动态库；先运行 scripts/build-webrtc.py。' >&2
-  exit 1
-else
-  rm -f "$APP/Contents/Frameworks/libremoteapp_webrtc.dylib"
-  rm -rf "$APP/Contents/Resources/WebRTC"
-fi
 cp ../../LICENSE "$APP/Contents/Resources/LICENSE"
 cp ../launcher/src-tauri/icons/icon.png "$APP/Contents/Resources/PaneFerry.png"
 cat > "$APP/Contents/Info.plist" <<'PLIST'

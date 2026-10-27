@@ -612,22 +612,6 @@ Firefox 的 Snap 启动器要求会话 systemd，不能在该私有 D-Bus 中启
 
 [结构化证据](validation-artifacts/2026-10-24-window-lifecycle-deployment.json)、[最小化恢复入口](validation-artifacts/2026-10-24-source-minimized.png)、[恢复后的画面](validation-artifacts/2026-10-24-source-restored.png)。完整安装备份及本机记录保留在忽略目录 `dist/window-lifecycle-20261024/`，Ubuntu 旧 Agent 备份保留在用户状态目录的 `upgrades/window-lifecycle-20261024/`。
 
-## 2026-10-27：旧 WebRTC 分支合入当前配对网络
-
-将 `experiment/webrtc-h264` 的 7 个提交合入主分支，并保留日期为 2026-10-21 的历史材料。旧分支依赖 SSH 控制及旧 Mac 图像管线，合并后改用现有配对 QUIC 信令、异步编码池和 CoreVideo 显示。正常连接继续走 QUIC；WebRTC 需要显式 CLI 选项和可选 runtime，不改变输出分辨率或用户所选帧率。
-
-| 验证 | 实际结果 |
-| --- | --- |
-| Rust | Mac workspace 测试通过；Ubuntu release workspace 测试通过；后续适配修改的 Agent、协议和网络测试通过，新增源端序号穿过网络重编号测试通过 |
-| 项目门禁 | `scripts/check.sh` 完成至最后的真实 QUIC 测试；该项因旧测试发布端漏报 `video.qos` 失败。修正夹具能力后，单独重跑真实 QUIC 重连和二进制剪贴板测试通过；未重跑整套脚本 |
-| 默认 Linux 视频 | 两个隔离配对 QUIC 节点：真实 H.264 IDR/P 帧、流中输入、奇数尺寸调整、静态窗口重连和关闭通过 |
-| 原生媒体库 | 两端固定 libdatachannel 提交构建通过；wire/receiver 测试通过；Mac 实际 ICE、DTLS-SRTP、UDP、350 KB 分片和第二窗口协商通过 |
-| Linux WebRTC | 配对 QUIC 信令 + 实际 RTP 媒体的视频测试通过，包含静态窗口重连后回退 QUIC、首帧 IDR；已有窗口、Unicode 输入及显式剪贴板测试通过 |
-| Mac WebRTC | 真实 Linux 编码 AU 经本机 RTP 到 Swift：硬件解码、保留 CVPixelBuffer、首次会话、稀疏反馈 ID、窗口复用/旧会话拒绝和几何版本交接通过 |
-| 应用包 | Mac release 构建、可选 dylib 单独签名及应用包深度严格签名校验通过 |
-
-合并验证只使用自有夹具、临时 Agent/网络实例和隔离包，未替换正式运行服务或用户窗口。Ubuntu 构建工具和头文件仅解包到临时目录，未安装系统包。以上不代表已完成 WebRTC 跨机器延迟 A/B、弱网、休眠或长期稳定性验收；历史 SSH 结果也不作为当前 QUIC 的性能结论。
-
 ## 应用会话列表与临时显示器回归（2026-10-25）
 
 `cbca671` 修复启动器 transport 的会话列表校验遗漏 `scene`：有效的应用会话此前会触发“远端返回无效或过大的消息”。新增真实 Unix socket 握手测试，混合旧会话、app、desktop、scene 列表；旧代码稳定返回 Protocol，修复后通过，未知模式及非 desktop 模式携带 monitor_id 仍被拒绝。transport 9 项、启动器 Rust 6 项测试通过。

@@ -33,7 +33,7 @@ with (root/'requests').open('a',buffering=1) as log:
         line,_,pending=pending.partition(b'\n')
         item=json.loads(line);log.write(json.dumps(item)+'\n')
         if item['type']=='node.info':emit(type='node.info',sharing_enabled=True)
-        if item['type']=='hello':emit(type='hello',capabilities=['input.text.commit','native.h264','video.qos'],video_max_fps=60)
+        if item['type']=='hello':emit(type='hello',capabilities=['input.text.commit','native.h264'])
         if item['type']=='video.enable':
             video=True;emit(type='video.ready',codec='h264')
         if item['type']=='session.resume':

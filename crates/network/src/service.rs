@@ -1239,10 +1239,6 @@ fn allowed_request(value: &Value) -> bool {
                     | "desktop.list"
                     | "session.list"
                     | "video.enable"
-                    | "webrtc.enable"
-                    | "webrtc.answer"
-                    | "webrtc.candidate"
-                    | "video.fallback"
                     | "video.configure"
                     | "video.feedback"
                     | "video.keyframe"
@@ -1733,25 +1729,6 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-    }
-
-    #[test]
-    fn optional_media_control_keeps_source_identity_through_quic_merge() {
-        for kind in [
-            "webrtc.enable",
-            "webrtc.answer",
-            "webrtc.candidate",
-            "video.fallback",
-        ] {
-            assert!(allowed_request(&json!({"type":kind,"version":1})));
-            assert!(!allowed_request(&json!({"type":kind,"version":2})));
-        }
-        assert!(!allowed_request(&json!({"type":"webrtc.exec","version":1})));
-        let mut merge = Merge::default();
-        let value = json!({"type":"window.created","seq":100,"source_seq":100,"window_id":7});
-        let delivered = merge.deliver(Packet::new(value, 1).unwrap());
-        assert_eq!(delivered["seq"], 1);
-        assert_eq!(delivered["source_seq"], 100);
     }
 
     #[test]
