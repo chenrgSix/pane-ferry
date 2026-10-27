@@ -21,12 +21,13 @@ struct Options {
     let session: String?
     var iconFromStdin = false
     var requestedVideoFPS = 60
+    var videoTransport = "quic"
     let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--video-transport"]
         while i < args.count {
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
@@ -52,7 +53,9 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, native: native)
+        let videoTransport = values["--video-transport"] ?? "quic"
+        guard ["quic", "webrtc", "auto"].contains(videoTransport) else { throw HostError.message("视频传输必须是 quic、webrtc 或 auto") }
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, videoTransport: videoTransport, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -90,6 +93,8 @@ final class RWPTransport {
     private var decodeGeneration: UInt64 = 0
     private var decodeMembers: [UInt32: UInt64] = [:]
     private var decodeGeometry: [UInt32: String] = [:]
+    private var mediaPeer: WebRTCPeer?
+    private var mediaRequested = false, mediaStrict = false, mediaFrameSeen = false, mediaDeadlineStarted = false
     init(decode: ((VideoDecodeQueue.Job) throws -> CGImage?)? = nil) {
         decodeQueue = VideoDecodeQueue { [weak self] job, result, hardware in
             self?.decoded(job, result: result, hardware: hardware)
@@ -165,6 +170,43 @@ final class RWPTransport {
     private func fail(_ message: String, retryable: Bool = true) {
         lock.lock(); if failure == nil { failure = TransportFailure(message: message, retryable: retryable) }; signalReadableLocked(); lock.unlock()
     }
+    func startWebRTC(strict: Bool) throws {
+        let peer = try WebRTCPeer(signal: { [weak self] object in
+            guard let self = self else { return }
+            self.lock.lock(); let active = self.mediaRequested && !self.closed; self.lock.unlock()
+            if active { self.send(object) }
+        }, frame: { [weak self] incoming in
+            guard let self = self, let number = unsignedInteger(incoming.object["window_id"]), number <= UInt32.max else { return }
+            self.lock.lock()
+            let active = self.mediaRequested && !self.closed && self.decodeMembers[UInt32(number)] != nil
+                && self.decodeGeometry[UInt32(number)] == self.videoGeometry(incoming.object)
+            self.mediaFrameSeen = self.mediaFrameSeen || active
+            self.lock.unlock()
+            guard active else { return }
+            do { try self.enqueue(incoming) } catch { self.mediaFailed() }
+        }, failure: { [weak self] in self?.mediaFailed() })
+        lock.lock(); mediaPeer = peer; mediaRequested = true; mediaStrict = strict; mediaFrameSeen = false; mediaDeadlineStarted = false; lock.unlock()
+    }
+    private func currentMedia() -> WebRTCPeer? { lock.lock(); defer { lock.unlock() }; return mediaPeer }
+    private func mediaFailed() {
+        lock.lock()
+        guard mediaRequested && !closed else { lock.unlock(); return }
+        mediaRequested = false; let peer = mediaPeer; mediaPeer = nil; let strict = mediaStrict; lock.unlock()
+        peer?.close()
+        if strict { fail("WebRTC 媒体连接失败，本次强制测试已停止。", retryable: false); disconnect() }
+        else { send(["type":"video.fallback"]) }
+    }
+    private func mediaOffer(_ sdp: String) {
+        currentMedia()?.description(sdp)
+        lock.lock(); let start = mediaRequested && !mediaDeadlineStarted; mediaDeadlineStarted = true; lock.unlock()
+        if start {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self = self else { return }
+                self.lock.lock(); let expired = self.mediaRequested && !self.mediaFrameSeen; self.lock.unlock()
+                if expired { self.mediaFailed() }
+            }
+        }
+    }
     func drain() -> ([Incoming], TransportFailure?) {
         lock.lock(); defer { lock.unlock() }
         let events = inbox; inbox.removeAll(keepingCapacity: true); queuedPixels = 0; deliveryScheduled = false
@@ -215,8 +257,22 @@ final class RWPTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "input.authorization", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
+                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "webrtc.offer", "webrtc.candidate", "webrtc.state", "webrtc.failed", "webrtc.pulse", "input.authorization", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
+                    if object["type"] as? String == "webrtc.offer" {
+                        guard let sdp = object["sdp"] as? String else { throw HostError.message("无效 WebRTC 协商") }
+                        mediaOffer(sdp); continue
+                    }
+                    if object["type"] as? String == "webrtc.candidate" {
+                        guard let candidate = object["candidate"] as? String, let mid = object["mid"] as? String else { throw HostError.message("无效 ICE 候选") }
+                        currentMedia()?.remoteCandidate(candidate, mid: mid); continue
+                    }
+                    if object["type"] as? String == "webrtc.failed" { mediaFailed(); continue }
+                    if object["type"] as? String == "webrtc.state" { continue }
+                    if object["type"] as? String == "webrtc.pulse" {
+                        if let expected = object["frames"] as? [String:Any] { currentMedia()?.verifyProgress(expected) }
+                        continue
+                    }
                     let eventType=object["type"] as? String ?? ""
                     if eventType == "session.snapshot" || eventType == "session.exited" {
                         members=Set((object["windows"] as? [[String:Any]] ?? []).compactMap { unsignedInteger($0["window_id"]).flatMap { $0 <= UInt32.max ? UInt32($0):nil } })
@@ -228,6 +284,7 @@ final class RWPTransport {
                         if eventType == "frame" && !members.contains(id) { continue }
                     }
                     invalidateDecode(for: object)
+                    currentMedia()?.noteControl(object)
                     if ["session.snapshot", "session.exited"].contains(eventType) { videoPixels.removeAll() }
                     if object["type"] as? String == "window.destroyed" ||
                         (object["type"] as? String == "window.metadata" && (object["visible"] as? Bool) == false),
@@ -295,8 +352,10 @@ final class RWPTransport {
         }
     }
     func disconnect() {
-        lock.lock(); let wasClosed = closed; closed = true; writes.removeAll(); lock.unlock()
+        lock.lock(); let wasClosed = closed; closed = true; writes.removeAll()
+        mediaRequested = false; let peer = mediaPeer; mediaPeer = nil; lock.unlock()
         if wasClosed { return }
+        peer?.close()
         decodeQueue.close()
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
@@ -656,6 +715,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 enable["max_fps"] = videoFPS
                 enable["feedback"] = true
             }
+            let canWebRTC = options.videoTransport != "quic" && capabilities.contains("native.webrtc.h264") && WebRTCPeer.available
+            if options.videoTransport == "webrtc" && !canWebRTC {
+                stopRecovery(); alert("控制端或远端缺少 WebRTC 试验组件。"); transport.disconnect(); return
+            }
+            if options.videoTransport != "quic" && canWebRTC {
+                do { try transport.startWebRTC(strict: options.videoTransport == "webrtc") }
+                catch { stopRecovery(); alert("WebRTC 初始化失败。"); transport.disconnect(); return }
+                enable["type"] = "webrtc.enable"; enable.removeValue(forKey: "codec")
+            }
             send(enable)
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
             else if let app = options.app {
@@ -754,7 +822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Controls can overtake asynchronous video. Sequence order between
             // decoded windows is not wire order; lifecycle/revision checks below
             // still reject obsolete content.
-            lastSequence = max(lastSequence, seq)
+            if object["transport"] as? String != "webrtc" { lastSequence = max(lastSequence, seq) }
         } else {
             guard seq > lastSequence else { return }; lastSequence = seq
             if type == "session.snapshot" || type == "session.exited" { lastVideoSequence.removeAll() }

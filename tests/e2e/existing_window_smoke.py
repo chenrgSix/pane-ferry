@@ -14,10 +14,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from webrtc_test_peer import RTCConnection
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
 parser.add_argument('--controller-text', action='store_true', help='also exercise Unicode input and explicit clipboard copy/paste using GTK3')
+parser.add_argument('--webrtc-library', type=Path)
 args = parser.parse_args()
 agent_exe = args.agent.resolve()
 children = []
@@ -52,6 +54,8 @@ def wait_for(predicate, message):
 
 class Peer:
     def __init__(self, path):
+        self.rtc = RTCConnection(path, args.webrtc_library) if args.webrtc_library else None
+        if self.rtc: return
         self.socket = socket.socket(socket.AF_UNIX)
         self.socket.settimeout(10)
         self.socket.connect(str(path))
@@ -60,9 +64,11 @@ class Peer:
         assert self.read()['type'] == 'hello'
 
     def send(self, **event):
+        if self.rtc: return self.rtc.send(**event)
         self.file.write(json.dumps({**event, 'version': 1}).encode() + b'\n')
 
     def read(self):
+        if self.rtc: return self.rtc.read()
         line = self.file.readline(16 * 1024 * 1024 + 1)
         assert line.endswith(b'\n') and len(line) <= 16 * 1024 * 1024
         return json.loads(line)
@@ -77,6 +83,7 @@ class Peer:
         raise TimeoutError('Expected Agent event did not arrive: ' + kind)
 
     def close(self):
+        if self.rtc: return self.rtc.close()
         self.file.close()
         self.socket.close()
 
@@ -165,6 +172,8 @@ try:
                 existing=dict(display=display, xauthority=str(authority), process_id=editor.pid)))
         (config / 'apps.json').write_text(json.dumps(approved))
         agent_env = {**env, 'HOME': str(home)}
+        if args.webrtc_library:
+            agent_env.update(REMOTEAPP_WEBRTC_LIBRARY=str(args.webrtc_library.resolve()), REMOTEAPP_WEBRTC_BIND='127.0.0.1')
         sock = home / '.local/state/lan-remoteapp/agent.sock'
         agent = start([str(agent_exe), 'serve'], agent_env)
         wait_for(sock.exists, 'Agent startup')
@@ -179,7 +188,11 @@ try:
         snapshot = peer.until('session.snapshot')
         assert [w['window_id'] for w in snapshot['windows']] == [ids[target.pid]], snapshot
         frame = peer.until('frame')
-        assert base64.b64decode(frame['png']).startswith(b'\x89PNG\r\n\x1a\n')
+        if args.webrtc_library:
+            assert frame['codec'] == 'h264' and frame['_actual_webrtc']
+            assert base64.b64decode(frame['data']).startswith((b'\0\0\0\1', b'\0\0\1'))
+        else:
+            assert base64.b64decode(frame['png']).startswith(b'\x89PNG\r\n\x1a\n')
         peer.send(type='clipboard.cut', window_id=ids[target.pid], request_id='terminal-cut')
         assert peer.until('error')['code'] == 'clipboard_cut_unavailable'
         peer.send(type='window.focus', window_id=ids[other.pid])

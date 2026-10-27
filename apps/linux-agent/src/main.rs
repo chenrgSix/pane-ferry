@@ -115,6 +115,7 @@ mod session_lifecycle;
 mod video;
 mod video_qos;
 mod wayland;
+mod webrtc;
 struct Session {
     scene: Option<paneferry_protocol::SceneSize>,
     id: String,
@@ -1366,6 +1367,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     ];
     if video::available() {
         capabilities.push("native.h264");
+        if webrtc::available() {
+            capabilities.push("native.webrtc.h264");
+        }
         capabilities.push("video.qos");
         capabilities.push("video.keyframe");
     }
@@ -1556,6 +1560,26 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             "",
                         )?;
                     }
+                    Request::EnableWebRtc { max_fps, feedback } => {
+                        if lease.is_some() {
+                            bail!("configure video before attaching")
+                        }
+                        if !video::available() {
+                            bail!("video encoder unavailable")
+                        }
+                        let max_fps = max_fps.min(video_fps_limit);
+                        out.enable_webrtc(max_fps, feedback)?;
+                        send(
+                            &mut out,
+                            json!({"type":"video.ready","codec":"h264","transport":"webrtc","max_fps":max_fps}),
+                            "",
+                        )?;
+                    }
+                    Request::WebRtcAnswer { sdp } => out.webrtc_answer(sdp)?,
+                    Request::WebRtcCandidate { candidate, mid } => {
+                        out.webrtc_candidate(candidate, mid)?
+                    }
+                    Request::VideoFallback {} => out.fallback_video()?,
                     Request::EnableVideo {
                         codec: _,
                         max_fps,

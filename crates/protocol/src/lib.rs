@@ -56,6 +56,19 @@ pub enum Request {
         #[serde(default)]
         feedback: bool,
     },
+    #[serde(rename = "webrtc.enable")]
+    EnableWebRtc {
+        #[serde(default = "default_video_fps")]
+        max_fps: u8,
+        #[serde(default)]
+        feedback: bool,
+    },
+    #[serde(rename = "webrtc.answer")]
+    WebRtcAnswer { sdp: String },
+    #[serde(rename = "webrtc.candidate")]
+    WebRtcCandidate { candidate: String, mid: String },
+    #[serde(rename = "video.fallback")]
+    VideoFallback {},
     #[serde(rename = "video.configure")]
     ConfigureVideo { max_fps: u8 },
     #[serde(rename = "video.keyframe")]
@@ -185,13 +198,33 @@ pub fn parse_request(data: &[u8]) -> Result<Request> {
         }
     }
     match &request {
-        Request::EnableVideo { max_fps, .. } | Request::ConfigureVideo { max_fps } => {
+        Request::EnableVideo { max_fps, .. }
+        | Request::EnableWebRtc { max_fps, .. }
+        | Request::ConfigureVideo { max_fps } => {
             if !(1..=MAX_VIDEO_FPS).contains(max_fps) {
                 bail!("max_fps must be between 1 and 90")
             }
         }
         Request::KeyFrame { window_id: 0 } => bail!("invalid window_id"),
         Request::VideoFeedback { frame_id } if *frame_id == 0 => bail!("invalid frame_id"),
+        Request::WebRtcAnswer { sdp }
+            if sdp.len() > 48 * 1024
+                || !sdp.starts_with("v=0")
+                || sdp.contains('\0')
+                || !sdp.contains("H264/90000") =>
+        {
+            bail!("invalid WebRTC description")
+        }
+        Request::WebRtcCandidate { candidate, mid }
+            if candidate.len() > 2048
+                || !candidate.starts_with("candidate:")
+                || candidate.contains(['\0', '\r', '\n'])
+                || mid.is_empty()
+                || mid.len() > 10
+                || !mid.bytes().all(|c| c.is_ascii_digit()) =>
+        {
+            bail!("invalid WebRTC candidate")
+        }
         _ => {}
     }
     if let Request::Text { text, .. } | Request::Paste { text, .. } = &request {
@@ -340,6 +373,36 @@ mod tests {
         ] {
             assert!(parse_request(request.as_bytes()).is_err());
         }
+    }
+    #[test]
+    fn webrtc_signaling_is_bounded_and_rejects_extra_fields() {
+        let parse = |value: serde_json::Value| parse_request(&serde_json::to_vec(&value).unwrap());
+        assert!(parse(serde_json::json!({"type":"webrtc.enable","version":1})).is_ok());
+        assert!(parse(serde_json::json!({"type":"video.fallback","version":1})).is_ok());
+        assert!(parse(serde_json::json!({"type":"webrtc.answer","version":1,"sdp":"v=0\r\na=rtpmap:96 H264/90000\r\n"})).is_ok());
+        assert!(parse(serde_json::json!({"type":"webrtc.candidate","version":1,"candidate":"candidate:1 1 UDP 1 127.0.0.1 1234 typ host","mid":"7"})).is_ok());
+        for candidate in [
+            "x".repeat(2049),
+            "candidate:bad\ncommand".into(),
+            "candidate:\0bad".into(),
+        ] {
+            assert!(parse(serde_json::json!({"type":"webrtc.candidate","version":1,"candidate":candidate,"mid":"7"})).is_err());
+        }
+        for mid in ["", "a", "1;id", "12345678901"] {
+            assert!(parse(serde_json::json!({"type":"webrtc.candidate","version":1,"candidate":"candidate:1","mid":mid})).is_err());
+        }
+        for sdp in [
+            "v=0\0H264/90000".into(),
+            format!("v=0H264/90000{}", "x".repeat(48 * 1024)),
+            "invalid".into(),
+        ] {
+            assert!(
+                parse(serde_json::json!({"type":"webrtc.answer","version":1,"sdp":sdp})).is_err()
+            );
+        }
+        assert!(
+            parse(serde_json::json!({"type":"webrtc.enable","version":1,"command":"id"})).is_err()
+        );
     }
     #[test]
     fn rejects_fields() {

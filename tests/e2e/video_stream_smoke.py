@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from webrtc_test_peer import RTCConnection
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent', required=True, type=Path)
@@ -18,6 +19,7 @@ parser.add_argument('--export', type=Path)
 parser.add_argument('--network', type=Path, help='route RWP through two isolated native QUIC nodes')
 parser.add_argument('--profile-idle-seconds', type=float, default=0,
                     help='sample Agent CPU while a static window is attached')
+parser.add_argument('--webrtc-library', type=Path)
 args = parser.parse_args()
 records = []
 def cpu_ticks(pid):
@@ -34,6 +36,8 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
         dict(id='video', name='Video', executable=sys.executable, argv=[fixture, str(state)]),
         dict(id='static', name='Static', executable=sys.executable, argv=[fixture, str(state), '--static'])]))
     env = dict(os.environ, HOME=str(home), XMODIFIERS='@im=none', GTK_IM_MODULE='simple')
+    if args.webrtc_library:
+        env.update(REMOTEAPP_WEBRTC_LIBRARY=str(args.webrtc_library.resolve()), REMOTEAPP_WEBRTC_BIND='127.0.0.1')
     for name in ('WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'SESSION_MANAGER'):
         env.pop(name, None)
     agent = subprocess.Popen([str(args.agent.resolve()), 'serve'], env=env,
@@ -49,6 +53,8 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             return result
     class Peer:
         def __init__(self):
+            self.rtc = RTCConnection(path, args.webrtc_library) if args.webrtc_library else None
+            if self.rtc: return
             self.socket = socket.socket(socket.AF_UNIX)
             self.socket.settimeout(15)
             self.socket.connect(str(path))
@@ -58,19 +64,24 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             self.send(type='video.enable', codec='h264')
             assert self.until('video.ready')['codec'] == 'h264'
         def send(self, **data):
+            if self.rtc: return self.rtc.send(**data)
             self.socket.sendall((json.dumps(dict(data, version=1)) + '\n').encode())
         def until(self, kind, predicate=lambda event: True):
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
-                line = self.wire.readline(16 * 1024 * 1024 + 1)
-                assert line, 'Agent disconnected'
-                event = json.loads(line)
+                if self.rtc:
+                    event = self.rtc.read()
+                else:
+                    line = self.wire.readline(16 * 1024 * 1024 + 1)
+                    assert line, 'Agent disconnected'
+                    event = json.loads(line)
                 assert event['type'] != 'error', event
                 if event['type'] == 'frame':
                     assert event.get('codec') == 'h264' and 'png' not in event, 'unexpected video fallback'
                 if event['type'] == kind and predicate(event): return event
             raise AssertionError('missing ' + kind)
         def close(self):
+            if self.rtc: return self.rtc.close()
             self.socket.shutdown(socket.SHUT_RDWR)
             self.wire.close(); self.socket.close()
     def frame(peer, connection=0, predicate=lambda event: True):
@@ -163,6 +174,11 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             static_resumed.send(type='session.resume', session_id=static_sid)
             static_resumed.until('session.snapshot')
             assert frame(static_resumed, connection=3)['key_frame'], 'idle reconnect needs an initial frame'
+            if static_resumed.rtc:
+                static_resumed.rtc.accept_fallback = True
+                static_resumed.send(type='video.fallback')
+                fallback = frame(static_resumed, connection=4, predicate=lambda event: not event.get('_actual_webrtc'))
+                assert fallback['key_frame'], 'fallback must restart codec dependencies'
             static_resumed.send(type='window.close.request', window_id=static_first['window_id'])
             static_resumed.until('session.exited')
         finally:
@@ -175,7 +191,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-video-') as temporary:
             inventory.close()
         if args.export:
             args.export.write_text(json.dumps(records))
-        print(json.dumps(dict(result='PASS', transport='quic' if args.network else 'socket', codec='h264', samples=len(records),
+        print(json.dumps(dict(result='PASS', transport='webrtc' if args.webrtc_library else ('quic' if args.network else 'socket'), codec='h264', samples=len(records),
             median_wire_bytes=round(statistics.median(len(json.dumps(sample)) for sample in samples)),
             idle_cpu_ms=idle_cpu_ms, idle_seconds=args.profile_idle_seconds,
             checks=['IDR and P-frames', 'input during streaming', 'odd resize new stream', 'reconnect keyframe', 'idle H.264 P-frame', 'idle reconnect snapshot', 'close removes session from inventory'])))

@@ -4,7 +4,7 @@
 
 保留原方案的 Rust 业务核心、Tauri 管理 UI、Linux 用户 Agent、Swift/AppKit WindowHost。Ubuntu 端默认创建产品自己的虚拟 X11 会话，也可按授权范围接入当前桌面的 X11/Xwayland 应用；不发布完整桌面。
 
-当前采用公共 Rust 传输层和唯一的 QUIC 网络通道。控制、每窗口视频和低优先级文件使用独立可靠流，设备通过证书和一次性邀请配对；本机 RWP/1 保留 JSON/base64，网络视频为二进制。详见[统一传输指南](native-transport.md)。
+当前采用公共 Rust 传输层和以配对 QUIC 为默认媒体和唯一控制通道；原生 WebRTC 媒体仅显式试验启用。控制、每窗口视频和低优先级文件使用独立可靠流，设备通过证书和一次性邀请配对；本机 RWP/1 保留 JSON/base64，网络视频为二进制。详见[统一传输指南](native-transport.md)。
 
 ## 窗口与图像
 
@@ -121,4 +121,4 @@ macOS 采集使用 ScreenCaptureKit 的指定窗口过滤，输入控制另行�
 
 ## 现有链路后续验证
 
-仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、WebRTC/独立媒体传输、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本/图片/文件剪贴板和 GTK HiDPI 的测试范围见 validation.md。大剪贴板使用独立 QUIC 二进制流，详见[剪贴板说明](clipboard.md)。
+仍需验证和完善：复杂 popup 和窗口树、精确文本上下文、跨屏幕 DPI 热切换、Qt/传统 X11 应用兼容性、WebRTC 独立媒体的弱网与长期验收、休眠与网络切换、开发者签名、公证和升级。已有 Unicode 提交、主动双向文本/图片/文件剪贴板和 GTK HiDPI 的测试范围见 validation.md。大剪贴板使用独立 QUIC 二进制流，详见[剪贴板说明](clipboard.md)。

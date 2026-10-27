@@ -199,3 +199,7 @@ X11 读像素；`app_render`、`capture_wait`、`capture` 是进一步诊断项�
 2026-10-21 的远端优化对照保存于
 [`docs/performance/2026-10-21-optimized-latency.md`](../../docs/performance/2026-10-21-optimized-latency.md)，
 含八组统计及 720 个逐样本数据，也保留整体延迟未改善的首轮动态场景。
+
+## 可选 WebRTC 对照
+
+当前 `live_end_to_end.py` 支持 `--video-transport quic|webrtc|auto`（缺省 quic）、`--webrtc-library /absolute/libremoteapp_webrtc.dylib`。强制 webrtc 的测量逐条核对实际媒体标记与 UDP 候选对，回退不能计作 WebRTC 成功；两版保留同一分辨率、帧率、画质及 renderer 终点。2026-10-21 的 SSH/WebRTC 报告与旧版 `end_to_end.py` 对应历史位图路径，不能与当前 CoreVideo/QUIC 数据直接比较，其精确源码保留在合并父提交 `b821148`。

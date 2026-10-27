@@ -57,6 +57,11 @@ def build(destination, probe_source=HERE / 'LiveProbe.swift'):
         text = replace(text, 'if type == "video.ready" {',
                        'if type == "video.ready" { Probe.negotiatedFPS = object["max_fps"] as? Int;')
     main.write_text(text)
+    peer = source / 'WebRTCPeer.swift'
+    if peer.exists():
+        text = replace(peer.read_text(), '// BENCHMARK: WebRTC decode completion (no production logging).',
+                       'object["received"] = value.received\n        object["decoded"] = object["decode_completed_ns"]\n        object["wire_bytes"] = value.bytes.count')
+        peer.write_text(text)
     surface = source / 'SurfaceView.swift'
     if (source / 'VideoFrame.swift').exists():
         text = replace(surface.read_text(), '        guard displayFrame === frame else { return }',
@@ -119,6 +124,8 @@ def main():
     parser.add_argument('--height', type=int, default=809)
     parser.add_argument('--scale', type=int, choices=(1, 2), default=1)
     parser.add_argument('--fps', type=int, choices=(30, 60), default=60)
+    parser.add_argument('--video-transport', choices=('quic', 'webrtc', 'auto'), default='quic')
+    parser.add_argument('--webrtc-library', type=Path)
     parser.add_argument('--samples', type=int, default=40)
     args = parser.parse_args()
     if not 1 <= args.samples <= 120:
@@ -132,13 +139,18 @@ def main():
     env = dict(os.environ, PROBE_WIDTH=str(args.width), PROBE_HEIGHT=str(args.height),
                PROBE_SCALE=str(args.scale), PROBE_SAMPLES=str(args.samples),
                PROBE_OUTPUT=str(Path(args.output).resolve()))
+    if args.webrtc_library:
+        env['REMOTEAPP_WEBRTC_LIBRARY'] = str(args.webrtc_library.resolve())
     subprocess.run([str(binary), '--native-peer', args.peer, '--native-state', args.state,
-                    '--native-helper', args.helper, '--app', args.app, '--fps', str(args.fps)], env=env, check=True,
+                    '--native-helper', args.helper, '--app', args.app, '--fps', str(args.fps),
+                    '--video-transport', args.video_transport], env=env, check=True,
                    timeout=100)
     result = json.loads(Path(args.output).read_text())
     rows = [row for row in result['frames'] if not row['warmup']]
     assert len(rows) == args.samples * 2 and 'error' not in result, result.get('error')
     assert all(row['codec'] == 'h264' and row['hardware_decoder'] for row in rows)
+    if args.video_transport == 'webrtc':
+        assert all(row.get('transport') == 'webrtc' and 'udp' in row.get('media_pair', '').lower() for row in rows), 'WebRTC measurement silently fell back'
     assert result['scale'] == args.scale and result['negotiated_fps'] == args.fps, result
     assert result['endpoint'] == 'renderer displayed-buffer availability', result['endpoint']
     print(json.dumps({'output': args.output, 'samples': len(rows), 'hardware_decoder': True}))
