@@ -54,8 +54,8 @@ final class H264Decoder {
               data.count <= 12 * 1024 * 1024 else { throw VideoDecodeError.invalidFrame }
         if stream != streamID { reset(); stream = streamID }
         let units = try Self.nalUnits(data)
-        let nextSPS = units.first { $0.first.map { $0 & 31 == 7 } ?? false } ?? sps
-        let nextPPS = units.first { $0.first.map { $0 & 31 == 8 } ?? false } ?? pps
+        let nextSPS: Data = units.first(where: { $0.first.map { $0 & 31 == 7 } ?? false }) ?? sps
+        let nextPPS: Data = units.first(where: { $0.first.map { $0 & 31 == 8 } ?? false }) ?? pps
         guard !nextSPS.isEmpty, !nextPPS.isEmpty else { throw VideoDecodeError.invalidFrame }
         if session == nil || nextSPS != sps || nextPPS != pps {
             reset(); sps = nextSPS; pps = nextPPS
