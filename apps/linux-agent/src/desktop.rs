@@ -267,8 +267,9 @@ impl WindowBackend for Backend {
     }
     fn refresh_video(&mut self) {
         if let Some(stream) = self.stream.borrow_mut().as_mut() {
-            stream.capture.discard_prepared();
-            stream.image = None;
+            if stream.capture.refresh_prepared() {
+                stream.image = None;
+            }
             stream.dirty = true;
             stream.started = Instant::now();
         }

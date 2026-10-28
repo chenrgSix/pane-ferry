@@ -367,12 +367,23 @@ impl PipeWireCapture {
     pub fn has_pending_geometry(&self) -> bool {
         self.pending_geometry.borrow().is_some()
     }
-    pub fn discard_prepared(&self) {
-        // Keep the producer/appsink so the newest raw sample is available.
-        // A completed pre-suspension conversion must not become the first
-        // visible frame after resize or input while the receiver was hidden.
-        self.pending_geometry.borrow_mut().take();
-        self.converter.borrow_mut().take();
+    pub fn refresh_prepared(&self) -> bool {
+        // Prefer a producer sample accumulated while video was suspended over
+        // any old conversion. Retain it until its geometry can be validated;
+        // a static resize need not produce another sample after metadata arrives.
+        let sample = unsafe { (self.api.pull)(self.sink, 0) };
+        if !sample.is_null() {
+            self.pending_geometry
+                .replace(Some(Sample(sample, self.api)));
+        }
+        if self.pending_geometry.borrow().is_some() {
+            self.converter.borrow_mut().take();
+            return true;
+        }
+        // A static producer may have no more samples at all. Preserve its last
+        // converted image and any conversion still completing, rather than
+        // clearing the only pixels available until the next source repaint.
+        false
     }
     fn pull_inner(&self, window: Option<WindowCrop>) -> Result<Option<Frame>> {
         if self.converter_window.get() != window {
@@ -1030,6 +1041,7 @@ mod tests {
             }
             assert_eq!(unsafe { libc::poll(&mut ready, 1, 1000) }, 1);
             wake.drain();
+            assert!(capture.refresh_prepared());
             assert!(capture
                 .pull([0, 0, 128, 96], (128, 96), 1.0)
                 .unwrap()
@@ -1037,6 +1049,10 @@ mod tests {
             originals.push(original);
         }
         unsafe { (api.unref)(source) };
+        assert!(
+            capture.refresh_prepared(),
+            "retain the pending resize sample"
+        );
         // No more input buffers or repaint requests. Only metadata changes.
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         let frame = loop {
@@ -1053,6 +1069,10 @@ mod tests {
         assert!(
             frame.same_pixels(&expected.unwrap()),
             "must retain the latest sample"
+        );
+        assert!(
+            !capture.refresh_prepared(),
+            "static producers must not invalidate their last converted image"
         );
         drop(capture);
         assert!(originals.iter().all(|image| Arc::strong_count(image) == 1));

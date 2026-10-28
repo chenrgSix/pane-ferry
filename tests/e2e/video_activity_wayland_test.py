@@ -12,6 +12,11 @@ def verify(peer, target, state, app):
     assert first['key_frame'] and first['window_id'] == metadata['window_id']
     assert json.loads(state.read_text())['scale'] == 1
     assert peer.request('video.activity', 'video.activity.changed', state='suspended')['state'] == 'suspended'
+    assert peer.request('video.activity', 'video.activity.changed', state='foreground')['state'] == 'foreground'
+    static = peer.until('frame')
+    assert static['key_frame'] and static['stream_id'] != first['stream_id']
+    assert (static['width'], static['height']) == (first['width'], first['height'])
+    assert peer.request('video.activity', 'video.activity.changed', state='suspended')['state'] == 'suspended'
     paused_frames = peer.frame_count
     sessions = peer.request('session.list')['sessions']
     assert any(s['session_id'] == started['session_id'] and s['controlled'] for s in sessions)
