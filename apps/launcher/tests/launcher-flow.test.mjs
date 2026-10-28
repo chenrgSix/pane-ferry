@@ -752,3 +752,50 @@ test("an automatic-rule save finishing after device selection cannot overwrite t
     assert.equal(mounted.state.automaticSaving, false);
   } finally { mounted.unmount(); }
 });
+
+test("device takeover works with no app catalogue or connected anchor and preserves app rules", async () => {
+  const rule = {peerId:endpoint.peerId, applicationKey:"idea", name:"IDEA", rule:{mode:"selected", applications:["chooser"]}};
+  let status = {rules:[rule], connectedApplications:[], warning:"", takeoverEnabled:false, managedWindows:0};
+  const mounted = mount(storage(), {
+    list_apps: () => ({apps:[], discovery_error:null}),
+    list_sessions: () => [],
+    automatic_window_status: () => structuredClone(status),
+    set_device_window_takeover: args => { status.takeoverEnabled=args.enabled; return structuredClone(status); },
+    disconnect_device_windows: () => { status.takeoverEnabled=false; return structuredClone(status); },
+  });
+  try {
+    await settled(mounted.state);
+    const state=mounted.state;
+    state.videoFPS=30;
+    await state.deviceWindowAction();
+    assert.equal(state.automaticStatus.takeoverEnabled, true);
+    assert.deepEqual(mounted.calls.find(c=>c.command==='set_device_window_takeover').args, {endpoint,enabled:true,videoFps:30});
+    await state.saveAutomatic({mode:"off",applications:[]});
+    assert.equal(mounted.calls.filter(c=>c.command==='set_automatic_window_rule').length,0);
+    await state.deviceWindowAction();
+    assert.equal(state.automaticStatus.takeoverEnabled, false);
+    assert.deepEqual(state.automaticStatus.rules,[rule]);
+    await state.deviceWindowAction(true);
+    assert.deepEqual(mounted.calls.find(c=>c.command==='disconnect_device_windows').args,{endpoint});
+  } finally {mounted.unmount();}
+});
+
+test("device takeover handles failed saves and stale responses after changing device", async () => {
+  let finish, fail=true;
+  const mounted=mount(storage(), {
+    automatic_window_status:()=>({rules:[],connectedApplications:[],warning:'',takeoverEnabled:false,managedWindows:0}),
+    set_device_window_takeover:()=>{if(fail) throw new Error('disk full');return new Promise(resolve=>{finish=()=>resolve({rules:[],connectedApplications:[],warning:'',takeoverEnabled:true,managedWindows:5});});},
+  });
+  try {
+    await settled(mounted.state);
+    await mounted.state.deviceWindowAction();
+    assert.equal(mounted.state.automaticStatus.takeoverEnabled,false);
+    assert.match(mounted.state.automaticError,/保存失败/);
+    fail=false;
+    const saving=mounted.state.deviceWindowAction();
+    mounted.state.endpoint={peerId:'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'};
+    await nextTick();finish();await saving;
+    assert.equal(mounted.state.automaticStatus.takeoverEnabled,false);
+    assert.equal(mounted.state.automaticSaving,false);
+  } finally {mounted.unmount();}
+});

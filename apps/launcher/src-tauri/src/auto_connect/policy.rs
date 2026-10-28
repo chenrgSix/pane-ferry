@@ -49,6 +49,7 @@ impl Rule {
 struct Pending {
     request_id: String,
     retry_at: u64,
+    background: bool,
 }
 
 /// One planner per paired device. All connected applications contribute rules
@@ -60,8 +61,27 @@ pub struct Planner {
     pending: HashMap<String, Pending>,
     closed: HashMap<String, u64>,
     closed_sessions: HashMap<String, u64>,
+    takeover: bool,
+    import_existing: bool,
+    dismissed: HashSet<String>,
 }
 impl Planner {
+    pub fn set_takeover(&mut self, enabled: bool) {
+        if enabled == self.takeover {
+            return;
+        }
+        self.takeover = enabled;
+        self.import_existing = enabled;
+        self.pending.clear();
+        // A device takeover deliberately includes the first inventory. Turning
+        // it off keeps the seen boundary for application-scoped rules.
+        if enabled {
+            self.armed = true;
+        }
+    }
+    pub fn background(&self, id: &str) -> bool {
+        self.pending.get(id).is_some_and(|p| p.background)
+    }
     pub fn disarm(&mut self) {
         self.armed = false;
         self.seen.clear();
@@ -77,6 +97,7 @@ impl Planner {
         for id in windows {
             self.pending.remove(id);
             self.seen.insert(id.clone());
+            self.dismissed.insert(id.clone());
             self.closed.insert(id.clone(), now + CLOSE_COOLDOWN_MS);
         }
         self.closed_sessions
@@ -91,27 +112,35 @@ impl Planner {
         }
         for window in windows {
             let fresh = self.seen.insert(window.id.clone());
-            let dismissed = self.closed.contains_key(&window.id)
+            let dismissed = self.dismissed.contains(&window.id)
+                || self.closed.contains_key(&window.id)
                 || window
                     .session_id
                     .as_ref()
                     .is_some_and(|s| self.closed_sessions.contains_key(s));
             if window.controlled || dismissed {
                 self.pending.remove(&window.id);
-            } else if fresh && !window.minimized && rules.iter().any(|r| r.matches(window)) {
+            } else if (fresh || self.import_existing)
+                && (!window.minimized || self.takeover)
+                && rules.iter().any(|r| r.matches(window))
+            {
                 self.pending.insert(
                     window.id.clone(),
                     Pending {
                         request_id: uuid::Uuid::new_v4().to_string(),
                         retry_at: now,
+                        background: self.import_existing,
                     },
                 );
             }
         }
+        self.import_existing = false;
         // Keep seen identities through incomplete inventories and transient
         // reconnects. Disappearing and reappearing is not itself a new window.
         // A fresh baseline at the bound avoids unbounded lifetime accumulation.
         if self.seen.len() > 8192 {
+            self.dismissed
+                .retain(|id| windows.iter().any(|w| &w.id == id));
             self.baseline(windows);
         }
         self.pending
@@ -129,7 +158,8 @@ impl Planner {
             let pending = self.pending.get(&w.id)?;
             if pending.retry_at > now
                 || w.controlled
-                || w.minimized
+                || w.minimized && !self.takeover
+                || self.dismissed.contains(&w.id)
                 || self.closed.contains_key(&w.id)
                 || w.session_id
                     .as_ref()
@@ -269,5 +299,54 @@ mod tests {
         hidden.minimized = true;
         p.observe(&[unsupported.clone(), hidden.clone()], &[all()], 6000);
         assert!(next(&p, &[unsupported, hidden], &[all()], 6000).is_none());
+    }
+    #[test]
+    fn device_takeover_imports_existing_windows_and_keeps_tracking_without_an_anchor() {
+        let mut p = Planner::default();
+        let old = window("old", "editor");
+        let mut minimized = window("minimized", "browser");
+        minimized.minimized = true;
+        let mut connected = window("manual", "terminal");
+        connected.controlled = true;
+        let mut popup = window("popup", "editor");
+        popup.auto_connectable = false;
+        let mut windows = vec![old, minimized, connected, popup];
+        p.baseline(&windows);
+        p.set_takeover(true);
+        p.observe(&windows, &[all()], 0);
+        for expected in ["old", "minimized"] {
+            let (w, _) = next(&p, &windows, &[all()], 0).unwrap();
+            assert_eq!(w.id, expected);
+            assert!(p.background(&w.id));
+            p.finish(&w.id, false, 0);
+        }
+        assert!(next(&p, &windows, &[all()], 0).is_none());
+        windows.push(window("new", "unrelated"));
+        p.observe(&windows, &[all()], 1);
+        let (w, _) = next(&p, &windows, &[all()], 1).unwrap();
+        assert_eq!(w.id, "new");
+        assert!(!p.background(&w.id));
+        p.finish(&w.id, false, 1);
+        p.observe(&windows, &[all()], 2);
+        assert!(next(&p, &windows, &[all()], 2).is_none());
+    }
+    #[test]
+    fn mode_switch_drops_pending_imports_and_never_reopens_dismissed_windows() {
+        let mut p = Planner::default();
+        let windows = [window("dismissed", "chooser"), window("old", "editor")];
+        p.baseline(&windows);
+        p.dismiss(&["dismissed".into()], "session", 0);
+        p.set_takeover(true);
+        p.observe(&windows, &[all()], 10_000);
+        assert_eq!(next(&p, &windows, &[all()], 10_000).unwrap().0.id, "old");
+        p.set_takeover(false);
+        p.observe(&windows, &[all()], 10_001);
+        assert!(next(&p, &windows, &[all()], 10_001).is_none());
+        p.set_takeover(true);
+        p.observe(&windows, &[all()], 20_000);
+        assert_eq!(next(&p, &windows, &[all()], 20_000).unwrap().0.id, "old");
+        assert!(p
+            .candidate(&windows, &[all()], ["old".into()].into_iter(), 20_000)
+            .is_none());
     }
 }

@@ -25,6 +25,36 @@ pub struct Preference {
     pub name: String,
     pub rule: Rule,
 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DevicePreference {
+    peer_id: String,
+    enabled: bool,
+    video_fps: u8,
+}
+impl DevicePreference {
+    fn validate(&self) -> Result<(), String> {
+        Device {
+            peer_id: self.peer_id.clone(),
+        }
+        .validate()
+        .map_err(|e| e.to_string())?;
+        crate::requested_video_fps(Some(self.video_fps)).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Settings {
+    rules: Vec<Preference>,
+    devices: Vec<DevicePreference>,
+}
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredSettings {
+    Legacy(Vec<Preference>),
+    Current(Settings),
+}
 impl Preference {
     fn validate(&self) -> Result<(), String> {
         Device {
@@ -45,6 +75,8 @@ pub struct Status {
     pub rules: Vec<Preference>,
     pub connected_applications: Vec<String>,
     pub warning: String,
+    pub takeover_enabled: bool,
+    pub managed_windows: usize,
 }
 #[derive(Clone)]
 pub struct Source {
@@ -56,6 +88,7 @@ struct Host {
     source: Source,
     pid: u32,
     fps: u8,
+    stop: Option<std::sync::mpsc::Sender<()>>,
 }
 #[derive(Default)]
 struct Data {
@@ -69,6 +102,7 @@ struct Data {
     had_connection: bool,
     warning: String,
     connection_failures: BTreeMap<String, String>,
+    disconnecting: bool,
 }
 impl Data {
     fn refresh_connection_failures(&mut self, windows: &[DesktopWindowInfo]) {
@@ -126,7 +160,30 @@ impl Peer {
     pub fn register(&self, session: &str, source: Source, pid: u32, fps: u8) {
         let mut data = self.data.lock().unwrap();
         data.revision += 1;
-        data.hosts.insert(session.into(), Host { source, pid, fps });
+        data.hosts.insert(
+            session.into(),
+            Host {
+                source,
+                pid,
+                fps,
+                stop: None,
+            },
+        );
+    }
+    pub fn set_stop(&self, session: &str, stop: std::sync::mpsc::Sender<()>) {
+        if let Some(host) = self.data.lock().unwrap().hosts.get_mut(session) {
+            host.stop = Some(stop);
+        }
+    }
+    fn disconnect_all(&self) {
+        let mut data = self.data.lock().unwrap();
+        data.disconnecting = !data.hosts.is_empty();
+        data.revision += 1;
+        for host in data.hosts.values() {
+            if let Some(stop) = &host.stop {
+                let _ = stop.send(());
+            }
+        }
     }
     pub fn closed(&self, session: &str, pid: u32) {
         let mut data = self.data.lock().unwrap();
@@ -179,13 +236,33 @@ impl Drop for Manual {
 
 pub struct Service {
     path: PathBuf,
-    preferences: Mutex<Vec<Preference>>,
+    settings: Mutex<Settings>,
     peers: Mutex<HashMap<String, Arc<Peer>>>,
     settings_warning: Mutex<String>,
 }
 impl Service {
+    pub fn start(&self, app: &tauri::AppHandle) {
+        let devices = self.settings.lock().unwrap().devices.clone();
+        for device in devices.into_iter().filter(|d| d.enabled) {
+            self.peer(
+                app,
+                &Device {
+                    peer_id: device.peer_id,
+                },
+            );
+        }
+    }
+    fn takeover(&self, peer_id: &str) -> Option<DevicePreference> {
+        self.settings
+            .lock()
+            .unwrap()
+            .devices
+            .iter()
+            .find(|d| d.peer_id == peer_id && d.enabled)
+            .cloned()
+    }
     pub fn configured_for(&self, peer_id: &str, application_key: &str) -> bool {
-        self.preferences.lock().unwrap().iter().any(|p| {
+        self.settings.lock().unwrap().rules.iter().any(|p| {
             p.peer_id == peer_id && p.application_key == application_key && p.rule.mode != Mode::Off
         })
     }
@@ -201,34 +278,52 @@ impl Service {
     pub fn open(path: PathBuf) -> Self {
         Self::load(path.clone()).unwrap_or_else(|error| Self {
             path,
-            preferences: Mutex::new(vec![]),
+            settings: Mutex::new(Settings::default()),
             peers: Mutex::new(HashMap::new()),
             settings_warning: Mutex::new(format!("{error} 自动接入已停用，请重新保存设置。")),
         })
     }
     pub fn load(path: PathBuf) -> Result<Self, String> {
-        let rules = if path.exists() {
+        let settings = if path.exists() {
             if path.is_symlink()
                 || fs::metadata(&path).map_err(|e| e.to_string())?.len() > 1024 * 1024
             {
                 return Err("自动接入设置文件无效。".into());
             }
-            let rules: Vec<Preference> =
+            let stored: StoredSettings =
                 serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?)
                     .map_err(|_| "自动接入设置无法读取。")?;
-            if rules.len() > 256 {
+            let settings = match stored {
+                StoredSettings::Legacy(rules) => Settings {
+                    rules,
+                    devices: vec![],
+                },
+                StoredSettings::Current(settings) => settings,
+            };
+            if settings.rules.len() > 256 || settings.devices.len() > 64 {
                 return Err("自动接入设置数量超限。".into());
             }
-            for rule in &rules {
+            let mut identities = HashSet::new();
+            for rule in &settings.rules {
                 rule.validate()?;
+                if !identities.insert((&rule.peer_id, &rule.application_key)) {
+                    return Err("自动接入应用设置重复。".into());
+                }
             }
-            rules
+            let mut devices = HashSet::new();
+            for device in &settings.devices {
+                device.validate()?;
+                if !devices.insert(&device.peer_id) {
+                    return Err("全窗口接管设置重复。".into());
+                }
+            }
+            settings
         } else {
-            vec![]
+            Settings::default()
         };
         Ok(Self {
             path,
-            preferences: Mutex::new(rules),
+            settings: Mutex::new(settings),
             peers: Mutex::new(HashMap::new()),
             settings_warning: Mutex::new(String::new()),
         })
@@ -257,9 +352,19 @@ impl Service {
         self.rules_for(peer_id, data, false)
     }
     fn rules_for(&self, peer_id: &str, data: &Data, connected_only: bool) -> Vec<Rule> {
-        self.preferences
+        if data.disconnecting {
+            return vec![];
+        }
+        if self.takeover(peer_id).is_some() {
+            return vec![Rule {
+                mode: Mode::All,
+                applications: vec![],
+            }];
+        }
+        self.settings
             .lock()
             .unwrap()
+            .rules
             .iter()
             .filter(|p| {
                 p.peer_id == peer_id
@@ -273,10 +378,12 @@ impl Service {
             .collect()
     }
     pub fn status(&self, peer_id: &str) -> Status {
+        let takeover_enabled = self.takeover(peer_id).is_some();
         let rules = self
-            .preferences
+            .settings
             .lock()
             .unwrap()
+            .rules
             .iter()
             .filter(|p| p.peer_id == peer_id)
             .cloned()
@@ -287,6 +394,8 @@ impl Service {
                 rules,
                 connected_applications: vec![],
                 warning: self.settings_warning.lock().unwrap().clone(),
+                takeover_enabled,
+                managed_windows: 0,
             };
         };
         let data = peer.data.lock().unwrap();
@@ -300,6 +409,8 @@ impl Service {
         connected.dedup();
         Status {
             rules,
+            takeover_enabled,
+            managed_windows: data.hosts.len(),
             connected_applications: connected,
             warning: if !data.warning.is_empty() {
                 data.warning.clone()
@@ -312,13 +423,25 @@ impl Service {
     }
     fn save(&self, preference: Preference) -> Result<(), String> {
         preference.validate()?;
-        let mut current = self.preferences.lock().unwrap();
+        self.update(|next| {
+            next.rules.retain(|p| {
+                p.peer_id != preference.peer_id || p.application_key != preference.application_key
+            });
+            next.rules.push(preference);
+        })
+    }
+    fn save_device(&self, device: DevicePreference) -> Result<(), String> {
+        device.validate()?;
+        self.update(|next| {
+            next.devices.retain(|d| d.peer_id != device.peer_id);
+            next.devices.push(device);
+        })
+    }
+    fn update(&self, update: impl FnOnce(&mut Settings)) -> Result<(), String> {
+        let mut current = self.settings.lock().unwrap();
         let mut next = current.clone();
-        next.retain(|p| {
-            p.peer_id != preference.peer_id || p.application_key != preference.application_key
-        });
-        next.push(preference);
-        if next.len() > 256 {
+        update(&mut next);
+        if next.rules.len() > 256 || next.devices.len() > 64 {
             return Err("自动接入设置已达到上限。".into());
         }
         let parent = self.path.parent().ok_or("设置目录无效。")?;
@@ -349,6 +472,48 @@ pub fn automatic_window_status(app: tauri::AppHandle, endpoint: Device) -> Resul
     endpoint.validate().map_err(|e| e.to_string())?;
     Ok(app.state::<Service>().status(&endpoint.peer_id))
 }
+
+#[tauri::command]
+pub async fn set_device_window_takeover(
+    app: tauri::AppHandle,
+    endpoint: Device,
+    enabled: bool,
+    video_fps: u8,
+) -> Result<Status, String> {
+    endpoint.validate().map_err(|e| e.to_string())?;
+    let service = app.state::<Service>();
+    let peer = service.peer(&app, &endpoint);
+    let _gate = peer.gate.lock().await;
+    service.save_device(DevicePreference {
+        peer_id: endpoint.peer_id.clone(),
+        enabled,
+        video_fps,
+    })?;
+    {
+        let mut data = peer.data.lock().unwrap();
+        data.planner.set_takeover(enabled);
+        data.revision += 1;
+    }
+    Ok(service.status(&endpoint.peer_id))
+}
+
+#[tauri::command]
+pub async fn disconnect_device_windows(
+    app: tauri::AppHandle,
+    endpoint: Device,
+) -> Result<Status, String> {
+    endpoint.validate().map_err(|e| e.to_string())?;
+    let service = app.state::<Service>();
+    let peer = service.peer(&app, &endpoint);
+    let _gate = peer.gate.lock().await;
+    service.save_device(DevicePreference {
+        peer_id: endpoint.peer_id.clone(),
+        enabled: false,
+        video_fps: 30,
+    })?;
+    peer.disconnect_all();
+    Ok(service.status(&endpoint.peer_id))
+}
 #[tauri::command]
 pub async fn set_automatic_window_rule(
     app: tauri::AppHandle,
@@ -375,6 +540,11 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
     let service = app.state::<Service>();
     let revision = {
         let mut data = peer.data.lock().unwrap();
+        data.planner
+            .set_takeover(service.takeover(&endpoint.peer_id).is_some());
+        if data.disconnecting && data.hosts.is_empty() {
+            data.disconnecting = false;
+        }
         if service.active_rules(&endpoint.peer_id, &data).is_empty() {
             data.planner.disarm();
             data.had_connection = false;
@@ -433,7 +603,7 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
         data.had_connection = true;
         data.planner.observe(&snapshot.windows, &rules, peer.now());
         if data.hosts.len() >= 16 {
-            data.warning = "已连接的窗口较多，关闭部分窗口后继续自动接入。".into();
+            data.warning = "已达到接收窗口资源上限，待接入窗口会在关闭部分窗口后继续连接。".into();
             return;
         }
         if !snapshot.windows.is_empty()
@@ -452,11 +622,15 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
         candidate.map(|(window, request)| {
             // Follow an active application's selected frame-rate cap; do not
             // silently promote a 30-fps connection to 60 fps.
-            let fps = data.hosts.values().map(|h| h.fps).min().unwrap_or(30);
-            (window, request, fps)
+            let fps = service
+                .takeover(&endpoint.peer_id)
+                .map(|d| d.video_fps)
+                .unwrap_or_else(|| data.hosts.values().map(|h| h.fps).min().unwrap_or(30));
+            let background = data.planner.background(&window.id);
+            (window, request, fps, background)
         })
     };
-    let Some((window, request, fps)) = candidate else {
+    let Some((window, request, fps, background)) = candidate else {
         return;
     };
     let key = window
@@ -477,6 +651,7 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
         Some(window.name),
         Some(fps),
         Some(key),
+        background,
     )
     .await;
     let mut data = peer.data.lock().unwrap();
@@ -486,8 +661,11 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
             data.connection_failures.remove(&window.id);
         }
         Err(error) => {
-            data.planner
-                .finish(&window.id, error.retry_same_request, peer.now());
+            data.planner.finish(
+                &window.id,
+                error.retry_same_request || error.code.as_deref() == Some("session_limit"),
+                peer.now(),
+            );
             data.connection_failures
                 .insert(window.id, format!("新窗口暂未接入：{}", error.message));
         }
@@ -664,10 +842,91 @@ mod tests {
         let path = dir.join("settings.json");
         fs::write(&path, b"broken settings").unwrap();
         let service = Service::open(path.clone());
-        assert!(service.preferences.lock().unwrap().is_empty());
+        assert!(service.settings.lock().unwrap().rules.is_empty());
         assert!(!service.status("device").warning.is_empty());
         assert_eq!(fs::read(path).unwrap(), b"broken settings");
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn device_mode_migrates_legacy_rules_and_is_independent_of_connected_applications() {
+        let dir = std::env::temp_dir().join(format!("takeover-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let id = uuid::Uuid::new_v4().to_string();
+        let legacy = vec![Preference {
+            peer_id: id.clone(),
+            application_key: "editor".into(),
+            name: "Editor".into(),
+            rule: Rule {
+                mode: Mode::Selected,
+                applications: vec!["chooser".into()],
+            },
+        }];
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let service = Service::load(path.clone()).unwrap();
+        service
+            .save_device(DevicePreference {
+                peer_id: id.clone(),
+                enabled: true,
+                video_fps: 30,
+            })
+            .unwrap();
+        let loaded = Service::load(path.clone()).unwrap();
+        let data = Data::default();
+        assert_eq!(loaded.rules_for(&id, &data, true)[0].mode, Mode::All);
+        assert!(loaded
+            .rules_for(&uuid::Uuid::new_v4().to_string(), &data, false)
+            .is_empty());
+        assert!(loaded.status(&id).takeover_enabled);
+        assert_eq!(loaded.takeover(&id).unwrap().video_fps, 30);
+        loaded
+            .save_device(DevicePreference {
+                peer_id: id.clone(),
+                enabled: false,
+                video_fps: 30,
+            })
+            .unwrap();
+        assert!(!loaded.status(&id).takeover_enabled);
+        assert_eq!(loaded.status(&id).rules[0].rule, legacy[0].rule);
+        let before = fs::read(&path).unwrap();
+        assert!(loaded
+            .save_device(DevicePreference {
+                peer_id: id.clone(),
+                enabled: true,
+                video_fps: 90
+            })
+            .is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn disconnect_all_targets_only_this_peers_owned_hosts_and_stops_automatic_following() {
+        let p = peer();
+        let other = peer();
+        let (stop, stopped) = std::sync::mpsc::channel();
+        let (other_stop, other_stopped) = std::sync::mpsc::channel();
+        for (peer, sender) in [(&p, stop), (&other, other_stop)] {
+            peer.register(
+                "s",
+                Source {
+                    application_key: "editor".into(),
+                    target_id: "window-editor".into(),
+                },
+                42,
+                30,
+            );
+            peer.set_stop("s", sender);
+        }
+        p.disconnect_all();
+        stopped.try_recv().unwrap();
+        assert!(other_stopped.try_recv().is_err());
+        assert!(p.data.lock().unwrap().disconnecting);
+        assert!(!other.data.lock().unwrap().disconnecting);
+        assert_eq!(
+            p.data.lock().unwrap().hosts.len(),
+            1,
+            "retain ownership until the process exits"
+        );
     }
     #[tokio::test]
     async fn manual_open_waiting_for_automatic_preparation_reuses_the_registered_receiver() {

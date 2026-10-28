@@ -27,6 +27,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var allowClose = false
     private var closeRequested = false
     var relatedWindow = false
+    var activateOnShow = true
     var resizeTimer: Timer?
     var rendering: RenderGeometry
     var mediaMode: String?
@@ -205,7 +206,10 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         if changed && !relatedWindow && !popup {
             if visible || !hiddenSourceView.isHidden {
                 // A remote visibility change must not undo a local minimization.
-                if !window.isMiniaturized { window.makeKeyAndOrderFront(nil) }
+                if !window.isMiniaturized {
+                    if activateOnShow { window.makeKeyAndOrderFront(nil) }
+                    else { window.orderFront(nil) }
+                }
             } else { window.orderOut(nil) }
         }
         if !visible && (relatedWindow || popup) { window.orderOut(nil) }

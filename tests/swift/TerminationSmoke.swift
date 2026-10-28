@@ -21,6 +21,7 @@ private final class TerminationDelegate: NSObject, NSApplicationDelegate {
             native: NativeRoute(peer: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 state: "/tmp/unused-termination-fixture", helper: "/usr/bin/false")))
         host.wireSink = { _ in }
+        host.observeTerminationSignal()
         let delegate = TerminationDelegate(host)
         app.delegate = delegate
         DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
@@ -29,6 +30,7 @@ private final class TerminationDelegate: NSObject, NSApplicationDelegate {
         }
         DispatchQueue.main.async {
             if CommandLine.arguments.last == "session" { host.finishSession() }
+            else if CommandLine.arguments.last == "signal" { kill(getpid(), SIGTERM) }
             else { app.terminate(nil) }
         }
         withExtendedLifetime(delegate) { app.run() }

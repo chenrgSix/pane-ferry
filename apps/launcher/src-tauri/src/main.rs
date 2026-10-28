@@ -168,6 +168,7 @@ fn spawn_host(
     icon_png: Option<String>,
     video_fps: u8,
     source: Option<auto_connect::Source>,
+    background: bool,
 ) -> Result<u32, String> {
     let peer = app.state::<auto_connect::Service>().peer(app, endpoint);
     if let Some(existing) = peer.existing("", Some(session_id)) {
@@ -188,6 +189,9 @@ fn spawn_host(
         .arg(session_id)
         .arg("--fps")
         .arg(video_fps.to_string());
+    if background {
+        command.arg("--background-start");
+    }
     if icon.is_some() {
         command.arg("--icon-stdin");
     }
@@ -202,8 +206,10 @@ fn spawn_host(
         .spawn()
         .map_err(|_| format!("原生宿主启动失败。远端会话 {session_id} 已保留，可重新连接。"))?;
     let pid = child.id();
+    let (stop, stop_requests) = std::sync::mpsc::channel();
     if let Some(source) = source {
         peer.register(session_id, source, pid, video_fps);
+        peer.set_stop(session_id, stop);
     }
     let session_id = session_id.to_owned();
     std::thread::spawn(move || {
@@ -211,7 +217,27 @@ fn spawn_host(
         if let (Some(mut input), Some(icon)) = (child.stdin.take(), icon) {
             let _ = input.write_all(icon.as_bytes());
         }
-        let _ = child.wait();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) | Err(_) => break,
+                _ => {}
+            }
+            match stop_requests.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(()) => {
+                    // Only this thread owns/reaps the Child. Its PID cannot be
+                    // reused between try_wait and the signal. WindowHost handles
+                    // SIGTERM through AppKit's normal detach/quit path.
+                    unsafe {
+                        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = child.wait();
+                    break;
+                }
+                _ => {}
+            }
+        }
         peer.closed(&session_id, pid);
     });
     Ok(pid)
@@ -294,6 +320,7 @@ async fn resume_session(
         icon_png,
         video_fps,
         source,
+        false,
     )
     .map_err(RequestFailure::local)?;
     intent.resolve();
@@ -350,6 +377,7 @@ async fn launch_app(
         app_name,
         video_fps,
         application_key,
+        false,
     )
     .await;
     if result
@@ -372,6 +400,7 @@ async fn launch_connected(
     app_name: Option<String>,
     video_fps: Option<u8>,
     application_key: Option<String>,
+    background: bool,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
     let video_fps = requested_video_fps(video_fps)?;
@@ -407,6 +436,7 @@ async fn launch_connected(
             application_key: application_key.unwrap_or_else(|| app_id.clone()),
             target_id: app_id.clone(),
         }),
+        background,
     )
     .map_err(|message| LaunchFailure {
         kind: "client",
@@ -465,6 +495,7 @@ async fn start_desktop(
         None,
         video_fps,
         None,
+        false,
     )
     .map_err(|message| LaunchFailure {
         kind: "client",
@@ -484,6 +515,7 @@ fn main() {
         .setup(|app| {
             let settings = app.path().app_data_dir()?.join("automatic-windows.json");
             app.manage(auto_connect::Service::open(settings));
+            app.state::<auto_connect::Service>().start(app.handle());
             if let Ok(directory) = app.path().app_data_dir() {
                 if legacy_settings::retire(&directory).is_err() {
                     eprintln!("旧连接配置清理失败；当前仅支持设备配对连接。");
@@ -507,6 +539,8 @@ fn main() {
             resume_session,
             auto_connect::automatic_window_status,
             auto_connect::set_automatic_window_rule,
+            auto_connect::set_device_window_takeover,
+            auto_connect::disconnect_device_windows,
             local_node_info,
             set_local_sharing,
             request_local_permissions,

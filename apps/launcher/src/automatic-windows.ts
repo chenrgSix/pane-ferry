@@ -3,8 +3,8 @@ import type { AppInfo, DesktopWindow } from "./launcher-types.ts";
 export type AutomaticMode = "off" | "all" | "selected";
 export type AutomaticRule = { mode: AutomaticMode; applications: string[] };
 export type AutomaticPreference = { peerId: string; applicationKey: string; name: string; rule: AutomaticRule };
-export type AutomaticStatus = { rules: AutomaticPreference[]; connectedApplications: string[]; warning: string };
-export const emptyAutomaticStatus = (): AutomaticStatus => ({ rules: [], connectedApplications: [], warning: "" });
+export type AutomaticStatus = { rules: AutomaticPreference[]; connectedApplications: string[]; warning: string; takeoverEnabled: boolean; managedWindows: number };
+export const emptyAutomaticStatus = (): AutomaticStatus => ({ rules: [], connectedApplications: [], warning: "", takeoverEnabled: false, managedWindows: 0 });
 
 // Preference identities come from the publisher. Never use a document title
 // or a PID/window ID as the persistent identity of a discovered application.

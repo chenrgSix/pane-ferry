@@ -186,6 +186,16 @@ import AppKit
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         precondition(!messages.contains { $0["type"] as? String == "window.configure" && ($0["window_id"] as? UInt32) == 100 })
         precondition(scene.window.subtitle.contains("应用会话画面"))
+        var backgroundOptions = options
+        backgroundOptions.backgroundStart = true
+        let background = AppDelegate(options: backgroundOptions, clipboard: NSPasteboard.withUniqueName())
+        var backgroundMessages: [[String: Any]] = []
+        background.wireSink = { backgroundMessages.append($0) }
+        background.updateWindow(metadata(101, nil, "window", CGRect(x: 0, y: 0, width: 400, height: 300), 1), create: true)
+        let imported = background.windows[101]!
+        precondition(imported.window.isVisible && !imported.window.isKeyWindow && !imported.activateOnShow)
+        precondition(!backgroundMessages.contains { $0["type"] as? String == "window.focus" }, "bulk imports do not seize input focus")
+        imported.closeLocally(); background.windows.removeAll(); background.connected = false; background.stopping = true
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
         print("PASS: source-relative nested overlays, fractional density, letterboxing, screen bounds, native overflow scrolling, bottom-item input, nested scroll anchors, passive tooltip hit testing, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")

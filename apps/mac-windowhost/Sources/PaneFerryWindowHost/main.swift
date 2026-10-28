@@ -21,13 +21,19 @@ struct Options {
     let session: String?
     var iconFromStdin = false
     var requestedVideoFPS = 60
+    var backgroundStart = false
     let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
+        var backgroundStart = false
         let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps"]
         while i < args.count {
+            if args[i] == "--background-start" {
+                guard !backgroundStart else { throw HostError.message("后台启动参数重复") }
+                backgroundStart = true; i += 1; continue
+            }
             if args[i] == "--icon-stdin" {
                 guard !iconFromStdin else { throw HostError.message("图标参数重复") }
                 iconFromStdin = true; i += 1; continue
@@ -52,7 +58,7 @@ struct Options {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, native: native)
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, backgroundStart: backgroundStart, native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -328,6 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var reconnectTimer: Timer?
     var handshakeTimer: Timer?
     var networkMonitor: NWPathMonitor?
+    var terminationSignal: DispatchSourceSignal?
     let launchRequestID = UUID().uuidString
     var poll: Timer?
     var statusItem: NSStatusItem?
@@ -360,7 +367,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         requestedVideoFPS = options.requestedVideoFPS
         self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
+    func observeTerminationSignal() {
+        signal(SIGTERM, SIG_IGN)
+        let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termination.setEventHandler { [weak self] in self?.terminateHost() }
+        termination.resume(); terminationSignal = termination
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        observeTerminationSignal()
         NSApp.setActivationPolicy(.regular)
         if let icon = applicationIcon { NSApp.applicationIconImage = icon }
         let mainMenu = NSMenu()
@@ -406,7 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         monitor.start(queue: DispatchQueue(label: "paneferry.network"))
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !options.backgroundStart { NSApp.activate(ignoringOtherApps: true) }
     }
     @objc func showAbout() {
         alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。可在显示菜单选择 30 或 60 帧/秒上限，实际帧率随画面和连接状态变化。新应用和新画布使用普通 1× 分辨率。输入法在控制端组合，剪贴板只由主动操作触发。")
@@ -880,6 +894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             host.desktopMode = object["surface_type"] as? String == "desktop"
             host.sessionMode = object["surface_type"] as? String == "session"
             windows[id] = host
+            host.activateOnShow = !options.backgroundStart
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
             host.onLayoutChange = { [weak self] in self?.attachParents() }
@@ -903,7 +918,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let visibilityChanged = visible != host.remoteVisible
         host.applyRemoteVisibility(visible)
         if visibilityChanged { refreshVideoFPS() }
-        if justCreated, visible, parentID == nil, !host.popup, ["toplevel", "desktop"].contains(role) {
+        if justCreated, visible, parentID == nil, !host.popup, !options.backgroundStart, ["toplevel", "desktop"].contains(role) {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
     }
