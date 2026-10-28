@@ -19,6 +19,13 @@ pub trait WindowBackend: Send {
     fn refresh_window(&self, _id: u32) {
         self.refresh_capture();
     }
+    /// Video activity resumed on the same controller/lease. Discard prepared
+    /// pixels without reacquiring streams or changing input ownership.
+    fn refresh_video(&mut self) {
+        for id in self.windows().keys().copied().collect::<Vec<_>>() {
+            self.refresh_window(id);
+        }
+    }
     /// An explicit launch/resume may retry a previously failed size adjustment.
     fn retry_window_adjustments(&mut self) {}
     fn event_fd(&self) -> std::os::fd::RawFd;

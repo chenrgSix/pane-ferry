@@ -7,6 +7,14 @@ pub const MAX_PIXELS: u64 = 8_000_000;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
 pub const DEFAULT_VIDEO_FPS: u8 = 60;
 pub const MAX_VIDEO_FPS: u8 = 90;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoActivity {
+    #[default]
+    Foreground,
+    Background,
+    Suspended,
+}
 /// Optional fixed pixel canvas, composed on the source. Absence keeps the
 /// existing per-window contract; unsupported publishers must reject it.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -58,6 +66,8 @@ pub enum Request {
     },
     #[serde(rename = "video.configure")]
     ConfigureVideo { max_fps: u8 },
+    #[serde(rename = "video.activity")]
+    VideoActivity { state: VideoActivity },
     #[serde(rename = "video.keyframe")]
     KeyFrame { window_id: u32 },
     #[serde(rename = "video.feedback")]
@@ -292,6 +302,26 @@ pub fn read_line_limit<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn video_activity_is_explicit_and_rejects_unknown_states_or_fields() {
+        for state in ["foreground", "background", "suspended"] {
+            assert!(matches!(
+                parse_request(
+                    format!(r#"{{"type":"video.activity","version":1,"state":"{state}"}}"#)
+                        .as_bytes()
+                )
+                .unwrap(),
+                Request::VideoActivity { .. }
+            ));
+        }
+        for invalid in [
+            br#"{"type":"video.activity","version":1,"state":"paused"}"#.as_slice(),
+            br#"{"type":"video.activity","version":1,"state":true}"#,
+            br#"{"type":"video.activity","version":1,"state":"foreground","window_id":1}"#,
+        ] {
+            assert!(parse_request(invalid).is_err());
+        }
+    }
     #[test]
     fn bounds() {
         assert!(dimensions(0, 2).is_err());

@@ -57,6 +57,24 @@ struct H264OnlySmoke {
         precondition(adaptiveSent.last?["max_fps"] as? Int == 60)
         precondition(effectiveVideoFPS(requested:30,publisherMax:90) == 30)
         precondition(effectiveVideoFPS(requested:60,publisherMax:30) == 30)
+        precondition(VideoActivity.select([(true, true), (false, false)]) == .foreground)
+        precondition(VideoActivity.select([(true, false), (false, true)]) == .background)
+        precondition(VideoActivity.select([(false, false)]) == .suspended)
+        let managed = AppDelegate(options: thirtyOptions, clipboard: board)
+        var managedSent: [[String: Any]] = []; managed.wireSink = { managedSent.append($0) }
+        managed.receive(Incoming(object:["type":"hello", "capabilities":["native.h264", "video.qos", "video.activity"]], image:nil))
+        for state in [VideoActivity.background, .suspended, .foreground] { managed.applyVideoActivity(state) }
+        precondition(managedSent.filter { $0["type"] as? String == "video.activity" }.compactMap { $0["state"] as? String } == ["background", "suspended", "foreground"])
+        precondition(managed.requestedVideoFPS == 30 && managed.configuredVideoFPS == 30, "activity must not overwrite the selected cap")
+        let activityCount = managedSent.count; managed.applyVideoActivity(.foreground)
+        precondition(managedSent.count == activityCount, "identical activity does not flood control")
+        adaptive.applyVideoActivity(.background)
+        precondition(adaptiveSent.last?["max_fps"] as? Int == 5)
+        adaptive.applyVideoActivity(.suspended)
+        precondition(adaptiveSent.last?["max_fps"] as? Int == 1)
+        adaptive.applyVideoActivity(.foreground)
+        precondition(adaptiveSent.last?["max_fps"] as? Int == 60)
+        precondition(!adaptiveSent.contains { $0["type"] as? String == "video.activity" }, "legacy publishers only receive supported requests")
         adaptive.pendingVideoFeedbackID = 41
         adaptive.clipboardBusy = true
         adaptive.pump()

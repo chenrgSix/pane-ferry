@@ -265,6 +265,16 @@ impl WindowBackend for Backend {
             stream.dirty = true;
         }
     }
+    fn refresh_video(&mut self) {
+        if let Some(stream) = self.stream.borrow_mut().as_mut() {
+            stream.capture.discard_prepared();
+            stream.image = None;
+            stream.dirty = true;
+            stream.started = Instant::now();
+        }
+        self.pending_pull = true;
+        self.frame_wake.notify();
+    }
     fn event_fd(&self) -> std::os::fd::RawFd {
         self.frame_wake.event_fd()
     }

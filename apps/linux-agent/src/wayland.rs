@@ -473,6 +473,16 @@ impl WindowBackend for Backend {
             stream.dirty = true;
         }
     }
+    fn refresh_video(&mut self) {
+        for stream in self.streams.borrow_mut().values_mut() {
+            stream.capture.discard_prepared();
+            stream.image = None;
+            stream.dirty = true;
+            stream.started = Instant::now();
+        }
+        self.pending_pull = true;
+        self.frame_wake.notify();
+    }
     fn refresh_window(&self, id: u32) {
         if let Some(stream) = self.streams.borrow_mut().get_mut(&id) {
             stream.dirty = true;

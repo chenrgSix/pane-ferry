@@ -1,6 +1,6 @@
 //! Per-controller video pacing. Feedback is an acknowledgement of a frame
 //! actually presented by the client, so it includes encoding and queue delay.
-use paneferry_protocol::DEFAULT_VIDEO_FPS;
+use paneferry_protocol::{VideoActivity, DEFAULT_VIDEO_FPS};
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
@@ -21,6 +21,7 @@ pub struct VideoQos {
     bad: u8,
     last_change: Instant,
     last_feedback: Instant,
+    activity: VideoActivity,
 }
 
 impl VideoQos {
@@ -36,6 +37,7 @@ impl VideoQos {
             bad: 0,
             last_change: now,
             last_feedback: now,
+            activity: VideoActivity::Foreground,
         }
     }
 
@@ -60,9 +62,23 @@ impl VideoQos {
     pub fn target(&self) -> u8 {
         self.target
     }
+    pub fn set_activity(&mut self, activity: VideoActivity, now: Instant) {
+        // A deliberately paused/slow receiver is not a congested connection.
+        self.configure(self.cap, self.feedback, now);
+        self.activity = activity;
+    }
+    pub fn suspended(&self) -> bool {
+        self.activity == VideoActivity::Suspended
+    }
     pub fn interval(&mut self, now: Instant) -> Duration {
         self.check_stall(now);
-        Duration::from_micros(1_000_000 / u64::from(self.target))
+        match self.activity {
+            VideoActivity::Suspended => Duration::MAX,
+            VideoActivity::Background => {
+                Duration::from_micros(1_000_000 / u64::from(self.target.min(5)))
+            }
+            VideoActivity::Foreground => Duration::from_micros(1_000_000 / u64::from(self.target)),
+        }
     }
 
     pub fn sent(&mut self, now: Instant) -> Option<u64> {
@@ -145,6 +161,29 @@ impl VideoQos {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn activity_preserves_user_cap_and_does_not_count_intentional_idle_as_congestion() {
+        let start = Instant::now();
+        let mut qos = VideoQos::new(start);
+        qos.configure(30, true, start);
+        qos.sent(start);
+        qos.set_activity(VideoActivity::Background, start);
+        assert_eq!(qos.interval(start), Duration::from_millis(200));
+        assert_eq!(qos.cap(), 30);
+        qos.set_activity(VideoActivity::Suspended, start);
+        assert!(qos.suspended());
+        assert_eq!(qos.interval(start + Duration::from_secs(60)), Duration::MAX);
+        qos.configure(60, true, start);
+        assert!(
+            qos.suspended(),
+            "changing the cap must not unpause a hidden receiver"
+        );
+        qos.set_activity(VideoActivity::Foreground, start + Duration::from_secs(60));
+        assert_eq!(
+            qos.interval(start + Duration::from_secs(60)),
+            Duration::from_micros(16_666)
+        );
+    }
     #[test]
     fn congestion_backs_off_and_clean_feedback_recovers_without_exceeding_cap() {
         let start = Instant::now();

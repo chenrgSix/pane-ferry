@@ -13,6 +13,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     private(set) var popup: Bool
     var presentation: WindowPresentation?
     var onLayoutChange: (() -> Void)?
+    var onActivityChange: (() -> Void)?
     private var lastPlacement: NSRect?
     private(set) var overflowViewport: NSScrollView?
     var desktopMode = false
@@ -334,10 +335,12 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         return false
     }
     func windowDidBecomeKey(_ notification: Notification) {
+        onActivityChange?()
         guard remoteVisible else { return }
         transmit(["type": "window.focus", "window_id": id])
     }
-    func windowDidResignKey(_ notification: Notification) { surface.releaseInput() }
+    func windowDidResignKey(_ notification: Notification) { surface.releaseInput(); onActivityChange?() }
+    func windowDidChangeOcclusionState(_ notification: Notification) { onActivityChange?() }
     func windowDidResize(_ notification: Notification) {
         if !applyingRemote { onLayoutChange?() }
         guard !fixedCanvas, !applyingRemote, remoteVisible, !popup, resizeTimer == nil else { return }
@@ -348,8 +351,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         RunLoop.main.add(timer, forMode: .common)
     }
     func windowDidMove(_ notification: Notification) { if !applyingRemote { onLayoutChange?() } }
-    func windowDidMiniaturize(_ notification: Notification) { onLayoutChange?() }
-    func windowDidDeminiaturize(_ notification: Notification) { onLayoutChange?() }
+    func windowDidMiniaturize(_ notification: Notification) { onLayoutChange?(); onActivityChange?() }
+    func windowDidDeminiaturize(_ notification: Notification) { onLayoutChange?(); onActivityChange?() }
     func windowDidEndLiveResize(_ notification: Notification) { sendResize() }
     func windowDidChangeBackingProperties(_ notification: Notification) { windowDidResize(notification) }
     func windowDidChangeScreen(_ notification: Notification) {

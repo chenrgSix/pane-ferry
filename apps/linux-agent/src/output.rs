@@ -3,7 +3,7 @@ use crate::video_qos::VideoQos;
 use anyhow::{bail, Result};
 #[cfg(test)]
 use paneferry_backend_x11::CapturedImage;
-use paneferry_protocol::Window;
+use paneferry_protocol::{VideoActivity, Window};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -22,6 +22,7 @@ const EVENT_LIMIT: usize = 256;
 enum Pending {
     EnableVideo(u8, bool),
     ConfigureVideo(u8),
+    Activity(VideoActivity),
     KeyFrame(u32),
     Message(Value, String),
     Frame(Window, Arc<crate::video::Frame>, String),
@@ -156,6 +157,9 @@ impl Output {
         image: Arc<crate::video::Frame>,
         session: &str,
     ) -> Result<()> {
+        if self.qos.lock().unwrap().suspended() {
+            return Ok(());
+        }
         self.push(Pending::Frame(window.clone(), image, session.into()))
     }
     pub fn take_refreshes(&self) -> Vec<u32> {
@@ -166,6 +170,10 @@ impl Output {
     }
     pub fn configure_video(&self, max_fps: u8) -> Result<()> {
         self.push(Pending::ConfigureVideo(max_fps))
+    }
+    pub fn activity(&self, state: VideoActivity) -> Result<()> {
+        self.qos.lock().unwrap().set_activity(state, Instant::now());
+        self.push(Pending::Activity(state))
     }
     pub fn keyframe(&self, id: u32) -> Result<()> {
         self.push(Pending::KeyFrame(id))
@@ -202,6 +210,7 @@ fn write_loop(
     let mut generations: HashMap<u32, u64> = HashMap::new();
     let mut geometry: HashMap<u32, Value> = HashMap::new();
     let mut video = false;
+    let mut suspended = false;
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -237,6 +246,24 @@ fn write_loop(
                 let feedback = state.feedback_enabled();
                 state.configure(max_fps, feedback, Instant::now());
                 continue;
+            }
+            Pending::Activity(state) => {
+                if !video {
+                    bail!("video not enabled")
+                }
+                let pause = state == VideoActivity::Suspended;
+                if pause != suspended {
+                    generations.clear();
+                    geometry.clear();
+                    workers.reset()?;
+                }
+                suspended = pause;
+                // Acknowledgement follows all already written video. Once it
+                // reports suspension, no queued/in-flight frame may follow.
+                (
+                    json!({"type":"video.activity.changed", "state":state}),
+                    String::new(),
+                )
             }
             Pending::KeyFrame(id) => {
                 next_generation += 1;
@@ -278,6 +305,9 @@ fn write_loop(
                 (value, session)
             }
             Pending::Frame(window, image, session) => {
+                if suspended {
+                    continue;
+                }
                 if !video {
                     bail!("H.264 must be enabled before attaching")
                 }
@@ -301,7 +331,7 @@ fn write_loop(
             Pending::Encoded(mut encoded) => {
                 // Metadata/destroy can overtake an encoder. A fresh generation
                 // restarts with IDR; its predecessor can never appear afterward.
-                if generations.get(&encoded.window) != Some(&encoded.generation) {
+                if suspended || generations.get(&encoded.window) != Some(&encoded.generation) {
                     continue;
                 }
                 if let Some(id) = qos.lock().unwrap().sent(Instant::now()) {
@@ -386,6 +416,81 @@ mod tests {
             )
         ));
         assert_eq!(queue.pixels, 0);
+    }
+    #[test]
+    fn suspended_video_drops_inflight_output_keeps_control_live_and_resumes_a_fresh_generation() {
+        use std::io::{BufRead, BufReader};
+        struct Slow {
+            first: bool,
+            entered: std::sync::mpsc::Sender<()>,
+            release: Arc<(Mutex<bool>, Condvar)>,
+        }
+        impl worker::Codec for Slow {
+            fn encode(&mut self, job: &worker::Job) -> Result<Option<Value>> {
+                if self.first {
+                    self.first = false;
+                    self.entered.send(()).unwrap();
+                    let (lock, wake) = &*self.release;
+                    let (ready, _) = wake
+                        .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(3), |ready| {
+                            !*ready
+                        })
+                        .unwrap();
+                    assert!(*ready);
+                }
+                Ok(Some(
+                    json!({"type":"frame", "data":"AA==", "generation":job.generation}),
+                ))
+            }
+            fn forget(&mut self, _: u32) {}
+            fn reset(&mut self) {}
+        }
+        let (entered, signal) = std::sync::mpsc::channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate = release.clone();
+        let factory: worker::Factory = Arc::new(move || {
+            Box::new(Slow {
+                first: true,
+                entered: entered.clone(),
+                release: gate.clone(),
+            })
+        });
+        let (writer, socket) = UnixStream::pair().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let output = Output::with_factory(writer, factory).unwrap();
+        let mut reader = BufReader::new(socket);
+        let mut read = || {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        };
+        output.enable_video(30, true).unwrap();
+        output.push(frame(1)).unwrap();
+        signal.recv_timeout(Duration::from_secs(2)).unwrap();
+        output.activity(VideoActivity::Suspended).unwrap();
+        assert_eq!(read()["state"], "suspended");
+        output.push(frame(1)).unwrap();
+        output
+            .message(json!({"type":"fixture.input"}), "session")
+            .unwrap();
+        assert_eq!(
+            read()["type"],
+            "fixture.input",
+            "paused video must not block input/metadata"
+        );
+        output.activity(VideoActivity::Foreground).unwrap();
+        assert_eq!(read()["state"], "foreground");
+        output.push(frame(1)).unwrap();
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        let packet = read();
+        assert_eq!(packet["type"], "frame");
+        assert!(
+            packet["generation"].as_u64().unwrap() > 1,
+            "the pre-suspend encoder result must be retired"
+        );
     }
     #[test]
     fn output_pixel_pressure_retains_other_windows_and_requests_recapture() {

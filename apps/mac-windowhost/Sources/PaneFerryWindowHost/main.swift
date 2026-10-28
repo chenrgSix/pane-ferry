@@ -221,7 +221,7 @@ final class RWPTransport {
                     guard let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           object["type"] is String,
                           unsignedInteger(object["version"]) == 1 else { throw HostError.message("RWP 协议格式或版本错误") }
-                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "input.authorization", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
+                    let allowedTypes: Set<String> = ["hello", "error", "video.ready", "video.activity.changed", "input.authorization", "session.started", "session.snapshot", "session.exited", "window.created", "window.metadata", "window.destroyed", "frame", "clipboard.data", "clipboard.bundle"]
                     guard allowedTypes.contains(object["type"] as? String ?? "") else { throw HostError.message("未知 RWP 消息类型") }
                     let eventType=object["type"] as? String ?? ""
                     if eventType == "session.snapshot" || eventType == "session.exited" {
@@ -344,6 +344,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var videoFPS = 60
     var requestedVideoFPS = 60
     var publisherMaxVideoFPS = maximumVideoFPS
+    var configuredVideoFPS: Int?
+    var sentVideoActivity: VideoActivity?
+    var videoActivityTimer: Timer?
     var lastVideoFeedback: TimeInterval = 0
     var lastFrameRateRefresh: TimeInterval = 0
     var pendingVideoFeedbackID: UInt64?
@@ -420,6 +423,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         monitor.start(queue: DispatchQueue(label: "paneferry.network"))
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                     NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(videoActivityChanged), name: name, object: nil)
+        }
         if !options.backgroundStart { NSApp.activate(ignoringOtherApps: true) }
     }
     @objc func showAbout() {
@@ -438,11 +445,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     func refreshVideoFPS() {
         let selected = effectiveVideoFPS(requested: requestedVideoFPS, publisherMax: publisherMaxVideoFPS)
-        updateRateMenu()
-        guard selected != videoFPS else { return }
         videoFPS = selected
         updateRateMenu()
-        if ready && capabilities.contains("video.qos") { send(["type": "video.configure", "max_fps": selected]) }
+        refreshVideoActivity()
+    }
+    var currentVideoActivity: VideoActivity {
+        if windows.isEmpty { return options.backgroundStart ? .background : .foreground }
+        return VideoActivity.select(windows.values.map { host in
+            (visible: host.remoteVisible && host.window.isVisible && !host.window.isMiniaturized &&
+                host.window.occlusionState.contains(.visible),
+             focused: NSApp.isActive && host.window.isKeyWindow)
+        })
+    }
+    @objc func videoActivityChanged(_ notification: Notification) { refreshVideoActivity() }
+    func refreshVideoActivity() {
+        guard ready, connected, !stopping, capabilities.contains("video.qos") else { return }
+        videoActivityTimer?.invalidate(); videoActivityTimer = nil
+        if currentVideoActivity == .foreground { applyVideoActivity(.foreground); return }
+        // Order-out/reparent operations briefly hide a live window. Coalesce
+        // those transitions; foreground input never waits for this timer.
+        let timer = Timer(timeInterval: 0.1, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.videoActivityTimer = nil
+            self.applyVideoActivity(self.currentVideoActivity)
+        }
+        videoActivityTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    func applyVideoActivity(_ activity: VideoActivity) {
+        guard ready, connected, !stopping, capabilities.contains("video.qos") else { return }
+        let supportsPause = capabilities.contains("video.activity")
+        let fps = supportsPause ? videoFPS : activity.fallbackFPS(videoFPS)
+        if configuredVideoFPS != fps {
+            send(["type":"video.configure", "max_fps":fps]); configuredVideoFPS = fps
+        }
+        if supportsPause && sentVideoActivity != activity {
+            send(["type":"video.activity", "state":activity.rawValue])
+        }
+        sentVideoActivity = activity
     }
     func activeHost() -> HostedWindow? { windows.values.first { $0.window === NSApp.keyWindow } }
     @objc func automaticResolution() { activeHost()?.useAutomaticResolution() }
@@ -517,6 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.pump()
         }
         publisherMaxVideoFPS = maximumVideoFPS
+        configuredVideoFPS = nil; sentVideoActivity = nil
         updateRateMenu()
         lastVideoFeedback = 0; pendingVideoFeedbackID = nil
         do {
@@ -533,6 +573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     static func reconnectDelay(_ attempt: Int) -> TimeInterval { [1, 2, 4, 8, 15][min(max(0, attempt), 4)] }
     func pauseConnection() {
+        videoActivityTimer?.invalidate(); videoActivityTimer = nil
         connected = false; ready = false; transport.disconnect()
         handshakeTimer?.invalidate(); handshakeTimer = nil
         clipboardTransfer?.cancel(); clipboardTransfer=nil; clipboardWindow=nil
@@ -669,6 +710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if capabilities.contains("video.qos") {
                 enable["max_fps"] = videoFPS
                 enable["feedback"] = true
+                configuredVideoFPS = videoFPS
             }
             send(enable)
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
@@ -682,6 +724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         if type == "video.ready" { statusItem?.button?.title = "PaneFerry · H.264 视频"; return }
+        if type == "video.activity.changed" { return }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
@@ -898,6 +941,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
             host.onLayoutChange = { [weak self] in self?.attachParents() }
+            host.onActivityChange = { [weak self] in self?.refreshVideoActivity() }
         }
         guard let host = windows[id], rev >= host.revision else { return }
         host.applyPresentation(presentation, related: parentID != nil, role: role)

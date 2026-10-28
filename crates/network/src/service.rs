@@ -1240,6 +1240,7 @@ fn allowed_request(value: &Value) -> bool {
                     | "session.list"
                     | "video.enable"
                     | "video.configure"
+                    | "video.activity"
                     | "video.feedback"
                     | "video.keyframe"
                     | "app.launch"

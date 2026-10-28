@@ -367,6 +367,13 @@ impl PipeWireCapture {
     pub fn has_pending_geometry(&self) -> bool {
         self.pending_geometry.borrow().is_some()
     }
+    pub fn discard_prepared(&self) {
+        // Keep the producer/appsink so the newest raw sample is available.
+        // A completed pre-suspension conversion must not become the first
+        // visible frame after resize or input while the receiver was hidden.
+        self.pending_geometry.borrow_mut().take();
+        self.converter.borrow_mut().take();
+    }
     fn pull_inner(&self, window: Option<WindowCrop>) -> Result<Option<Frame>> {
         if self.converter_window.get() != window {
             self.converter.borrow_mut().take();

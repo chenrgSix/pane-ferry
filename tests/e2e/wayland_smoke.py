@@ -37,6 +37,7 @@ p.add_argument('--application-scene-only', action='store_true', help='test one s
 p.add_argument('--scroll-benchmark-output', type=Path, help='measure a synthetic 2940x1618 native scrolling scene instead of functional checks')
 p.add_argument('--x11-scroll-benchmark-output', type=Path, help='measure a test-owned XWayland scrolling window in this private compositor')
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
+p.add_argument('--video-activity-only', action='store_true', help='test native video suspension and recovery in the private compositor')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
 if a.private_bus:
@@ -73,6 +74,7 @@ if not a.private_bus:
             *(['--app-artifact-dir', str(a.app_artifact_dir.resolve())] if a.app_artifact_dir else []),
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--window-tree-only'] if a.window_tree_only else []),
+            *(['--video-activity-only'] if a.video_activity_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
             *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
             *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
@@ -111,6 +113,7 @@ def monitor_layout():
 
 class Peer:
     def __init__(self, path):
+        self.frame_count = 0
         self.sock = socket.socket(socket.AF_UNIX); self.sock.settimeout(20); self.sock.connect(str(path)); self.file = self.sock.makefile('rwb')
         self.send(type='hello'); self.until('hello')
         self.send(type='video.enable', codec='h264'); self.until('video.ready')
@@ -122,6 +125,7 @@ class Peer:
             raw=self.file.readline(16*1024*1024+1)
             assert raw.endswith(b'\n')
             m=json.loads(raw)
+            if m['type']=='frame': self.frame_count+=1
             assert m['type']!='error' or kind=='error',m
             if m['type']==kind:return m
         raise AssertionError('missing '+kind)
@@ -297,6 +301,10 @@ try:
                 windows=wait(lambda:peer.request('window.list')['windows'])
                 target=next(w for w in windows if w['name']=='Wayland fixture')
                 assert target['id'].startswith('wayland-') and target['app_id']==app_id,target
+                if a.video_activity_only:
+                    from video_activity_wayland_test import verify
+                    verify(peer, target, state, app)
+                    raise SystemExit(0)
                 one,two=Bridge(env),Bridge(env)
                 try:
                     info=next(w for w in one.call(op='list')['result'] if w['pid']==app.pid)
@@ -359,6 +367,15 @@ try:
                 assert logical['scale']==1 and (frame['width'],frame['height'])==(placement['width'],placement['height']), (metadata,logical)
                 print('Initial capture:',frame['width'],frame['height'],flush=True)
                 assert frame['codec']=='h264' and base64.b64decode(frame['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
+                old_stream=frame['stream_id']
+                assert peer.request('video.activity','video.activity.changed',state='suspended')['state']=='suspended'
+                active_sessions=peer.request('session.list')['sessions']
+                assert any(s['session_id']==started['session_id'] and s['controlled'] for s in active_sessions)
+                assert peer.request('video.activity','video.activity.changed',state='foreground')['state']=='foreground'
+                frame=peer.until('frame')
+                assert frame['key_frame'] and frame['stream_id']!=old_stream, frame.keys()
+                assert (frame['width'],frame['height'])==(placement['width'],placement['height'])
+                print('PASS: native Wayland video suspension keeps the lease/control path and refreshes a static window with a new keyframe on resume',flush=True)
                 sizes=[]
                 for width,height in [(1470,809),(1200,700),(2940,1604),(2940,1846),(800,500)]:
                     peer.send(type='window.configure',window_id=window,width=width,height=height)

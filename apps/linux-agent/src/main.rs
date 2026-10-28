@@ -3,7 +3,7 @@ compile_error!("Linux agent requires Unix");
 use anyhow::{bail, Context, Result};
 use paneferry_backend_x11::Backend;
 use paneferry_core::{load_catalog, App, SessionBus};
-use paneferry_protocol::{identifier, read_line_limit, Request, Window};
+use paneferry_protocol::{identifier, read_line_limit, Request, VideoActivity, Window};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
@@ -539,7 +539,9 @@ fn serve() -> Result<()> {
     while !STOP.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((s, _)) => {
-                if CLIENTS.fetch_add(1, Ordering::SeqCst) >= 16 {
+                // Leave discovery/control slots available when all 16 video
+                // controllers are attached; otherwise the inventory starves.
+                if CLIENTS.fetch_add(1, Ordering::SeqCst) >= 24 {
                     CLIENTS.fetch_sub(1, Ordering::SeqCst);
                     continue;
                 }
@@ -1371,6 +1373,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     if video::available() {
         capabilities.push("native.h264");
         capabilities.push("video.qos");
+        capabilities.push("video.activity");
         capabilities.push("video.keyframe");
     }
     send(
@@ -1388,6 +1391,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut known: HashMap<u32, Window> = HashMap::new();
     let mut retry_windows = HashSet::new();
     let mut pending_request = None;
+    let mut video_activity = VideoActivity::Foreground;
     while !STOP.load(Ordering::SeqCst) {
         if lease.is_some() && !state.lock().unwrap().sharing {
             send(
@@ -1452,7 +1456,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     capture_fd = Some(b.event_fd());
                     capture_completion_fd = b.capture_completion_fd();
                     capture_is_paced = b.capture_is_paced();
-                    capture_prepare_delay = b.capture_delay(out.frame_interval());
+                    capture_prepare_delay = if video_activity == VideoActivity::Suspended {
+                        None
+                    } else {
+                        b.capture_delay(out.frame_interval())
+                    };
                     maintenance_ready = b.maintenance_ready();
                     capture_events_pending = b.events_pending()?;
                     capture_pending = visible_capture_pending(b.as_ref());
@@ -1505,7 +1513,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 )
                 .saturating_sub(last_scan.elapsed())
             };
-            let frame_delay = if capture_pending {
+            let frame_delay = if capture_pending && video_activity != VideoActivity::Suspended {
                 publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
             } else {
                 Duration::MAX
@@ -1581,6 +1589,21 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                     }
                     Request::ConfigureVideo { max_fps } => {
                         out.configure_video(max_fps.min(video_fps_limit))?
+                    }
+                    Request::VideoActivity { state: activity } => {
+                        out.activity(activity)?;
+                        let previous = video_activity;
+                        video_activity = activity;
+                        if previous != activity && activity != VideoActivity::Suspended {
+                            // Refresh even a static window, discard old capture
+                            // candidates and admit the resumed frame immediately.
+                            if let Some(l) = &lease {
+                                if let Some(b) = l.0.lock().unwrap().backend.as_mut() {
+                                    b.refresh_video();
+                                }
+                            }
+                            last_capture = Instant::now() - Duration::from_secs(1);
+                        }
                     }
                     Request::VideoFeedback { frame_id } => out.video_feedback(frame_id),
                     Request::Sessions {} => {
@@ -1975,7 +1998,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             last_window_action.elapsed() < Duration::from_millis(500),
                             event_driven_metadata,
                         );
-                if !maintenance_due || b.capture_completion_fd().is_none() {
+                if video_activity != VideoActivity::Suspended
+                    && (video_activity == VideoActivity::Foreground
+                        || last_capture.elapsed() >= out.frame_interval())
+                    && (!maintenance_due || b.capture_completion_fd().is_none())
+                {
                     b.prepare_capture(out.frame_interval())?;
                 }
                 maintenance_ready = b.maintenance_ready();
@@ -1986,7 +2013,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         // The current input has already run. Do not make continuous input
         // postpone visual feedback beyond the negotiated frame deadline.
         let frame_interval = out.frame_interval();
-        let frame_due = capture_pending
+        let frame_due = video_activity != VideoActivity::Suspended
+            && capture_pending
             && publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
                 .is_zero();
         if input_queue::defer_maintenance(&rx, &mut pending_request, last_scan.elapsed(), frame_due)
@@ -2002,7 +2030,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         last_window_action.elapsed() < Duration::from_millis(500),
                         event_driven_metadata,
                     ));
-        let capture_due = capture_pending
+        let capture_due = video_activity != VideoActivity::Suspended
+            && capture_pending
             && publication_delay(capture_is_paced, last_capture.elapsed(), frame_interval)
                 .is_zero();
         if !scan_due && !capture_due {
@@ -2061,8 +2090,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 // immediately before publication, without waiting for conversion.
                 // Pair any new pixels with their updated geometry before sending
                 // metadata, including destroy events drained by X11 here.
-                let due_after_maintenance =
-                    b.capture_is_paced() || last_capture.elapsed() >= out.frame_interval();
+                let due_after_maintenance = video_activity != VideoActivity::Suspended
+                    && (b.capture_is_paced() || last_capture.elapsed() >= out.frame_interval());
                 if due_after_maintenance {
                     b.prepare_capture(out.frame_interval())?;
                     windows = b.windows().values().cloned().collect();
