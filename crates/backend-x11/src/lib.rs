@@ -28,11 +28,13 @@ mod readback;
 mod related_windows;
 mod render_scale;
 mod shared_capture;
+mod video_capture;
 mod window_size;
 pub use controller_copy::CopiedText;
 use controller_copy::CopyTransfer;
 use controller_text::TextTransfer;
 pub use inventory::{desktop_windows, DesktopWindow};
+pub use video_capture::{DmaBufFrame, VideoCapture};
 /// Agent-owned desktop input. Capture and clipboard selections keep their own
 /// X11 connection; only validated input crosses this shared authorization route.
 pub trait DesktopInput: Send + Sync {

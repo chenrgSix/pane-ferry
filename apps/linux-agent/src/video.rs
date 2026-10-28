@@ -11,6 +11,8 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
+#[path = "video_dmabuf.rs"]
+mod dmabuf;
 #[path = "video_frame.rs"]
 mod frame;
 use frame::{CropConverter, CropSpec, Sample};
@@ -135,6 +137,15 @@ fn api() -> Option<&'static Api> {
 pub fn available() -> bool {
     static ENCODER: OnceLock<bool> = OnceLock::new();
     *ENCODER.get_or_init(|| api().is_some_and(Api::encoder_available))
+}
+pub fn gpu_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        cfg!(target_os = "linux")
+            && std::env::var("PANEFERRY_VIDEO_GPU").as_deref() != Ok("0")
+            && dmabuf::available()
+            && api().is_some_and(|a| a.has_factory(c"vapostproc") && a.has_factory(c"vah264lpenc"))
+    })
 }
 
 // Public GstMeta / GstVideoCropMeta C ABI from gstmeta.h / gstvideometa.h.
@@ -552,6 +563,8 @@ pub struct Encoder {
     pub stream: u64,
     pub format: Format,
     first_frame_fallback: Option<u8>,
+    kind: EncoderKind,
+    fps: u8,
 }
 pub struct Packet {
     pub bytes: Vec<u8>,
@@ -562,10 +575,11 @@ fn bitrate(width: u32, height: u32, fps: u8) -> u32 {
     (u64::from(width) * u64::from(height) * 6 * u64::from(fps) / 60).clamp(4_000_000, 48_000_000)
         as u32
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum EncoderKind {
     X264,
     OpenH264,
+    Va,
 }
 
 #[cfg(test)]
@@ -609,6 +623,7 @@ fn pipeline_for_format(
             bitrate={} key-int-max={fps} qp-max=28 byte-stream=true", bitrate.div_ceil(1000)),
         EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate \
             bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28", bitrate * 2),
+        EncoderKind::Va => format!("vah264lpenc name=encoder rate-control=cbr bitrate={} max-qp=28 key-int-max={fps} b-frames=0 ref-frames=1 target-usage=4", bitrate.div_ceil(1000)),
     };
     let padding = if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         format!("! videobox right=-{} bottom=-{} ", width % 2, height % 2)
@@ -622,17 +637,23 @@ fn pipeline_for_format(
     let even_height = u64::from(height + height % 2);
     let raw_rate = even_width * even_height * 3 / 2 * u64::from(fps);
     let input = match format {
-        Format::Bgrx => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
+        Format::DmaBuf { stride } if kind==EncoderKind::Va => format!("caps=video/x-raw,format=BGRx,width={even_width},height={even_height},framerate={fps}/1 ! identity datarate={} signal-handoffs=false ! vapostproc name=gpu_conversion ! video/x-raw(memory:VAMemory),format=NV12", u64::from(stride)*even_height*u64::from(fps)),
+        Format::Bgrx | Format::DmaBuf { .. } => format!("caps=video/x-raw,format=BGRx,width={width},height={height},framerate={fps}/1 {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
         Format::ScaledBgrx { width: source_width, height: source_height } => format!(
             "caps=video/x-raw,format=BGRx,width={source_width},height={source_height},framerate={fps}/1 \
             ! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height} \
             {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
         Format::I420 => format!("caps=video/x-raw,format=I420,width={even_width},height={even_height},framerate={fps}/1"),
     };
+    let timestamps = if kind == EncoderKind::Va {
+        String::new()
+    } else {
+        format!("! identity datarate={raw_rate} signal-handoffs=false")
+    };
     format!(
         "appsrc name=source is-live=true format=time block=true max-buffers=1 \
         {input} \
-        ! identity datarate={raw_rate} signal-handoffs=false \
+        {timestamps} \
         ! {encoder} \
         ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au \
         ! appsink name=sink sync=false max-buffers=1 drop=false"
@@ -648,6 +669,23 @@ impl Encoder {
         Self::for_format(width, height, stream, cap_fps, Format::Bgrx)
     }
     pub fn for_format(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        format: Format,
+    ) -> Result<Self> {
+        if matches!(format, Format::DmaBuf { .. }) && gpu_available() {
+            if let Ok(mut encoder) =
+                Self::with_kind_format(width, height, stream, cap_fps, EncoderKind::Va, format)
+            {
+                encoder.first_frame_fallback = Some(cap_fps);
+                return Ok(encoder);
+            }
+        }
+        Self::software(width, height, stream, cap_fps, format)
+    }
+    pub fn software(
         width: u32,
         height: u32,
         stream: u64,
@@ -693,6 +731,16 @@ impl Encoder {
         paneferry_protocol::dimensions(width, height)?;
         anyhow::ensure!((1..=90).contains(&cap_fps), "invalid video fps");
         let api = api().context("H.264 components unavailable")?;
+        if kind == EncoderKind::Va {
+            let Format::DmaBuf { stride } = format else {
+                bail!("GPU input required")
+            };
+            anyhow::ensure!(
+                u64::from(stride) * u64::from(height + height % 2) * u64::from(cap_fps)
+                    <= i32::MAX as u64,
+                "GPU timestamp rate unsupported"
+            );
+        }
         let description = CString::new(pipeline_for_format(width, height, cap_fps, kind, format))?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
@@ -706,6 +754,8 @@ impl Encoder {
             stream,
             format,
             first_frame_fallback: None,
+            kind,
+            fps: cap_fps,
         };
         if !error.is_null() {
             unsafe { (api.free_error)(error) };
@@ -741,6 +791,11 @@ impl Encoder {
                 if let Some(fps) =
                     fallback.filter(|_| image.width == self.width && image.height == self.height)
                 {
+                    if self.kind == EncoderKind::Va {
+                        *self =
+                            Self::software(self.width, self.height, self.stream, fps, self.format)?;
+                        return self.encode_frame(image);
+                    }
                     *self = Self::with_kind_format(
                         self.width,
                         self.height,
@@ -761,7 +816,11 @@ impl Encoder {
         {
             bail!("video geometry changed")
         }
-        let buffer = image.input_buffer(self.api)?;
+        let buffer = if self.uses_gpu() {
+            image.gpu_buffer(self.api)?
+        } else {
+            image.input_buffer(self.api)?
+        };
         // Unlike the action signal, C appsrc consumes this reference even on error.
         if unsafe { (self.api.push)(self.source, buffer) } != 0 {
             bail!("H.264 input rejected")
@@ -791,6 +850,17 @@ impl Encoder {
         }
         let keyframe = unsafe { (self.api.flags)(encoded) } & BUFFER_DELTA_UNIT == 0;
         Ok(Packet { bytes, keyframe })
+    }
+    pub fn uses_gpu(&self) -> bool {
+        self.kind == EncoderKind::Va
+    }
+    pub fn fps(&self) -> u8 {
+        self.fps
+    }
+    #[cfg(test)]
+    pub fn reject_gpu_input_for_test(&mut self) {
+        self.kind = EncoderKind::Va;
+        self.first_frame_fallback = None;
     }
 }
 impl Drop for Encoder {
@@ -1057,6 +1127,44 @@ mod tests {
         assert!(description.contains("framerate=90/1"));
         assert!(description.contains("datarate=1080000000"));
         assert!(1_080_000_000 < i32::MAX);
+    }
+    #[test]
+    fn gpu_timestamps_use_pitched_input_before_va_conversion() {
+        let description = pipeline_for_format(
+            2940,
+            1618,
+            60,
+            EncoderKind::Va,
+            Format::DmaBuf { stride: 11776 },
+        );
+        assert!(
+            description.contains("identity datarate=1143214080 signal-handoffs=false ! vapostproc")
+        );
+        assert_eq!(description.matches("identity datarate=").count(), 1);
+        assert!(!description.contains("videoconvert"));
+    }
+    #[test]
+    #[ignore = "requires Linux GStreamer x264/OpenH264"]
+    fn rejected_gpu_input_retries_software_before_first_packet() {
+        let image = Arc::new(CapturedImage {
+            width: 128,
+            height: 64,
+            data: vec![96; 128 * 64 * 4],
+            bpp: 32,
+            pad: 32,
+            little: true,
+            masks: (0xff0000, 0xff00, 0xff),
+        });
+        let mut encoder = Encoder::software(128, 64, 7, 60, Format::Bgrx).unwrap();
+        // Simulate rejection at the GPU input boundary, before publication.
+        encoder.kind = EncoderKind::Va;
+        let packet = encoder.encode(&image).unwrap();
+        assert!(packet.keyframe);
+        assert_eq!(encoder.stream, 7);
+        assert!(!encoder.uses_gpu());
+        assert!(!encoder.encode(&image).unwrap().keyframe);
+        drop(encoder);
+        assert_eq!(Arc::strong_count(&image), 1);
     }
 
     #[test]

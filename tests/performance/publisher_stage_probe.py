@@ -91,31 +91,57 @@ def main():
     edit(backend + 'lib.rs', 'mod readback;', 'mod readback;\npub mod publisher_timing;')
     edit(backend + 'readback.rs', '    let pixmap = if surface.composite {',
          '    let probe_start=crate::publisher_timing::now();\n    let mut probe_backend="socket";\n    let pixmap = if surface.composite {')
-    edit(backend + 'readback.rs', '            return Ok(mapped);',
-         '            probe_backend="linear";\n            return Ok(mapped);')
-    edit(backend + 'readback.rs', '            return Ok(image);',
-         '            probe_backend="shm";\n            return Ok(image);')
-    edit(backend + 'readback.rs', '    Ok(CapturedImage {', '    let image=CapturedImage {')
-    edit(backend + 'readback.rs', '    })\n}',
-         '    };\n    crate::publisher_timing::captured(image.data.as_ptr() as usize,probe_start,probe_backend);\n    Ok(image)\n}')
+    modern = 'Pixels::Gpu(frame)' in (destination / backend / 'readback.rs').read_text()
+    if modern:
+        adaptive='let packet_stream = state.encoder.stream;' in (destination/agent/'output_worker.rs').read_text()
+        if adaptive:
+            edit(agent + 'output_worker.rs','        let packet_stream = state.encoder.stream;',
+                 '        let probe_packet_backend=if state.encoder.uses_gpu(){"va"}else{"software"};\n        let packet_stream = state.encoder.stream;')
+        edit(backend + 'readback.rs', 'return Ok(Pixels::Cpu(mapped));',
+             'probe_backend="linear"; return Ok(Pixels::Cpu(mapped));')
+        edit(backend + 'readback.rs', 'return Ok(Pixels::Cpu(image));',
+             'probe_backend="shm"; return Ok(Pixels::Cpu(image));')
+        edit(backend + 'readback.rs', 'Pixels::Gpu(frame) => return Ok(VideoCapture::DmaBuf(frame)),',
+             'Pixels::Gpu(frame) => { crate::publisher_timing::captured(Arc::as_ptr(&frame) as usize,probe_start,"dmabuf"); return Ok(VideoCapture::DmaBuf(frame)); },')
+        edit(backend + 'readback.rs', '    Ok(CapturedImage {', '    let image=CapturedImage {')
+        edit(backend + 'readback.rs', '    }\n    .into())\n}',
+             '    };\n    crate::publisher_timing::captured(image.data.as_ptr() as usize,probe_start,probe_backend);\n    Ok(image.into())\n}')
+    else:
+        edit(backend + 'readback.rs', '            return Ok(mapped);',
+             '            probe_backend="linear";\n            return Ok(mapped);')
+        edit(backend + 'readback.rs', '            return Ok(image);',
+             '            probe_backend="shm";\n            return Ok(image);')
+        edit(backend + 'readback.rs', '    Ok(CapturedImage {', '    let image=CapturedImage {')
+        edit(backend + 'readback.rs', '    })\n}',
+             '    };\n    crate::publisher_timing::captured(image.data.as_ptr() as usize,probe_start,probe_backend);\n    Ok(image)\n}')
     edit(agent + 'main.rs', 'static STOP:', 'mod publisher_timing;\nstatic STOP:')
     edit(agent + 'video_frame.rs', '    pub fn pixels(&self) -> usize {', '''    pub fn publisher_timing(&self)->serde_json::Value {
         match &self.storage {
             Storage::Image(image)=>paneferry_backend_x11::publisher_timing::take(image.data.as_ptr() as usize),
+            GPU_TIMING_ARM
             _=>serde_json::Value::Null
         }
     }
-    pub fn pixels(&self) -> usize {''')
+    pub fn pixels(&self) -> usize {'''.replace('GPU_TIMING_ARM', 'Storage::DmaBuf(image)=>paneferry_backend_x11::publisher_timing::take(Arc::as_ptr(image) as usize),' if modern else ''))
     edit(agent + 'output.rs', '        self.push(Pending::Frame(window.clone(), image, session.into()))',
          '        crate::publisher_timing::published(Arc::as_ptr(&image) as usize,image.publisher_timing());\n'
          '        self.push(Pending::Frame(window.clone(), image, session.into()))')
     edit(agent + 'output_worker.rs', '        let id = job.window.window_id;',
          '        let mut probe=crate::publisher_timing::encoding(Arc::as_ptr(&job.image) as usize);\n'
          '        let id = job.window.window_id;')
-    edit(agent + 'output_worker.rs', '        let packet = state.encoder.encode_frame(&job.image)?;',
-         '        if probe.is_object(){probe["encode_call_start_ns"]=json!(crate::publisher_timing::now());}\n'
-         '        let packet = state.encoder.encode_frame(&job.image)?;\n'
-         '        if probe.is_object(){probe["encode_end_ns"]=json!(crate::publisher_timing::now());}')
+    if modern:
+        edit(agent + 'output_worker.rs', '        let packet = match state.encoder.encode_frame(&job.image) {',
+             '        if probe.is_object(){probe["encode_call_start_ns"]=json!(crate::publisher_timing::now());}\n'
+             '        let packet = match state.encoder.encode_frame(&job.image) {')
+        cache_anchor='        state.image = dedup;' if 'state.image = dedup;' in (destination/agent/'output_worker.rs').read_text() else '        state.image = (!job.image.is_gpu()).then(|| job.image.clone());'
+        edit(agent + 'output_worker.rs', cache_anchor,
+             '        if probe.is_object(){probe["encode_end_ns"]=json!(crate::publisher_timing::now());probe["encoder_backend"]=json!('+('probe_packet_backend' if adaptive else 'if state.encoder.uses_gpu(){"va"}else{"software"}')+');}\n'
+             + cache_anchor)
+    else:
+        edit(agent + 'output_worker.rs', '        let packet = state.encoder.encode_frame(&job.image)?;',
+             '        if probe.is_object(){probe["encode_call_start_ns"]=json!(crate::publisher_timing::now());}\n'
+             '        let packet = state.encoder.encode_frame(&job.image)?;\n'
+             '        if probe.is_object(){probe["encode_end_ns"]=json!(crate::publisher_timing::now());}')
     edit(agent + 'output_worker.rs', '"width":job.window.width, "height":job.window.height, "codec":"h264",',
          '"_publisher_stages":probe, "width":job.window.width, "height":job.window.height, "codec":"h264",')
     edit(agent + 'output.rs', '        let mut bytes = serde_json::to_vec(&value)?;',

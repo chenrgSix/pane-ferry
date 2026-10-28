@@ -28,7 +28,9 @@ impl LogicalX11 {
             native_sizes: HashMap::new(),
         };
         backend.scan()?;
-        backend.source.enable_async_capture()?;
+        backend
+            .source
+            .enable_video_capture(crate::video::gpu_available())?;
         backend.source.set_capture_sizes(
             backend
                 .windows
@@ -182,8 +184,10 @@ impl WindowBackend for LogicalX11 {
             .windows
             .get(&window.window_id)
             .context("unknown window")?;
-        let image = self.source.take_capture(raw, window.width, window.height)?;
-        crate::video::Frame::scaled_shared_image(image, window.width, window.height).map(Arc::new)
+        let image = self
+            .source
+            .take_video_capture(raw, window.width, window.height)?;
+        crate::video::Frame::from_capture(&image, window.width, window.height).map(Arc::new)
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         let (width, height) = self.native_size(id, width, height)?;

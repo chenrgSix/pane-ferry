@@ -26,6 +26,7 @@ p.add_argument('--private-bus', action='store_true', help=argparse.SUPPRESS)
 p.add_argument('--with-xwayland', action='store_true')
 p.add_argument('--logical-size-only', action='store_true', help='test retained-DPI logical window sizing only')
 p.add_argument('--xwayland-resize-only', action='store_true', help='test live scaling and maximized Xwayland resize in the private compositor')
+p.add_argument('--xwayland-video-only', action='store_true', help='test GPU/software H264 resize and reconnect without input in the private compositor')
 p.add_argument('--logical-wayland-scale', type=int, choices=(1, 2), default=1,
                help='source scale to request for the logical-size fixture')
 p.add_argument('--isolated-app', choices=('text-editor',),
@@ -52,6 +53,8 @@ if a.private_bus:
         p.error('refusing to start a fixture on a bus that already owns GNOME Shell')
 if a.xwayland_resize_only and not a.with_xwayland:
     p.error('--xwayland-resize-only requires --with-xwayland')
+if a.xwayland_video_only and not a.with_xwayland:
+    p.error('--xwayland-video-only requires --with-xwayland')
 if a.x11_scroll_benchmark_output and not a.with_xwayland:
     p.error('--x11-scroll-benchmark-output requires --with-xwayland')
 if a.x11_scroll_benchmark_output and a.scroll_benchmark_output:
@@ -68,6 +71,7 @@ if not a.private_bus:
         raise SystemExit(subprocess.call(['dbus-run-session', '--config-file='+str(conf), '--', sys.executable, __file__, '--agent', str(a.agent.resolve()), '--private-bus',
             *(['--with-xwayland'] if a.with_xwayland else []), *(['--logical-size-only'] if a.logical_size_only else []),
             *(['--xwayland-resize-only'] if a.xwayland_resize_only else []),
+            *(['--xwayland-video-only'] if a.xwayland_video_only else []),
             '--logical-wayland-scale', str(a.logical_wayland_scale),
             *(['--isolated-app', a.isolated_app] if a.isolated_app else []),
             *(['--app-artifact-dir', str(a.app_artifact_dir.resolve())] if a.app_artifact_dir else []),
@@ -260,6 +264,10 @@ try:
                     from xwayland_resize_test import verify
                     verify(sock, env, fixture, t, log, start, wait, Peer, Bridge)
                     raise SystemExit(0)
+                if a.xwayland_video_only:
+                    from xwayland_video_test import verify
+                    verify(sock,env,fixture,t,log,start,wait,Peer,Bridge,root)
+                    raise SystemExit(0)
                 if a.application_scene_only:
                     from application_scene_test import verify
                     try:
@@ -438,14 +446,22 @@ try:
                         pixels=other.until('frame')
                         assert (pixels['width'],pixels['height'])==(2940,1660),pixels.keys()
                         assert pixels['codec']=='h264' and base64.b64decode(pixels['data']).startswith((b'\0\0\0\1',b'\0\0\1'))
-                        other.send(type='window.configure',window_id=target['xwindow'],width=2800,height=1500)
-                        deadline=time.monotonic()+15
-                        while time.monotonic()<deadline:
-                            pixels=other.until('frame')
-                            if (pixels['width'],pixels['height'])==(2800,1500):break
-                        assert (pixels['width'],pixels['height'])==(2800,1500),pixels.keys()
-                        assert pixels['codec']=='h264' and pixels['encoded_width']==2800 and pixels['encoded_height']==1500
-                        print('PASS: publisher Xwayland takeover and compositor resize produce actual 2940x1660 and 2800x1500 XComposite PNG frames')
+                        for width,height in [(2800,1500),(1470,809),(641,483),(2940,1618)]:
+                            other.send(type='window.configure',window_id=target['xwindow'],width=width,height=height)
+                            deadline=time.monotonic()+15
+                            while time.monotonic()<deadline:
+                                pixels=other.until('frame')
+                                if (pixels['width'],pixels['height'])==(width,height):break
+                            assert (pixels['width'],pixels['height'])==(width,height),pixels.keys()
+                            assert pixels['codec']=='h264' and pixels['key_frame']
+                            assert (pixels['encoded_width'],pixels['encoded_height'])==(width+width%2,height+height%2)
+                            # Decode this new stream's IDR; protocol dimensions
+                            # alone cannot establish the actual coded geometry.
+                            decoded=subprocess.run(['ffmpeg','-v','error','-f','h264','-i','pipe:0','-frames:v','1',
+                                '-f','rawvideo','-pix_fmt','rgb24','pipe:1'],
+                                input=base64.b64decode(pixels['data']),stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
+                            assert len(decoded.stdout)==(width+width%2)*(height+height%2)*3
+                        print('PASS: publisher Xwayland resize restarts decodable H.264 streams at even and odd dimensions')
                     finally:other.close()
                 print('NOT TESTED: real Firefox, real desktop input authorization, binary clipboard or multi-monitor scale changes')
             except Exception:

@@ -18,6 +18,26 @@ pub(super) fn capture(
     render: &mut render_scale::RenderScale,
     surface: &Surface,
 ) -> Result<CapturedImage> {
+    match capture_video(conn, shared, render, surface, false)? {
+        VideoCapture::Cpu(image) => {
+            Arc::try_unwrap(image).map_err(|_| anyhow::anyhow!("unexpected shared snapshot"))
+        }
+        VideoCapture::DmaBuf(_) => unreachable!("GPU capture not requested"),
+    }
+}
+
+enum Pixels {
+    Cpu((u8, u32, Vec<u8>)),
+    Gpu(Arc<DmaBufFrame>),
+}
+pub(super) fn capture_video(
+    conn: &RustConnection,
+    shared: &mut shared_capture::SharedCapture,
+    render: &mut render_scale::RenderScale,
+    surface: &Surface,
+    gpu: bool,
+) -> Result<VideoCapture> {
+    let capture_started = Instant::now();
     let pixmap = if surface.composite {
         let id = conn.generate_id()?;
         conn.composite_name_window_pixmap(surface.window, id)?
@@ -47,11 +67,19 @@ pub(super) fn capture(
                 visual_override = Some(target_visual);
             }
         }
+        if gpu {
+            if let Some(mut frame) = render.capture_gpu(conn, drawable)? {
+                Arc::get_mut(&mut frame)
+                    .context("unexpected shared GPU lease")?
+                    .start(capture_started);
+                return Ok(Pixels::Gpu(frame));
+            }
+        }
         if let Some(mapped) = render.capture_linear(conn, drawable) {
-            return Ok(mapped);
+            return Ok(Pixels::Cpu(mapped));
         }
         if let Some(image) = shared.capture(conn, drawable, size.0, size.1) {
-            return Ok(image);
+            return Ok(Pixels::Cpu(image));
         }
         let image = conn
             .get_image(
@@ -64,12 +92,15 @@ pub(super) fn capture(
                 u32::MAX,
             )?
             .reply()?;
-        Ok((image.depth, image.visual, image.data))
+        Ok(Pixels::Cpu((image.depth, image.visual, image.data)))
     })();
     if let Some(pixmap) = pixmap {
         conn.free_pixmap(pixmap)?;
     }
-    let (depth, visual_id, data) = image?;
+    let (depth, visual_id, data) = match image? {
+        Pixels::Cpu(data) => data,
+        Pixels::Gpu(frame) => return Ok(VideoCapture::DmaBuf(frame)),
+    };
     let visual_id = if let Some(visual) = visual_override {
         visual
     } else if visual_id == 0 {
@@ -98,5 +129,6 @@ pub(super) fn capture(
         pad: format.scanline_pad,
         little: setup.image_byte_order == ImageOrder::LSB_FIRST,
         masks: (visual.red_mask, visual.green_mask, visual.blue_mask),
-    })
+    }
+    .into())
 }

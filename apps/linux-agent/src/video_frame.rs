@@ -7,6 +7,7 @@ pub enum Format {
     Bgrx,
     ScaledBgrx { width: u32, height: u32 },
     I420,
+    DmaBuf { stride: u32 },
 }
 
 pub struct Frame {
@@ -17,6 +18,7 @@ pub struct Frame {
 enum Storage {
     Image(Arc<CapturedImage>),
     I420(Sample),
+    DmaBuf(Arc<paneferry_backend_x11::DmaBufFrame>),
 }
 pub(super) struct Sample(pub(super) Object, pub(super) &'static Api);
 impl Drop for Sample {
@@ -36,6 +38,60 @@ impl From<CapturedImage> for Frame {
     }
 }
 impl Frame {
+    pub fn from_capture(
+        capture: &paneferry_backend_x11::VideoCapture,
+        width: u32,
+        height: u32,
+    ) -> Result<Self> {
+        match capture {
+            paneferry_backend_x11::VideoCapture::Cpu(image) => {
+                Self::scaled_shared_image(image.clone(), width, height)
+            }
+            paneferry_backend_x11::VideoCapture::DmaBuf(image) => {
+                anyhow::ensure!(
+                    (width, height) == (image.width(), image.height()),
+                    "GPU frame geometry changed"
+                );
+                Ok(Self {
+                    width,
+                    height,
+                    storage: Storage::DmaBuf(image.clone()),
+                })
+            }
+        }
+    }
+    pub fn is_gpu(&self) -> bool {
+        matches!(self.storage, Storage::DmaBuf(_))
+    }
+    pub fn capture_elapsed_ms(&self) -> Option<f64> {
+        match &self.storage {
+            Storage::DmaBuf(frame) => Some(frame.elapsed_ms()),
+            _ => None,
+        }
+    }
+    pub fn capture_ms(&self) -> Option<f64> {
+        match &self.storage {
+            Storage::DmaBuf(frame) => Some(frame.capture_ms()),
+            _ => None,
+        }
+    }
+    pub fn software_dedup_frame(&self) -> Result<Option<Self>> {
+        match &self.storage {
+            Storage::DmaBuf(frame) => Ok(Some(Self::from_image(frame.cpu_image()?))),
+            _ => Ok(None),
+        }
+    }
+    pub fn prefer_software(&self) {
+        if let Storage::DmaBuf(frame) = &self.storage {
+            frame.prefer_software();
+        }
+    }
+    pub(super) fn gpu_buffer(&self, api: &'static Api) -> Result<Object> {
+        match &self.storage {
+            Storage::DmaBuf(frame) => dmabuf::input(frame, api),
+            _ => bail!("GPU frame required"),
+        }
+    }
     pub fn from_image(image: Arc<CapturedImage>) -> Self {
         Self {
             width: image.width,
@@ -46,7 +102,7 @@ impl Frame {
     pub fn pixels(&self) -> usize {
         match &self.storage {
             Storage::Image(image) => image.pixels(),
-            Storage::I420(_) => self.width as usize * self.height as usize,
+            Storage::I420(_) | Storage::DmaBuf(_) => self.width as usize * self.height as usize,
         }
     }
     #[cfg(test)]
@@ -78,6 +134,9 @@ impl Frame {
             }
             Storage::Image(_) => Format::Bgrx,
             Storage::I420(_) => Format::I420,
+            Storage::DmaBuf(ref frame) => Format::DmaBuf {
+                stride: frame.stride(),
+            },
         }
     }
     pub fn same_pixels(&self, other: &Self) -> bool {
@@ -85,6 +144,7 @@ impl Frame {
             return false;
         }
         match (&self.storage, &other.storage) {
+            (Storage::DmaBuf(a), Storage::DmaBuf(b)) => Arc::ptr_eq(a, b),
             (Storage::Image(a), Storage::Image(b)) => a == b,
             (Storage::I420(a), Storage::I420(b)) => {
                 let compare = || -> Result<bool> {
@@ -117,6 +177,7 @@ impl Frame {
     /// An owned reference, consumed by gst_app_src_push_buffer even on error.
     pub(super) fn input_buffer(&self, api: &'static Api) -> Result<Object> {
         match &self.storage {
+            Storage::DmaBuf(frame) => Frame::from_image(frame.cpu_image()?).input_buffer(api),
             Storage::I420(sample) => Ok(unsafe { (api.mini_ref)((api.sample_buffer)(sample.0)) }),
             Storage::Image(image) => {
                 let pixels = Box::new(match image.bgrx()? {

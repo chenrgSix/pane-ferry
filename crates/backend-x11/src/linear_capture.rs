@@ -8,7 +8,7 @@ mod platform {
     use super::*;
     use std::{
         ffi::{c_int, c_uint, c_void},
-        os::fd::{AsRawFd, FromRawFd, OwnedFd},
+        os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
         ptr::{self, NonNull},
         sync::{Arc, Mutex, OnceLock},
         time::Duration,
@@ -113,8 +113,15 @@ mod platform {
             const RENDERING_LINEAR: u32 = (1 << 2) | (1 << 4);
             let _lock = self.0.lock.lock().unwrap();
             let api = self.0.api;
-            let bo =
-                unsafe { (api.buffer)(self.0.raw, size.0, size.1, XRGB8888, RENDERING_LINEAR) };
+            let bo = unsafe {
+                (api.buffer)(
+                    self.0.raw,
+                    size.0.next_multiple_of(16),
+                    size.1 + size.1 % 2,
+                    XRGB8888,
+                    RENDERING_LINEAR,
+                )
+            };
             anyhow::ensure!(!bo.is_null(), "linear render target unavailable");
             struct Guard(&'static Api, Object);
             impl Drop for Guard {
@@ -129,7 +136,7 @@ mod platform {
             );
             let stride = unsafe { (api.stride)(bo) };
             let length = stride
-                .checked_mul(size.1)
+                .checked_mul(size.1 + size.1 % 2)
                 .context("invalid render target")? as usize;
             anyhow::ensure!(
                 stride >= size.0 * 4 && stride <= u32::from(u16::MAX),
@@ -149,28 +156,11 @@ mod platform {
                 stat.st_size >= length as i64 && stat.st_ino != 0,
                 "short render buffer"
             );
-            let mapped = unsafe {
-                libc::mmap(
-                    ptr::null_mut(),
-                    length,
-                    libc::PROT_READ,
-                    libc::MAP_SHARED,
-                    fd.as_raw_fd(),
-                    0,
-                )
-            };
-            if mapped.is_null() {
-                unsafe { libc::munmap(mapped, length) };
-            }
-            anyhow::ensure!(
-                mapped != libc::MAP_FAILED && !mapped.is_null(),
-                "linear render mapping unavailable"
-            );
             let buffer = Buffer {
                 owner: self.0.clone(),
                 bo: guard.1,
                 fd,
-                map: NonNull::new(mapped.cast()).unwrap(),
+                map: Mutex::new(None),
                 length,
                 stride,
                 size,
@@ -184,8 +174,8 @@ mod platform {
                 id,
                 root,
                 length as u32,
-                size.0 as u16,
-                size.1 as u16,
+                (size.0 + size.0 % 2) as u16,
+                (size.1 + size.1 % 2) as u16,
                 stride as u16,
                 24,
                 32,
@@ -204,7 +194,7 @@ mod platform {
         owner: Arc<Inner>,
         bo: Object,
         fd: OwnedFd,
-        map: NonNull<u8>,
+        map: Mutex<Option<NonNull<u8>>>,
         length: usize,
         stride: u32,
         size: (u32, u32),
@@ -212,7 +202,11 @@ mod platform {
         inode: libc::ino_t,
         fence: Option<u32>,
     }
+    // The pool obtains &mut Buffer only when Arc::get_mut proves no leases
+    // exist. Once leased, only immutable metadata / serialized read maps are
+    // accessible. GBM destruction is serialized by the device mutex.
     unsafe impl Send for Buffer {}
+    unsafe impl Sync for Buffer {}
     fn sync(fd: c_int, end: bool) -> Result<()> {
         // Linux DMA_BUF_IOCTL_SYNC = _IOW('b',0,struct dma_buf_sync).
         let request = 0x4008_6200 as libc::c_ulong;
@@ -229,12 +223,28 @@ mod platform {
         }
     }
     impl Buffer {
+        pub fn size(&self) -> (u32, u32) {
+            self.size
+        }
+        pub fn stride(&self) -> u32 {
+            self.stride
+        }
+        pub fn length(&self) -> usize {
+            self.length
+        }
+        pub fn fd(&self) -> BorrowedFd<'_> {
+            self.fd.as_fd()
+        }
         pub fn retire(&self, conn: &RustConnection) {
             if let Some(fence) = self.fence {
                 let _ = conn.sync_destroy_fence(fence);
             }
         }
         pub fn snapshot(&mut self, conn: &RustConnection, pixmap: u32) -> Result<Vec<u8>> {
+            self.ready(conn, pixmap)?;
+            self.read_pixels()
+        }
+        pub fn ready(&mut self, conn: &RustConnection, pixmap: u32) -> Result<()> {
             // Glamor's XSync fence trigger flushes queued GL rendering. Only
             // then can the dma-buf poll below see the current GPU write fence.
             let reset = if let Some(fence) = self.fence {
@@ -246,15 +256,18 @@ mod platform {
                 None
             };
             let trigger = conn.sync_trigger_fence(self.fence.unwrap())?;
+            let awaited = conn.sync_await_fence(&[self.fence.unwrap()])?;
             // Also verify export still names our imported object, not a server
             // replacement. Its reply covers the preceding trigger/reset.
             let ready = conn.dri3_buffer_from_pixmap(pixmap)?.reply()?;
+            awaited.check()?;
             trigger.check()?;
             if let Some(reset) = reset {
                 reset.check()?;
             }
             anyhow::ensure!(
-                (u32::from(ready.width), u32::from(ready.height)) == self.size
+                (u32::from(ready.width), u32::from(ready.height))
+                    == (self.size.0 + self.size.0 % 2, self.size.1 + self.size.1 % 2)
                     && u32::from(ready.stride) == self.stride
                     && ready.bpp == 32
                     && ready.depth == 24,
@@ -291,6 +304,28 @@ mod platform {
                 );
                 break;
             }
+            Ok(())
+        }
+        pub fn read_pixels(&self) -> Result<Vec<u8>> {
+            let mut mapping = self.map.lock().unwrap();
+            if mapping.is_none() {
+                let mapped = unsafe {
+                    libc::mmap(
+                        ptr::null_mut(),
+                        self.length,
+                        libc::PROT_READ,
+                        libc::MAP_SHARED,
+                        self.fd.as_raw_fd(),
+                        0,
+                    )
+                };
+                anyhow::ensure!(
+                    mapped != libc::MAP_FAILED && !mapped.is_null(),
+                    "linear mapping unavailable"
+                );
+                *mapping = NonNull::new(mapped.cast());
+            }
+            let map = mapping.unwrap();
             sync(self.fd.as_raw_fd(), false)?;
             struct End(c_int);
             impl Drop for End {
@@ -303,7 +338,7 @@ mod platform {
             let mut pixels = Vec::with_capacity(row * self.size.1 as usize);
             for y in 0..self.size.1 as usize {
                 let src = unsafe {
-                    std::slice::from_raw_parts(self.map.as_ptr().add(y * self.stride as usize), row)
+                    std::slice::from_raw_parts(map.as_ptr().add(y * self.stride as usize), row)
                 };
                 pixels.extend_from_slice(src);
             }
@@ -314,7 +349,9 @@ mod platform {
     }
     impl Drop for Buffer {
         fn drop(&mut self) {
-            unsafe { libc::munmap(self.map.as_ptr().cast(), self.length) };
+            if let Some(map) = *self.map.get_mut().unwrap() {
+                unsafe { libc::munmap(map.as_ptr().cast(), self.length) };
+            }
             let _lock = self.owner.lock.lock().unwrap();
             unsafe { (self.owner.api.free_buffer)(self.bo) };
         }
@@ -343,4 +380,22 @@ impl Buffer {
         bail!("linear capture unavailable")
     }
     pub fn retire(&self, _: &RustConnection) {}
+    pub fn ready(&mut self, _: &RustConnection, _: u32) -> Result<()> {
+        bail!("linear capture unavailable")
+    }
+    pub fn read_pixels(&self) -> Result<Vec<u8>> {
+        bail!("linear capture unavailable")
+    }
+    pub fn size(&self) -> (u32, u32) {
+        (0, 0)
+    }
+    pub fn stride(&self) -> u32 {
+        0
+    }
+    pub fn length(&self) -> usize {
+        0
+    }
+    pub fn fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        unreachable!("no linear buffers on this platform")
+    }
 }

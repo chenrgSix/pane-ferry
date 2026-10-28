@@ -149,8 +149,8 @@ impl WindowBackend for X11 {
         X11::capture_needed(self, window)
     }
     fn capture(&self, window: &Window) -> Result<Arc<crate::video::Frame>> {
-        X11::take_capture(self, window, window.width, window.height)
-            .map(|image| Arc::new(crate::video::Frame::from_image(image)))
+        let capture = X11::take_video_capture(self, window, window.width, window.height)?;
+        crate::video::Frame::from_capture(&capture, window.width, window.height).map(Arc::new)
     }
     fn configure(&self, id: u32, width: u32, height: u32) -> Result<()> {
         X11::configure(self, id, width, height)

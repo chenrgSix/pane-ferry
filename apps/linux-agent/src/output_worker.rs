@@ -1,6 +1,8 @@
 //! Encoders are owned by two fixed workers, never by the control/socket writer.
 //! A window stays on one worker so H.264 references remain ordered.
 use super::{Pending, Shared};
+#[path = "video_choice.rs"]
+mod choice;
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use paneferry_protocol::Window;
@@ -37,10 +39,12 @@ struct Cached {
     generation: u64,
     encoder: crate::video::Encoder,
     image: Option<Arc<crate::video::Frame>>,
+    choice: choice::Choice,
 }
 struct RuntimeCodec {
     streams: Arc<AtomicU64>,
     windows: HashMap<u32, Cached>,
+    gpu_failed: bool,
 }
 pub(super) fn factory() -> Factory {
     let streams = Arc::new(AtomicU64::new(1));
@@ -48,6 +52,7 @@ pub(super) fn factory() -> Factory {
         Box::new(RuntimeCodec {
             streams: streams.clone(),
             windows: HashMap::new(),
+            gpu_failed: false,
         })
     })
 }
@@ -66,11 +71,21 @@ impl Codec for RuntimeCodec {
             if self.windows.len() >= 64 {
                 bail!("encoder window limit")
             }
+            let choice = choice::Choice::new(
+                job.image.is_gpu()
+                    && !self.gpu_failed
+                    && std::env::var("PANEFERRY_VIDEO_GPU").as_deref() != Ok("1"),
+            );
+            let software = self.gpu_failed || choice.starts_software();
             self.windows.insert(
                 id,
                 Cached {
                     generation: job.generation,
-                    encoder: crate::video::Encoder::for_format(
+                    encoder: (if software {
+                        crate::video::Encoder::software
+                    } else {
+                        crate::video::Encoder::for_format
+                    })(
                         job.image.width,
                         job.image.height,
                         self.streams.fetch_add(1, Ordering::Relaxed),
@@ -78,13 +93,24 @@ impl Codec for RuntimeCodec {
                         job.image.format(),
                     )?,
                     image: None,
+                    choice,
                 },
             );
         }
+        let encode_started = std::time::Instant::now();
+        let dedup = if job.image.is_gpu() {
+            if self.windows[&id].encoder.uses_gpu() {
+                None
+            } else {
+                job.image.software_dedup_frame()?.map(Arc::new)
+            }
+        } else {
+            Some(job.image.clone())
+        };
         if self.windows[&id]
             .image
             .as_ref()
-            .is_some_and(|old| old.same_pixels(&job.image))
+            .is_some_and(|old| dedup.as_ref().is_some_and(|image| old.same_pixels(image)))
         {
             return Ok(None);
         }
@@ -104,12 +130,58 @@ impl Codec for RuntimeCodec {
             }
         }
         let state = self.windows.get_mut(&id).unwrap();
-        let packet = state.encoder.encode_frame(&job.image)?;
-        state.image = Some(job.image.clone());
+        let packet = match state.encoder.encode_frame(&job.image) {
+            Ok(packet) => packet,
+            Err(_) if state.encoder.uses_gpu() => {
+                // A failed GPU stream restarts software with a fresh IDR and
+                // stream ID. Never append a new codec's references to its GOP.
+                state.encoder = crate::video::Encoder::software(
+                    job.image.width,
+                    job.image.height,
+                    self.streams.fetch_add(1, Ordering::Relaxed),
+                    state.encoder.fps(),
+                    job.image.format(),
+                )?;
+                state.encoder.encode_frame(&job.image)?
+            }
+            Err(error) => return Err(error),
+        };
+        let packet_stream = state.encoder.stream;
+        self.gpu_failed |=
+            job.image.is_gpu() && state.choice.attempted_gpu() && !state.encoder.uses_gpu();
+        if let Some(gpu) = job.image.capture_elapsed_ms().and_then(|ms| {
+            state.choice.observe(
+                ms,
+                job.image
+                    .capture_ms()
+                    .unwrap_or(0.0)
+                    .max(encode_started.elapsed().as_secs_f64() * 1000.0),
+                state.encoder.uses_gpu(),
+            )
+        }) {
+            let create = if gpu && !self.gpu_failed {
+                crate::video::Encoder::for_format
+            } else {
+                crate::video::Encoder::software
+            };
+            state.encoder = create(
+                job.image.width,
+                job.image.height,
+                self.streams.fetch_add(1, Ordering::Relaxed),
+                job.fps,
+                job.image.format(),
+            )?;
+        }
+        if self.gpu_failed || state.choice.software_selected() {
+            job.image.prefer_software();
+        }
+        // Software snapshots retain owned CPU bytes, never a target BO. GPU
+        // encoding stays damage-gated without forcing a CPU comparison.
+        state.image = dedup;
         Ok(Some(
             json!({"type":"frame", "window_id":id, "geometry_revision":job.window.geometry_revision,
             "width":job.window.width, "height":job.window.height, "codec":"h264", "data":STANDARD.encode(packet.bytes),
-            "stream_id":state.encoder.stream, "key_frame":packet.keyframe,
+            "stream_id":packet_stream, "key_frame":packet.keyframe,
             "encoded_width":job.image.width + job.image.width % 2, "encoded_height":job.image.height + job.image.height % 2}),
         ))
     }
@@ -279,6 +351,37 @@ impl Drop for Pool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires Linux GStreamer x264/OpenH264"]
+    fn gpu_failure_after_publication_restarts_software_with_new_stream_and_idr() {
+        let mut job = job(1);
+        job.window.width = 128;
+        job.window.height = 64;
+        job.image = Arc::new(crate::video::Frame::from(
+            paneferry_backend_x11::CapturedImage {
+                width: 128,
+                height: 64,
+                data: vec![96; 128 * 64 * 4],
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            },
+        ));
+        let mut codec = RuntimeCodec {
+            streams: Arc::new(AtomicU64::new(1)),
+            windows: HashMap::new(),
+            gpu_failed: false,
+        };
+        let first = codec.encode(&job).unwrap().unwrap();
+        let state = codec.windows.get_mut(&1).unwrap();
+        state.image = None;
+        state.encoder.reject_gpu_input_for_test();
+        let next = codec.encode(&job).unwrap().unwrap();
+        assert_ne!(first["stream_id"], next["stream_id"]);
+        assert_eq!(next["key_frame"], true);
+        assert!(!codec.windows[&1].encoder.uses_gpu());
+    }
     use paneferry_backend_x11::CapturedImage;
 
     fn job(id: u32) -> Job {
