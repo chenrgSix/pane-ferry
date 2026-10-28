@@ -139,6 +139,19 @@ struct Rpc {
     child: Child,
     wire: BufReader<UnixStream>,
 }
+fn bridge_error(code: &str) -> &'static str {
+    match code {
+        "window_unavailable" => "unknown window",
+        "session_controlled" => "session already controlled",
+        "session_limit" => "active session limit reached",
+        "desktop_locked" => "desktop_locked",
+        "resolution_limited" => "resolution_limited",
+        "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
+        "wayland_capture_unavailable" => "wayland_capture_unavailable",
+        "wayland_text_unavailable" => "wayland_text_unavailable",
+        _ => "wayland_bridge_failed",
+    }
+}
 impl Rpc {
     fn new() -> Result<Self> {
         let (parent, child) = UnixStream::pair()?;
@@ -164,19 +177,7 @@ impl Rpc {
             read_line_limit(&mut self.wire, 512 * 1024)?.context("wayland_bridge_unavailable")?;
         let answer: Value = serde_json::from_slice(&line)?;
         if let Some(code) = answer["error"].as_str() {
-            bail!(
-                "{}",
-                match code {
-                    "window_unavailable" => "unknown window",
-                    "session_controlled" => "session already controlled",
-                    "desktop_locked" => "desktop_locked",
-                    "resolution_limited" => "resolution_limited",
-                    "wayland_bridge_unavailable" => "wayland_bridge_unavailable",
-                    "wayland_capture_unavailable" => "wayland_capture_unavailable",
-                    "wayland_text_unavailable" => "wayland_text_unavailable",
-                    _ => "wayland_bridge_failed",
-                }
-            )
+            bail!("{}", bridge_error(code))
         }
         Ok(answer["result"].clone())
     }
@@ -1165,6 +1166,16 @@ impl paneferry_backend_x11::DesktopGeometry for X11Geometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bridge_resource_errors_keep_the_public_retry_code() {
+        for code in ["session_limit", "session_controlled", "window_unavailable"] {
+            assert_eq!(crate::request_error::code(bridge_error(code)), code);
+        }
+        assert_eq!(
+            bridge_error("private diagnostic contents"),
+            "wayland_bridge_failed"
+        );
+    }
     #[test]
     #[cfg(target_os = "linux")]
     fn x11_input_uses_pinned_compositor_objects_and_rejects_xid_reuse() -> Result<()> {

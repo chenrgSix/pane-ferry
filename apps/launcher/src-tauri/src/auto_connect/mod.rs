@@ -661,20 +661,45 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
             data.connection_failures.remove(&window.id);
         }
         Err(error) => {
-            data.planner.finish(
-                &window.id,
-                error.retry_same_request || error.code.as_deref() == Some("session_limit"),
-                peer.now(),
-            );
+            data.planner
+                .finish(&window.id, retry_failure(&error), peer.now());
             data.connection_failures
                 .insert(window.id, format!("新窗口暂未接入：{}", error.message));
         }
     }
 }
 
+fn retry_failure(error: &crate::LaunchFailure) -> bool {
+    // A parent scope can temporarily overlap a dialog acquired earlier in the
+    // same inventory. Retry after the next inventory/lease release, without
+    // stealing ownership or manufacturing a second launch request.
+    error.retry_same_request
+        || matches!(
+            error.code.as_deref(),
+            Some("session_limit" | "session_controlled")
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn temporary_scope_and_resource_failures_retry_but_do_not_hide_terminal_failures() {
+        for (code, retry) in [
+            ("session_limit", true),
+            ("session_controlled", true),
+            ("window_unavailable", false),
+            ("desktop_authorization_denied", false),
+        ] {
+            let error = crate::LaunchFailure {
+                kind: "remote".into(),
+                message: code.into(),
+                retry_same_request: false,
+                code: Some(code.into()),
+            };
+            assert_eq!(retry_failure(&error), retry, "{code}");
+        }
+    }
     #[test]
     fn successful_inventory_does_not_hide_a_failed_connection() {
         let service = Service::open(std::env::temp_dir().join(uuid::Uuid::new_v4().to_string()));
