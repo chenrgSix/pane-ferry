@@ -634,3 +634,13 @@ Mac 正式应用重新构建、签名校验并启动；Ubuntu Agent release 构�
 | 最后调整 | 未开启规则的应用省略启动前的基线扫描；调整后重新运行启动器全部 17 项测试通过，未重复运行未受影响的整套门禁 |
 
 27 项忽略测试依赖 Linux Xvfb/GStreamer 等环境；已有 Rust 未使用字段与 macOS API 弃用告警仍在。本轮未部署、未重启两端程序、未测跨机器自动接入和端到端延迟。功能需要新版启动器和 Ubuntu Agent，尚未包含在现有 v0.1.2 安装包。
+
+## 2026-10-28：合并远程代码并部署自动接入版本
+
+经用户授权，将远程 `bbc10c4` 与本地 `224234a` 无冲突合并为 `e5d90c2`，使用该提交构建并启动 Mac 应用包、Ubuntu Agent 及两端网络组件。远程新增内容为 GPU/DMA-buf 诊断夹具和报告，没有将实验编码路径接入正式产品。产品版本号仍为 0.1.2，此次没有发布或覆盖 GitHub Release。
+
+新增诊断单元测试 4 项及 Python 语法检查通过；Ubuntu Agent/transport 测试分别 46/11 项通过，10 项环境测试按原配置忽略；两端 release 构建和 Mac 应用包深度严格签名检查通过。此前完整项目门禁的验证范围见上一节，本次没有重复未受合并影响的整套检查。
+
+部署后通过 Mac 现有配对 QUIC 路由成功读取 10 个 Ubuntu 窗口，均提供 `application_key` 与 `auto_connectable`；在真实运行的 Mac 启动器确认“新窗口自动接入”设置可见，默认关闭。Ubuntu Agent 处于 active/running、NRestarts=0，运行文件哈希与新构建一致。原来已断开的接管会话随 Agent 重启清除，需要重新连接；ChatGPT、IDEA、GNOME 的 PID 和启动计数均保持，两端身份及配对文件哈希保持。GNOME 扩展文件与源码一致，无需注销。
+
+保留两端上一版备份，清理本轮远端临时源码和构建目录。此轮核对部署、元数据和设置入口，没有重测跨机新窗口自动接入、手动接入竞争、关闭冷却或端到端延迟。[部署校验记录](validation-artifacts/2026-10-28-automatic-window-deployment.json)。

@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-28",
+  "deployed_revision": "e5d90c244e9a95c9b6edf4d51a8dde0221c92199",
+  "merge": {
+    "local": "224234a",
+    "remote": "bbc10c4",
+    "conflicts": false
+  },
+  "validation": {
+    "imported_gpu_probe_unit_tests_passed": 4,
+    "ubuntu_agent_tests_passed": 46,
+    "ubuntu_transport_tests_passed": 11,
+    "ubuntu_tests_ignored": 10,
+    "mac_release_and_signature_verification": true,
+    "paired_quic_window_list_count": 10,
+    "all_windows_have_application_identity": true,
+    "settings_visible_in_running_mac_app": true
+  },
+  "preserved": {
+    "ubuntu_chatgpt_idea_gnome_processes": true,
+    "mac_pairing": true,
+    "ubuntu_pairing": true,
+    "gnome_extension_unchanged": true
+  },
+  "mac_binary_sha256": {
+    "Contents/MacOS/paneferry-launcher": "2b0083fefef391746fc55e377f0788663bc3ce3b9c0b707039dd263440664bff",
+    "Contents/Resources/paneferry-network": "16376ede4e641ad0469437a1edcd24dda31988f2044d0799aef48768948ba1e5",
+    "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "29dfd3a06a2e8e5bf18429c79b62fabcde5442ecafad577e6b1c151d42903af9",
+    "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "a92d16510181a6624472b4492c624c1e6b13c893ed21531860adbe7430bff36f"
+  },
+  "ubuntu_binary_sha256": {
+    "paneferry-agent": "c1bdcec3d9c58220e3f1f24381c78e4dc30dfabebb8020fafbb5042ae659aefc",
+    "paneferry-network": "6c61c1525e1925367ee214b7c56ec818cbe0c3f31b25a339a292e6a6232a6498"
+  },
+  "scope": "Built and deployed latest merged source; actual paired discovery and installed UI checked. Automatic connection lifecycle across machines and end-to-end latency were not retested.",
+  "backups": {
+    "mac": "dist/automatic-window-deploy-20261028/previous",
+    "ubuntu": "~/.local/state/lan-remoteapp/upgrades/automatic-windows-e5d90c2"
+  }
+}
