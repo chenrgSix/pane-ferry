@@ -145,7 +145,14 @@ try:
         wait(sock.exists, 'Agent socket ready')
         peer = Peer(sock)
         catalog = peer.request('app.list')
-        assert catalog['discovery_supported'] and catalog['discovery_error'] is None, catalog
+        if not catalog['discovery_supported'] or catalog['discovery_error'] is not None:
+            # Run the same catalog helper in this fixture's isolated XDG tree
+            # so CI reports the actual platform error, without exposing users.
+            helper = Path(__file__).resolve().parents[2]/'apps/linux-agent/src/desktop_apps.py'
+            helper_env = {k:v for k,v in env.items() if k not in ('DISPLAY', 'WAYLAND_DISPLAY')}
+            diagnostic = subprocess.run(['/usr/bin/python3', '-I', '-c', helper.read_text(), 'list'],
+                env=helper_env, capture_output=True, text=True, timeout=10)
+            raise AssertionError((catalog, diagnostic.returncode, diagnostic.stderr[-6000:]))
         apps = catalog['apps']
         assert len(apps) == 1 and apps[0]['source'] == 'desktop', apps
         app = apps[0]
