@@ -119,7 +119,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 5, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 6, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             window_kind: windowKind(w, Meta.WindowType), stack_order: order,
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
@@ -132,9 +132,15 @@ export default class PaneFerry extends Extension {
             scale: w.get_compositor_private()?.get_resource_scale() ?? 1};
     }
     scope(root) {
+        // X11 geometry leases serve the XComposite backend, which cannot
+        // capture native Wayland transients (for example portal dialogs).
+        // Stop at that boundary, including any descendants owned by the native
+        // dialog. Its independent PipeWire lease can capture the whole subtree.
+        const x11Only = root?.get_client_type() === Meta.WindowClientType.X11;
         return this.windows().filter(w => {
             const seen = new Set();
             for (let at = w; at && !seen.has(at); at = at.get_transient_for()) {
+                if (x11Only && at.get_client_type() !== Meta.WindowClientType.X11) return false;
                 if (at === root) return true;
                 seen.add(at);
             }

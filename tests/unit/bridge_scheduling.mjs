@@ -9,7 +9,8 @@ const types = {NORMAL: 0, POPUP_MENU: 1, DESKTOP: 2, DOCK: 3};
 let now = 1;
 function fixture(native = false) {
     const root = {get_client_type: () => native ? 1 : 2, get_pid: () => 123,
-        get_stable_sequence: () => 7, get_window_type: () => types.NORMAL,
+        get_id: () => 7, get_stable_sequence: () => 7, get_window_type: () => types.NORMAL,
+        connect: () => 1, disconnect: () => {},
         get_transient_for: () => null, is_override_redirect: () => false,
         get_frame_rect: () => ({x: 0, y: 0, width: 800, height: 600}),
         get_client_content_rect: () => ({x: 0, y: 0, width: 800, height: 600}),
@@ -19,7 +20,7 @@ function fixture(native = false) {
     const activations = [], windows = [root];
     const display = {focus_window: null, sort_windows_by_stacking: value => value};
     const ShellBridge = vm.runInNewContext(source + '\nPaneFerry;', {
-        Extension: class {}, Gio: {}, GLib: {get_monotonic_time: () => ++now,
+        Extension: class {}, Gio: {}, GLib: {get_monotonic_time: () => ++now, uuid_string_random: () => `token-${++now}`,
             Variant: class { constructor(_signature, value) { this.value = value; } }},
         Meta: {WindowClientType: {WAYLAND: 1, X11: 2}, WindowType: types},
         Main: main, global: {get_window_actors: () => windows.map(meta_window => ({meta_window})), display}, windowKind, preservesPopupFocus, console,
@@ -81,3 +82,45 @@ f.windows.push(popup); f.display.focus_window = popup;
 const c = f.call('focus'); await c.promise;
 assert.ok(c.replies[0].result); assert.equal(f.activations.length, 0);
 console.log('PASS: ready X11/Wayland bridge replies without a Promise turn; opening/cancelled output, ownership, desktop lock and popup rules retained');
+
+// Run the actual lease acquisition and access checks on mixed-protocol trees.
+// X11 -> native dialog -> X11 child must belong to two disjoint capture scopes.
+for (const nativeFirst of [false, true]) {
+    const f = fixture();
+    function child(id, native, parent) {
+        const window = {...f.root, get_id: () => id, get_stable_sequence: () => id,
+            get_client_type: () => native ? 1 : 2, get_transient_for: () => parent};
+        f.windows.push(window); return window;
+    }
+    const menu = child(8, false, f.root);
+    const dialog = child(9, true, f.root);
+    const nestedX11 = child(10, false, dialog);
+    const nestedNative = child(11, true, nestedX11);
+    const unrelated = child(12, true, null);
+    assert.deepEqual(Array.from(f.bridge.scope(f.root)), [f.root, menu]);
+    assert.deepEqual(Array.from(f.bridge.scope(dialog)), [dialog, nestedX11, nestedNative]);
+    f.bridge.leases.clear();
+    f.bridge.ensureOutput = lease => { lease.output = {close() {}}; return null; };
+    const tokens = new Map();
+    for (const root of nativeFirst ? [dialog, f.root] : [f.root, dialog]) {
+        const result = f.call('acquire', {id: String(root.get_id()), pid: 123});
+        await result.promise;
+        assert.ok(result.replies[0].result, JSON.stringify(result.replies));
+        tokens.set(root, result.replies[0].result.token);
+    }
+    for (const root of [f.root, menu, dialog, nestedX11, nestedNative]) {
+        const duplicate = f.call('acquire', {id: String(root.get_id()), pid: 123}, ':another');
+        await duplicate.promise; assert.equal(duplicate.replies[0].error, 'session_controlled');
+    }
+    for (const [owner, target, allowed] of [[f.root, menu, true], [dialog, nestedX11, true],
+        [f.root, dialog, false], [f.root, nestedX11, false], [dialog, f.root, false], [dialog, unrelated, false]]) {
+        const access = f.call('focus', {token: tokens.get(owner), window_id: target.get_stable_sequence()});
+        await access.promise;
+        assert.equal(access.replies[0].error, allowed ? undefined : 'window_unavailable');
+    }
+    const foreign = f.call('scope', {token: tokens.get(dialog)}, ':another');
+    await foreign.promise; assert.equal(foreign.replies[0].error, 'window_unavailable');
+    const cycle = child(13, false, null); cycle.get_transient_for = () => cycle;
+    assert.ok(!f.bridge.scope(f.root).includes(cycle));
+}
+console.log('PASS: mixed X11/Wayland leases follow capture capability in both acquisition orders; native subtrees, duplicate protection and input boundaries retained');
