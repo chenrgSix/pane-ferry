@@ -1,5 +1,65 @@
 # Mac ↔ Ubuntu 全链路延迟测量
 
+## Ubuntu 本机连续滚动吞吐
+
+`local_scroll.py` 创建独立 HOME、Agent 和 Xvfb，以测试自有的 GTK 文档连续滚动。
+默认协商 60 FPS，预热 2 秒，再统计本机 Unix socket 收到的 H.264 帧数和帧间隔；
+同时记录源窗口的实际绘制频率、尺寸，以及 Agent 进程所有线程的 CPU 时间。
+CPU 百分比以一个核心为 100%，不包含 Xvfb、Openbox 和 GTK 子进程。
+
+```sh
+python3 tests/performance/local_scroll.py --agent /absolute/paneferry-agent \
+  --width 2940 --height 1618 --fps 60 --seconds 8 --output /tmp/scroll.json
+```
+
+原生 Wayland 另可复用私有 GNOME 冒烟环境，测固定 2940×1618、1×、60 FPS 的应用场景：
+
+```sh
+python3 tests/e2e/wayland_smoke.py --agent /absolute/paneferry-agent \
+  --scroll-benchmark-output /tmp/wayland-scroll.json
+```
+
+XWayland 的真实 GPU 路径可在同一私有合成器内测量：
+
+```sh
+python3 tests/e2e/wayland_smoke.py --agent /absolute/paneferry-agent \
+  --with-xwayland --x11-scroll-benchmark-output /tmp/xwayland-scroll.json
+```
+
+该模式只在临时复制的扩展中加入测试操作，关闭私有合成器的启动概览并激活自有窗口，
+使 GTK/Present 持续重绘；正式扩展没有这项操作。夹具先以较小尺寸启动，再通过正常协议请求目标尺寸。
+应从阶段日志确认实际使用 `linear`、`shm` 或 socket 路径，不能仅由测试名称推定。
+
+这些工具都不接入用户应用、不注入键鼠、不替换正式服务。结束时回收自建进程与临时文件。
+Wayland 路径只使用私有合成器自己的 PipeWire 节点；未改当前桌面显示设置。
+它们不经过 QUIC、客户端解码或显示，不提供输入到屏幕的延迟或 Mac 实际显示帧率。
+帧数不代替解码后的视觉计数校验；原始像素正确性须另外运行 GStreamer 转换回归。
+视频反馈关闭，以测试协商上限下的发布吞吐；生产客户端的反馈自适应可能进一步限帧。
+对照应冻结旧、新二进制，交错运行并保留所有轮次；不能在采样时并行编译或运行其他基准。
+2026-10-28 本机结果及未采用的原生并行候选见[滚动吞吐记录](../../docs/performance/2026-10-28-local-scroll.md)。
+
+同一帧的 X11 读回、编码队列、颜色转换/编码与本机 socket 写出可用独立副本测量：
+
+```sh
+python3 tests/performance/publisher_stage_probe.py /tmp/new-publisher-probe \
+  --source-override apps/linux-agent/src/video.rs \
+  --source-override apps/linux-agent/src/video_frame.rs
+cargo build --locked --release --manifest-path /tmp/new-publisher-probe/Cargo.toml \
+  --target-dir /tmp/new-publisher-probe-target -p paneferry-agent
+PANEFERRY_PUBLISHER_TRACE=/tmp/publisher-stages.jsonl \
+  python3 tests/performance/local_scroll.py \
+  --agent /tmp/new-publisher-probe-target/release/paneferry-agent \
+  --width 2940 --height 1618 --fps 60 --seconds 8 --output /tmp/publisher-received.json
+python3 tests/performance/publisher_stage_summary.py \
+  /tmp/publisher-received.json /tmp/publisher-stages.jsonl
+```
+
+诊断元数据在序列化前移除，不改线上协议；0600 JSONL 记录唯一采集 ID、原有消息 seq、时间戳、读回类型及消息大小，
+没有画面内容。以接收记录的 seq 选择预热后的最终发布帧，核对 ID 唯一与时间单调后计算分位数。
+汇总工具还核对完整消息字节数；缺失或重复关联会直接失败。每次运行必须使用新的 trace 文件，避免混入旧进程的 seq。
+起点为读像素入口；不含之前的应用绘制、等待采样，也不覆盖网络与客户端。不要部署诊断构建。
+后续核显编码、更多线程与真实 GPU 采集对照见[进一步优化试验](../../docs/performance/2026-10-28-further-optimization.md)。
+
 ## 已授权实际应用的右键菜单
 
 `popup_end_to_end.py` 用于用户明确授权的实际应用（例如 IDEA），不使用 GTK 计数夹具。

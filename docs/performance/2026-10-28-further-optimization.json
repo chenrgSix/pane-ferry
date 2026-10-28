@@ -1,0 +1,1252 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "repository_head": "79965b93e00f76697c6da75728aff0cd84675e99",
+  "decision": "Keep deployed software encoder; no further production change",
+  "conditions": {
+    "dimensions": [
+      2940,
+      1618
+    ],
+    "fps_cap": 60,
+    "warmup_seconds": 2,
+    "seconds_per_round": 8,
+    "order": [
+      "software",
+      "candidate",
+      "candidate",
+      "software"
+    ],
+    "endpoint": "Complete H264 JSON line written to or received from the local Unix socket; no QUIC, client decoding or display",
+    "feedback": false,
+    "clock": "Same-host CLOCK_MONOTONIC",
+    "background": "Normal user workloads left running; private compositors and fixtures only"
+  },
+  "experiments": {
+    "six_cpu_threads": {
+      "rounds": [
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 60.0,
+          "received_fps": 36.625,
+          "agent_cpu_one_core_percent": 161.19519381730692,
+          "frame_gap_ms": {
+            "p50": 21.5283105,
+            "p95": 73.04178,
+            "max": 177.796861
+          },
+          "gaps_over_1_5_periods": 104,
+          "round": "01-current.json",
+          "version": "current"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "3b6f0f78c610a7c1bb81ea075142a8031a2dba8a217189974341df4aa3bc8a58",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 59.625,
+          "received_fps": 37.375,
+          "agent_cpu_one_core_percent": 187.85199599125087,
+          "frame_gap_ms": {
+            "p50": 20.1348415,
+            "p95": 62.358311,
+            "max": 153.830109
+          },
+          "gaps_over_1_5_periods": 110,
+          "round": "02-threads6.json",
+          "version": "threads6"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "3b6f0f78c610a7c1bb81ea075142a8031a2dba8a217189974341df4aa3bc8a58",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 59.875,
+          "received_fps": 36.75,
+          "agent_cpu_one_core_percent": 190.98550507721822,
+          "frame_gap_ms": {
+            "p50": 20.070119,
+            "p95": 67.043067,
+            "max": 130.457365
+          },
+          "gaps_over_1_5_periods": 103,
+          "round": "03-threads6.json",
+          "version": "threads6"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 60.0,
+          "received_fps": 37.25,
+          "agent_cpu_one_core_percent": 176.9061591300788,
+          "frame_gap_ms": {
+            "p50": 20.690557,
+            "p95": 58.09266,
+            "max": 139.858497
+          },
+          "gaps_over_1_5_periods": 98,
+          "round": "04-current.json",
+          "version": "current"
+        }
+      ],
+      "pooled": {
+        "current": {
+          "received_frames": 591,
+          "seconds": 16.0,
+          "received_fps": 36.9375,
+          "source_draw_fps": 60.0,
+          "frame_gap_ms": {
+            "p50": 21.13319,
+            "p95": 63.680125,
+            "max": 177.796861
+          },
+          "agent_cpu_one_core_percent": 169.05067647369287
+        },
+        "threads6": {
+          "received_frames": 593,
+          "seconds": 16.0,
+          "received_fps": 37.0625,
+          "source_draw_fps": 59.75,
+          "frame_gap_ms": {
+            "p50": 20.1301,
+            "p95": 63.290616,
+            "max": 153.830109
+          },
+          "agent_cpu_one_core_percent": 189.41875053423456
+        }
+      }
+    },
+    "va_vpp_xvfb": {
+      "rounds": [
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 59.75,
+          "received_fps": 38.75,
+          "agent_cpu_one_core_percent": 172.67405432512697,
+          "frame_gap_ms": {
+            "p50": 20.349793,
+            "p95": 52.891497,
+            "max": 231.583025
+          },
+          "gaps_over_1_5_periods": 100,
+          "round": "01-software.json",
+          "version": "software"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "e64ba2a399e99e814fad7469d2969924b6807ccc1e7dee2880cbfa786d62e956",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 60.0,
+          "received_fps": 39.75,
+          "agent_cpu_one_core_percent": 82.44595299199466,
+          "frame_gap_ms": {
+            "p50": 21.258303,
+            "p95": 45.570253,
+            "max": 214.260873
+          },
+          "gaps_over_1_5_periods": 92,
+          "round": "02-hardware.json",
+          "version": "hardware"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "e64ba2a399e99e814fad7469d2969924b6807ccc1e7dee2880cbfa786d62e956",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 60.0,
+          "received_fps": 39.625,
+          "agent_cpu_one_core_percent": 82.39796871696026,
+          "frame_gap_ms": {
+            "p50": 20.850234,
+            "p95": 50.074926,
+            "max": 158.019339
+          },
+          "gaps_over_1_5_periods": 90,
+          "round": "03-hardware.json",
+          "version": "hardware"
+        },
+        {
+          "schema": 1,
+          "capture": "private Xvfb + MIT-SHM; local Unix socket",
+          "agent_sha256": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8.0,
+          "source_draw_fps": 59.625,
+          "received_fps": 37.5,
+          "agent_cpu_one_core_percent": 166.66912740659038,
+          "frame_gap_ms": {
+            "p50": 21.004752,
+            "p95": 46.721926,
+            "max": 240.722416
+          },
+          "gaps_over_1_5_periods": 102,
+          "round": "04-software.json",
+          "version": "software"
+        }
+      ],
+      "pooled": {
+        "software": {
+          "received_frames": 610,
+          "seconds": 16.0,
+          "received_fps": 38.125,
+          "source_draw_fps": 59.6875,
+          "frame_gap_ms": {
+            "p50": 20.578397000000002,
+            "p95": 50.395196,
+            "max": 240.722416
+          },
+          "agent_cpu_one_core_percent": 169.67159086585866
+        },
+        "hardware": {
+          "received_frames": 635,
+          "seconds": 16.0,
+          "received_fps": 39.6875,
+          "source_draw_fps": 60.0,
+          "frame_gap_ms": {
+            "p50": 21.072048,
+            "p95": 47.956582,
+            "max": 214.260873
+          },
+          "agent_cpu_one_core_percent": 82.42196085447746
+        }
+      }
+    },
+    "va_vpp_xwayland": {
+      "rounds": [
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 41.875,
+          "source_draw_fps": 54.375,
+          "frame_gap_ms": {
+            "p50": 22.1002985,
+            "p95": 37.477918,
+            "max": 75.750795
+          },
+          "round": "01-software.json",
+          "version": "software",
+          "publisher_stages": {
+            "published_frames": 335,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 14.613433,
+                "p95": 24.633065,
+                "max": 34.991247
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.935634,
+                "p95": 12.232404,
+                "max": 22.250436
+              },
+              "encoder_queue": {
+                "p50": 0.02855,
+                "p95": 0.631731,
+                "max": 4.646029
+              },
+              "encoder_preparation": {
+                "p50": 0.006355,
+                "p95": 0.013078,
+                "max": 1.849185
+              },
+              "conversion_and_encoding": {
+                "p50": 15.680711,
+                "p95": 20.41796,
+                "max": 28.635618
+              },
+              "encoded_to_serialization": {
+                "p50": 0.071973,
+                "p95": 0.196453,
+                "max": 0.784046
+              },
+              "serialization": {
+                "p50": 0.038778,
+                "p95": 0.221253,
+                "max": 0.744168
+              },
+              "socket_write": {
+                "p50": 0.028454,
+                "p95": 0.102437,
+                "max": 1.524251
+              },
+              "capture_complete_to_write": {
+                "p50": 20.902035,
+                "p95": 30.35391,
+                "max": 43.416662
+              },
+              "capture_start_to_write": {
+                "p50": 35.894182,
+                "p95": 50.230699,
+                "max": 67.414359
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 36.25,
+          "source_draw_fps": 61.875,
+          "frame_gap_ms": {
+            "p50": 26.095705,
+            "p95": 42.732116,
+            "max": 59.143474
+          },
+          "round": "02-hardware.json",
+          "version": "hardware",
+          "publisher_stages": {
+            "published_frames": 290,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 17.6173655,
+                "p95": 30.633153,
+                "max": 40.532723
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 3.8550635,
+                "p95": 13.658671,
+                "max": 23.134567
+              },
+              "encoder_queue": {
+                "p50": 0.0470385,
+                "p95": 14.211797,
+                "max": 24.785761
+              },
+              "encoder_preparation": {
+                "p50": 0.0066625,
+                "p95": 1.172576,
+                "max": 2.548013
+              },
+              "conversion_and_encoding": {
+                "p50": 21.8467285,
+                "p95": 32.429656,
+                "max": 40.963597
+              },
+              "encoded_to_serialization": {
+                "p50": 0.0757915,
+                "p95": 0.160491,
+                "max": 0.972846
+              },
+              "serialization": {
+                "p50": 0.0455865,
+                "p95": 0.160245,
+                "max": 1.349854
+              },
+              "socket_write": {
+                "p50": 0.028643500000000002,
+                "p95": 0.079495,
+                "max": 1.613901
+              },
+              "capture_complete_to_write": {
+                "p50": 30.865704,
+                "p95": 43.591741,
+                "max": 57.16491
+              },
+              "capture_start_to_write": {
+                "p50": 50.518339,
+                "p95": 67.743049,
+                "max": 91.496758
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 36.5,
+          "source_draw_fps": 60.875,
+          "frame_gap_ms": {
+            "p50": 25.797635,
+            "p95": 41.762084,
+            "max": 66.454184
+          },
+          "round": "03-hardware.json",
+          "version": "hardware",
+          "publisher_stages": {
+            "published_frames": 292,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 18.055771,
+                "p95": 29.889761,
+                "max": 43.473482
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 3.169688,
+                "p95": 15.562602,
+                "max": 22.2117
+              },
+              "encoder_queue": {
+                "p50": 1.5054854999999998,
+                "p95": 15.667952,
+                "max": 28.038718
+              },
+              "encoder_preparation": {
+                "p50": 0.006340500000000001,
+                "p95": 1.105128,
+                "max": 4.493339
+              },
+              "conversion_and_encoding": {
+                "p50": 22.0917355,
+                "p95": 31.000629,
+                "max": 39.28886
+              },
+              "encoded_to_serialization": {
+                "p50": 0.074876,
+                "p95": 0.190674,
+                "max": 0.958163
+              },
+              "serialization": {
+                "p50": 0.045107,
+                "p95": 0.153708,
+                "max": 1.412974
+              },
+              "socket_write": {
+                "p50": 0.027896999999999998,
+                "p95": 0.077806,
+                "max": 1.770107
+              },
+              "capture_complete_to_write": {
+                "p50": 31.605933,
+                "p95": 47.721757,
+                "max": 58.814704
+              },
+              "capture_start_to_write": {
+                "p50": 50.284422500000005,
+                "p95": 70.846727,
+                "max": 86.310098
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 43.0,
+          "source_draw_fps": 54.25,
+          "frame_gap_ms": {
+            "p50": 21.522623,
+            "p95": 37.678912,
+            "max": 50.936878
+          },
+          "round": "04-software.json",
+          "version": "software",
+          "publisher_stages": {
+            "published_frames": 344,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 14.724492999999999,
+                "p95": 23.636951,
+                "max": 30.228203
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.8382795000000005,
+                "p95": 13.22074,
+                "max": 28.621251
+              },
+              "encoder_queue": {
+                "p50": 0.032392000000000004,
+                "p95": 3.206741,
+                "max": 12.98363
+              },
+              "encoder_preparation": {
+                "p50": 0.0064849999999999994,
+                "p95": 0.012426,
+                "max": 3.261875
+              },
+              "conversion_and_encoding": {
+                "p50": 16.076163,
+                "p95": 21.698358,
+                "max": 28.48896
+              },
+              "encoded_to_serialization": {
+                "p50": 0.07002,
+                "p95": 0.193017,
+                "max": 2.523584
+              },
+              "serialization": {
+                "p50": 0.0362705,
+                "p95": 0.163315,
+                "max": 0.868306
+              },
+              "socket_write": {
+                "p50": 0.027762500000000002,
+                "p95": 0.087125,
+                "max": 1.58709
+              },
+              "capture_complete_to_write": {
+                "p50": 21.3636715,
+                "p95": 33.218319,
+                "max": 44.613265
+              },
+              "capture_start_to_write": {
+                "p50": 36.3120545,
+                "p95": 51.589435,
+                "max": 68.250216
+              }
+            }
+          }
+        }
+      ],
+      "pooled": {
+        "software": {
+          "received_frames": 679,
+          "seconds": 16,
+          "received_fps": 42.4375,
+          "source_draw_fps": 54.3125,
+          "frame_gap_ms": {
+            "p50": 21.84608,
+            "p95": 37.678912,
+            "max": 75.750795
+          },
+          "publisher_stages": {
+            "published_frames": 679,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 14.680511,
+                "p95": 24.402028,
+                "max": 34.991247
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.911602,
+                "p95": 12.427003,
+                "max": 28.621251
+              },
+              "encoder_queue": {
+                "p50": 0.030247,
+                "p95": 1.729512,
+                "max": 12.98363
+              },
+              "encoder_preparation": {
+                "p50": 0.006422,
+                "p95": 0.01256,
+                "max": 3.261875
+              },
+              "conversion_and_encoding": {
+                "p50": 15.837431,
+                "p95": 21.148116,
+                "max": 28.635618
+              },
+              "encoded_to_serialization": {
+                "p50": 0.070534,
+                "p95": 0.193038,
+                "max": 2.523584
+              },
+              "serialization": {
+                "p50": 0.038044,
+                "p95": 0.195386,
+                "max": 0.868306
+              },
+              "socket_write": {
+                "p50": 0.027991,
+                "p95": 0.096819,
+                "max": 1.58709
+              },
+              "capture_complete_to_write": {
+                "p50": 21.060513,
+                "p95": 31.62132,
+                "max": 44.613265
+              },
+              "capture_start_to_write": {
+                "p50": 36.009688,
+                "p95": 50.9452,
+                "max": 68.250216
+              }
+            }
+          }
+        },
+        "hardware": {
+          "received_frames": 582,
+          "seconds": 16,
+          "received_fps": 36.375,
+          "source_draw_fps": 61.375,
+          "frame_gap_ms": {
+            "p50": 25.934587,
+            "p95": 42.097436,
+            "max": 66.454184
+          },
+          "publisher_stages": {
+            "published_frames": 582,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 17.8387905,
+                "p95": 29.99723,
+                "max": 43.473482
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 3.6158875,
+                "p95": 14.38569,
+                "max": 23.134567
+              },
+              "encoder_queue": {
+                "p50": 0.1098825,
+                "p95": 15.070339,
+                "max": 28.038718
+              },
+              "encoder_preparation": {
+                "p50": 0.006532,
+                "p95": 1.105128,
+                "max": 4.493339
+              },
+              "conversion_and_encoding": {
+                "p50": 21.98451,
+                "p95": 31.521705,
+                "max": 40.963597
+              },
+              "encoded_to_serialization": {
+                "p50": 0.07534199999999999,
+                "p95": 0.176548,
+                "max": 0.972846
+              },
+              "serialization": {
+                "p50": 0.045385,
+                "p95": 0.157,
+                "max": 1.412974
+              },
+              "socket_write": {
+                "p50": 0.028379,
+                "p95": 0.077806,
+                "max": 1.770107
+              },
+              "capture_complete_to_write": {
+                "p50": 31.124745,
+                "p95": 46.386771,
+                "max": 58.814704
+              },
+              "capture_start_to_write": {
+                "p50": 50.352945000000005,
+                "p95": 68.812875,
+                "max": 91.496758
+              }
+            }
+          }
+        }
+      }
+    },
+    "va_direct_nv12_xwayland": {
+      "rounds": [
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 46.5,
+          "source_draw_fps": 58.0,
+          "frame_gap_ms": {
+            "p50": 19.960755,
+            "p95": 33.774225,
+            "max": 51.553771
+          },
+          "round": "01-software.json",
+          "version": "software",
+          "publisher_stages": {
+            "published_frames": 372,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 11.710524,
+                "p95": 19.835578,
+                "max": 30.662735
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.613819,
+                "p95": 11.566395,
+                "max": 24.043163
+              },
+              "encoder_queue": {
+                "p50": 0.029719,
+                "p95": 2.259865,
+                "max": 11.905095
+              },
+              "encoder_preparation": {
+                "p50": 0.006019,
+                "p95": 0.012669,
+                "max": 3.221943
+              },
+              "conversion_and_encoding": {
+                "p50": 14.986852500000001,
+                "p95": 19.45064,
+                "max": 26.910093
+              },
+              "encoded_to_serialization": {
+                "p50": 0.067131,
+                "p95": 0.161808,
+                "max": 1.100076
+              },
+              "serialization": {
+                "p50": 0.038146,
+                "p95": 0.173051,
+                "max": 1.271737
+              },
+              "socket_write": {
+                "p50": 0.0269415,
+                "p95": 0.07479,
+                "max": 1.758607
+              },
+              "capture_complete_to_write": {
+                "p50": 20.380462,
+                "p95": 29.067928,
+                "max": 40.621107
+              },
+              "capture_start_to_write": {
+                "p50": 32.839057,
+                "p95": 42.956629,
+                "max": 51.775584
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 42.75,
+          "source_draw_fps": 55.125,
+          "frame_gap_ms": {
+            "p50": 22.288306,
+            "p95": 33.058845,
+            "max": 52.769251
+          },
+          "round": "02-hardware.json",
+          "version": "hardware",
+          "publisher_stages": {
+            "published_frames": 342,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 12.688655,
+                "p95": 20.682039,
+                "max": 26.280491
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.9704945,
+                "p95": 14.598688,
+                "max": 25.49645
+              },
+              "encoder_queue": {
+                "p50": 5.865028,
+                "p95": 17.330209,
+                "max": 24.030735
+              },
+              "encoder_preparation": {
+                "p50": 0.0063745,
+                "p95": 1.863256,
+                "max": 5.204328
+              },
+              "conversion_and_encoding": {
+                "p50": 21.226717999999998,
+                "p95": 28.617167,
+                "max": 33.482611
+              },
+              "encoded_to_serialization": {
+                "p50": 0.0690475,
+                "p95": 0.161779,
+                "max": 2.449383
+              },
+              "serialization": {
+                "p50": 0.0481355,
+                "p95": 0.139351,
+                "max": 1.082959
+              },
+              "socket_write": {
+                "p50": 0.028465,
+                "p95": 0.075791,
+                "max": 1.639686
+              },
+              "capture_complete_to_write": {
+                "p50": 34.0427775,
+                "p95": 48.709331,
+                "max": 54.872238
+              },
+              "capture_start_to_write": {
+                "p50": 47.3702325,
+                "p95": 61.691458,
+                "max": 72.248104
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 17.625,
+          "source_draw_fps": 63.5,
+          "frame_gap_ms": {
+            "p50": 56.7282655,
+            "p95": 89.422255,
+            "max": 111.397982
+          },
+          "round": "03-hardware.json",
+          "version": "hardware",
+          "publisher_stages": {
+            "published_frames": 141,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 46.3914,
+                "p95": 70.874385,
+                "max": 86.76917
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 5.253647,
+                "p95": 15.534495,
+                "max": 26.882525
+              },
+              "encoder_queue": {
+                "p50": 0.031613,
+                "p95": 8.438189,
+                "max": 14.832931
+              },
+              "encoder_preparation": {
+                "p50": 0.006408,
+                "p95": 0.013499,
+                "max": 1.727605
+              },
+              "conversion_and_encoding": {
+                "p50": 22.112907,
+                "p95": 29.607421,
+                "max": 37.04591
+              },
+              "encoded_to_serialization": {
+                "p50": 0.071824,
+                "p95": 0.177479,
+                "max": 1.980522
+              },
+              "serialization": {
+                "p50": 0.049765,
+                "p95": 0.137053,
+                "max": 0.606245
+              },
+              "socket_write": {
+                "p50": 0.026132,
+                "p95": 0.062395,
+                "max": 1.90233
+              },
+              "capture_complete_to_write": {
+                "p50": 28.686109,
+                "p95": 45.836967,
+                "max": 54.995414
+              },
+              "capture_start_to_write": {
+                "p50": 75.552656,
+                "p95": 104.318357,
+                "max": 119.640925
+              }
+            }
+          }
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME XWayland + XComposite; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "received_fps": 17.5,
+          "source_draw_fps": 62.125,
+          "frame_gap_ms": {
+            "p50": 53.065581,
+            "p95": 90.900865,
+            "max": 159.631794
+          },
+          "round": "04-software.json",
+          "version": "software",
+          "publisher_stages": {
+            "published_frames": 140,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 42.491420500000004,
+                "p95": 68.85158,
+                "max": 136.232087
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 5.59055,
+                "p95": 15.760674,
+                "max": 20.749525
+              },
+              "encoder_queue": {
+                "p50": 0.028739,
+                "p95": 0.059133,
+                "max": 0.172263
+              },
+              "encoder_preparation": {
+                "p50": 0.006484,
+                "p95": 0.014848,
+                "max": 2.851229
+              },
+              "conversion_and_encoding": {
+                "p50": 14.932964,
+                "p95": 20.691518,
+                "max": 31.560571
+              },
+              "encoded_to_serialization": {
+                "p50": 0.07632649999999999,
+                "p95": 0.213133,
+                "max": 0.967731
+              },
+              "serialization": {
+                "p50": 0.0395005,
+                "p95": 0.188753,
+                "max": 0.986185
+              },
+              "socket_write": {
+                "p50": 0.027015499999999998,
+                "p95": 0.174793,
+                "max": 1.172995
+              },
+              "capture_complete_to_write": {
+                "p50": 21.8591075,
+                "p95": 33.602855,
+                "max": 49.072792
+              },
+              "capture_start_to_write": {
+                "p50": 63.6603105,
+                "p95": 98.594856,
+                "max": 160.897965
+              }
+            }
+          }
+        }
+      ],
+      "pooled": {
+        "software": {
+          "received_frames": 512,
+          "seconds": 16,
+          "received_fps": 32.0,
+          "source_draw_fps": 60.0625,
+          "frame_gap_ms": {
+            "p50": 23.3293425,
+            "p95": 68.662857,
+            "max": 159.631794
+          },
+          "publisher_stages": {
+            "published_frames": 512,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 13.7238245,
+                "p95": 53.769006,
+                "max": 136.232087
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 4.8025400000000005,
+                "p95": 12.302527,
+                "max": 24.043163
+              },
+              "encoder_queue": {
+                "p50": 0.0292245,
+                "p95": 1.369403,
+                "max": 11.905095
+              },
+              "encoder_preparation": {
+                "p50": 0.0061905,
+                "p95": 0.013086,
+                "max": 3.221943
+              },
+              "conversion_and_encoding": {
+                "p50": 14.973625,
+                "p95": 19.797699,
+                "max": 31.560571
+              },
+              "encoded_to_serialization": {
+                "p50": 0.0686635,
+                "p95": 0.170239,
+                "max": 1.100076
+              },
+              "serialization": {
+                "p50": 0.0383955,
+                "p95": 0.17738,
+                "max": 1.271737
+              },
+              "socket_write": {
+                "p50": 0.0269885,
+                "p95": 0.084271,
+                "max": 1.758607
+              },
+              "capture_complete_to_write": {
+                "p50": 20.548242000000002,
+                "p95": 31.166562,
+                "max": 49.072792
+              },
+              "capture_start_to_write": {
+                "p50": 35.426846499999996,
+                "p95": 75.864996,
+                "max": 160.897965
+              }
+            }
+          }
+        },
+        "hardware": {
+          "received_frames": 483,
+          "seconds": 16,
+          "received_fps": 30.1875,
+          "source_draw_fps": 59.3125,
+          "frame_gap_ms": {
+            "p50": 24.628797,
+            "p95": 71.867124,
+            "max": 111.397982
+          },
+          "publisher_stages": {
+            "published_frames": 483,
+            "capture_backends": [
+              "linear"
+            ],
+            "milliseconds": {
+              "capture": {
+                "p50": 15.474597,
+                "p95": 59.065734,
+                "max": 86.76917
+              },
+              "capture_complete_to_publish_queue": {
+                "p50": 5.063938,
+                "p95": 14.913301,
+                "max": 26.882525
+              },
+              "encoder_queue": {
+                "p50": 2.987604,
+                "p95": 15.72387,
+                "max": 24.030735
+              },
+              "encoder_preparation": {
+                "p50": 0.00639,
+                "p95": 1.727605,
+                "max": 5.204328
+              },
+              "conversion_and_encoding": {
+                "p50": 21.33546,
+                "p95": 29.048717,
+                "max": 37.04591
+              },
+              "encoded_to_serialization": {
+                "p50": 0.069774,
+                "p95": 0.168172,
+                "max": 2.449383
+              },
+              "serialization": {
+                "p50": 0.048487,
+                "p95": 0.139351,
+                "max": 1.082959
+              },
+              "socket_write": {
+                "p50": 0.027951,
+                "p95": 0.073128,
+                "max": 1.90233
+              },
+              "capture_complete_to_write": {
+                "p50": 32.626568,
+                "p95": 47.62481,
+                "max": 54.995414
+              },
+              "capture_start_to_write": {
+                "p50": 51.036254,
+                "p95": 87.867797,
+                "max": 119.640925
+              }
+            }
+          }
+        }
+      }
+    },
+    "va_direct_nv12_native_exploratory": {
+      "rounds": [
+        {
+          "schema": 1,
+          "capture": "private GNOME application scene + PipeWire; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "source_draw_fps": 30.875,
+          "received_fps": 30.875,
+          "frame_gap_ms": {
+            "p50": 31.9224485,
+            "p95": 43.138422,
+            "max": 83.598915
+          },
+          "round": "01-software.json",
+          "version": "software"
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME application scene + PipeWire; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "source_draw_fps": 30.375,
+          "received_fps": 30.5,
+          "frame_gap_ms": {
+            "p50": 32.245601,
+            "p95": 42.962432,
+            "max": 58.105802
+          },
+          "round": "02-hardware.json",
+          "version": "hardware"
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME application scene + PipeWire; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "source_draw_fps": 31.75,
+          "received_fps": 31.625,
+          "frame_gap_ms": {
+            "p50": 31.9556075,
+            "p95": 44.603466,
+            "max": 63.60037
+          },
+          "round": "03-hardware.json",
+          "version": "hardware"
+        },
+        {
+          "schema": 1,
+          "capture": "private GNOME application scene + PipeWire; local Unix socket",
+          "width": 2940,
+          "height": 1618,
+          "cap_fps": 60,
+          "seconds": 8,
+          "source_draw_fps": 36.5,
+          "received_fps": 36.375,
+          "frame_gap_ms": {
+            "p50": 27.000511,
+            "p95": 35.994423,
+            "max": 45.130878
+          },
+          "round": "04-software.json",
+          "version": "software"
+        }
+      ],
+      "pooled": {
+        "software": {
+          "received_frames": 538,
+          "seconds": 16,
+          "received_fps": 33.625,
+          "source_draw_fps": 33.6875,
+          "frame_gap_ms": {
+            "p50": 29.29497,
+            "p95": 40.43973,
+            "max": 83.598915
+          }
+        },
+        "hardware": {
+          "received_frames": 497,
+          "seconds": 16,
+          "received_fps": 31.0625,
+          "source_draw_fps": 31.0625,
+          "frame_gap_ms": {
+            "p50": 32.04184,
+            "p95": 44.293466,
+            "max": 63.60037
+          }
+        }
+      }
+    }
+  },
+  "binary_sha256": {
+    "production_software": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20",
+    "stage_software": "4f90c240ee65584d64bfe3082502d56e8b11874bf3c3c48e6fc7982a5a82d622",
+    "stage_hardware_direct_nv12": "df280df69b1da8c3fd3fab5f4c06e787aefef59b3b6a906e93cb923a48349131",
+    "threads6": "3b6f0f78c610a7c1bb81ea075142a8031a2dba8a217189974341df4aa3bc8a58"
+  },
+  "runtime_experiment": {
+    "gpu": "Intel UHD 730 / renderD128",
+    "gstreamer_va": "1.28.2",
+    "driver": "intel-media-va-driver 26.1.2+dfsg1-1 (free Ubuntu universe)",
+    "dependency": "libigdgmm12 22.9.0+ds1-1",
+    "scope": "APT packages downloaded and extracted in /tmp only; LD_LIBRARY_PATH, LIBVA_DRIVER_NAME, LIBVA_DRIVERS_PATH and GST_REGISTRY scoped to benchmark subprocesses; no system installation or service environment change"
+  },
+  "limitations": [
+    "VA VPP XWayland comparisons use equally instrumented stage builds; unique capture IDs, message seq and byte sizes all match, stage times monotonic.",
+    "Direct NV12 XWayland rounds 3 and 4 both slowed sharply; keep all rounds and do not attribute background variation to encoder changes.",
+    "Native Wayland is exploratory: software binary is uninstrumented, candidate has X11-only stage hooks (no native capture timestamps); source draw rate differs, no native latency claim.",
+    "Initial direct GPU RGB conversion failed decoded quality tests (odd geometry and large aligned frame); preserved CPU I420 conversion variants passed the existing three-frame quality/lease test.",
+    "Prototype hardware auto-selection/fallback is experimental and not production hardened; not merged or deployed.",
+    "Only measured published frames included; no visual counter decoding during performance measurement; no remote display FPS or end-to-end latency claim."
+  ]
+}

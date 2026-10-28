@@ -1,0 +1,163 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "condition": {
+    "dimensions": [
+      2940,
+      1618
+    ],
+    "fps_cap": 60,
+    "feedback": false,
+    "capture": "private Xvfb / MIT-SHM",
+    "warmup_seconds": 2,
+    "measured_seconds_per_round": 8,
+    "order": [
+      "baseline",
+      "optimized",
+      "optimized",
+      "baseline"
+    ],
+    "clock": "Linux CLOCK_MONOTONIC; same host"
+  },
+  "definitions": {
+    "capture_start": "entry to pixel readback, after initial worker owner check; before X11 geometry/render/SHM read",
+    "capture_end": "immutable captured pixel snapshot complete, before handoff to controller",
+    "publish": "raw frame admitted to Output queue; this is not encoded publication",
+    "write_end": "complete encoded frame JSON line written to the local Unix socket; not a network or display endpoint"
+  },
+  "versions": {
+    "baseline": {
+      "published_frames": 659,
+      "capture_backends": [
+        "shm"
+      ],
+      "binary_sha256": "7406b2437a3426a636f3c7f4ba99732d2bad13ae3e5c51b0a10fb9f323147a40",
+      "milliseconds": {
+        "capture": {
+          "p50": 8.772864,
+          "p95": 20.058812,
+          "max": 27.792987
+        },
+        "capture_complete_to_publish_queue": {
+          "p50": 0.082201,
+          "p95": 21.451443,
+          "max": 196.885869
+        },
+        "encoder_queue": {
+          "p50": 6.310385,
+          "p95": 18.507892,
+          "max": 30.242735
+        },
+        "encoder_preparation": {
+          "p50": 0.005756,
+          "p95": 1.243117,
+          "max": 3.033017
+        },
+        "conversion_and_encoding": {
+          "p50": 19.875035,
+          "p95": 28.629142,
+          "max": 40.586286
+        },
+        "encoded_to_serialization": {
+          "p50": 0.068508,
+          "p95": 0.197538,
+          "max": 1.329352
+        },
+        "serialization": {
+          "p50": 0.03172,
+          "p95": 0.153986,
+          "max": 1.070249
+        },
+        "socket_write": {
+          "p50": 0.026384,
+          "p95": 0.078486,
+          "max": 1.168249
+        },
+        "capture_complete_to_write": {
+          "p50": 29.492332,
+          "p95": 49.231927,
+          "max": 223.304915
+        },
+        "capture_start_to_write": {
+          "p50": 39.551533,
+          "p95": 64.073197,
+          "max": 241.835975
+        }
+      }
+    },
+    "optimized": {
+      "published_frames": 714,
+      "capture_backends": [
+        "shm"
+      ],
+      "binary_sha256": "4f90c240ee65584d64bfe3082502d56e8b11874bf3c3c48e6fc7982a5a82d622",
+      "milliseconds": {
+        "capture": {
+          "p50": 9.299737,
+          "p95": 18.33189,
+          "max": 29.164485
+        },
+        "capture_complete_to_publish_queue": {
+          "p50": 0.0879885,
+          "p95": 15.029076,
+          "max": 138.967312
+        },
+        "encoder_queue": {
+          "p50": 0.0365695,
+          "p95": 9.860452,
+          "max": 18.82967
+        },
+        "encoder_preparation": {
+          "p50": 0.0051865,
+          "p95": 0.010347,
+          "max": 1.806429
+        },
+        "conversion_and_encoding": {
+          "p50": 15.3275535,
+          "p95": 22.413375,
+          "max": 38.924134
+        },
+        "encoded_to_serialization": {
+          "p50": 0.0694655,
+          "p95": 0.252663,
+          "max": 0.769908
+        },
+        "serialization": {
+          "p50": 0.0352335,
+          "p95": 0.175045,
+          "max": 2.756602
+        },
+        "socket_write": {
+          "p50": 0.027493,
+          "p95": 0.089196,
+          "max": 2.126307
+        },
+        "capture_complete_to_write": {
+          "p50": 17.586427999999998,
+          "p95": 34.55504,
+          "max": 155.692593
+        },
+        "capture_start_to_write": {
+          "p50": 28.396924,
+          "p95": 49.409962,
+          "max": 175.498429
+        }
+      }
+    }
+  },
+  "production_unchanged": {
+    "pid": 984137,
+    "sha256": "f542fdb14c8c272c32ba22025247c01b31688dc222fd3f6bef31da4dd0d8fc20"
+  },
+  "limitations": [
+    "Instrumentation has overhead; does not prove exact production latency",
+    "No application rendering or sampling-admission wait before readback entry",
+    "Only finally published frames are timed; dropped captures have no artificial write endpoint",
+    "No QUIC, client decode or display",
+    "Actual GNOME/XWayland continuous timing unavailable: private fixture stopped painting; failed preflights excluded"
+  ],
+  "archive": {
+    "file": "2026-10-28-publisher-stages.raw.json.gz",
+    "sha256": "351239551b050da7059c6269c9bd912443ea331825984b20d7c99f3890934962"
+  }
+}

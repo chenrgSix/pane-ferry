@@ -34,6 +34,8 @@ p.add_argument('--app-artifact-dir', type=Path,
                help='write only isolated-app frames to this existing directory')
 p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
 p.add_argument('--application-scene-only', action='store_true', help='test one scoped compositor stream')
+p.add_argument('--scroll-benchmark-output', type=Path, help='measure a synthetic 2940x1618 native scrolling scene instead of functional checks')
+p.add_argument('--x11-scroll-benchmark-output', type=Path, help='measure a test-owned XWayland scrolling window in this private compositor')
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
@@ -50,6 +52,10 @@ if a.private_bus:
         p.error('refusing to start a fixture on a bus that already owns GNOME Shell')
 if a.xwayland_resize_only and not a.with_xwayland:
     p.error('--xwayland-resize-only requires --with-xwayland')
+if a.x11_scroll_benchmark_output and not a.with_xwayland:
+    p.error('--x11-scroll-benchmark-output requires --with-xwayland')
+if a.x11_scroll_benchmark_output and a.scroll_benchmark_output:
+    p.error('select only one scroll benchmark')
 if not a.private_bus and os.environ.get('XDG_SESSION_TYPE') == 'tty':
     p.error('Run from the graphical login or via systemd-run --user --collect --wait --pipe; a headless GNOME launched in an SSH login may not render.')
 if not a.private_bus:
@@ -68,6 +74,8 @@ if not a.private_bus:
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--window-tree-only'] if a.window_tree_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
+            *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
+            *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
             *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])], env=isolated_env))
 root = Path(__file__).resolve().parents[2]
 children = []
@@ -143,6 +151,21 @@ try:
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
         shutil.copytree(a.extension_dir or root/'apps/linux-agent/gnome-extension',ext)
+        if a.x11_scroll_benchmark_output:
+            # Private compositor only: startup overview otherwise obscures the
+            # X11 fixture and suppresses its Present/GTK redraw callbacks.
+            extension = ext/'extension.js'
+            source = extension.read_text()
+            assert source.count('const r = JSON.parse(encoded);') == 1, 'private bridge injection anchor changed'
+            source = source.replace('const r = JSON.parse(encoded);', '''const r = JSON.parse(encoded);
+            if (r.op === 'test_reveal_scroll') {
+                Main.overview.hide();
+                const w=this.windows().find(w=>w.get_pid()===r.pid);
+                if (!w) throw new Error('window_unavailable');
+                w.unminimize(); Main.activateWindow(w);
+                invocation.return_value(new GLib.Variant('(s)',[JSON.stringify({result:{}})])); return;
+            }''')
+            extension.write_text(source)
         if a.xwayland_resize_only:
             # Test-only action in this private compositor. Never installed in
             # the user's desktop or available through the production bridge.
@@ -223,6 +246,16 @@ try:
                 print((t/'fixture.log').read_text(errors='replace')[-10000:],file=sys.stderr)
                 raise
             try:
+                if a.x11_scroll_benchmark_output:
+                    sys.path.insert(0, str(root / 'tests/performance'))
+                    from xwayland_scroll import verify
+                    verify(peer, env, t, log, start, wait, Bridge, a.x11_scroll_benchmark_output)
+                    raise SystemExit(0)
+                if a.scroll_benchmark_output:
+                    sys.path.insert(0, str(root / 'tests/performance'))
+                    from wayland_scroll import verify
+                    verify(peer, env, t, log, start, wait, Bridge, a.scroll_benchmark_output)
+                    raise SystemExit(0)
                 if a.xwayland_resize_only:
                     from xwayland_resize_test import verify
                     verify(sock, env, fixture, t, log, start, wait, Peer, Bridge)
