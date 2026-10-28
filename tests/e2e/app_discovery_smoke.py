@@ -100,9 +100,12 @@ try:
         display = next(n for n in range(2100, 3000) if not Path(f'/tmp/.X11-unix/X{n}').exists())
         subprocess.run(['xauth', '-f', str(authority), 'add', f':{display}',
                         'MIT-MAGIC-COOKIE-1', secrets.token_hex(16)], check=True)
+        # LANGUAGE still exercises the localized desktop entry. Use the
+        # portable UTF-8 locale for terminal bytes: clean Ubuntu runners need
+        # not have generated zh_CN.UTF-8, which makes older xterm drop bytes.
         env = dict(os.environ, HOME=str(home), XDG_DATA_HOME=str(user_data), XDG_DATA_DIRS=str(system_data),
                    DISPLAY=f':{display}', XAUTHORITY=str(authority), XDG_CURRENT_DESKTOP='GNOME',
-                   LANGUAGE='zh_CN', LANG='zh_CN.UTF-8', GDK_BACKEND='x11', GTK_IM_MODULE='simple',
+                   LANGUAGE='zh_CN', LANG='C.UTF-8', LC_CTYPE='C.UTF-8', GDK_BACKEND='x11', GTK_IM_MODULE='simple',
                    XMODIFIERS='@im=none', QT_IM_MODULE='compose')
         for key in ('LC_ALL', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'SESSION_MANAGER'):
             env.pop(key, None)
