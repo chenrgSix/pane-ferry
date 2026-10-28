@@ -86,7 +86,7 @@ import AppKit
         let tall = update(metadata(10, 20, "menu", CGRect(x: -450, y: 350, width: 200, height: 2000), 1))
         let scroll = tall.overflowViewport!
         precondition(workArea.insetBy(dx: -1, dy: -1).contains(tall.window.frame), "overlay stays above Dock and below menu bar")
-        precondition(abs(tall.surface.bounds.height - 1600) < 1 && abs(tall.surface.bounds.width - 160) < 1,
+        precondition(abs(tall.surface.frame.height - 1600) < 1 && abs(tall.surface.frame.width - 160) < 1,
                      "overflow must not shrink the source text")
         precondition(scroll.hasVerticalScroller && !scroll.hasHorizontalScroller)
         precondition(scroll.contentView.bounds.minY == 0, "a new menu starts at its first item")
@@ -111,8 +111,12 @@ import AppKit
         precondition(!messages.contains { $0["type"] as? String == "input.pointer" }, "local scroll must not also scroll the remote menu")
         scroll.contentView.scroll(to: CGPoint(x: 0, y: tall.surface.bounds.height - scroll.contentSize.height))
         scroll.reflectScrolledClipView(scroll.contentView)
-        let bottomPoint = CGPoint(x: tall.surface.bounds.midX, y: tall.surface.bounds.maxY - 8)
-        let bottomEvent = NSEvent.mouseEvent(with: .leftMouseDown, location: tall.surface.convert(bottomPoint, to: nil),
+        // NSEvent takes window points. A scroll view can retain a transformed
+        // document bounds space, so eight document units need not be eight
+        // visible points on every AppKit version.
+        let documentInWindow = tall.surface.convert(tall.surface.bounds, to: nil)
+        let bottomPoint = CGPoint(x: documentInWindow.midX, y: documentInWindow.minY + 8)
+        let bottomEvent = NSEvent.mouseEvent(with: .leftMouseDown, location: bottomPoint,
             modifierFlags: [], timestamp: 0, windowNumber: tall.window.windowNumber, context: nil,
             eventNumber: 2, clickCount: 1, pressure: 1)!
         tall.surface.mouseDown(with: bottomEvent); tall.surface.mouseUp(with: bottomEvent)
@@ -121,7 +125,7 @@ import AppKit
         // pixel boundary on older SDKs; source coordinates truncate to pixels.
         let bottomY = bottomPress["y"] as? Int ?? -1
         precondition(bottomPress["window_id"] as? UInt32 == 10 && abs(bottomY - 1990) <= 1,
-                     "clicking the visible bottom item must reach its source row: \(bottomPress)")
+                     "clicking the visible bottom item must reach its source row: \(bottomPress), frame=\(tall.surface.frame), bounds=\(tall.surface.bounds)")
         precondition(!messages.contains {
             [10, 11, 12].contains($0["window_id"] as? UInt32 ?? 0) &&
                 ["window.focus", "window.configure"].contains($0["type"] as? String ?? "")
@@ -131,7 +135,7 @@ import AppKit
         // Shrinking back to an ordinary menu removes the viewport and stale offset.
         _ = update(metadata(10, 20, "menu", CGRect(x: -450, y: 350, width: 200, height: 100), 1))
         precondition(tall.overflowViewport == nil && tall.window.contentView === tall.surface && !tall.surface.scrollOverflowLocally)
-        precondition(abs(tall.surface.bounds.height - 80) < 1)
+        precondition(abs(tall.surface.frame.height - 80) < 1)
         for id: UInt32 in [10, 11, 12, 20] { app.windows.removeValue(forKey: id)?.closeLocally(); app.parents.removeValue(forKey: id) }
         // Negative display origins and horizontal overflow use the same policy.
         let secondary = CGRect(x: -1600, y: -200, width: 1600, height: 900)
