@@ -1,0 +1,693 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "endpoint": "private XRender capture submission -> encoded H264 packet available",
+  "environment": {
+    "os": "Ubuntu 26.04.1",
+    "kernel": "7.0.0-38-generic",
+    "cpu": "Intel i5-13400",
+    "gpu": "Intel UHD 730",
+    "desktop": "GNOME 50.1 Wayland, private pixmaps on local XWayland",
+    "gstreamer": "1.28.2",
+    "intel_media_driver": "26.1.2+dfsg1-1, unpacked only, per-process environment"
+  },
+  "fixture": {
+    "dimensions": [
+      2940,
+      1618
+    ],
+    "storage_width": 2944,
+    "stride": 11776,
+    "dmabuf_modifier": 0,
+    "buffers": 3,
+    "warmup_frames": 16,
+    "measured_frames_per_trial": 90,
+    "pace": "unpaced serial; encoded PTS/DURATION 60 FPS",
+    "bitrate_bps": 28541520,
+    "max_qp": 28,
+    "gop": 60,
+    "b_frames": 0,
+    "capture_fence": "XSync reset/trigger/await; verify DRI3 export identity/layout; DMA-buf poll",
+    "cpu_sync": "CPU variants additionally use persistent RO map, DMA_BUF_SYNC READ START/END, one snapshot copy"
+  },
+  "primary": {
+    "software": {
+      "runs": 4,
+      "measured_frames": 360,
+      "decoded_frames": 424,
+      "capture_to_packet_ms": {
+        "p50": 21.2885335,
+        "p95": 31.604662,
+        "max": 57.161855
+      },
+      "stages_ms": {
+        "capture_prepare": {
+          "p50": 0.3818195,
+          "p95": 0.735857,
+          "max": 2.336824
+        },
+        "input_prepare": {
+          "p50": 7.9553565,
+          "p95": 15.297544,
+          "max": 21.629418
+        },
+        "convert_encode": {
+          "p50": 12.527427,
+          "p95": 19.609671,
+          "max": 34.937575
+        }
+      },
+      "process_cpu_percent": 156.61423920032354,
+      "process_cpu_ms_per_frame": 35.12959876666667,
+      "encoded_bytes_per_frame": 61666.4,
+      "trial_files": [
+        "comparison-v3-0-software.json",
+        "comparison-v3-1-software.json",
+        "comparison-v3-2-software.json",
+        "comparison-v3-3-software.json"
+      ],
+      "trial_p50_ms": [
+        21.292319499999998,
+        20.50307,
+        22.6556825,
+        20.427346999999997
+      ],
+      "trial_p95_ms": [
+        31.381772,
+        31.413909,
+        37.664428,
+        29.842506
+      ]
+    },
+    "staging-va": {
+      "runs": 4,
+      "measured_frames": 360,
+      "decoded_frames": 424,
+      "capture_to_packet_ms": {
+        "p50": 30.159896,
+        "p95": 39.687307,
+        "max": 50.728519
+      },
+      "stages_ms": {
+        "capture_prepare": {
+          "p50": 0.37578100000000003,
+          "p95": 0.695507,
+          "max": 3.831058
+        },
+        "input_prepare": {
+          "p50": 7.0379024999999995,
+          "p95": 11.850515,
+          "max": 17.126276
+        },
+        "convert_encode": {
+          "p50": 22.272605499999997,
+          "p95": 28.597429,
+          "max": 38.810514
+        }
+      },
+      "process_cpu_percent": 52.00645384580328,
+      "process_cpu_ms_per_frame": 16.03464897222222,
+      "encoded_bytes_per_frame": 60494.677777777775,
+      "trial_files": [
+        "comparison-v3-0-staging-va.json",
+        "comparison-v3-1-staging-va.json",
+        "comparison-v3-2-staging-va.json",
+        "comparison-v3-3-staging-va.json"
+      ],
+      "trial_p50_ms": [
+        30.683014,
+        30.018486,
+        29.181549500000003,
+        30.4040245
+      ],
+      "trial_p95_ms": [
+        40.962294,
+        36.314142,
+        38.995427,
+        41.282278
+      ]
+    },
+    "dmabuf-va": {
+      "runs": 4,
+      "measured_frames": 360,
+      "decoded_frames": 424,
+      "capture_to_packet_ms": {
+        "p50": 13.124315,
+        "p95": 18.16916,
+        "max": 20.955923
+      },
+      "stages_ms": {
+        "capture_prepare": {
+          "p50": 0.3904875,
+          "p95": 0.729754,
+          "max": 4.18446
+        },
+        "input_prepare": {
+          "p50": 3.351387,
+          "p95": 7.204048,
+          "max": 9.287444
+        },
+        "convert_encode": {
+          "p50": 8.6729225,
+          "p95": 11.876988,
+          "max": 16.662009
+        }
+      },
+      "process_cpu_percent": 10.01667186276725,
+      "process_cpu_ms_per_frame": 1.3840645333333335,
+      "encoded_bytes_per_frame": 60494.677777777775,
+      "trial_files": [
+        "comparison-v3-0-dmabuf-va.json",
+        "comparison-v3-1-dmabuf-va.json",
+        "comparison-v3-2-dmabuf-va.json",
+        "comparison-v3-3-dmabuf-va.json"
+      ],
+      "trial_p50_ms": [
+        12.692517500000001,
+        13.0278725,
+        13.766200000000001,
+        13.285176499999999
+      ],
+      "trial_p95_ms": [
+        17.058532,
+        16.710164,
+        19.918401,
+        18.002354
+      ]
+    }
+  },
+  "paired_rounds": [
+    {
+      "round": 0,
+      "software_ms": 21.292319499999998,
+      "staging_va_ms": 30.683014,
+      "dmabuf_va_ms": 12.692517500000001,
+      "dmabuf_vs_software_reduction": 0.40389221099185546,
+      "dmabuf_vs_staging_reduction": 0.5863340707011377
+    },
+    {
+      "round": 1,
+      "software_ms": 20.50307,
+      "staging_va_ms": 30.018486,
+      "dmabuf_va_ms": 13.0278725,
+      "dmabuf_vs_software_reduction": 0.36458918103484017,
+      "dmabuf_vs_staging_reduction": 0.566005011045527
+    },
+    {
+      "round": 2,
+      "software_ms": 22.6556825,
+      "staging_va_ms": 29.181549500000003,
+      "dmabuf_va_ms": 13.766200000000001,
+      "dmabuf_vs_software_reduction": 0.3923731937892403,
+      "dmabuf_vs_staging_reduction": 0.5282567157717242
+    },
+    {
+      "round": 3,
+      "software_ms": 20.427346999999997,
+      "staging_va_ms": 30.4040245,
+      "dmabuf_va_ms": 13.285176499999999,
+      "dmabuf_vs_software_reduction": 0.34963769401870937,
+      "dmabuf_vs_staging_reduction": 0.5630454613006907
+    }
+  ],
+  "quality": [
+    {
+      "schema": 1,
+      "dimensions": [
+        1470,
+        808
+      ],
+      "frames": 3,
+      "target_stride": 5888,
+      "color": "auto",
+      "gpu_sync": "wait",
+      "quality": [
+        {
+          "sequence": 0,
+          "software_mse": 119.52505360229901,
+          "dmabuf_mse": 109.10806700568016,
+          "markers": [
+            0,
+            0
+          ]
+        },
+        {
+          "sequence": 1,
+          "software_mse": 86.3602369165488,
+          "dmabuf_mse": 70.29267276217418,
+          "markers": [
+            1,
+            1
+          ]
+        },
+        {
+          "sequence": 2,
+          "software_mse": 115.24634073101187,
+          "dmabuf_mse": 103.90034013605442,
+          "markers": [
+            2,
+            2
+          ]
+        }
+      ],
+      "storage_alignment": 16,
+      "scroll": true,
+      "await_fence": true,
+      "quality_pass": true,
+      "conversion_caps": [
+        "video/x-raw, width=(int)1470, height=(int)808, framerate=(fraction)60/1, format=(string)I420",
+        "video/x-raw(memory:VAMemory), width=(int)1470, height=(int)808, framerate=(fraction)60/1, format=(string)NV12"
+      ],
+      "gpu_timings": [
+        {
+          "sequence": 0,
+          "render_begin_ns": 24522707404373,
+          "wrap_begin_ns": 24522707865837,
+          "wrapped_ns": 24522708676889,
+          "encoded_ns": 24522715148734
+        },
+        {
+          "sequence": 1,
+          "render_begin_ns": 24522735117086,
+          "wrap_begin_ns": 24522735499755,
+          "wrapped_ns": 24522736477049,
+          "encoded_ns": 24522742458979
+        },
+        {
+          "sequence": 2,
+          "render_begin_ns": 24522758971590,
+          "wrap_begin_ns": 24522759581968,
+          "wrapped_ns": 24522762461859,
+          "encoded_ns": 24522765213283
+        }
+      ],
+      "limitation": "Standalone serialized private pixmap prototype, not Agent publication latency"
+    },
+    {
+      "schema": 1,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "frames": 3,
+      "target_stride": 7680,
+      "color": "auto",
+      "gpu_sync": "wait",
+      "quality": [
+        {
+          "sequence": 0,
+          "software_mse": 117.86675909850823,
+          "dmabuf_mse": 107.28781667952676,
+          "markers": [
+            0,
+            0
+          ]
+        },
+        {
+          "sequence": 1,
+          "software_mse": 86.31834956918725,
+          "dmabuf_mse": 70.44054285622428,
+          "markers": [
+            1,
+            1
+          ]
+        },
+        {
+          "sequence": 2,
+          "software_mse": 113.64957818930041,
+          "dmabuf_mse": 101.92765560699588,
+          "markers": [
+            2,
+            2
+          ]
+        }
+      ],
+      "storage_alignment": 16,
+      "scroll": true,
+      "await_fence": true,
+      "quality_pass": true,
+      "conversion_caps": [
+        "video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60/1, format=(string)I420",
+        "video/x-raw(memory:VAMemory), width=(int)1920, height=(int)1080, framerate=(fraction)60/1, format=(string)NV12"
+      ],
+      "gpu_timings": [
+        {
+          "sequence": 0,
+          "render_begin_ns": 24523464656205,
+          "wrap_begin_ns": 24523464994389,
+          "wrapped_ns": 24523466445573,
+          "encoded_ns": 24523474585797
+        },
+        {
+          "sequence": 1,
+          "render_begin_ns": 24523497994037,
+          "wrap_begin_ns": 24523498278940,
+          "wrapped_ns": 24523500387587,
+          "encoded_ns": 24523506764622
+        },
+        {
+          "sequence": 2,
+          "render_begin_ns": 24523525674465,
+          "wrap_begin_ns": 24523526114123,
+          "wrapped_ns": 24523527594371,
+          "encoded_ns": 24523532406752
+        }
+      ],
+      "limitation": "Standalone serialized private pixmap prototype, not Agent publication latency"
+    },
+    {
+      "schema": 1,
+      "dimensions": [
+        2940,
+        1618
+      ],
+      "frames": 3,
+      "target_stride": 11776,
+      "color": "auto",
+      "gpu_sync": "wait",
+      "quality": [
+        {
+          "sequence": 0,
+          "software_mse": 117.9906210320964,
+          "dmabuf_mse": 107.59748002208713,
+          "markers": [
+            0,
+            0
+          ]
+        },
+        {
+          "sequence": 1,
+          "software_mse": 85.84922470842479,
+          "dmabuf_mse": 70.11441163610067,
+          "markers": [
+            1,
+            1
+          ]
+        },
+        {
+          "sequence": 2,
+          "software_mse": 113.55033165717873,
+          "dmabuf_mse": 102.13504907937629,
+          "markers": [
+            2,
+            2
+          ]
+        }
+      ],
+      "storage_alignment": 16,
+      "scroll": true,
+      "await_fence": true,
+      "quality_pass": true,
+      "conversion_caps": [
+        "video/x-raw, width=(int)2940, height=(int)1618, framerate=(fraction)60/1, format=(string)I420",
+        "video/x-raw(memory:VAMemory), width=(int)2940, height=(int)1618, framerate=(fraction)60/1, format=(string)NV12"
+      ],
+      "gpu_timings": [
+        {
+          "sequence": 0,
+          "render_begin_ns": 24524309746992,
+          "wrap_begin_ns": 24524310269576,
+          "wrapped_ns": 24524318489686,
+          "encoded_ns": 24524336540680
+        },
+        {
+          "sequence": 1,
+          "render_begin_ns": 24524387566689,
+          "wrap_begin_ns": 24524387899654,
+          "wrapped_ns": 24524391850328,
+          "encoded_ns": 24524405053499
+        },
+        {
+          "sequence": 2,
+          "render_begin_ns": 24524451366921,
+          "wrap_begin_ns": 24524451869977,
+          "wrapped_ns": 24524459808493,
+          "encoded_ns": 24524468644311
+        }
+      ],
+      "limitation": "Standalone serialized private pixmap prototype, not Agent publication latency"
+    },
+    {
+      "schema": 1,
+      "dimensions": [
+        640,
+        480
+      ],
+      "frames": 3,
+      "target_stride": 2560,
+      "color": "auto",
+      "gpu_sync": "wait",
+      "quality": [
+        {
+          "sequence": 0,
+          "software_mse": 95.011806640625,
+          "dmabuf_mse": 74.756748046875,
+          "markers": [
+            0,
+            0
+          ]
+        },
+        {
+          "sequence": 1,
+          "software_mse": 75.34247504340277,
+          "dmabuf_mse": 48.6991796875,
+          "markers": [
+            1,
+            1
+          ]
+        },
+        {
+          "sequence": 2,
+          "software_mse": 94.97191840277777,
+          "dmabuf_mse": 74.40388997395833,
+          "markers": [
+            2,
+            2
+          ]
+        }
+      ],
+      "storage_alignment": 16,
+      "scroll": true,
+      "await_fence": true,
+      "quality_pass": true,
+      "conversion_caps": [
+        "video/x-raw, width=(int)640, height=(int)480, framerate=(fraction)60/1, format=(string)I420",
+        "video/x-raw(memory:VAMemory), width=(int)640, height=(int)480, framerate=(fraction)60/1, format=(string)NV12"
+      ],
+      "gpu_timings": [
+        {
+          "sequence": 0,
+          "render_begin_ns": 24521937238487,
+          "wrap_begin_ns": 24521937953239,
+          "wrapped_ns": 24521938724189,
+          "encoded_ns": 24521947465377
+        },
+        {
+          "sequence": 1,
+          "render_begin_ns": 24521955663562,
+          "wrap_begin_ns": 24521956353732,
+          "wrapped_ns": 24521959775759,
+          "encoded_ns": 24521963323011
+        },
+        {
+          "sequence": 2,
+          "render_begin_ns": 24521967585662,
+          "wrap_begin_ns": 24521969023531,
+          "wrapped_ns": 24521969248941,
+          "encoded_ns": 24521971948030
+        }
+      ],
+      "limitation": "Standalone serialized private pixmap prototype, not Agent publication latency"
+    }
+  ],
+  "reuse_checks": [
+    {
+      "schema": 1,
+      "mode": "software",
+      "dimensions": [
+        2940,
+        1618
+      ],
+      "buffers": 3,
+      "stride": 11776,
+      "warmup": 16,
+      "await_fence": true,
+      "frames": 300,
+      "frame_markers_pass": true,
+      "decoded_frames": 316,
+      "keyframes": [
+        0,
+        60,
+        120,
+        180,
+        240,
+        300
+      ],
+      "keyframe_cadence_pass": true,
+      "capture_to_packet_ms": {
+        "p50": 22.6572365,
+        "p95": 33.560066,
+        "max": 45.128622
+      },
+      "input_ready_ms": {
+        "p50": 8.021976,
+        "p95": 15.240879,
+        "max": 28.647269
+      },
+      "convert_encode_ms": {
+        "p50": 13.182330499999999,
+        "p95": 22.161932,
+        "max": 35.347452
+      },
+      "fps": 42.893366832408475,
+      "cpu_percent": 153.69032373802074,
+      "packet_bytes": 18644794,
+      "wall_ns": 6994088414,
+      "cpu_ns": 10749237126,
+      "caps": "video/x-raw, width=(int)2940, height=(int)1618, framerate=(fraction)60/1, format=(string)I420",
+      "limitation": "Serialized private pixmaps -> encoded packet; no Agent socket or remote endpoint"
+    },
+    {
+      "schema": 1,
+      "mode": "staging-va",
+      "dimensions": [
+        2940,
+        1618
+      ],
+      "buffers": 3,
+      "stride": 11776,
+      "warmup": 16,
+      "await_fence": true,
+      "frames": 300,
+      "frame_markers_pass": true,
+      "decoded_frames": 316,
+      "keyframes": [
+        0,
+        60,
+        120,
+        180,
+        240,
+        300
+      ],
+      "keyframe_cadence_pass": true,
+      "capture_to_packet_ms": {
+        "p50": 30.671551,
+        "p95": 44.679923,
+        "max": 67.013799
+      },
+      "input_ready_ms": {
+        "p50": 6.8711590000000005,
+        "p95": 12.554765,
+        "max": 34.679387
+      },
+      "convert_encode_ms": {
+        "p50": 23.2204665,
+        "p95": 32.014173,
+        "max": 49.020277
+      },
+      "fps": 31.003722905653945,
+      "cpu_percent": 51.97691425133256,
+      "packet_bytes": 19160018,
+      "wall_ns": 9676257297,
+      "cpu_ns": 5029419958,
+      "caps": "video/x-raw(memory:VAMemory), width=(int)2940, height=(int)1618, framerate=(fraction)60/1, format=(string)NV12",
+      "limitation": "Serialized private pixmaps -> encoded packet; no Agent socket or remote endpoint"
+    },
+    {
+      "schema": 1,
+      "mode": "dmabuf-va",
+      "dimensions": [
+        2940,
+        1618
+      ],
+      "buffers": 3,
+      "stride": 11776,
+      "warmup": 16,
+      "await_fence": true,
+      "frames": 300,
+      "frame_markers_pass": true,
+      "decoded_frames": 316,
+      "keyframes": [
+        0,
+        60,
+        120,
+        180,
+        240,
+        300
+      ],
+      "keyframe_cadence_pass": true,
+      "capture_to_packet_ms": {
+        "p50": 12.119534,
+        "p95": 17.120298,
+        "max": 21.090784
+      },
+      "input_ready_ms": {
+        "p50": 3.2727215000000003,
+        "p95": 6.909599,
+        "max": 11.257176
+      },
+      "convert_encode_ms": {
+        "p50": 8.319175,
+        "p95": 11.447894,
+        "max": 15.013042
+      },
+      "fps": 76.64455755787912,
+      "cpu_percent": 9.658612759986342,
+      "packet_bytes": 19160018,
+      "wall_ns": 3914172246,
+      "cpu_ns": 378054740,
+      "caps": "video/x-raw(memory:VAMemory), width=(int)2940, height=(int)1618, framerate=(fraction)60/1, format=(string)NV12",
+      "limitation": "Serialized private pixmaps -> encoded packet; no Agent socket or remote endpoint"
+    }
+  ],
+  "bitstream_identity": {
+    "frames": 316,
+    "sha256": "26c4a81afbc1c50455fdd1cc7a59ff3dbfef9cdd00cafd5720f0481f53ddf8eb",
+    "staging_and_dmabuf_identical": true
+  },
+  "trace": {
+    "frames": 62,
+    "event_counts": {
+      "vaCreateSurfaces.other": 399,
+      "vaDeriveImage": 3,
+      "vaDestroyImage": 3,
+      "vaCreateSurfaces.prime2": 62,
+      "prime2.pitch": 62,
+      "vaBeginPicture": 124,
+      "vaRenderPicture": 124,
+      "vaEndPicture": 124,
+      "vaSyncSurface": 62,
+      "vaMapBuffer2": 62,
+      "vaUnmapBuffer": 62
+    },
+    "dmabuf_cpu_maps": 0,
+    "input_image_maps": 0,
+    "nonzero_statuses": 0,
+    "descriptor_width": 2940,
+    "descriptor_pitch": 11776
+  },
+  "controls": {
+    "failed_stride": "width 2940, pitch 11760: full-image corruption persists with explicit fd poll; pitch 11776 passes",
+    "failed_sync": "without XSyncAwaitFence, software input counters intermittently equal previous slot sequence n-3 before encoding; all such trials excluded from primary",
+    "after_await": "5 dedicated software runs (530 frames), primary 1272, reuse 948, bitstream 632 and traced 62 frames all marker-correct",
+    "guard_smoke": "final source metadata/error/layout guards compile and pass 2940x1618 quality smoke; legacy DRI3 reply size guard corrected to fstat allocation size"
+  },
+  "binary_sha256": {
+    "libdmabuf_probe.so": "43dfdf73acc1c97867e17f18756a2477d4cbedcf48c0bdd14df42044f6efa275",
+    "libdmabuf_probe_counter.so": "ae9387bd68cc41f59ff7235244fb6e22a4871e63b20fcb83b18c9b7fd6e61129",
+    "libdmabuf_probe_final.so": "caeaf817a28f2c42b185050a783b5dbe7f36cb9d335998d19cd0d4398a0b6551",
+    "import_trace_v2.so": "d732ddc946ea8342532ba3a07a35cd67cfe722c4ebc832c32341944fe1853d45"
+  },
+  "limitations": [
+    "Standalone C/Python serial prototype, not production Agent socket publishing",
+    "No production queueing, window generation/resize/close, cancellation/reconfiguration/fallback or dedup integration tests",
+    "No QUIC, remote decode/display or macOS tests",
+    "Three BOs retained until encoder NULL; serial reuse only, no asynchronous multi-inflight lease validation",
+    "CPU time includes this process all threads, excludes XWayland/compositor/GPU work",
+    "Small full-frame reference set: 3 scroll frames per size; 316-frame hardware-to-hardware encoded stream is bit-identical",
+    "Driver accepts direct import with plain BGRx caps; explicit DMA_DRM XR24 caps rejected on this runtime",
+    "No universal 64-byte pitch or XSync behavior claim for other GPUs/drivers",
+    "GPU readback and upload avoided; GPU color conversion and synchronization still required"
+  ],
+  "deployed": false
+}

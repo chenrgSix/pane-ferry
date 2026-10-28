@@ -60,6 +60,83 @@ python3 tests/performance/publisher_stage_summary.py \
 起点为读像素入口；不含之前的应用绘制、等待采样，也不覆盖网络与客户端。不要部署诊断构建。
 后续核显编码、更多线程与真实 GPU 采集对照见[进一步优化试验](../../docs/performance/2026-10-28-further-optimization.md)。
 
+### GPU 读回与 VA 上传的细分
+
+`gpu_publisher_probe.py` 在上述独立源码副本中增加读回阶段的墙钟/线程 CPU 计时，
+以及原有 GStreamer 元件的 buffer pad probe。不会增加转换元件或读取 probe buffer 的画面内容。
+
+```sh
+python3 tests/performance/gpu_publisher_probe.py /tmp/gpu-publisher-probe
+cargo build --locked --release --manifest-path /tmp/gpu-publisher-probe/Cargo.toml \
+  --target-dir /tmp/gpu-publisher-target -p paneferry-agent
+PANEFERRY_PUBLISHER_TRACE=/tmp/gpu-publisher-trace.jsonl \
+  python3 tests/e2e/wayland_smoke.py \
+  --agent /tmp/gpu-publisher-target/release/paneferry-agent \
+  --with-xwayland --x11-scroll-benchmark-output /tmp/gpu-publisher-received.json
+python3 tests/performance/gpu_publisher_summary.py \
+  /tmp/gpu-publisher-received.json /tmp/gpu-publisher-trace.jsonl
+python3 tests/performance/gpu_probe_unit.py
+```
+
+每个独立源码目录必须使用独立 Cargo target 目录，再冻结被测二进制、记录哈希。
+不要依赖跨源码目录复用 target 的增量新鲜度判断。
+`--source-override` 可带入工作树源码；`--encoder-source /absolute/video.rs`
+仅用于另一个已准备好的实验编码器源码，不会安装它或自动选择硬编。
+
+读回诊断导出私有目标当前写 fence 的 sync_file，并在原有 poll 返回后查询内核 signal 时间。
+保留原有 GPU 完成等待、所有者/几何校验和 CPU START/END 同步，不设置 GPU 时钟、调度优先级或 deadline。
+导出失败会记录不可用；不能推定成零等待。已经 signaled 的旧 fence 没有本次唤醒延迟，汇总时单列数量。
+`same_thread_cpu_ms` 只统计同一个线程；颜色转换/x264 的其他工作线程不包含在此值中。
+
+对实验 VA 编码器，还可将 `va_transfer_probe.c` 编译为独立的 LD_PRELOAD 库。
+需要与运行时匹配的 libva 开发头文件；本机试验只将 Ubuntu 开发包解包到临时目录。
+
+```sh
+cc -std=c11 -O2 -Wall -Wextra -Werror -fPIC -shared \
+  -I/absolute/libva/include tests/performance/va_transfer_probe.c \
+  -o /tmp/va-transfer-probe.so -ldl -lpthread
+```
+
+仅给测试自有 Agent 的启动包装脚本设置 `LD_PRELOAD=/tmp/va-transfer-probe.so` 和
+`PANEFERRY_VA_TRACE=/tmp/new-va-trace.jsonl`，不要注入正式服务或整个合成器环境。
+VA API 的参数、返回值和缓冲内容保持原样，只记录调用时间、状态、对象 ID 与 image 大小；
+映射返回到解除映射入口的区间记录为 `image.mapped_span`，它包括调用方填充，并非 GPU DMA 的独立计时。
+用 `gpu_publisher_summary.py … --va-trace /tmp/new-va-trace.jsonl` 按同帧编码区间及线程匹配。
+格式转换到 VA 池可能在转换元件内部触发上传，不能只看 `encoder_element` 的时间。
+这类插桩结果不能与未插桩的正式吞吐直接相减；归因和候选对照见
+[GPU 读回/上传诊断记录](../../docs/performance/2026-10-28-gpu-readback-upload.md)。
+
+### 私有 DMA-buf 直达 GPU 的原型验证
+
+`dmabuf_native_probe.c` 和 `dmabuf_validation.py` 仅创建测试自有私有 pixmap，
+比较 CPU 快照/x264 与 DMA-buf → VA 转换/H.264；后者不创建 CPU 输入映射。
+需要本机 GPU X11/XWayland、GBM、Python cairo/GI、GStreamer 开发头文件和可用的 `vapostproc`/`vah264lpenc`。
+本机验证的驱动和头文件均只解包到临时目录。
+
+```sh
+cc -std=c11 -O2 -Wall -Wextra -Werror -fPIC -shared \
+  $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-allocators-1.0) \
+  tests/performance/dmabuf_native_probe.c -o /tmp/dmabuf-probe.so \
+  $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-allocators-1.0)
+/usr/bin/python3 tests/performance/dmabuf_validation.py --library /tmp/dmabuf-probe.so \
+  --width 2940 --height 1618 --storage-alignment 16 --await-fence --scroll \
+  --output /tmp/dmabuf-quality.json
+/usr/bin/python3 tests/performance/dmabuf_benchmark.py --library /tmp/dmabuf-probe.so \
+  --mode dmabuf-va --await-fence --frames 300 --output /tmp/dmabuf-reuse.json
+```
+
+性能比较分别运行 `software`、`staging-va`、`dmabuf-va`，每路必须使用相同的 `--await-fence`。
+按正序/反序交错，串行执行并保留所有失败。默认 16 帧预热、90 帧统计，三个 BO 轮换，编码后才解码检查。
+`--frames 300` 可覆盖计数回绕和多个 GOP；两个 VA 模式的 `stream_sha256` 可核对整个编码流是否相同。
+`dmabuf_decode_markers.py` 在计时结束后解码顶部标记，检查每帧，失败不会只报一个较快的数字。
+可用 `--artifacts` 在画质检查中输出自有测试图，默认不保存像素。
+
+`dmabuf_import_trace.c` 包含 VA 观察器并扩展 PRIME2/stride 和 GstDmaBufMemory CPU 映射计数，
+使用同样 GStreamer 头文件及 libva 头文件，以 `-shared -fPIC -ldl -lpthread` 编译。
+仅对该测试进程设置 `LD_PRELOAD` 与新的 `PANEFERRY_VA_TRACE` 文件，不将跟踪耗时作为正式性能值。
+此原型的终点是编码包可取；不包含正式 Agent 队列、socket、网络或控制端显示，也未验证异步缓冲租约。
+方法、失败条件与结果见 [DMA-buf 本机验证](../../docs/performance/2026-10-28-dmabuf-validation.md)。
+
 ## 已授权实际应用的右键菜单
 
 `popup_end_to_end.py` 用于用户明确授权的实际应用（例如 IDEA），不使用 GTK 计数夹具。
