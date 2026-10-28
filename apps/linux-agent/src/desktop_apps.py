@@ -22,12 +22,11 @@ import gi
 gi.require_version('Gio', '2.0')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gio, GLib, Gtk, GdkPixbuf
-try:
+DesktopAppInfo = getattr(Gio, 'DesktopAppInfo', None)
+if DesktopAppInfo is None:
     gi.require_version('GioUnix', '2.0')
     from gi.repository import GioUnix
     DesktopAppInfo = GioUnix.DesktopAppInfo
-except (ValueError, ImportError):
-    DesktopAppInfo = Gio.DesktopAppInfo
 
 
 def icon_theme():
