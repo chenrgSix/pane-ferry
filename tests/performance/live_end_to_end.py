@@ -120,9 +120,15 @@ def main():
     parser.add_argument('--scale', type=int, choices=(1, 2), default=1)
     parser.add_argument('--fps', type=int, choices=(30, 60), default=60)
     parser.add_argument('--samples', type=int, default=40)
+    parser.add_argument('--local-width', type=int, help='fixed Mac content width in points; pair with --local-height')
+    parser.add_argument('--local-height', type=int, help='fixed Mac content height in points; pair with --local-width')
     args = parser.parse_args()
     if not 1 <= args.samples <= 120:
         parser.error('--samples must be 1..120 (8-bit visual marker)')
+    if (args.local_width is None) != (args.local_height is None):
+        parser.error('--local-width and --local-height must be supplied together')
+    if args.local_width is not None and (args.local_width <= 0 or args.local_height <= 0):
+        parser.error('local content dimensions must be positive')
     if args.build_only:
         print(build(args.build_dir.resolve()))
         return
@@ -132,6 +138,8 @@ def main():
     env = dict(os.environ, PROBE_WIDTH=str(args.width), PROBE_HEIGHT=str(args.height),
                PROBE_SCALE=str(args.scale), PROBE_SAMPLES=str(args.samples),
                PROBE_OUTPUT=str(Path(args.output).resolve()))
+    if args.local_width is not None:
+        env.update(PROBE_LOCAL_WIDTH=str(args.local_width), PROBE_LOCAL_HEIGHT=str(args.local_height))
     subprocess.run([str(binary), '--native-peer', args.peer, '--native-state', args.state,
                     '--native-helper', args.helper, '--app', args.app, '--fps', str(args.fps)], env=env, check=True,
                    timeout=100)

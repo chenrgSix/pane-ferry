@@ -16,17 +16,32 @@ enum Probe {
     static let width = Int(ProcessInfo.processInfo.environment["PROBE_WIDTH"]!)!
     static let height = Int(ProcessInfo.processInfo.environment["PROBE_HEIGHT"]!)!
     static let scale = Int(ProcessInfo.processInfo.environment["PROBE_SCALE"] ?? "1")!
+    static let localSize: NSSize? = {
+        let env = ProcessInfo.processInfo.environment
+        guard let width = Double(env["PROBE_LOCAL_WIDTH"] ?? ""),
+              let height = Double(env["PROBE_LOCAL_HEIGHT"] ?? "") else { return nil }
+        return NSSize(width: width, height: height)
+    }()
     static var negotiatedFPS: Int?
     static let output = ProcessInfo.processInfo.environment["PROBE_OUTPUT"]!
     static func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
     static func configure(_ host: HostedWindow) {
         host.fixedPixels = (width, height)
-        let available = (host.window.screen ?? NSScreen.main!).visibleFrame.size
-        let ratio = min(1 / CGFloat(scale),
-                        min(available.width / CGFloat(width), (available.height - 30) / CGFloat(height)))
-        host.window.setContentSize(NSSize(width: CGFloat(width) * ratio, height: CGFloat(height) * ratio))
+        if let localSize = localSize {
+            host.window.setContentSize(localSize)
+        } else {
+            let available = (host.window.screen ?? NSScreen.main!).visibleFrame.size
+            let ratio = min(1 / CGFloat(scale),
+                            min(available.width / CGFloat(width), (available.height - 30) / CGFloat(height)))
+            host.window.setContentSize(NSSize(width: CGFloat(width) * ratio, height: CGFloat(height) * ratio))
+        }
         host.window.center()
+    }
+    static func localSizeMatches(_ host: HostedWindow) -> Bool {
+        guard let size = localSize else { return true }
+        return abs(host.surface.bounds.width - size.width) < 0.5
+            && abs(host.surface.bounds.height - size.height) < 0.5
     }
     static func start(_ value: AppDelegate) {
         delegate = value
@@ -40,6 +55,7 @@ enum Probe {
         }
         guard !started else { return }; started = true
         guard host.rendering.scale == scale else { finish(error: "source density does not match the test"); return }
+        guard localSizeMatches(host) else { finish(error: "local content size does not match the test"); return }
         // Exclude transport startup, first keyframe and decoder allocation from steady-state samples.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { next() }
     }
@@ -116,7 +132,7 @@ enum Probe {
         guard let host = delegate?.windows.values.first else { finish(error: "test window disappeared"); return }
         // A compositor/output change invalidates the comparison and its input
         // coordinates. Stop before injecting into a different source layout.
-        guard host.remoteVisible, host.rendering.scale == scale,
+        guard host.remoteVisible, host.rendering.scale == scale, localSizeMatches(host),
               host.surface.remoteWidth == width, host.surface.remoteHeight == height,
               host.surface.displayFrame?.width == width, host.surface.displayFrame?.height == height else {
             finish(error: "source geometry changed during measurement"); return
@@ -152,6 +168,7 @@ enum Probe {
         result["scale"] = delegate?.windows.values.first?.rendering.scale
         result["negotiated_fps"] = negotiatedFPS
         result["local_points"] = delegate?.windows.values.first.map { [Double($0.surface.bounds.width), Double($0.surface.bounds.height)] }
+        if let size = localSize { result["requested_local_points"] = [size.width, size.height] }
         if let screen = delegate?.windows.values.first?.window.screen {
             result["screen_maximum_fps"] = screen.maximumFramesPerSecond
             if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
