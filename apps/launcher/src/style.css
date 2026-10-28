@@ -188,3 +188,11 @@ footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 3
   button, .app-card { transition: none; }
   .app-card:hover:not(:disabled) { transform: none; }
 }
+/* Application-scoped rules share discovery, while each source stays explicit. */
+.automatic-fields { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
+.automatic-fields label { display: flex; flex: 1 1 240px; flex-direction: column; gap: 8px; }
+.automatic-fields select { width: 100%; }
+.automatic-applications { border: 1px solid var(--border, #dce3d6); border-radius: 12px; padding: 16px; max-height: 280px; overflow: auto; }
+.automatic-applications label { display: inline-flex; align-items: center; gap: 8px; margin: 8px 20px 8px 0; }
+.automatic-applications input { width: auto; }
+.automatic-enabled { padding-left: 20px; line-height: 1.8; }

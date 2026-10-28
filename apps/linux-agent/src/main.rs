@@ -336,6 +336,7 @@ struct State {
     desktop_requests: HashMap<String, (String, String)>,
     apps: Vec<App>,
     desktop_apps: Vec<discovery::DesktopApp>,
+    desktop_catalog_initialized: bool,
     desktop: Option<discovery::Desktop>,
     running: HashMap<String, discovery::RunningWindow>,
     wayland_running: HashMap<String, wayland::Target>,
@@ -385,6 +386,7 @@ fn catalog_operation<T>(
     current.running = work.running;
     current.wayland_running = work.wayland_running;
     current.desktop_apps = work.desktop_apps;
+    current.desktop_catalog_initialized = work.desktop_catalog_initialized;
     let sharing = current.sharing;
     drop(current);
     // Last-owner Session drops may wait for child processes. Keep those waits
@@ -526,6 +528,7 @@ fn serve() -> Result<()> {
         desktop_requests: HashMap::new(),
         apps,
         desktop_apps: vec![],
+        desktop_catalog_initialized: false,
         desktop,
         running: HashMap::new(),
         wayland_running: HashMap::new(),
@@ -748,6 +751,7 @@ fn launch(
     }
     if app_id.starts_with("desktop-") && !st.desktop_apps.iter().any(|a| a.id == app_id) {
         st.desktop_apps = discovery::applications()?;
+        st.desktop_catalog_initialized = true;
     }
     let discovered = st
         .desktop_apps
@@ -1634,6 +1638,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         let st = {
                             let mut current = state.lock().unwrap();
                             current.desktop_apps = result.unwrap_or_default();
+                            current.desktop_catalog_initialized = true;
                             current.clone()
                         };
                         let mut apps: Vec<_> =
@@ -1670,6 +1675,20 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             bail!("sharing disabled")
                         }
                         let mut st = state.lock().unwrap().clone();
+                        if !st.desktop_catalog_initialized {
+                            // A restored controller catalog may skip app.list.
+                            // Resolve application identities before publishing
+                            // the first window inventory, once per Agent run.
+                            st.desktop_apps = discovery::applications().unwrap_or_default();
+                            st.desktop_catalog_initialized = true;
+                            let mut current = state.lock().unwrap();
+                            if !current.desktop_catalog_initialized {
+                                current.desktop_apps = st.desktop_apps.clone();
+                                current.desktop_catalog_initialized = true;
+                            } else {
+                                st.desktop_apps = current.desktop_apps.clone();
+                            }
+                        }
                         let sources = discovery::desktops(&st.desktop, &st.apps);
                         let excluded: Vec<_> = st
                             .sessions
@@ -2300,6 +2319,7 @@ mod tests {
             desktop_requests: HashMap::new(),
             apps: vec![],
             desktop_apps: vec![],
+            desktop_catalog_initialized: false,
             desktop: None,
             running: HashMap::new(),
             wayland_running: HashMap::new(),

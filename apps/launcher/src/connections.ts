@@ -10,6 +10,7 @@ export type Connection = {
   kind: "desktop" | "remote";
   minimized: boolean;
   controlled: boolean;
+  applicationKey?: string;
 };
 
 // Windows and session metadata arrive independently. Match by session ID first,
@@ -37,6 +38,7 @@ export function connections(
       kind: window || session.display === 0 ? "desktop" : "remote",
       minimized: window?.minimized ?? false,
       controlled: session.controlled || Boolean(window?.controlled),
+      applicationKey: window?.application_key || window?.app_id || session.app_id,
     });
   }
   for (const window of windows) {
@@ -50,6 +52,7 @@ export function connections(
     rows.set(key, {
       key, appId: window.id, sessionId, name: window.name, title: window.title || "无标题窗口",
       icon_png: window.icon_png, kind: "desktop", minimized: window.minimized, controlled: window.controlled,
+      applicationKey: window.application_key || window.app_id || window.id,
     });
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name) || a.title.localeCompare(b.title) || a.key.localeCompare(b.key));

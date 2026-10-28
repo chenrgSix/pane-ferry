@@ -11,6 +11,7 @@ mod legacy_settings;
 mod local_node;
 mod network;
 use network::Device;
+mod auto_connect;
 mod window_host;
 #[tauri::command]
 async fn local_node_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -166,7 +167,12 @@ fn spawn_host(
     session_id: &str,
     icon_png: Option<String>,
     video_fps: u8,
+    source: Option<auto_connect::Source>,
 ) -> Result<u32, String> {
+    let peer = app.state::<auto_connect::Service>().peer(app, endpoint);
+    if let Some(existing) = peer.existing("", Some(session_id)) {
+        return Ok(existing.pid);
+    }
     // Icons are already in the launcher catalog/window cache. Deliver once over
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
@@ -196,12 +202,17 @@ fn spawn_host(
         .spawn()
         .map_err(|_| format!("原生宿主启动失败。远端会话 {session_id} 已保留，可重新连接。"))?;
     let pid = child.id();
+    if let Some(source) = source {
+        peer.register(session_id, source, pid, video_fps);
+    }
+    let session_id = session_id.to_owned();
     std::thread::spawn(move || {
         // A missing or corrupt icon never prevents the session from connecting.
         if let (Some(mut input), Some(icon)) = (child.stdin.take(), icon) {
             let _ = input.write_all(icon.as_bytes());
         }
         let _ = child.wait();
+        peer.closed(&session_id, pid);
     });
     Ok(pid)
 }
@@ -236,10 +247,21 @@ async fn resume_session(
     icon_png: Option<String>,
     app_name: Option<String>,
     video_fps: Option<u8>,
+    application_key: Option<String>,
 ) -> Result<LaunchResult, RequestFailure> {
     endpoint.validate()?;
     let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&session_id)?;
+    if let Some(key) = &application_key {
+        transport::validate_id(key)?;
+    }
+    let peer = app.state::<auto_connect::Service>().peer(&app, &endpoint);
+    let intent = peer.manual(&format!("resume-{session_id}"), &session_id);
+    let _gate = peer.gate.lock().await;
+    if let Some(result) = peer.existing("", Some(&session_id)) {
+        intent.resolve();
+        return Ok(result);
+    }
     let session = transport::sessions(&network::target(&app, &endpoint)?)
         .await
         .map_err(RequestFailure::from)?
@@ -251,6 +273,18 @@ async fn resume_session(
             "该会话已连接，请先在原宿主中断开，再重新连接。",
         ));
     }
+    let source = (session.mode.as_deref() != Some("desktop")).then(|| auto_connect::Source {
+        application_key: application_key.unwrap_or_else(|| session.app_id.clone()),
+        target_id: session.app_id.clone(),
+    });
+    if source.as_ref().is_some_and(|source| {
+        app.state::<auto_connect::Service>()
+            .configured_for(&endpoint.peer_id, &source.application_key)
+    }) {
+        app.state::<auto_connect::Service>()
+            .prepare_baseline(&app, &endpoint, &peer)
+            .await;
+    }
     let pid = spawn_host(
         &app,
         named_native_host(&app, &endpoint, &session.app_id, app_name.as_deref())
@@ -259,8 +293,10 @@ async fn resume_session(
         &session_id,
         icon_png,
         video_fps,
+        source,
     )
     .map_err(RequestFailure::local)?;
+    intent.resolve();
     Ok(LaunchResult {
         session_id: Some(session_id),
         display: Some(session.display.to_string()),
@@ -279,6 +315,63 @@ async fn launch_app(
     icon_png: Option<String>,
     app_name: Option<String>,
     video_fps: Option<u8>,
+    application_key: Option<String>,
+) -> Result<LaunchResult, LaunchFailure> {
+    endpoint.validate()?;
+    requested_video_fps(video_fps)?;
+    transport::validate_id(&app_id)?;
+    transport::validate_id(&request_id)?;
+    if let Some(key) = &application_key {
+        transport::validate_id(key)?;
+    }
+    let peer = app.state::<auto_connect::Service>().peer(&app, &endpoint);
+    let intent = peer.manual(&request_id, &app_id);
+    let _gate = peer.gate.lock().await;
+    if let Some(result) = peer.existing(&app_id, None) {
+        intent.resolve();
+        return Ok(result);
+    }
+    if app.state::<auto_connect::Service>().configured_for(
+        &endpoint.peer_id,
+        application_key.as_deref().unwrap_or(&app_id),
+    ) {
+        app.state::<auto_connect::Service>()
+            .prepare_baseline(&app, &endpoint, &peer)
+            .await;
+    }
+    let result = launch_connected(
+        app,
+        endpoint,
+        app_id,
+        request_id,
+        render_scale,
+        scene,
+        icon_png,
+        app_name,
+        video_fps,
+        application_key,
+    )
+    .await;
+    if result
+        .as_ref()
+        .err()
+        .is_none_or(|error| !error.retry_same_request)
+    {
+        intent.resolve();
+    }
+    result
+}
+async fn launch_connected(
+    app: tauri::AppHandle,
+    endpoint: Device,
+    app_id: String,
+    request_id: String,
+    render_scale: Option<u8>,
+    scene: Option<transport::SceneSize>,
+    icon_png: Option<String>,
+    app_name: Option<String>,
+    video_fps: Option<u8>,
+    application_key: Option<String>,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
     let video_fps = requested_video_fps(video_fps)?;
@@ -310,6 +403,10 @@ async fn launch_app(
         &session.session_id,
         icon_png,
         video_fps,
+        Some(auto_connect::Source {
+            application_key: application_key.unwrap_or_else(|| app_id.clone()),
+            target_id: app_id.clone(),
+        }),
     )
     .map_err(|message| LaunchFailure {
         kind: "client",
@@ -360,14 +457,21 @@ async fn start_desktop(
     let session =
         transport::start_desktop(&network::target(&app, &endpoint)?, &monitor_id, &request_id)
             .await?;
-    let pid = spawn_host(&app, path, &endpoint, &session.session_id, None, video_fps).map_err(
-        |message| LaunchFailure {
-            kind: "client",
-            message,
-            retry_same_request: true,
-            code: None,
-        },
-    )?;
+    let pid = spawn_host(
+        &app,
+        path,
+        &endpoint,
+        &session.session_id,
+        None,
+        video_fps,
+        None,
+    )
+    .map_err(|message| LaunchFailure {
+        kind: "client",
+        message,
+        retry_same_request: true,
+        code: None,
+    })?;
     Ok(LaunchResult {
         session_id: Some(session.session_id),
         display: Some(session.display),
@@ -378,6 +482,8 @@ async fn start_desktop(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            let settings = app.path().app_data_dir()?.join("automatic-windows.json");
+            app.manage(auto_connect::Service::open(settings));
             if let Ok(directory) = app.path().app_data_dir() {
                 if legacy_settings::retire(&directory).is_err() {
                     eprintln!("旧连接配置清理失败；当前仅支持设备配对连接。");
@@ -399,6 +505,8 @@ fn main() {
             launch_app,
             start_desktop,
             resume_session,
+            auto_connect::automatic_window_status,
+            auto_connect::set_automatic_window_rule,
             local_node_info,
             set_local_sharing,
             request_local_permissions,

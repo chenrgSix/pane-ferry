@@ -11,6 +11,8 @@ import type { Connection } from "./connections";
 import type { AppCatalog, AppInfo, DesktopMonitor, DesktopMonitors, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
 import { retireLegacyPreferences } from "./connection-preferences";
+import { automaticApplications, emptyAutomaticStatus } from "./automatic-windows";
+import type { AutomaticMode, AutomaticRule, AutomaticStatus } from "./automatic-windows";
 type Result = {
   session_id: string | null;
   display: string | null;
@@ -63,6 +65,54 @@ type NativePeer = {device_id:string; name:string; address:string; fingerprint:st
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
 const pairNotice = ref("");
 const selectedPeer = computed(() => nativePeers.value.find(peer => peer.device_id === endpoint.value.peerId));
+const automaticStatus = ref<AutomaticStatus>(emptyAutomaticStatus());
+const automaticApp = ref("");
+const automaticSaving = ref(false);
+const automaticError = ref("");
+let automaticRevision = 0;
+const automaticOptions = computed(() => automaticApplications(apps.value, desktopWindows.value, automaticStatus.value.rules));
+const automaticKey = computed(() => automaticOptions.value.some(app => app.id === automaticApp.value)
+  ? automaticApp.value : automaticOptions.value.find(app => automaticStatus.value.connectedApplications.includes(app.id))?.id || automaticOptions.value[0]?.id || "");
+const automaticRule = computed<AutomaticRule>(() => automaticStatus.value.rules.find(
+  item => item.applicationKey === automaticKey.value)?.rule || { mode: "off", applications: [] });
+async function readAutomatic() {
+  if (!valid.value || automaticSaving.value) return;
+  const sent = { ...endpoint.value }, revision = ++automaticRevision;
+  try {
+    const result = await invoke<AutomaticStatus>("automatic_window_status", { endpoint: sent });
+    if (!disposed && signature() === endpointKey(sent) && revision === automaticRevision) {
+      automaticStatus.value = result; automaticError.value = "";
+    }
+  } catch {
+    if (!disposed && signature() === endpointKey(sent) && revision === automaticRevision)
+      automaticError.value = "自动接入设置暂时无法读取。";
+  }
+}
+async function saveAutomatic(rule: AutomaticRule) {
+  if (automaticSaving.value || !valid.value || !automaticKey.value) return;
+  const selected = automaticOptions.value.find(app => app.id === automaticKey.value)!;
+  const sent = { ...endpoint.value }, revision = ++automaticRevision;
+  automaticSaving.value = true; automaticError.value = "";
+  try {
+    const result = await invoke<AutomaticStatus>("set_automatic_window_rule", {
+      preference: { peerId: sent.peerId, applicationKey: selected.id, name: selected.name, rule },
+    });
+    if (!disposed && signature() === endpointKey(sent) && revision === automaticRevision)
+      automaticStatus.value = result;
+  } catch {
+    if (!disposed && signature() === endpointKey(sent) && revision === automaticRevision)
+      automaticError.value = "自动接入设置保存失败，原设置保留，请重试。";
+  } finally { automaticSaving.value = false; }
+}
+function changeAutomaticMode(event: Event) {
+  const mode = (event.target as HTMLSelectElement).value as AutomaticMode;
+  void saveAutomatic({ mode, applications: [...automaticRule.value.applications] });
+}
+function changeAutomaticApplication(id: string, event: Event) {
+  const applications = new Set(automaticRule.value.applications);
+  if ((event.target as HTMLInputElement).checked) applications.add(id); else applications.delete(id);
+  void saveAutomatic({ mode: "selected", applications: [...applications] });
+}
 const addressEdits=ref<Record<string,string>>({});
 let inviteTimer:ReturnType<typeof setTimeout>|undefined;
 async function networkAction(body:Record<string,unknown>) { return invoke<any>("network_action",{body}); }
@@ -239,6 +289,8 @@ try {
   if (validPeerId(saved?.endpoint?.peerId)) endpoint.value = { peerId: saved.endpoint.peerId };
 } catch {}
 function restoreCatalog() {
+  ++automaticRevision;
+  automaticStatus.value = emptyAutomaticStatus(); automaticApp.value = ""; automaticError.value = "";
   stopRetry();
   stopStartupPoll();
   const cached = catalogCache.get(signature());
@@ -328,6 +380,7 @@ async function readRuntime(sent = { ...endpoint.value }) {
   }
   if (running.status === "fulfilled") reconcileStarting(sent, running.value);
   else scheduleStartupPoll();
+  void readAutomatic();
 }
 async function refresh() {
   if (busy.value || !valid.value) return;
@@ -385,6 +438,7 @@ async function launch(app: LaunchTarget) {
       videoFps: videoFPS.value,
       scene,
       iconPng: app.icon_png ?? null,
+      applicationKey: app.application_key || app.id,
     });
     attempts.resolve(key);
     startingApps.value = startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id);
@@ -439,7 +493,7 @@ async function openDesktop(monitor: DesktopMonitor) {
     busy.value = false;
   }
 }
-async function resume(sessionId: string, name: string, iconPng?: string | null) {
+async function resume(sessionId: string, name: string, iconPng?: string | null, applicationKey?: string) {
   if (busy.value || !valid.value) return;
   busy.value = true;
   error.value = "";
@@ -453,6 +507,7 @@ async function resume(sessionId: string, name: string, iconPng?: string | null) 
       appName: name,
       iconPng: iconPng ?? null,
       videoFps: videoFPS.value,
+      applicationKey: applicationKey ?? null,
     });
     if (signature() === endpointKey(sent)) record(name, result);
   } catch (e) {
@@ -470,8 +525,8 @@ async function connect(row: Connection) {
   const session = sessions.value.find(s => s.session_id === row.sessionId);
   const changingPresentation = session && session.display === 0 && session.mode !== "desktop" &&
     (session.mode === "scene") !== useApplicationScene(row.appId);
-  if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png);
-  else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png });
+  if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png, row.applicationKey);
+  else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png, application_key: row.applicationKey });
 }
 function onFocus() {
   if (disposed || !valid.value || attemptedEndpoint.value !== signature() || focusRead) return;
@@ -496,7 +551,7 @@ onMounted(() => {
   if (valid.value) void load();
   void readLocal();
   void readNetwork();
-  localTimer=setInterval(()=> {void readLocal(); void readNetwork();},5000);
+  localTimer=setInterval(()=> {void readLocal(); void readNetwork(); void readAutomatic();},5000);
 });
 onUnmounted(() => {
   disposed = true; runtimeRevision++; stopRetry(); stopStartupPoll();
@@ -620,6 +675,37 @@ onUnmounted(() => {
             <span class="window-state">{{ row.kind === "desktop" ? "原设备窗口" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
             <button :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
           </div>
+        </section>
+        <section v-if="valid && automaticOptions.length" class="panel automatic-windows">
+          <div class="section-title"><h2>新窗口自动接入</h2><span class="subtle-label">按应用保存 · 更改自动生效</span></div>
+          <p class="hint">应用连接期间，按它的规则接入远端新窗口。多个应用可以同时开启，同一窗口只显示一次，手动连接不会重复打开。</p>
+          <div class="automatic-fields">
+            <label for="automatic-app">配置哪个应用
+              <select id="automatic-app" :value="automaticKey" :disabled="automaticSaving" @change="automaticApp = ($event.target as HTMLSelectElement).value">
+                <option v-for="app in automaticOptions" :key="app.id" :value="app.id">{{ app.name }}</option>
+              </select>
+            </label>
+            <label for="automatic-mode">该应用连接时
+              <select id="automatic-mode" :value="automaticRule.mode" :disabled="automaticSaving" @change="changeAutomaticMode">
+                <option value="off">不自动接入</option><option value="all">接入全部新窗口</option><option value="selected">仅接入指定应用的新窗口</option>
+              </select>
+            </label>
+          </div>
+          <fieldset v-if="automaticRule.mode === 'selected'" class="automatic-applications" :disabled="automaticSaving">
+            <legend>允许自动接入的应用</legend>
+            <p class="hint">按窗口实际所属应用匹配。系统文件选择器等独立来源也需要加入名单。</p>
+            <label v-for="app in automaticOptions" :key="app.id">
+              <input type="checkbox" :checked="automaticRule.applications.includes(app.id)" @change="changeAutomaticApplication(app.id, $event)" />{{ app.name }}
+            </label>
+          </fieldset>
+          <p class="hint" role="status">{{ automaticSaving ? "正在保存…" : automaticRule.mode === "off" ? "此应用未开启自动接入。" : automaticStatus.connectedApplications.includes(automaticKey) ? "此应用已连接，规则在后台生效。" : "设置已保存，连接此应用后生效。" }}</p>
+          <ul v-if="automaticStatus.rules.some(item => item.rule.mode !== 'off')" class="automatic-enabled">
+            <li v-for="item in automaticStatus.rules.filter(item => item.rule.mode !== 'off')" :key="item.applicationKey">
+              {{ item.name }} · {{ item.rule.mode === "all" ? "全部新窗口" : `指定 ${item.rule.applications.length} 个应用` }} · {{ automaticStatus.connectedApplications.includes(item.applicationKey) ? "已连接" : "待连接" }}
+            </li>
+          </ul>
+          <p class="hint">仅接入启用后新出现的窗口。关闭接收窗口后冷却 5 秒；仍然存在的同一个窗口不会反复弹回，随时可以手动重连。退出启动器后停止自动接入。</p>
+          <p v-if="automaticError || automaticStatus.warning" class="alert error" role="alert">{{ automaticError || automaticStatus.warning }}</p>
         </section>
         <section v-if="custom.length" class="catalog">
           <div class="section-title"><h2>自定义入口 <span class="count">{{ custom.length }}</span></h2></div>

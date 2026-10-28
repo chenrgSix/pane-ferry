@@ -687,3 +687,47 @@ test("sharing mutation excludes concurrent polls and duplicate clicks until conf
     assert.equal(state.localNode.sharing_enabled, false);
   } finally { mounted.unmount(); }
 });
+
+test("application-scoped automatic rules allow two all rules and propagate the stable identity on manual connect", async () => {
+  const status = {rules: [], connectedApplications: ["firefox", "idea"], warning: ""};
+  const mounted = mount(storage(), {
+    list_desktop_windows: () => ({windows: [{...window("window-live"), application_key:"firefox"}], unavailable_reason:null}),
+    automatic_window_status: () => structuredClone(status),
+    set_automatic_window_rule: ({preference}) => {
+      status.rules = status.rules.filter(p => p.applicationKey !== preference.applicationKey);
+      status.rules.push(preference);
+      return structuredClone(status);
+    },
+  });
+  try {
+    await settled(mounted.state);
+    const state = mounted.state;
+    state.apps.push({id:"idea", name:"IDEA", source:"desktop", description:""});
+    state.automaticApp = "firefox";
+    await state.saveAutomatic({mode:"all", applications:[]});
+    state.automaticApp = "idea";
+    await state.saveAutomatic({mode:"all", applications:[]});
+    assert.deepEqual(status.rules.map(p => [p.applicationKey, p.rule.mode]), [["firefox","all"],["idea","all"]]);
+    assert.ok(status.rules.every(p => p.peerId === endpoint.peerId));
+    await state.connect(state.runningConnections.find(row => row.appId === "window-live"));
+    assert.equal(actions(mounted).at(-1).args.applicationKey, "firefox");
+    assert.equal(actions(mounted).at(-1).args.appId, "window-live");
+  } finally { mounted.unmount(); }
+});
+
+test("an automatic-rule save finishing after device selection cannot overwrite the new device settings", async () => {
+  let finish;
+  const mounted = mount(storage(), {
+    automatic_window_status: () => ({rules: [], connectedApplications: [], warning:""}),
+    set_automatic_window_rule: ({preference}) => new Promise(resolve => { finish = () => resolve({rules:[preference], connectedApplications:[], warning:""}); }),
+  });
+  try {
+    await settled(mounted.state);
+    const saving = mounted.state.saveAutomatic({mode:"all", applications:[]});
+    mounted.state.endpoint = {peerId:"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"};
+    await nextTick();
+    finish(); await saving;
+    assert.equal(mounted.state.automaticStatus.rules.length, 0);
+    assert.equal(mounted.state.automaticSaving, false);
+  } finally { mounted.unmount(); }
+});
