@@ -111,11 +111,13 @@ import AppKit
         precondition(!messages.contains { $0["type"] as? String == "input.pointer" }, "local scroll must not also scroll the remote menu")
         scroll.contentView.scroll(to: CGPoint(x: 0, y: tall.surface.bounds.height - scroll.contentSize.height))
         scroll.reflectScrolledClipView(scroll.contentView)
-        // NSEvent takes window points. A scroll view can retain a transformed
-        // document bounds space, so eight document units need not be eight
-        // visible points on every AppKit version.
-        let documentInWindow = tall.surface.convert(tall.surface.bounds, to: nil)
-        let bottomPoint = CGPoint(x: documentInWindow.midX, y: documentInWindow.minY + 8)
+        // The owner can finish its initial screen placement while AppKit is
+        // processing the wheel event. Target source row 1990 at the current
+        // document size, rather than assuming it is still 1600 points tall.
+        let bottomPoint = tall.surface.convert(CGPoint(x: tall.surface.bounds.midX,
+            y: tall.surface.bounds.maxY - tall.surface.bounds.height * 10 / 2000), to: nil)
+        precondition(scroll.contentView.bounds.contains(scroll.contentView.convert(bottomPoint, from: nil)),
+                     "the tested source row must actually be visible after scrolling")
         let bottomEvent = NSEvent.mouseEvent(with: .leftMouseDown, location: bottomPoint,
             modifierFlags: [], timestamp: 0, windowNumber: tall.window.windowNumber, context: nil,
             eventNumber: 2, clickCount: 1, pressure: 1)!
