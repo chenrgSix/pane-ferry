@@ -20,8 +20,59 @@
     "mac_release_build_and_strict_signature": "passed",
     "installed_ui_stale_rule_disabled": true,
     "actual_chatgpt_rule": "all",
-    "real_cross_protocol_chooser_after_fix": "pending desktop relogin",
+    "real_cross_protocol_chooser_after_fix": "passed after user desktop relogin; see activation_verification",
     "end_to_end_latency": "not measured"
+  },
+  "activation_verification": {
+    "date": "2026-10-28",
+    "loaded_bridge_version": 6,
+    "method": "Installed Mac UI over paired QUIC; read-only GNOME and RWP metadata",
+    "application_rule": "all new windows for actual ChatGPT application key",
+    "existing_desktop_parent": {
+      "backend": "X11",
+      "display": 0,
+      "gnome_window_id": 8,
+      "xwindow": 25165828,
+      "output_pixels": [1470, 794],
+      "controlled_throughout": true
+    },
+    "folder_chooser": {
+      "trigger": "File > New Project > Add folder",
+      "title": "Select Project Root",
+      "backend": "Wayland",
+      "gnome_window_id": 9,
+      "parent_id": 8,
+      "automatically_connected": true,
+      "separate_controlled_session": true,
+      "mac_receiver_count": 1,
+      "output_pixels": [1470, 798],
+      "directory_navigation": "passed: Music empty-folder view",
+      "remote_cancel_closes_receiver": true
+    },
+    "file_chooser": {
+      "trigger": "Composer + > Files and folders",
+      "title": "选择文件",
+      "backend": "Wayland",
+      "gnome_window_id": 13,
+      "parent_id": null,
+      "automatically_connected": true,
+      "mac_receiver_count": 1,
+      "output_pixels": [1470, 798],
+      "directory_navigation": "passed: Music empty-folder view",
+      "local_close_preserves_source_window": true,
+      "no_automatic_receiver_at_seconds_after_local_close": 71.565,
+      "manual_reconnect": "passed: same source window and session, one receiver, navigation position retained",
+      "remote_cancel_closes_receiver": true
+    },
+    "additional_path": "Fresh launcher-created private X11 session also displayed its folder chooser; this was not used as proof of mixed-protocol coverage",
+    "cleanup": "Test selectors and uncreated project dialog cancelled; private test launch exited; desktop receiver disconnected; existing desktop ChatGPT remains connected",
+    "files_selected_or_uploaded": false,
+    "projects_created": false,
+    "limits": [
+      "Manual reconnect coexistence verified; concurrent manual/automatic request race not exercised live",
+      "No full multi-application acceptance or long-running stress test",
+      "No latency benchmark or file-upload test"
+    ]
   },
   "deployment": {
     "mac_launcher_running_pid": 74309,
