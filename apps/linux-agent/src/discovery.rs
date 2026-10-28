@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use paneferry_core::{App, SessionBus};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
@@ -241,6 +242,17 @@ pub struct RunningWindow {
     pub minimized: bool,
     pub icon_png: Option<String>,
 }
+/// An application preference survives process/window recreation. Window IDs
+/// remain the separate attachment identity; this key never grants ownership.
+pub fn application_key(catalog_id: Option<&str>, executable: &Path) -> String {
+    catalog_id.map(str::to_owned).unwrap_or_else(|| {
+        use std::os::unix::ffi::OsStrExt;
+        format!(
+            "executable-{:x}",
+            Sha256::digest(executable.as_os_str().as_bytes())
+        )
+    })
+}
 impl RunningWindow {
     pub fn app(&self) -> App {
         App {
@@ -261,7 +273,8 @@ impl RunningWindow {
     pub fn public(&self, controlled: bool, session_id: Option<String>) -> Value {
         json!({"id":self.id,"app_id":self.app_id,"window_id":self.window_id,"name":self.name,"title":self.title,
             "icon_png":self.icon_png,"minimized":self.minimized,"controlled":controlled,"session_id":session_id,
-            "application_scene":false})
+            "application_scene":false,"auto_connectable":true,
+            "application_key":application_key(self.app_id.as_deref(), &self.identity.executable)})
     }
 }
 pub fn running(
@@ -364,6 +377,17 @@ pub fn is_receiver(identity: &ProcessIdentity) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn application_preferences_use_catalog_or_executable_not_window_title_or_pid() {
+        assert_eq!(
+            application_key(Some("desktop-editor"), Path::new("/bin/editor")),
+            "desktop-editor"
+        );
+        let key = application_key(None, Path::new("/opt/editor"));
+        assert_eq!(key, application_key(None, Path::new("/opt/editor")));
+        assert_ne!(key, application_key(None, Path::new("/other/editor")));
+        assert!(paneferry_protocol::identifier(&key));
+    }
     #[test]
     fn feishu_startup_scale_is_scoped_to_the_known_renderer_and_respects_explicit_args() {
         let mut app: DesktopApp = serde_json::from_value(json!({

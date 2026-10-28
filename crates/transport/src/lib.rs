@@ -43,6 +43,12 @@ pub struct DesktopWindowInfo {
     pub session_id: Option<String>,
     #[serde(default)]
     pub application_scene: bool,
+    /// Stable application preference identity, independent of the window ID.
+    #[serde(default)]
+    pub application_key: Option<String>,
+    /// Old publishers do not advertise safe automatic window discovery.
+    #[serde(default)]
+    pub auto_connectable: bool,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct DesktopWindows {
@@ -381,6 +387,9 @@ pub async fn desktop_windows(endpoint: &Target) -> Result<DesktopWindows, Error>
         validate_id(&window.id)?;
         if let Some(app) = &window.app_id {
             validate_id(app)?;
+        }
+        if let Some(key) = &window.application_key {
+            validate_id(key)?;
         }
         if let Some(session) = &window.session_id {
             validate_id(session)?;
@@ -788,6 +797,22 @@ mod unified_transport_tests {
             drop(read);
             task.await.unwrap();
         }
+    }
+    #[test]
+    fn legacy_window_inventory_does_not_silently_enable_automatic_capture() {
+        let value = json!({"id":"window-1","window_id":1,"name":"Editor","title":"Document",
+            "icon_png":null,"minimized":false,"controlled":false});
+        let window: DesktopWindowInfo = serde_json::from_value(value.clone()).unwrap();
+        assert!(!window.auto_connectable);
+        assert!(window.application_key.is_none());
+        let window: DesktopWindowInfo = serde_json::from_value(json!({
+            "application_key":"desktop-editor","auto_connectable":true,
+            "id":value["id"],"window_id":1,"name":"Editor","title":"Document",
+            "icon_png":null,"minimized":false,"controlled":false
+        }))
+        .unwrap();
+        assert!(window.auto_connectable);
+        assert_eq!(window.application_key.as_deref(), Some("desktop-editor"));
     }
     #[tokio::test]
     async fn native_target_uses_same_handshake_errors_and_validation() {

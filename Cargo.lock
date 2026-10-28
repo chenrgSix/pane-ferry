@@ -492,6 +492,7 @@ dependencies = [
  "paneferry-protocol",
  "serde",
  "serde_json",
+ "sha2",
  "signal-hook",
  "x11rb",
 ]

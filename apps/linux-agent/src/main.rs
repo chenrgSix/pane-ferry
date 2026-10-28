@@ -1716,8 +1716,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         windows.extend(st.wayland_running.values().map(|target| {
                             let session = st.sessions.values().find_map(|session| {
                                 let s = session.lock().unwrap();
+                                // The backend's acquired compositor scope also
+                                // includes dialogs owned by a different process.
                                 (s.wayland
-                                    && s.existing.as_ref() == Some(&target.identity)
                                     && s.backend
                                         .as_ref()
                                         .is_some_and(|b| b.includes_window(target.info.window_id)))

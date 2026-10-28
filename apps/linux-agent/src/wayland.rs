@@ -130,7 +130,9 @@ impl Target {
         json!({"id":self.id(), "app_id":self.catalog_id, "window_id":self.info.window_id,
             "name":self.info.name,"title":self.info.title,"icon_png":self.icon,
             "minimized":self.info.minimized,"controlled":controlled,"session_id":session,
-            "application_scene":self.info.bridge_version >= 4})
+            "application_scene":self.info.bridge_version >= 4,
+            "auto_connectable":!self.info.is_popup(),
+            "application_key":crate::discovery::application_key(self.catalog_id.as_deref(), &self.identity.executable)})
     }
 }
 struct Rpc {
