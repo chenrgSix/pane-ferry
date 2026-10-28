@@ -525,7 +525,7 @@ onUnmounted(() => {
       <div class="aside-bottom">
         <span class="network-note"><span class="status-dot" />本地网络 · 加密连接</span>
         <p>应用留在原设备<br />窗口来到当前桌面</p>
-        <small>开发预览 0.1.0</small>
+        <small>开发预览 0.1.2</small>
       </div>
     </aside>
     <main>

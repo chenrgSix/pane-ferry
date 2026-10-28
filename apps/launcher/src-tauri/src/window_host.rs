@@ -171,7 +171,7 @@ fn prepare_inner(
         ("CFBundlePackageType", "APPL"),
         ("CFBundleInfoDictionaryVersion", "6.0"),
         ("CFBundleVersion", "1"),
-        ("CFBundleShortVersionString", "0.1.0"),
+        ("CFBundleShortVersionString", env!("CARGO_PKG_VERSION")),
         ("LSMinimumSystemVersion", "12.0"),
     ] {
         properties.insert(key.into(), value.into());

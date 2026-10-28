@@ -16,8 +16,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>窗渡 PaneFerry</string>
 <key>CFBundleExecutable</key><string>PaneFerryNode</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>0.1.1</string>
-<key>CFBundleShortVersionString</key><string>0.1.1</string>
+<key>CFBundleVersion</key><string>0.1.2</string>
+<key>CFBundleShortVersionString</key><string>0.1.2</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>

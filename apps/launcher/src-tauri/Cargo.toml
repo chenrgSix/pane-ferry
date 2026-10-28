@@ -1,7 +1,7 @@
 [package]
 license = "PolyForm-Noncommercial-1.0.0"
 name = "paneferry-launcher"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 [workspace]
 [build-dependencies]

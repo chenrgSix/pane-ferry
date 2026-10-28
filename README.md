@@ -2,9 +2,9 @@
 
 在 Mac 和 Ubuntu 之间双向使用对方的图形应用。每台设备同时可以发布和接收，应用和文件仍留在原设备。
 
-Ubuntu 现提供可双击安装的 `.deb` 包（`paneferry_0.1.1-1_amd64.deb`），也保留原脚本安装包。
+Ubuntu 现提供可双击安装的 `.deb` 包（`paneferry_0.1.2-1_amd64.deb`），也保留原脚本安装包。
 
-**开始使用：[下载 v0.1.1 预览版](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.1) · [使用教程](docs/usage.md) · [版本记录](CHANGELOG.md)**
+**开始使用：[下载 v0.1.2 预览版](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.2) · [使用教程](docs/usage.md) · [版本记录](CHANGELOG.md)**
 
 许可证：[PolyForm Noncommercial 1.0.0](LICENSE)。商业用途须符合许可证的明确授权范围或另行取得授权，详见下方[许可证与商业授权](#许可证与商业授权)。
 

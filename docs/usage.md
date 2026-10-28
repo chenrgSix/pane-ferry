@@ -1,15 +1,15 @@
 # 窗渡 PaneFerry 使用教程
 
-适用于 **v0.1.1 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
+适用于 **v0.1.2 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
 
 ## 1. 下载与安装
 
-从 [v0.1.1 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.1) 下载对应安装包和 `SHA256SUMS`：
+从 [v0.1.2 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.2) 下载对应安装包和 `SHA256SUMS`：
 
 | 设备 | 安装包 | 支持范围 |
 | --- | --- | --- |
-| Apple Silicon Mac | `paneferry-v0.1.1-macos-arm64.zip` | 要求 macOS 13 或更高；本次构建与门禁在 macOS 27.0.1 完成 |
-| Ubuntu x86_64（推荐） | `paneferry_0.1.1-1_amd64.deb` | 本次在 Ubuntu 26.04.1 / GNOME 50 构建；其他发行版、旧版 glibc 与桌面环境未验收 |
+| Apple Silicon Mac | `paneferry-v0.1.2-macos-arm64.zip` | 要求 macOS 13 或更高；本次构建与门禁在 macOS 27.0.1 完成 |
+| Ubuntu x86_64（推荐） | `paneferry_0.1.2-1_amd64.deb` | 本次在 Ubuntu 26.04.1 / GNOME 50 构建；其他发行版、旧版 glibc 与桌面环境未验收 |
 
 Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文件名`，将输出与 `SHA256SUMS` 中对应文件的值核对。不要将源码 ZIP 当作可直接运行的安装包。
 
@@ -23,7 +23,7 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 
 ### Ubuntu：双击安装（推荐）
 
-1. 下载 `paneferry_0.1.1-1_amd64.deb`，在“文件”中双击它。
+1. 下载 `paneferry_0.1.2-1_amd64.deb`，在“文件”中双击它。
 2. 使用“应用中心 / 软件安装”打开，点击“安装”，按系统提示输入本机管理员密码。包管理器会下载所需依赖，因此首次安装需要可用的软件源和网络。
 3. 安装完成后，在应用菜单搜索并打开 **窗渡 PaneFerry**。后台组件以当前登录用户身份启动，无需手动运行安装脚本或以 root 身份打开程序。
 4. 要接管原桌面 Wayland 窗口，在“扩展”中启用“窗渡 PaneFerry”。首次安装可能需要保存工作后注销、重新登录，让 GNOME 识别扩展；独立 X11 应用不需要这一步。
@@ -31,7 +31,7 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 如果双击没有进入安装器，右键选择“打开方式 → 应用中心 / 软件安装”，也可使用 GDebi。测试中的隔离 Ubuntu 26.04 桌面使用 GDebi 完成了文件管理器双击安装；这不代表所有应用中心版本都已实测。可选命令行安装方式是：
 
 ```sh
-sudo apt install ./paneferry_0.1.1-1_amd64.deb
+sudo apt install ./paneferry_0.1.2-1_amd64.deb
 ```
 
 `.deb` 安装到系统目录，程序入口为 `/usr/bin/paneferry`，许可证在 `/usr/share/doc/paneferry/LICENSE`。安装、重装和升级不会主动停止正在运行的 Agent 或应用；保存工作并退出旧会话后，再重启用户服务或重新登录使用更新。卸载前也应保存并关闭应用，随后从软件管理器移除，或运行 `sudo apt remove paneferry`。卸载不会删除用户的配对、配置和数据。
@@ -40,7 +40,7 @@ sudo apt install ./paneferry_0.1.1-1_amd64.deb
 
 ### Ubuntu：脚本安装包（保留兼容）
 
-`paneferry-v0.1.1-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
+`paneferry-v0.1.2-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
 
 ```sh
 sudo apt update
@@ -55,8 +55,8 @@ sudo apt install python3-gi python3-gi-cairo python3-websocket \
 在下载目录解压并安装：
 
 ```sh
-tar -xzf paneferry-v0.1.1-linux-x86_64.tar.gz
-cd paneferry-v0.1.1-linux-x86_64
+tar -xzf paneferry-v0.1.2-linux-x86_64.tar.gz
+cd paneferry-v0.1.2-linux-x86_64
 bash install.sh
 ```
 
