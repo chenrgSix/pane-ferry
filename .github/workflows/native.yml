@@ -25,6 +25,7 @@ jobs:
         run: ./scripts/check.sh
       - name: X11 discovery ownership and native codec regression
         run: |
+          xvfb-run -a -s "-screen 0 1280x800x24 -noreset" cargo test -p paneferry-backend-x11 closed_window_admission_rescans_without_interrupting_another_window -- --ignored --test-threads=1
           python3 tests/e2e/app_discovery_smoke.py --agent target/debug/paneferry-agent
           cargo test -p paneferry-agent video::tests::native_encoder_preserves_pixels_and_releases_capture_leases -- --ignored
   macos:

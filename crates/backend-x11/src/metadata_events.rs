@@ -37,6 +37,9 @@ impl MetadataEvents {
     pub fn clear(&self) {
         self.dirty.set(false);
     }
+    pub fn refresh(&self) {
+        self.dirty.set(true);
+    }
     pub fn watch(&self, conn: &RustConnection, id: u32, selected: EventMask) {
         let wanted = EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE;
         if !self.enabled() || selected.contains(wanted) {

@@ -371,11 +371,22 @@ impl Backend {
         let Some(id) = candidates.first().copied() else {
             return Ok(());
         };
-        self.known(id)?;
-        let owner = if self.process_id.is_some() {
-            Some(Identity::read(self.client_pid(id)?)?.0)
-        } else {
-            None
+        let owner = self.known(id).and_then(|_| {
+            if self.process_id.is_some() {
+                Ok(Some(Identity::read(self.client_pid(id)?)?.0))
+            } else {
+                Ok(None)
+            }
+        });
+        let owner = match owner {
+            Ok(owner) => owner,
+            Err(_) => {
+                // A close or ownership change can precede its queued metadata
+                // event. Refuse this job and refresh its scope, not the stream.
+                frames.invalidate(id, true);
+                self.metadata.refresh();
+                return Ok(());
+            }
         };
         let slot = &frames.slots[&id];
         let job = Job {
@@ -385,7 +396,23 @@ impl Backend {
         };
         // Rearm on the event connection before submitting to the independent
         // readback connection. New Damage during the job must survive completion.
-        self.damage.borrow_mut().acknowledge(&self.conn, id)?;
+        let rearm = self.damage.borrow_mut().acknowledge(&self.conn, id);
+        if let Err(error) = rearm {
+            let gone = self
+                .conn
+                .get_window_attributes(id)?
+                .reply()
+                .is_err_and(|e| {
+                    matches!(e, x11rb::errors::ReplyError::X11Error(e)
+                    if e.error_kind == x11rb::protocol::ErrorKind::Window)
+                });
+            if !gone {
+                return Err(error);
+            }
+            frames.invalidate(id, true);
+            self.metadata.refresh();
+            return Ok(());
+        }
         frames.slots.get_mut(&id).unwrap().last_started = Some(Instant::now());
         frames.cursor = id;
         capture
@@ -577,6 +604,90 @@ mod tests {
             )?
             .check()?;
         painter.free_gc(gc)?.check()?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a private Xvfb DISPLAY with XRES, DAMAGE, SHM and Composite; run serially"]
+    fn closed_window_admission_rescans_without_interrupting_another_window() -> Result<()> {
+        for scoped in [false, true] {
+            let (mut backend, painter, closed) = fixture()?;
+            let live = painter.generate_id()?;
+            painter
+                .create_window(
+                    x11rb::COPY_DEPTH_FROM_PARENT,
+                    live,
+                    backend.root,
+                    400,
+                    0,
+                    320,
+                    240,
+                    0,
+                    WindowClass::INPUT_OUTPUT,
+                    0,
+                    &CreateWindowAux::new(),
+                )?
+                .check()?;
+            painter.map_window(live)?.check()?;
+            painter
+                .change_property32(
+                    PropMode::REPLACE,
+                    backend.root,
+                    backend.atom("_NET_CLIENT_LIST"),
+                    AtomEnum::WINDOW,
+                    &[closed.window_id, live],
+                )?
+                .check()?;
+            if scoped {
+                painter
+                    .change_property32(
+                        PropMode::REPLACE,
+                        closed.window_id,
+                        backend.atom("WM_TRANSIENT_FOR"),
+                        AtomEnum::WINDOW,
+                        &[live],
+                    )?
+                    .check()?;
+                backend.process_id = Some(std::process::id());
+                backend.root_window = Some(live);
+                painter
+                    .composite_redirect_window(
+                        live,
+                        x11rb::protocol::composite::Redirect::AUTOMATIC,
+                    )?
+                    .check()?;
+            }
+            backend.scan()?;
+            backend.enable_async_capture()?;
+            backend.metadata.clear();
+            // The server has destroyed this target, but its notification has
+            // not reached the controller's metadata pump yet.
+            painter.destroy_window(closed.window_id)?.check()?;
+            backend.prepare_capture(Duration::ZERO)?;
+            assert!(
+                backend.metadata_ready(),
+                "invalid admission must request a fresh inventory"
+            );
+            assert!(!backend.capture_busy());
+            assert_eq!(
+                backend.capture_delay(Duration::ZERO),
+                Some(Duration::ZERO),
+                "the other window must remain eligible for capture"
+            );
+            backend.pump_capture_events()?;
+            backend.scan()?;
+            assert!(!backend.windows.contains_key(&closed.window_id));
+            let window = backend.windows[&live].clone();
+            paint(&painter, live, 320, 240, 0xff0000)?;
+            wait(|| {
+                backend.pump_capture_events()?;
+                backend.prepare_capture(Duration::ZERO)?;
+                Ok(backend.capture_needed(live))
+            })?;
+            let image = backend.take_capture(&window, 320, 240)?;
+            assert_eq!(&image.data[..3], &[0, 0, 255]);
+            painter.destroy_window(live)?.check()?;
+        }
         Ok(())
     }
 
