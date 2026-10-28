@@ -117,8 +117,11 @@ import AppKit
             eventNumber: 2, clickCount: 1, pressure: 1)!
         tall.surface.mouseDown(with: bottomEvent); tall.surface.mouseUp(with: bottomEvent)
         let bottomPress = messages.first { $0["type"] as? String == "input.pointer" && $0["pressed"] as? Bool == true }!
-        precondition(bottomPress["window_id"] as? UInt32 == 10 && bottomPress["y"] as? Int == 1990,
-                     "clicking the visible bottom item reaches that source row, not the top of the menu")
+        // AppKit's document/window conversion can land just below an integer
+        // pixel boundary on older SDKs; source coordinates truncate to pixels.
+        let bottomY = bottomPress["y"] as? Int ?? -1
+        precondition(bottomPress["window_id"] as? UInt32 == 10 && abs(bottomY - 1990) <= 1,
+                     "clicking the visible bottom item must reach its source row: \(bottomPress)")
         precondition(!messages.contains {
             [10, 11, 12].contains($0["window_id"] as? UInt32 ?? 0) &&
                 ["window.focus", "window.configure"].contains($0["type"] as? String ?? "")
