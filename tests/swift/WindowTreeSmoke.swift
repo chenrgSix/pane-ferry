@@ -137,7 +137,9 @@ import AppKit
         // Shrinking back to an ordinary menu removes the viewport and stale offset.
         _ = update(metadata(10, 20, "menu", CGRect(x: -450, y: 350, width: 200, height: 100), 1))
         precondition(tall.overflowViewport == nil && tall.window.contentView === tall.surface && !tall.surface.scrollOverflowLocally)
-        precondition(abs(tall.surface.frame.height - 80) < 1)
+        let ordinaryHeight = scrollRoot.surface.imageRect.height * 100 / 500
+        precondition(abs(tall.surface.frame.height - ordinaryHeight) < 1,
+                     "an ordinary menu follows the owner's current image scale: \(tall.surface.frame), owner=\(scrollRoot.surface.imageRect)")
         for id: UInt32 in [10, 11, 12, 20] { app.windows.removeValue(forKey: id)?.closeLocally(); app.parents.removeValue(forKey: id) }
         // Negative display origins and horizontal overflow use the same policy.
         let secondary = CGRect(x: -1600, y: -200, width: 1600, height: 900)
