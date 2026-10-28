@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-28",
+  "revisions": {"extension": "68d265b", "launcher": "6a52f6a"},
+  "observed_failure": {
+    "inactive_custom_rule": true,
+    "parent_backend": "X11",
+    "chooser_backend": "Wayland",
+    "chooser_transient_for_parent": true,
+    "chooser_in_window_inventory": true,
+    "chooser_auto_connectable": true,
+    "chooser_controlled": false,
+    "manual_connection_error": "session_controlled",
+    "rustdesk_observation": "unavailable: repeated computer-use timeout"
+  },
+  "verification": {
+    "mixed_scope_unit_regression": "passed, both acquisition orders and ownership boundaries",
+    "isolated_gnome_native_window_tree": "passed, existing native fixture with Xwayland enabled",
+    "frontend_tests_passed": 45,
+    "launcher_rust_tests_passed": 18,
+    "mac_release_build_and_strict_signature": "passed",
+    "installed_ui_stale_rule_disabled": true,
+    "actual_chatgpt_rule": "all",
+    "real_cross_protocol_chooser_after_fix": "pending desktop relogin",
+    "end_to_end_latency": "not measured"
+  },
+  "deployment": {
+    "mac_launcher_running_pid": 74309,
+    "mac_launcher_sha256": "a274b5deb521cf1369da9d12221dcce7fb7298e2e5b833e7eef3b3ec8203b025",
+    "extension_js_sha256": "3825d08b6bc3722611c3c22893eee17a6d872a27144e652cb589d11e2e2bd299",
+    "extension_metadata_sha256": "59e0a459dd887dfe1364bbe9cc14e47c11dc269e51c2f4977cfa353fc4c6bc99",
+    "installed_bridge_version": 6,
+    "loaded_bridge_version_at_check": 5,
+    "ubuntu_agent_binary_changed": false,
+    "desktop_logout_performed": false,
+    "mac_backup": "dist/mixed-window-fix-20261028/previous",
+    "ubuntu_backup": "~/.local/state/lan-remoteapp/upgrades/mixed-window-68d265b"
+  }
+}
