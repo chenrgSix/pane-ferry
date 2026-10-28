@@ -131,7 +131,7 @@ try:
                                     'time.sleep(60)\n')
         def desktop(directory, name, extra=''):
             (directory/'applications'/name).write_text('[Desktop Entry]\nType=Application\nName=Base Name\nName[zh_CN]=发现测试\n'
-                f'Icon={icon}\nExec=/usr/bin/xterm -title "Discovered-only" -e /usr/bin/python3 {terminal_program} %U\n'+extra)
+                f'Icon={icon}\nExec=/usr/bin/xterm -u8 -title "Discovered-only" -e /usr/bin/python3 {terminal_program} %U\n'+extra)
         desktop(system_data, 'sample.desktop')
         desktop(user_data, 'sample.desktop', 'Comment=User override\n')
         desktop(system_data, 'masked.desktop')
@@ -262,7 +262,7 @@ try:
         launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=True)
         launch.send(type='input.key', window_id=frame['window_id'], keysym=0xff0d, pressed=False)
         wait(terminal_input.exists, 'owned xterm accepted controller text')
-        assert terminal_input.read_text().strip() == '终端输入中文🙂'
+        assert terminal_input.read_text().strip() == '终端输入中文🙂', repr(terminal_input.read_text())
         sessions = Peer(sock)
         assert {s['session_id'] for s in sessions.request('session.list')['sessions']} == {beta_session, started['session_id']}
         # Private PaneFerry desktops must not appear as original desktop windows.
