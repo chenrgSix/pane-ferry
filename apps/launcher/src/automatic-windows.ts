@@ -8,14 +8,15 @@ export const emptyAutomaticStatus = (): AutomaticStatus => ({ rules: [], connect
 
 // Preference identities come from the publisher. Never use a document title
 // or a PID/window ID as the persistent identity of a discovered application.
-export function automaticApplications(apps: AppInfo[], windows: DesktopWindow[], saved: AutomaticPreference[]) {
-  const options = new Map<string, string>();
-  for (const rule of saved) options.set(rule.applicationKey, rule.name);
+export function automaticApplications(apps: AppInfo[], windows: DesktopWindow[], saved: AutomaticPreference[], connected: string[] = []) {
+  const options = new Map<string, { name: string; unavailableReason: string }>();
+  for (const rule of saved) options.set(rule.applicationKey, { name: rule.name, unavailableReason: "当前未发现此应用，请刷新运行状态。" });
+  for (const app of apps) options.set(app.id, { name: app.name, unavailableReason: app.unavailable_reason || "" });
   for (const window of windows) {
     const key = window.application_key || window.app_id;
-    if (key) options.set(key, window.name);
+    if (key) options.set(key, { name: options.get(key)?.name || window.name, unavailableReason: "" });
   }
-  for (const app of apps) options.set(app.id, app.name);
-  return [...options].map(([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return [...options].map(([id, option]) => ({ id, ...option, connected: connected.includes(id),
+    unavailableReason: connected.includes(id) ? "" : option.unavailableReason }))
+    .sort((a, b) => Number(b.connected) - Number(a.connected) || Number(Boolean(a.unavailableReason)) - Number(Boolean(b.unavailableReason)) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }

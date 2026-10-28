@@ -7,7 +7,7 @@ use paneferry_transport::{self as transport, DesktopWindowInfo};
 pub use policy::{Mode, Rule};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::Write,
     os::unix::fs::OpenOptionsExt,
@@ -68,6 +68,13 @@ struct Data {
     connected: HashSet<String>,
     had_connection: bool,
     warning: String,
+    connection_failures: BTreeMap<String, String>,
+}
+impl Data {
+    fn refresh_connection_failures(&mut self, windows: &[DesktopWindowInfo]) {
+        self.connection_failures
+            .retain(|id, _| windows.iter().any(|w| &w.id == id && !w.controlled));
+    }
 }
 pub struct Peer {
     pub gate: tokio::sync::Mutex<()>,
@@ -294,10 +301,12 @@ impl Service {
         Status {
             rules,
             connected_applications: connected,
-            warning: if data.warning.is_empty() {
-                self.settings_warning.lock().unwrap().clone()
-            } else {
+            warning: if !data.warning.is_empty() {
                 data.warning.clone()
+            } else if let Some(message) = data.connection_failures.values().next() {
+                message.clone()
+            } else {
+                self.settings_warning.lock().unwrap().clone()
             },
         }
     }
@@ -370,6 +379,7 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
             data.planner.disarm();
             data.had_connection = false;
             data.warning.clear();
+            data.connection_failures.clear();
             return;
         }
         if data.waiting > 0 {
@@ -406,6 +416,7 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
             return;
         }
         data.windows = snapshot.windows.clone();
+        data.refresh_connection_failures(&snapshot.windows);
         data.connected = sessions
             .iter()
             .filter(|s| s.controlled && data.hosts.contains_key(&s.session_id))
@@ -413,6 +424,7 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
             .collect();
         let rules = service.rules_for(&endpoint.peer_id, &data, true);
         if rules.is_empty() {
+            data.connection_failures.clear();
             if data.had_connection {
                 data.planner.disarm();
             }
@@ -469,11 +481,15 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
     .await;
     let mut data = peer.data.lock().unwrap();
     match result {
-        Ok(_) => data.planner.finish(&window.id, false, peer.now()),
+        Ok(_) => {
+            data.planner.finish(&window.id, false, peer.now());
+            data.connection_failures.remove(&window.id);
+        }
         Err(error) => {
             data.planner
                 .finish(&window.id, error.retry_same_request, peer.now());
-            data.warning = format!("新窗口暂未接入：{}", error.message);
+            data.connection_failures
+                .insert(window.id, format!("新窗口暂未接入：{}", error.message));
         }
     }
 }
@@ -481,6 +497,47 @@ async fn tick(app: &tauri::AppHandle, endpoint: &Device, peer: &Arc<Peer>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn successful_inventory_does_not_hide_a_failed_connection() {
+        let service = Service::open(std::env::temp_dir().join(uuid::Uuid::new_v4().to_string()));
+        let p = peer();
+        service
+            .peers
+            .lock()
+            .unwrap()
+            .insert("device".into(), p.clone());
+        let mut window: DesktopWindowInfo = serde_json::from_value(serde_json::json!({
+            "id":"chooser","window_id":1,"name":"Files","title":"Select",
+            "icon_png":null,"minimized":false,"controlled":false
+        }))
+        .unwrap();
+        {
+            let mut data = p.data.lock().unwrap();
+            data.connection_failures
+                .insert("chooser".into(), "connection failed".into());
+            data.warning = "inventory failed".into();
+        }
+        assert_eq!(service.status("device").warning, "inventory failed");
+        {
+            let mut data = p.data.lock().unwrap();
+            data.warning.clear();
+            data.refresh_connection_failures(&[window.clone()]);
+        }
+        assert_eq!(service.status("device").warning, "connection failed");
+        window.controlled = true;
+        p.data
+            .lock()
+            .unwrap()
+            .refresh_connection_failures(&[window]);
+        assert!(service.status("device").warning.is_empty());
+        {
+            let mut data = p.data.lock().unwrap();
+            data.connection_failures
+                .insert("closed".into(), "closed failure".into());
+            data.refresh_connection_failures(&[]);
+        }
+        assert!(service.status("device").warning.is_empty());
+    }
     fn peer() -> Arc<Peer> {
         Arc::new(Peer {
             gate: tokio::sync::Mutex::new(()),

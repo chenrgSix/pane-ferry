@@ -715,6 +715,27 @@ test("application-scoped automatic rules allow two all rules and propagate the s
   } finally { mounted.unmount(); }
 });
 
+test("obsolete automatic sources cannot be enabled and their saved rule can still be disabled", async () => {
+  const rule = {peerId:endpoint.peerId, applicationKey:"old", name:"Firefox（现有窗口）", rule:{mode:"all", applications:[]}};
+  const mounted = mount(storage(), {
+    list_apps: () => ({apps:[app, {...app, id:"old", name:rule.name, unavailable_reason:"原进程已退出"}], discovery_error:null}),
+    automatic_window_status: () => ({rules:[rule], connectedApplications:["firefox"], warning:""}),
+    set_automatic_window_rule: ({preference}) => ({rules:[preference], connectedApplications:["firefox"], warning:""}),
+  });
+  try {
+    await settled(mounted.state);
+    const state = mounted.state;
+    await state.readAutomatic();
+    assert.equal(state.automaticKey, "firefox");
+    state.automaticApp = "old";
+    assert.equal(state.automaticUnavailable, "原进程已退出");
+    await state.saveAutomatic({mode:"all", applications:[]});
+    assert.equal(mounted.calls.filter(c => c.command === "set_automatic_window_rule").length, 0);
+    await state.saveAutomatic({mode:"off", applications:[]});
+    assert.equal(mounted.calls.find(c => c.command === "set_automatic_window_rule").args.preference.rule.mode, "off");
+  } finally { mounted.unmount(); }
+});
+
 test("an automatic-rule save finishing after device selection cannot overwrite the new device settings", async () => {
   let finish;
   const mounted = mount(storage(), {

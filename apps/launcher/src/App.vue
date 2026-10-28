@@ -70,9 +70,10 @@ const automaticApp = ref("");
 const automaticSaving = ref(false);
 const automaticError = ref("");
 let automaticRevision = 0;
-const automaticOptions = computed(() => automaticApplications(apps.value, desktopWindows.value, automaticStatus.value.rules));
+const automaticOptions = computed(() => automaticApplications(apps.value, desktopWindows.value, automaticStatus.value.rules, automaticStatus.value.connectedApplications));
 const automaticKey = computed(() => automaticOptions.value.some(app => app.id === automaticApp.value)
   ? automaticApp.value : automaticOptions.value.find(app => automaticStatus.value.connectedApplications.includes(app.id))?.id || automaticOptions.value[0]?.id || "");
+const automaticUnavailable = computed(() => automaticOptions.value.find(app => app.id === automaticKey.value)?.unavailableReason || "");
 const automaticRule = computed<AutomaticRule>(() => automaticStatus.value.rules.find(
   item => item.applicationKey === automaticKey.value)?.rule || { mode: "off", applications: [] });
 async function readAutomatic() {
@@ -91,6 +92,7 @@ async function readAutomatic() {
 async function saveAutomatic(rule: AutomaticRule) {
   if (automaticSaving.value || !valid.value || !automaticKey.value) return;
   const selected = automaticOptions.value.find(app => app.id === automaticKey.value)!;
+  if (rule.mode !== "off" && selected.unavailableReason) return;
   const sent = { ...endpoint.value }, revision = ++automaticRevision;
   automaticSaving.value = true; automaticError.value = "";
   try {
@@ -682,26 +684,27 @@ onUnmounted(() => {
           <div class="automatic-fields">
             <label for="automatic-app">配置哪个应用
               <select id="automatic-app" :value="automaticKey" :disabled="automaticSaving" @change="automaticApp = ($event.target as HTMLSelectElement).value">
-                <option v-for="app in automaticOptions" :key="app.id" :value="app.id">{{ app.name }}</option>
+                <option v-for="app in automaticOptions" :key="app.id" :value="app.id">{{ app.name }}{{ app.connected ? " · 已连接" : app.unavailableReason ? " · 入口不可用" : "" }}</option>
               </select>
             </label>
             <label for="automatic-mode">该应用连接时
               <select id="automatic-mode" :value="automaticRule.mode" :disabled="automaticSaving" @change="changeAutomaticMode">
-                <option value="off">不自动接入</option><option value="all">接入全部新窗口</option><option value="selected">仅接入指定应用的新窗口</option>
+                <option value="off">不自动接入</option><option value="all" :disabled="Boolean(automaticUnavailable)">接入全部新窗口</option><option value="selected" :disabled="Boolean(automaticUnavailable)">仅接入指定应用的新窗口</option>
               </select>
             </label>
           </div>
-          <fieldset v-if="automaticRule.mode === 'selected'" class="automatic-applications" :disabled="automaticSaving">
+          <p v-if="automaticUnavailable" class="hint" role="status">此入口当前不可用，规则不会生效。{{ automaticUnavailable }} 请选择正在连接的应用；旧规则仍可关闭。</p>
+          <fieldset v-if="automaticRule.mode === 'selected'" class="automatic-applications" :disabled="automaticSaving || Boolean(automaticUnavailable)">
             <legend>允许自动接入的应用</legend>
             <p class="hint">按窗口实际所属应用匹配。系统文件选择器等独立来源也需要加入名单。</p>
             <label v-for="app in automaticOptions" :key="app.id">
               <input type="checkbox" :checked="automaticRule.applications.includes(app.id)" @change="changeAutomaticApplication(app.id, $event)" />{{ app.name }}
             </label>
           </fieldset>
-          <p class="hint" role="status">{{ automaticSaving ? "正在保存…" : automaticRule.mode === "off" ? "此应用未开启自动接入。" : automaticStatus.connectedApplications.includes(automaticKey) ? "此应用已连接，规则在后台生效。" : "设置已保存，连接此应用后生效。" }}</p>
+          <p v-if="!automaticUnavailable" class="hint" role="status">{{ automaticSaving ? "正在保存…" : automaticRule.mode === "off" ? "此应用未开启自动接入。" : automaticStatus.connectedApplications.includes(automaticKey) ? "此应用已连接，规则在后台生效。" : "设置已保存，连接此应用后生效。" }}</p>
           <ul v-if="automaticStatus.rules.some(item => item.rule.mode !== 'off')" class="automatic-enabled">
             <li v-for="item in automaticStatus.rules.filter(item => item.rule.mode !== 'off')" :key="item.applicationKey">
-              {{ item.name }} · {{ item.rule.mode === "all" ? "全部新窗口" : `指定 ${item.rule.applications.length} 个应用` }} · {{ automaticStatus.connectedApplications.includes(item.applicationKey) ? "已连接" : "待连接" }}
+              {{ item.name }} · {{ item.rule.mode === "all" ? "全部新窗口" : `指定 ${item.rule.applications.length} 个应用` }} · {{ automaticStatus.connectedApplications.includes(item.applicationKey) ? "已连接" : automaticOptions.find(app => app.id === item.applicationKey)?.unavailableReason ? "入口不可用" : "待连接" }}
             </li>
           </ul>
           <p class="hint">仅接入启用后新出现的窗口。关闭接收窗口后冷却 5 秒；仍然存在的同一个窗口不会反复弹回，随时可以手动重连。退出启动器后停止自动接入。</p>
