@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-28",
+  "code_revisions": {
+    "takeover": "b9d89ec",
+    "video_activity": "2f9b2a0",
+    "retry_errors": "8face76",
+    "static_resume": "38692d7"
+  },
+  "behavior": [
+    "Device-wide import of existing eligible windows and subsequent windows without an application anchor",
+    "One coordinator per paired device; manually connected and controlled windows are reused/skipped",
+    "Bulk imports do not steal focus; new windows follow normal presentation",
+    "Dismissals survive mode changes; per-window/session five-second cooldown retained",
+    "Stop mode keeps receivers and restores saved application rules; disconnect-all only stops this launcher’s app receivers for the selected peer",
+    "Settings migrate legacy arrays and persist mode separately from application rules"
+  ],
+  "video": {
+    "foreground": "selected 30/60 FPS cap",
+    "background_visible_fps": 5,
+    "hidden": "suspend new pixel preparation and encoding; keep input, metadata and leases",
+    "resume": "Prefer newest queued producer sample, retain pending geometry, replay valid static converted image when no newer raw sample exists; use a new encoder keyframe",
+    "legacy_qos_publisher": "5 FPS background, 1 FPS hidden; no unsupported activity requests"
+  },
+  "local_verification": {
+    "full_project_gate": {
+      "command": "bash scripts/check.sh",
+      "exit_code": 0,
+      "root_rust_passed": 125,
+      "root_rust_ignored": 27,
+      "frontend_passed": 47,
+      "launcher_rust_passed": 22,
+      "scope": "Before final pixel-cache refresh and error-mapping follow-ups; Swift/AppKit, real local QUIC, clipboard and reconnect checks passed"
+    },
+    "follow_up_checks": {
+      "agent_after_pixel_cache_refresh": {
+        "passed": 47,
+        "ignored": 10
+      },
+      "launcher_final_passed": 23,
+      "wayland_error_mapping_tests_passed": 3,
+      "linux_wayland_error_mapping_tests_passed": 3,
+      "full_gate_repeated": false,
+      "agent_after_static_resume_fix": {
+        "passed": 48,
+        "ignored": 10
+      },
+      "linux_static_sample_retention_test_passed": 1
+    },
+    "browser_ui": "Passed actual bundled Vue UI with mocked Tauri responses: enable, disable, restore application controls and disconnect-all; visual layout inspected. Not a production launcher takeover test",
+    "mac_release_build_and_strict_deep_signature": "passed",
+    "packaged_mac_receiver_real_quic_h264": "passed startup/resize and remote session exit"
+  },
+  "isolated_linux_verification": {
+    "x11_real_quic": {
+      "selected_cap_fps": 30,
+      "foreground_frames_1s": 29,
+      "background_frames_1_2s": 6,
+      "paused_frames": 0,
+      "input_while_paused": "passed actual fixture key callback",
+      "resume_to_frame_ms": 10.057,
+      "new_keyframe_and_stream_on_resume": true,
+      "source": "disposable GTK/Xvfb through two loopback QUIC nodes on Ubuntu; not Mac-to-Ubuntu latency"
+    },
+    "native_wayland": "Passed private GNOME/PipeWire at 1x/30 cap: static pause/resume with no repaint, paused metadata/resize, new keyframe at current geometry and preserved fixture process/content",
+    "regressions_found_and_fixed": [
+      "discarded pre-suspension Wayland conversion/image caches before first resumed frame",
+      "Preserve the only valid static converted image when no new producer sample is queued; retain a pending resize sample until its metadata catches up"
+    ],
+    "fixture_adjustments": [
+      "wait for asynchronously-created paired socket before connecting",
+      "allow at most one pixel of Mutter/GTK intermediate crop rounding; reject the stale original size"
+    ],
+    "broader_checks": [
+      {
+        "test": "wayland_smoke --with-xwayland",
+        "result": "failed later Xwayland pointer bound assertion (3340,1860 vs 1600x900); native video activity checkpoint passed",
+        "baseline": "same assertion reproduced with installed old Agent and pre-change test script"
+      },
+      {
+        "test": "full wayland_smoke without Xwayland",
+        "result": "text-input restore assertion failed before the new video checkpoint; not repaired in this work"
+      }
+    ]
+  },
+  "limits": [
+    "No live production all-window takeover acceptance or multi-application stress test",
+    "Existing publisher limits retained: 16 sessions/leases, up to 4 GNOME virtual capture outputs; one session can include several associated windows",
+    "Resource/scope conflicts retry safely; no controller ownership is stolen",
+    "Mac-to-Ubuntu end-to-end latency not measured",
+    "Running production processes have not been switched to these builds; no GitHub Release published"
+  ],
+  "artifacts": {
+    "PaneFerry-macOS-device-takeover.zip": {
+      "path": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/device-takeover-20261028/PaneFerry-macOS-device-takeover.zip",
+      "sha256": "a8e64f07cd268cc4f7a720a5448bb916d6bf0e7f63a157afea4f875264b84902"
+    },
+    "PaneFerry-Ubuntu-device-takeover.tar.gz": {
+      "path": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/device-takeover-20261028/PaneFerry-Ubuntu-device-takeover.tar.gz",
+      "sha256": "41d92e858d1f67c1c4bafec17f358c42e849e66f1b5fc47e6e5de5ec35b9ca2c"
+    }
+  },
+  "binaries": {
+    "mac_launcher_sha256": "8eb6986f8a8a258612be99939e2bb5c321cb2a97005604cf49acb0d3c0ab6c31",
+    "mac_windowhost_sha256": "995da197cad5e27b79508af557992b6738251378b6aa52327d677e1bff62ed48",
+    "mac_network_sha256": "42325222b173045adb6bc08514e4f9a087d2bcf7a7b4a9d5a0b1409a1e28ca52",
+    "linux_paneferry-agent_sha256": "d78aa28341db5b753feb498708831f2b7c3ad6850a98f4001013d379442eaeca",
+    "linux_paneferry-network_sha256": "aa3e1a2e7f56c81b2a5310987253ba5656d89e5485332aa26f61ff5d014f8d2d"
+  },
+  "production_check": {
+    "ubuntu_agent_pid": 9268,
+    "ubuntu_network_pid": 9270,
+    "agent_and_network_active": true,
+    "agent_and_network_restarts": 0,
+    "mac_launcher_pid": 74309,
+    "production_desktop_logout": false,
+    "production_applications_restarted": false
+  },
+  "cleanup": {
+    "browser_test_space": "closed",
+    "local_mock_http_and_vite": "stopped",
+    "remote_owned_build_directory": "removed after preserving packages and logs; no active test processes in the owned directory"
+  },
+  "completed_date": "2026-10-29"
+}
