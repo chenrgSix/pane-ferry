@@ -86,13 +86,16 @@ struct ControllerInputSmoke {
         let viewport = host.surface.bounds.size
         host.applyRemoteGeometry(width: 1280, height: 800, rendering: RenderGeometry(scale: 1)!)
         precondition(host.surface.bounds.size == viewport, "late remote geometry cannot undo a local resize")
-        let deadline = Date().addingTimeInterval(0.2)
-        while resizeMessages.isEmpty && Date() < deadline {
+        // AppKit can also emit focus/input-release notifications here. Only
+        // the configure message proves that the common-mode timer fired.
+        let deadline = Date().addingTimeInterval(1)
+        while !resizeMessages.contains(where: { $0["type"] as? String == "window.configure" }) && Date() < deadline {
             RunLoop.current.run(mode: .eventTracking, before: deadline)
         }
         let expected = RenderGeometry(scale: 1)!.pixels(forLogicalSize: viewport)!
-        precondition(resizeMessages.last?["width"] as? Int == expected.width && resizeMessages.last?["height"] as? Int == expected.height,
-                     "resolution updates run during AppKit event tracking, without waiting for the drag to end")
+        let duringTracking = resizeMessages.last { $0["type"] as? String == "window.configure" }
+        precondition(duringTracking?["width"] as? Int == expected.width && duringTracking?["height"] as? Int == expected.height,
+                     "resolution updates run during AppKit event tracking, without waiting for the drag to end: \(resizeMessages), viewport=\(viewport)")
         host.window.setContentSize(NSSize(width: 700, height: 500))
         host.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
         let smaller = RenderGeometry(scale: 1)!.pixels(forLogicalSize: host.surface.bounds.size)!
