@@ -363,6 +363,65 @@ mod tests {
         assert!(!buffer.is_null());
         Buffer(buffer)
     }
+
+    #[test]
+    #[ignore = "requires Linux GStreamer; compares serial/parallel I420 pixels before compression"]
+    fn large_encoder_conversion_preserves_pixels_and_leases() {
+        let api = api().unwrap();
+        for (width, height, scale) in [
+            (1470, 809, 1),
+            (1920, 1080, 1),
+            (1921, 1081, 1),
+            (2940, 1618, 1),
+            (2941, 1617, 1),
+            (4000, 2000, 1),
+            (2000, 1000, 2),
+        ] {
+            let spec = CropSpec {
+                source_width: width * scale,
+                source_height: height * scale,
+                region: [0, 0, width, height],
+            };
+            let format = if scale == 1 {
+                Format::Bgrx
+            } else {
+                Format::ScaledBgrx {
+                    width: width * scale,
+                    height: height * scale,
+                }
+            };
+            let recipe = pipeline_for_format(width, height, 60, EncoderKind::X264, format);
+            let input = recipe.split("! identity datarate=").next().unwrap();
+            let threads = conversion_threads(width, height + height % 2);
+            let converter = |n| {
+                let description = format!(
+                    "{} ! appsink name=sink sync=false max-buffers=1 drop=false",
+                    input.replace(
+                        &format!("videoconvert n-threads={threads}"),
+                        &format!("videoconvert n-threads={n}")
+                    )
+                );
+                CropConverter::from_description(api, spec, CString::new(description).unwrap())
+                    .unwrap()
+            };
+            let serial = converter(1);
+            let parallel = converter(threads);
+            let mut leases = Vec::new();
+            for phase in 0..3 {
+                let image = Arc::new(image(width * scale, height * scale, phase));
+                leases.push(Arc::downgrade(&image));
+                let source = buffer(&image);
+                let expected = serial.convert(source.0).unwrap();
+                let actual = parallel.convert(source.0).unwrap();
+                assert!(
+                    expected.same_pixels(&actual),
+                    "{width}x{height}, scale {scale}, phase {phase}, threads {threads}"
+                );
+            }
+            drop((serial, parallel));
+            assert!(leases.iter().all(|lease| lease.upgrade().is_none()));
+        }
+    }
     fn cropped(source: &CapturedImage, region: [u32; 4]) -> CapturedImage {
         let data = copy_bgrx_crop(
             &source.data,
