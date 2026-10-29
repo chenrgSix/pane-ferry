@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-29",
+  "sourceCommit": "daba34d219e362de88dc69c21d507ea8e36720dc",
+  "scope": "Mac launcher and receiver only; installed Ubuntu services and user source applications unchanged",
+  "measurementBoundary": "Local owned RWP/H.264 publishers and real AppKit; no Ubuntu application E2E or latency measurement in this change",
+  "checks": {
+    "launcherRust": {
+      "passed": 25,
+      "failed": 0,
+      "optInIgnoredByDefault": 1,
+      "optInPackagedTestExplicitlyRun": "passed before and after install"
+    },
+    "frontend": {
+      "passed": 47,
+      "typecheck": "passed",
+      "productionBuild": "passed"
+    },
+    "swiftRelease": "passed",
+    "sessionGroupSmoke": {
+      "concurrentSessions": 3,
+      "reusedWindowID": 42,
+      "idempotentAttach": "passed",
+      "focusedMenusAndText": "passed",
+      "parallelClipboardSameRequestID": "passed",
+      "isolatedReconnect": "passed",
+      "nativeCloseAndSourceExit": "passed",
+      "lastSessionExit": "passed"
+    },
+    "regressions": {
+      "windowhost_termination_smoke": "passed",
+      "window_tree_smoke": "passed",
+      "controller_input_smoke": "passed",
+      "clipboard_ordering_smoke": "passed",
+      "automatic_reconnect_smoke": "passed",
+      "h264_only_smoke": "passed"
+    },
+    "installedPackagedHost": {
+      "bundleID": "io.lanremoteapp.host.35510f02406577e73b423b7ed1e3461eaaff8dd414f70813343b32cd4918bac8",
+      "dockAccessibilityAvailable": true,
+      "dockMatchingItems": 1,
+      "pid": 65058,
+      "regularApplicationCount": 1,
+      "windowCount": 2,
+      "windowTitles": [
+        "Group fixture two",
+        "Group fixture one"
+      ],
+      "perSessionResumeCounts": {
+        "one": 1,
+        "two": 1,
+        "three": 1
+      },
+      "scopedDetachAndApplicationQuit": "passed"
+    },
+    "bundleSignature": "deep strict verification passed for launcher and both embedded apps",
+    "formatAndDiff": "passed"
+  },
+  "deployment": {
+    "bundle": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "launcherPID": 64921,
+    "hashes": {
+      "Contents/MacOS/paneferry-launcher": "d0b9e50c907c5302eb94fc3d1de03e5538213d13faf2ac83bb72b92938ca5860",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "a84f5d45c22c65d1088e014b5bc287413a6bb444a3879ddad85a899ee46ef0b5",
+      "Contents/Resources/paneferry-network": "37939a32b6d7d70569b27b77ab7e02b18f58b8cb26633b975a092aa5b5d3a778",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "81cfe50c2588c26cd4cf3ec022d31e66d0175c8484fa05772e614fb274d73978"
+    },
+    "pairingAndAutoConnectSettingsPreserved": true,
+    "backgroundServicesPreserved": true,
+    "launcherUIReady": true,
+    "rollbackBundle": "dist/application-grouping-20261029/previous/窗渡 PaneFerry.app"
+  }
+}
