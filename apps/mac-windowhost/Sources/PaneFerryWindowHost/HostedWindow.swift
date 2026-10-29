@@ -274,7 +274,9 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         recentFrames.removeAll { now - $0 > 2 }
         let frame = surface.displayFrame
-        var parts = [frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
+        // Put the live latency before verbose geometry/scaling information so
+        // AppKit's truncation keeps it visible in ordinary small windows.
+        var parts = [networkLatency.text, frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
         if fixedPixels == nil {
             parts.append("本机 \(Int(surface.bounds.width.rounded())) × \(Int(surface.bounds.height.rounded())) 点 · 等比显示")
         }
@@ -302,7 +304,6 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
-        parts.append(networkLatency.text)
         if hasReceivedFrame {
             if recentFrames.isEmpty {
                 parts.append("近 2 秒未收到新画面")
