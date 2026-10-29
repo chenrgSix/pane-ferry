@@ -69,6 +69,7 @@ const automaticStatus = ref<AutomaticStatus>(emptyAutomaticStatus());
 const automaticApp = ref("");
 const automaticSaving = ref(false);
 const automaticError = ref("");
+const takeoverError = ref("");
 let automaticRevision = 0;
 const automaticOptions = computed(() => automaticApplications(apps.value, desktopWindows.value, automaticStatus.value.rules, automaticStatus.value.connectedApplications));
 const automaticKey = computed(() => automaticOptions.value.some(app => app.id === automaticApp.value)
@@ -109,7 +110,7 @@ async function saveAutomatic(rule: AutomaticRule) {
 async function deviceWindowAction(disconnect = false) {
   if (automaticSaving.value || !valid.value) return;
   const sent = { ...endpoint.value }, revision = ++automaticRevision;
-  automaticSaving.value = true; automaticError.value = "";
+  automaticSaving.value = true; takeoverError.value = "";
   try {
     const result = await invoke<AutomaticStatus>(disconnect ? "disconnect_device_windows" : "set_device_window_takeover", {
       endpoint: sent, ...(!disconnect && { enabled: !automaticStatus.value.takeoverEnabled, videoFps: videoFPS.value }),
@@ -118,7 +119,7 @@ async function deviceWindowAction(disconnect = false) {
       automaticStatus.value = result;
   } catch {
     if (!disposed && signature() === endpointKey(sent) && revision === automaticRevision)
-      automaticError.value = disconnect ? "断开窗口失败，请重试。" : "全窗口接管设置保存失败，原设置保留，请重试。";
+      takeoverError.value = disconnect ? "断开窗口失败，请重试。" : "全窗口接管设置保存失败，原设置保留，请重试。";
   } finally { automaticSaving.value = false; }
 }
 function changeAutomaticMode(event: Event) {
@@ -307,7 +308,7 @@ try {
 } catch {}
 function restoreCatalog() {
   ++automaticRevision;
-  automaticStatus.value = emptyAutomaticStatus(); automaticApp.value = ""; automaticError.value = "";
+  automaticStatus.value = emptyAutomaticStatus(); automaticApp.value = ""; automaticError.value = ""; takeoverError.value = "";
   stopRetry();
   stopStartupPoll();
   const cached = catalogCache.get(signature());
@@ -637,6 +638,19 @@ onUnmounted(() => {
             <button :disabled="busy || desktopSession(monitor)?.controlled" @click="openDesktop(monitor)">{{ desktopSession(monitor)?.controlled ? "已连接" : "连接桌面" }}</button>
           </div>
         </section>
+        <section v-if="valid" class="catalog desktop-windows window-takeover" aria-labelledby="window-takeover-title">
+          <div class="section-title"><h2 id="window-takeover-title">全窗口接管</h2></div>
+          <p class="hint">将这台设备已有和之后新开的应用窗口、选择器与对话框分别接入当前桌面。已连接窗口直接复用。</p>
+          <div class="desktop-window-row">
+            <div class="app-icon" aria-hidden="true">▦</div>
+            <div class="window-label"><strong>{{ selectedPeer?.name || "当前设备" }}的全部应用窗口</strong><p>无需逐个连接，远端应用继续运行。</p></div>
+            <span class="window-state">{{ automaticStatus.takeoverEnabled ? "接管中" : "未接管" }}</span>
+            <button :disabled="automaticSaving" :aria-pressed="Boolean(automaticStatus.takeoverEnabled)" @click="deviceWindowAction()">{{ automaticSaving ? "处理中…" : automaticStatus.takeoverEnabled ? "停止接管" : "接管全部窗口" }}</button>
+          </div>
+          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">正在自动接入已有和新开的窗口。停止接管会保留已连接的窗口，并恢复应用级规则。</p>
+          <p v-if="automaticStatus.managedWindows" class="hint">此启动器管理 {{ automaticStatus.managedWindows }} 个应用接收窗口。<button :disabled="automaticSaving" @click="deviceWindowAction(true)">断开此设备全部应用窗口</button></p>
+          <p v-if="takeoverError || (automaticStatus.takeoverEnabled && automaticStatus.warning)" class="alert error" role="alert">{{ takeoverError || automaticStatus.warning }}</p>
+        </section>
         <section class="catalog">
           <div class="section-title">
             <h2>已安装应用 <span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span></h2>
@@ -694,13 +708,8 @@ onUnmounted(() => {
           </div>
         </section>
         <section v-if="valid" class="panel automatic-windows">
-          <div class="section-title"><h2>窗口自动接入</h2><span class="subtle-label">按设备保存 · 更改自动生效</span></div>
-          <div class="setting-row">
-            <div><strong>全窗口接管</strong><p class="hint">接入 {{ selectedPeer?.name || "当前设备" }} 已有和之后新开的应用窗口、选择器与对话框，无需先连接某个应用。已连接窗口直接复用。</p></div>
-            <button :disabled="automaticSaving" :aria-pressed="Boolean(automaticStatus.takeoverEnabled)" @click="deviceWindowAction()">{{ automaticStatus.takeoverEnabled ? "停止全窗口接管" : "开启全窗口接管" }}</button>
-          </div>
-          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">全窗口接管已开启；应用级规则保留，停止后恢复生效。停止接管会保留已连接的窗口。</p>
-          <p class="hint">此启动器管理 {{ automaticStatus.managedWindows || 0 }} 个应用接收窗口。<button :disabled="automaticSaving || !automaticStatus.managedWindows" @click="deviceWindowAction(true)">断开此设备全部应用窗口</button> 远端应用继续运行。</p>
+          <div class="section-title"><h2>新窗口自动接入</h2><span class="subtle-label">按应用配置 · 更改自动生效</span></div>
+          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">全窗口接管已开启；以下应用级规则保留，停止接管后恢复生效。</p>
           <fieldset v-if="automaticOptions.length" class="automatic-applications" :disabled="automaticSaving || automaticStatus.takeoverEnabled">
           <legend>按应用配置新窗口接入</legend>
           <p class="hint">应用连接期间，按它的规则接入远端新窗口。多个应用可以同时开启，同一窗口只显示一次，手动连接不会重复打开。</p>
@@ -731,8 +740,8 @@ onUnmounted(() => {
             </li>
           </ul>
           </fieldset>
-          <p class="hint">应用级规则仅接入启用后新出现的窗口。关闭接收窗口后冷却 5 秒；仍然存在的同一个窗口不会反复弹回，随时可以手动重连。退出启动器后停止自动接入；重开启动器会恢复已开启的全窗口接管。</p>
-          <p v-if="automaticError || automaticStatus.warning" class="alert error" role="alert">{{ automaticError || automaticStatus.warning }}</p>
+          <p class="hint">应用级规则仅接入启用后新出现的窗口。关闭接收窗口后冷却 5 秒；仍然存在的同一个窗口不会反复弹回，随时可以手动重连。退出启动器后停止自动接入。</p>
+          <p v-if="automaticError || (!automaticStatus.takeoverEnabled && automaticStatus.warning)" class="alert error" role="alert">{{ automaticError || automaticStatus.warning }}</p>
         </section>
         <section v-if="custom.length" class="catalog">
           <div class="section-title"><h2>自定义入口 <span class="count">{{ custom.length }}</span></h2></div>

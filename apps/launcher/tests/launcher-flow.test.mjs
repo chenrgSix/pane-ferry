@@ -790,7 +790,7 @@ test("device takeover handles failed saves and stale responses after changing de
     await settled(mounted.state);
     await mounted.state.deviceWindowAction();
     assert.equal(mounted.state.automaticStatus.takeoverEnabled,false);
-    assert.match(mounted.state.automaticError,/保存失败/);
+    assert.match(mounted.state.takeoverError,/保存失败/);
     fail=false;
     const saving=mounted.state.deviceWindowAction();
     mounted.state.endpoint={peerId:'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'};
