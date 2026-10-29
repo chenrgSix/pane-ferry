@@ -32,6 +32,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     var resizeTimer: Timer?
     var rendering: RenderGeometry
     var mediaMode: String?
+    var networkLatency: NetworkLatencyState = .measuring
     var scaleMode = "unknown"
     var resolutionNotice: String? { didSet { updateSubtitle() } }
     var inputNotice: String? { didSet { updateSubtitle() } }
@@ -301,6 +302,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         default: parts.append("应用缩放未报告")
         }
         if let mediaMode = mediaMode { parts.append(mediaMode) }
+        parts.append(networkLatency.text)
         if hasReceivedFrame {
             if recentFrames.isEmpty {
                 parts.append("近 2 秒未收到新画面")

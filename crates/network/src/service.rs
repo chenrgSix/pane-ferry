@@ -318,7 +318,13 @@ impl Service {
     }
     pub fn status(&self) -> Value {
         let state = self.state.lock().unwrap();
-        let mut peers: Vec<_> = state.peers.values().map(|p| json!({"device_id":p.device_id,"name":p.name,"address":p.address,"fingerprint":identity::fingerprint(&p.certificate).unwrap_or_default(),"socket":route_path(&self.config.state,&p.device_id),"transport":"quic","generation":p.device_id,"connected":state.connections.get(&p.device_id).is_some_and(|list| list.iter().any(|c| c.close_reason().is_none()))})).collect();
+        let mut peers: Vec<_> = state.peers.values().map(|p| {
+            // Match connection()'s preference without dialing, opening a stream
+            // or touching the publisher. An absent connection has no RTT sample.
+            let connection = state.connections.get(&p.device_id)
+                .and_then(|list| list.iter().rev().find(|c| c.close_reason().is_none()));
+            json!({"device_id":p.device_id,"name":p.name,"address":p.address,"fingerprint":identity::fingerprint(&p.certificate).unwrap_or_default(),"socket":route_path(&self.config.state,&p.device_id),"transport":"quic","generation":p.device_id,"connected":connection.is_some(),"rtt_ms":connection.map(|c| c.rtt().as_secs_f64() * 1000.0)})
+        }).collect();
         peers.sort_by(|a, b| a["device_id"].as_str().cmp(&b["device_id"].as_str()));
         json!({"version":2,"device_id":self.id(),"name":self.config.name,"listen":self.address(),"fingerprint":identity::fingerprint(&self.identity.certificate).unwrap_or_default(),"peers":peers})
     }
@@ -1708,6 +1714,7 @@ mod tests {
             quinn::ConnectionError::ApplicationClosed(_)
         ));
         assert!(!service.status()["peers"][0]["connected"].as_bool().unwrap());
+        assert!(service.status()["peers"][0]["rtt_ms"].is_null());
 
         remote
             .endpoint
@@ -1725,7 +1732,22 @@ mod tests {
                 .unwrap();
         assert!(recovered.close_reason().is_none());
         assert!(service.status()["peers"][0]["connected"].as_bool().unwrap());
+        let connections_before = service.state.lock().unwrap().connections[&peer.device_id].len();
+        for _ in 0..3 {
+            let status = service.status();
+            let rtt = status["peers"][0]["rtt_ms"].as_f64().unwrap();
+            assert!(rtt.is_finite() && (0.0..1000.0).contains(&rtt));
+        }
+        assert_eq!(
+            service.state.lock().unwrap().connections[&peer.device_id].len(),
+            connections_before,
+            "reading latency must not establish additional connections"
+        );
         recovered.close(0u32.into(), b"test complete");
+        assert!(
+            service.status()["peers"][0]["rtt_ms"].is_null(),
+            "closed connections have no live latency sample"
+        );
         tokio::time::timeout(Duration::from_secs(2), server)
             .await
             .unwrap()

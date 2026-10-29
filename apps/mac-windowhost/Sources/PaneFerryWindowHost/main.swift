@@ -322,6 +322,7 @@ final class RWPTransport {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let options: Options
+    let networkLatency: NetworkLatency
     let applicationName = Bundle.main.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String
         ?? Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "窗渡 PaneFerry"
     let applicationIcon: NSImage?
@@ -380,6 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var bulk: ClipboardBulkTransfer { ClipboardBulkTransfer(native: options.native) }
     init(options: Options, clipboard: NSPasteboard = .general, applicationIcon: NSImage? = nil) {
         self.options = options
+        networkLatency = NetworkLatency.monitor(options.native)
         requestedVideoFPS = options.requestedVideoFPS
         self.applicationIcon = applicationIcon; controllerClipboard = clipboard; super.init()
     }
@@ -574,7 +576,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let now = ProcessInfo.processInfo.systemUptime
         if now - lastFrameRateRefresh >= 1 {
             lastFrameRateRefresh = now
-            for host in windows.values { host.updateSubtitle() }
+            if ready && connected && !stopping { networkLatency.refresh() }
+            for host in windows.values {
+                host.networkLatency = ready && connected && !stopping ? networkLatency.state : .unavailable
+                host.updateSubtitle()
+            }
         }
     }
     func startConnection() {
@@ -611,6 +617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         clipboardJob = nil; clipboardTimer?.invalidate(); clipboardTimer = nil
         clipboardDeferred.removeAll(); clipboardBusy = false; clipboardReading = false; clipboardCopyGate = ClipboardCopyGate()
         for host in windows.values {
+            host.networkLatency = .unavailable
             host.surface.transmit = nil; host.surface.releaseInput(); host.surface.unmarkText()
             host.resizeTimer?.invalidate(); host.resizeTimer = nil
         }
@@ -982,6 +989,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         guard let host = windows[id], rev >= host.revision else { return }
+        host.networkLatency = networkLatency.state
         host.applyPresentation(presentation, related: parentID != nil, role: role)
         host.surface.transmit = { [weak self] in self?.send($0) }
         host.surface.requestControllerPaste = { [weak self] in self?.send(["type":"controller.paste", "window_id":id]) }
