@@ -244,6 +244,60 @@ impl Session {
         }
         Ok(windows)
     }
+    /// Metadata-only discovery. Do not call has_exited()/scan_windows() here:
+    /// those control-path methods may prepare capture or retire processes.
+    fn listed(&mut self) -> Result<Option<Value>> {
+        if self.exited {
+            return Ok(None);
+        }
+        let process_exited = if let Some(existing) = &self.existing {
+            process_identity(existing.pid).ok().as_ref() != Some(existing)
+        } else {
+            self.children
+                .last_mut()
+                .map(|c| c.try_wait())
+                .transpose()?
+                .flatten()
+                .is_some()
+        };
+        if process_exited {
+            self.exited = true;
+            return Ok(None);
+        }
+        let (window_count, unavailable_reason) = match self.backend.as_ref() {
+            Some(backend) if self.controller => (
+                Some(backend.windows().values().filter(|w| w.visible).count()),
+                None,
+            ),
+            Some(backend) => match backend.inspect_windows() {
+                Ok(windows) => {
+                    let root_gone = self
+                        .root_window
+                        .is_some_and(|id| !windows.iter().any(|w| w.window_id == id));
+                    let private_closed = self.existing.is_none()
+                        && self.desktop_monitor.is_none()
+                        && self
+                            .window_lifetime
+                            .observe(&windows, Instant::now(), |id| {
+                                backend.existing_window_exists(id)
+                            });
+                    if root_gone || private_closed {
+                        self.exited = true;
+                        return Ok(None);
+                    }
+                    (Some(windows.iter().filter(|w| w.visible).count()), None)
+                }
+                Err(error) => (None, Some(request_error::code(&error.to_string()))),
+            },
+            None => (Some(0), None),
+        };
+        Ok(Some(
+            json!({"session_id":self.id,"app_id":self.app_id,"backend":"native","display":self.display,
+            "controlled":self.controller,"window_count":window_count,"unavailable_reason":unavailable_reason,
+            "mode":if self.desktop_monitor.is_some() {"desktop"} else if self.scene.is_some() {"scene"} else {"app"},
+            "monitor_id":self.desktop_monitor}),
+        ))
+    }
     fn has_exited(&mut self) -> Result<bool> {
         if let Some(existing) = &self.existing {
             self.exited |= process_identity(existing.pid).ok().as_ref() != Some(existing);
@@ -281,7 +335,17 @@ impl Session {
         {
             // Detached sessions must also disappear from discovery after their
             // last window closes. A failed scan is not evidence of exit.
-            let _ = self.scan_windows();
+            if let Some(backend) = &self.backend {
+                let now = Instant::now();
+                match backend.inspect_windows() {
+                    Ok(windows) => {
+                        self.exited |= self
+                            .window_lifetime
+                            .observe(&windows, now, |id| backend.existing_window_exists(id))
+                    }
+                    Err(_) => self.window_lifetime.scan_failed(now),
+                }
+            }
         }
         if self.exited {
             if let Some(backend) = self.backend.take() {
@@ -1611,34 +1675,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         let mut sessions = Vec::new();
                         for session in st.sessions.values() {
                             let mut s = session.lock().unwrap();
-                            if s.has_exited()? {
-                                continue;
+                            if let Some(summary) = s.listed()? {
+                                sessions.push(summary);
                             }
-                            let controlled = s.controller;
-                            let (window_count, unavailable_reason) = if controlled {
-                                (
-                                    s.backend.as_ref().map(|b| {
-                                        b.windows().values().filter(|w| w.visible).count()
-                                    }),
-                                    None,
-                                )
-                            } else {
-                                match s.scan_windows() {
-                                    Ok(windows) => {
-                                        (Some(windows.iter().filter(|w| w.visible).count()), None)
-                                    }
-                                    Err(error) => {
-                                        (None, Some(request_error::code(&error.to_string())))
-                                    }
-                                }
-                            };
-                            if s.has_exited()? {
-                                continue;
-                            }
-                            sessions.push(json!({"session_id":s.id,"app_id":s.app_id,"backend":"native","display":s.display,
-                                "controlled":controlled,"window_count":window_count,"unavailable_reason":unavailable_reason,
-                                "mode":if s.desktop_monitor.is_some() {"desktop"} else if s.scene.is_some() {"scene"} else {"app"},
-                                "monitor_id":s.desktop_monitor}));
                         }
                         sessions.sort_by(|a, b| {
                             a["session_id"].as_str().cmp(&b["session_id"].as_str())

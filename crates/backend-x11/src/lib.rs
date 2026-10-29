@@ -499,6 +499,75 @@ impl Backend {
     pub fn retry_window_adjustments(&mut self) {
         self.size_adjustments.clear();
     }
+    /// Metadata for session discovery, independent of capture maintenance.
+    /// In particular oversized windows are observed, never resized to make
+    /// them encodable, and Damage/input/window scopes are left untouched.
+    pub fn inspect_windows(&self) -> Result<Vec<Window>> {
+        let wm = self
+            .prop(self.root, "_NET_SUPPORTING_WM_CHECK", AtomEnum::WINDOW)
+            .ok()
+            .and_then(|p| p.value32().and_then(|mut ids| ids.next()));
+        let wm_pid = if self.process_id.is_none() {
+            wm.and_then(|id| self.client_pid(id).ok())
+        } else {
+            None
+        };
+        let mut windows = Vec::new();
+        for id in self.window_ids()? {
+            if !self.belongs_to_process(id)
+                || Some(id) == wm
+                || wm_pid.is_some() && self.client_pid(id).ok() == wm_pid
+            {
+                continue;
+            }
+            let Ok(attrs) = self.conn.get_window_attributes(id)?.reply() else {
+                continue;
+            };
+            if attrs.map_state != MapState::VIEWABLE && !self.windows.contains_key(&id) {
+                continue;
+            }
+            let Ok(geometry) = self.conn.get_geometry(id)?.reply() else {
+                continue;
+            };
+            let mut window = self.windows.get(&id).cloned().unwrap_or_else(|| {
+                let parent = self
+                    .prop(id, "WM_TRANSIENT_FOR", AtomEnum::WINDOW)
+                    .ok()
+                    .and_then(|p| p.value32().and_then(|mut ids| ids.next()))
+                    .filter(|parent| self.belongs_to_process(*parent));
+                let kind = self.window_kind(id, attrs.override_redirect, parent.is_some());
+                Window {
+                    window_id: id,
+                    parent_id: parent,
+                    title: String::new(),
+                    presentation: None,
+                    role: if matches!(kind, "tooltip" | "passive" | "menu" | "popup") {
+                        "popup"
+                    } else if parent.is_some() {
+                        "dialog"
+                    } else {
+                        "toplevel"
+                    }
+                    .into(),
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    scale_factor: self.scale_factor,
+                    geometry_revision: 1,
+                    visible: false,
+                }
+            });
+            window.width = geometry.width.into();
+            window.height = geometry.height.into();
+            window.visible = attrs.map_state == MapState::VIEWABLE;
+            windows.push(window);
+            if windows.len() >= 16 {
+                break;
+            }
+        }
+        Ok(windows)
+    }
     pub fn scan(&mut self) -> Result<Vec<Window>> {
         self.metadata.clear();
         let wm = self
@@ -1280,6 +1349,20 @@ mod geometry_tests {
         };
         backend.set_desktop_geometry(geometry(true, false)?);
         assert!(!backend.windows.contains_key(&id));
+        for _ in 0..3 {
+            let inspected = backend.inspect_windows()?;
+            assert_eq!(inspected.len(), 1);
+            assert_eq!(inspected[0].width, 4100);
+            assert_eq!(backend.conn.get_geometry(id)?.reply()?.width, 4100);
+            assert!(
+                calls.lock().unwrap().is_empty(),
+                "metadata queries must not resize oversized windows"
+            );
+            assert!(
+                backend.windows.is_empty(),
+                "metadata queries must not prepare capture state"
+            );
+        }
         backend.scan()?;
         let resized = backend.conn.get_geometry(id)?.reply()?;
         paneferry_protocol::dimensions(resized.width.into(), resized.height.into())?;

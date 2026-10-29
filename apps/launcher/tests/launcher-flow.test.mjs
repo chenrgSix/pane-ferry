@@ -91,8 +91,11 @@ test("actual launcher restores cached apps at mount and only refreshes live meta
     await settled(mounted.state);
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 0);
     assert.equal(mounted.calls.filter(c => c.command === "list_sessions").length, 2);
+    const runtimeReads = mounted.calls.filter(c => ["list_sessions", "list_desktop_windows", "list_desktop_monitors"].includes(c.command)).length;
     await mounted.state.load(true);
     assert.equal(mounted.calls.filter(c => c.command === "list_apps").length, 1);
+    assert.equal(mounted.calls.filter(c => ["list_sessions", "list_desktop_windows", "list_desktop_monitors"].includes(c.command)).length, runtimeReads,
+      "refreshing installed apps must not refresh sessions, windows or monitors");
   } finally { mounted.unmount(); }
   assert.equal(mounted.listeners.size, 0);
 });

@@ -91,6 +91,11 @@ impl WindowBackend for LogicalX11 {
     fn includes_window(&self, id: u32) -> bool {
         self.windows.contains_key(&id) && self.source.includes_window(id)
     }
+    fn inspect_windows(&self) -> Result<Vec<Window>> {
+        // Counts and liveness use source identities, without the compositor
+        // geometry bridge or configuring the capture worker's output sizes.
+        self.source.inspect_windows()
+    }
     fn scan(&mut self) -> Result<Vec<Window>> {
         let raw = self.source.scan()?;
         let layouts = if raw.is_empty() {

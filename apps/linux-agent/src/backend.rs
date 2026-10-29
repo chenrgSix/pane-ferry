@@ -48,6 +48,11 @@ pub trait WindowBackend: Send {
     }
     fn existing_window_exists(&self, window: u32) -> bool;
     fn includes_window(&self, id: u32) -> bool;
+    /// Discovery/liveness only. Must not prepare capture, change geometry,
+    /// claim new input scopes or keep a detached capture lease active.
+    fn inspect_windows(&self) -> Result<Vec<Window>> {
+        Ok(self.windows().values().cloned().collect())
+    }
     fn scan(&mut self) -> Result<Vec<Window>>;
     /// A completed background snapshot wakes the capture owner so new geometry
     /// is consumed without waiting for the next periodic scan.
@@ -135,6 +140,9 @@ impl WindowBackend for X11 {
     }
     fn scan(&mut self) -> Result<Vec<Window>> {
         X11::scan(self)
+    }
+    fn inspect_windows(&self) -> Result<Vec<Window>> {
+        X11::inspect_windows(self)
     }
     fn metadata_ready(&self) -> bool {
         X11::metadata_ready(self)

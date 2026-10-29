@@ -505,6 +505,80 @@ impl WindowBackend for Backend {
     fn includes_window(&self, id: u32) -> bool {
         self.windows.contains_key(&id)
     }
+    fn inspect_windows(&self) -> Result<Vec<Window>> {
+        // `scope` belongs to the live capture path: older bridges prepare a
+        // private output before answering it. Global `list` never acquires or
+        // revives outputs, and is compatible with those installed bridges.
+        let infos: Vec<Info> =
+            serde_json::from_value(self.call("list", self.target.info.window_id)?)?;
+        let root = self.target.info.window_id;
+        if !infos.iter().any(|i| {
+            i.window_id == root && i.id == self.target.info.id && i.pid == self.target.identity.pid
+        }) {
+            return Ok(vec![]);
+        }
+        let mut selected = std::collections::HashSet::from([root]);
+        for _ in 0..16 {
+            let before = selected.len();
+            for info in &infos {
+                if info.parent_id.is_some_and(|id| selected.contains(&id)) {
+                    selected.insert(info.window_id);
+                }
+            }
+            if before == selected.len() {
+                break;
+            }
+        }
+        let visible = infos
+            .iter()
+            .any(|i| selected.contains(&i.window_id) && !i.minimized);
+        let mut windows = Vec::new();
+        for info in infos
+            .into_iter()
+            .filter(|i| selected.contains(&i.window_id))
+        {
+            if self.scene.is_some() && info.window_id != root {
+                continue;
+            }
+            if let Err(error) = info.validate() {
+                if info.window_id == root {
+                    return Err(error);
+                }
+                continue;
+            }
+            windows.push(Window {
+                window_id: info.window_id,
+                parent_id: info.parent_id,
+                title: info.title.clone(),
+                role: if self.scene.is_some() {
+                    "session"
+                } else if info.is_popup() {
+                    "popup"
+                } else if info.window_id == root {
+                    "toplevel"
+                } else {
+                    "dialog"
+                }
+                .into(),
+                presentation: info.presentation(),
+                x: info.x,
+                y: info.y,
+                width: info.width,
+                height: info.height,
+                scale_factor: if info.scale >= 1.5 { 2 } else { 1 },
+                geometry_revision: self
+                    .windows
+                    .get(&info.window_id)
+                    .map_or(1, |w| w.geometry_revision),
+                visible: if self.scene.is_some() {
+                    visible
+                } else {
+                    !info.minimized
+                },
+            });
+        }
+        Ok(windows)
+    }
     fn metadata_ready(&self) -> bool {
         self.rpc.borrow().metadata_ready()
     }

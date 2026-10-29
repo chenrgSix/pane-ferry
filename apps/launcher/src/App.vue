@@ -341,7 +341,8 @@ async function load(refreshApps = false) {
   try {
     const [catalog] = await Promise.allSettled([
       readCatalog(catalogCache, endpointKey(sent), () => invoke<AppCatalog>("list_apps", { endpoint: sent }), refreshApps),
-      readRuntime(sent),
+      // The explicit Refresh Apps action reads only the application directory.
+      ...(!refreshApps ? [readRuntime(sent)] : []),
     ]);
     if (signature() !== endpointKey(sent)) return;
     const failures: string[] = [];

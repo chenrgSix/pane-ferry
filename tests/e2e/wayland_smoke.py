@@ -38,6 +38,7 @@ p.add_argument('--scroll-benchmark-output', type=Path, help='measure a synthetic
 p.add_argument('--x11-scroll-benchmark-output', type=Path, help='measure a test-owned XWayland scrolling window in this private compositor')
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
 p.add_argument('--video-activity-only', action='store_true', help='test native video suspension and recovery in the private compositor')
+p.add_argument('--read-only-discovery-only', action='store_true', help='test metadata queries after capture idle without changing source windows')
 p.add_argument('--extension-dir', type=Path, help='copy a compatible installed bridge into the isolated compositor')
 a = p.parse_args()
 if a.private_bus:
@@ -75,6 +76,7 @@ if not a.private_bus:
             *(['--window-lifecycle-only'] if a.window_lifecycle_only else []),
             *(['--window-tree-only'] if a.window_tree_only else []),
             *(['--video-activity-only'] if a.video_activity_only else []),
+            *(['--read-only-discovery-only'] if a.read_only_discovery_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
             *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
             *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
@@ -304,6 +306,10 @@ try:
                 if a.video_activity_only:
                     from video_activity_wayland_test import verify
                     verify(peer, target, state, app)
+                    raise SystemExit(0)
+                if a.read_only_discovery_only:
+                    from read_only_discovery_test import verify
+                    verify(peer, sock, env, target, app, wait, Peer, Bridge, monitor_layout)
                     raise SystemExit(0)
                 one,two=Bridge(env),Bridge(env)
                 try:
