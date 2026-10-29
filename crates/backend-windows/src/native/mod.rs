@@ -1,3 +1,4 @@
+mod applications;
 mod capture;
 mod video;
 use crate::{Geometry, Input, Target, VideoFrame, WindowSystem};
@@ -123,6 +124,17 @@ fn validate(target: &Target) -> Result<()> {
         ProcessIdToSessionId(pid, &mut session)?;
         ProcessIdToSessionId(GetCurrentProcessId(), &mut own_session)?;
         ensure!(session == own_session, "input_unavailable");
+        if target.application_key.starts_with("appx-") {
+            // A shared application host can retain its HWND while changing the
+            // packaged application it represents. Keep the approved identity.
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)?;
+            let key = applications::packaged_window_key(hwnd(target), process);
+            let _ = CloseHandle(process);
+            ensure!(
+                key.as_deref() == Some(target.application_key.as_str()),
+                "session_exited"
+            );
+        }
         Ok(())
     }
 }
@@ -153,6 +165,15 @@ fn title(window: HWND) -> String {
 }
 
 impl Desktop {
+    fn application_window(&mut self, id: &str) -> Result<Option<Target>> {
+        let mut windows = self
+            .windows()?
+            .into_iter()
+            .filter(|w| w.application_key == id);
+        let first = windows.next();
+        ensure!(windows.next().is_none(), "application_multiple_windows");
+        Ok(first)
+    }
     pub fn new() -> Result<Self> {
         let runtime = CaptureRuntime::new()?;
         unsafe {
@@ -318,6 +339,7 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
                 PWSTR(path.as_mut_ptr()),
                 &mut length,
             );
+            let packaged_key = applications::packaged_window_key(window, process);
             let _ = CloseHandle(process);
             if result.is_err() {
                 return BOOL(1);
@@ -327,7 +349,11 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
             if filename.starts_with("paneferry") || filename == "lan-remoteapp-launcher.exe" {
                 return BOOL(1);
             }
-            crate::application_key(&path)
+            if let Some(key) = packaged_key {
+                key
+            } else {
+                crate::application_key(&path)
+            }
         } else {
             return BOOL(1);
         };
@@ -370,6 +396,33 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
 }
 
 impl WindowSystem for Desktop {
+    fn applications(&mut self) -> Result<Vec<crate::Application>> {
+        desktop_ready()?;
+        applications::list()
+    }
+    fn launch_application(&mut self, id: &str, start: bool) -> Result<Target> {
+        desktop_ready()?;
+        ensure!(
+            applications::list()?
+                .iter()
+                .any(|a| a.id == id && a.unavailable_reason.is_none()),
+            "app_not_approved"
+        );
+        if let Some(target) = self.application_window(id)? {
+            return Ok(target);
+        }
+        if start {
+            applications::launch(id)?;
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while std::time::Instant::now() < deadline {
+            if let Some(target) = self.application_window(id)? {
+                return Ok(target);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        bail!("application_window_pending")
+    }
     fn windows(&mut self) -> Result<Vec<Target>> {
         desktop_ready().map_err(|_| anyhow::anyhow!("desktop_locked"))?;
         let mut result = Vec::new();

@@ -17,6 +17,7 @@ use tokio::{
 };
 
 struct Session {
+    app_id: String,
     target: Target,
     controller: Option<uuid::Uuid>,
 }
@@ -27,6 +28,7 @@ pub struct State {
     approved: HashMap<String, Target>,
     sessions: HashMap<String, Session>,
     requests: HashMap<String, (String, String)>,
+    launch_attempts: HashMap<String, String>,
 }
 impl State {
     pub fn stop(&mut self) {
@@ -41,6 +43,7 @@ impl State {
             approved: HashMap::new(),
             sessions: HashMap::new(),
             requests: HashMap::new(),
+            launch_attempts: HashMap::new(),
         }))
     }
 }
@@ -224,7 +227,17 @@ impl Client {
             }
             Request::Apps => {
                 self.shared()?;
-                self.send(write,json!({"type":"app.list","apps":[],"discovery_supported":true,"discovery_error":null})).await?;
+                let (apps, error) = match self.system.applications() {
+                    Ok(apps) => (apps.into_iter().take(512).map(|a| json!({
+                        "id":a.id,"name":a.name,"description":a.description,
+                        "source":"desktop","icon_png":null,"unavailable_reason":a.unavailable_reason
+                    })).collect::<Vec<_>>(), None),
+                    Err(error) => {
+                        eprintln!("PaneFerry Windows application discovery: {error:#}");
+                        (vec![], Some("windows_application_discovery_unavailable"))
+                    }
+                };
+                self.send(write,json!({"type":"app.list","apps":apps,"discovery_supported":true,"discovery_error":error})).await?;
             }
             Request::Desktops => {
                 self.shared()?;
@@ -265,13 +278,20 @@ impl Client {
                     let s = self.state.lock().unwrap();
                     s.sessions
                         .iter()
-                        .map(|(id, s)| (id.clone(), s.target.clone(), s.controller.is_some()))
+                        .map(|(id, s)| {
+                            (
+                                id.clone(),
+                                s.app_id.clone(),
+                                s.target.clone(),
+                                s.controller.is_some(),
+                            )
+                        })
                         .collect()
                 };
                 let mut values = Vec::new();
-                for (id, target, controlled) in sessions {
+                for (id, app_id, target, controlled) in sessions {
                     if let Ok(g) = self.system.geometry(&target) {
-                        values.push(json!({"session_id":id,"app_id":target.id,"backend":"native","display":0,"controlled":controlled,"window_count":if g.visible{1}else{0}}));
+                        values.push(json!({"session_id":id,"app_id":app_id,"backend":"native","display":0,"controlled":controlled,"window_count":if g.visible{1}else{0}}));
                     }
                 }
                 self.send(write, json!({"type":"session.list","sessions":values}))
@@ -323,30 +343,74 @@ impl Client {
                 if attach {
                     ensure!(self.video && self.session.is_none(), "invalid_request");
                 }
-                let target = {
+                let existing_target = {
                     let s = self.state.lock().unwrap();
+                    if let Some(original) = s.launch_attempts.get(&request_id) {
+                        ensure!(original == &app_id, "request_id_conflict");
+                    }
                     if let Some(id) = prior_request(&s, &request_id, &app_id)? {
-                        s.sessions
-                            .get(id)
-                            .ok_or_else(|| anyhow::anyhow!("session_exited"))?
-                            .target
-                            .clone()
+                        Some(
+                            s.sessions
+                                .get(id)
+                                .ok_or_else(|| anyhow::anyhow!("session_exited"))?
+                                .target
+                                .clone(),
+                        )
                     } else {
-                        s.approved
-                            .get(&app_id)
-                            .ok_or_else(|| anyhow::anyhow!("app_not_approved"))?
-                            .clone()
+                        s.approved.get(&app_id).cloned()
                     }
                 };
+                let target = if let Some(target) = existing_target {
+                    target
+                } else {
+                    // Re-resolve catalog IDs locally even when a restored client
+                    // skips app.list. No remote path, command or argv is accepted.
+                    ensure!(
+                        self.system
+                            .applications()?
+                            .iter()
+                            .any(|a| a.id == app_id && a.unavailable_reason.is_none()),
+                        "app_not_approved"
+                    );
+                    let start = {
+                        let mut s = self.state.lock().unwrap();
+                        ensure!(s.sharing, "sharing_disabled");
+                        ensure!(s.sessions.len() < 16, "session_limit");
+                        if let Some(original) = s.launch_attempts.get(&request_id) {
+                            ensure!(original == &app_id, "request_id_conflict");
+                            false
+                        } else {
+                            ensure!(
+                                s.requests.len() + s.launch_attempts.len() < 1024,
+                                "request_history_limit"
+                            );
+                            // Reserve before spawning. Concurrent retries may
+                            // wait for its window, but cannot launch it twice.
+                            s.launch_attempts.insert(request_id.clone(), app_id.clone());
+                            true
+                        }
+                    };
+                    self.system.launch_application(&app_id, start)?
+                };
+                self.shared()?;
                 self.system.geometry(&target)?; // Recheck process creation time and current user before acquiring.
                 let id = {
                     let mut s = self.state.lock().unwrap();
                     // Another client can claim this request while geometry is
                     // checked outside the mutex. Revalidate its app binding.
+                    ensure!(s.sharing, "sharing_disabled");
+                    if let Some(original) = s.launch_attempts.get(&request_id) {
+                        ensure!(original == &app_id, "request_id_conflict");
+                    }
                     if let Some(id) = prior_request(&s, &request_id, &app_id)? {
                         id.to_owned()
                     } else {
-                        ensure!(s.requests.len() < 1024, "request_history_limit");
+                        ensure!(
+                            s.requests.len() + s.launch_attempts.len()
+                                - usize::from(s.launch_attempts.contains_key(&request_id))
+                                < 1024,
+                            "request_history_limit"
+                        );
                         let old = s
                             .sessions
                             .iter()
@@ -360,12 +424,14 @@ impl Client {
                             s.sessions.insert(
                                 id.clone(),
                                 Session {
+                                    app_id: app_id.clone(),
                                     target,
                                     controller: None,
                                 },
                             );
                             id
                         };
+                        s.launch_attempts.remove(&request_id);
                         s.requests.insert(request_id, (app_id, id.clone()));
                         id
                     }
@@ -456,6 +522,9 @@ fn public_error(error: &anyhow::Error) -> &'static str {
         "request_history_limit" => "request_history_limit",
         "request_id_conflict" => "request_id_conflict",
         "app_not_approved" => "app_not_approved",
+        "application_window_pending" => "application_window_pending",
+        "application_start_failed" => "application_start_failed",
+        "application_multiple_windows" => "application_multiple_windows",
         "invalid_request" => "invalid_request",
         "window_unavailable" => "window_unavailable",
         "input_unsupported" => "input_unsupported",
@@ -580,6 +649,7 @@ mod race_tests {
         state.sessions.insert(
             "s".into(),
             Session {
+                app_id: "window".into(),
                 target: Target {
                     id: "window".into(),
                     handle: 1,
