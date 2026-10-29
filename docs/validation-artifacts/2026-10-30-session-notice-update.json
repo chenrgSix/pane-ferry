@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-30",
+  "remote_main_pulled": "f0cb589",
+  "fix_commit": "1280a2feda0ec2069a0e113a22eae780ac4ff1ef",
+  "deployment": {
+    "component": "Mac WindowHost",
+    "installed_in_existing_client": true,
+    "atomic_bundle_swap": true,
+    "strict_deep_signature_verified": true,
+    "backup": "dist/session-notice-20261030/previous-macos.app",
+    "node_and_network_binary_unchanged": true,
+    "configuration_files_unchanged": true,
+    "installed_host_sha256": "669fb74fd7f668847e0266c426c66cb14f3267437fe112469fb7db859d845db7"
+  },
+  "validation": {
+    "root_rust": {
+      "passed": 131,
+      "ignored": 31
+    },
+    "launcher_rust": {
+      "passed": 26,
+      "ignored": 1
+    },
+    "frontend": {
+      "passed": 53
+    },
+    "appkit_termination_modes": 11,
+    "private_rwp_error_events": 500,
+    "multi_session_isolation": "passed",
+    "remaining_macos_gates": "passed",
+    "gate_execution": "initial dependency download interruption; historical input test compile dependency fixed; resumed all remaining macOS gates successfully",
+    "installed_host_ui": {
+      "connections": 2,
+      "resume_count": 2,
+      "detach_count": 2,
+      "remote_close_or_stop": 0,
+      "notice_close_button": "passed",
+      "quit_while_notice_visible": "passed"
+    },
+    "source_apps_used": false,
+    "windows_capture_e2e": false,
+    "end_to_end_latency_measured": false
+  },
+  "logs": "dist/session-notice-20261030/"
+}
