@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-29",
+  "sourceCommits": [
+    "0a38a3b",
+    "bd6b5e0fc8b8be96805a848f534a4a0aa2d051c0"
+  ],
+  "metric": {
+    "name": "QUIC smoothed network RTT",
+    "unit": "ms",
+    "pollMinimumIntervalSeconds": 2,
+    "staleAfterSeconds": 6,
+    "readDeadlineSeconds": 1,
+    "endToEndInputToDisplay": false
+  },
+  "tests": {
+    "networkRustUnit": 20,
+    "networkRustIntegration": 4,
+    "networkLatencySmoke": "passed: fragmented socket, peer isolation, shared polling, rate limit, legacy/closed/malformed/stale values, recovery, nonblocking one-second timeout and title states",
+    "regressions": {
+      "application_group_smoke": "passed",
+      "h264_only_smoke": "passed",
+      "automatic_reconnect_smoke": "passed"
+    },
+    "swiftRelease": "passed",
+    "nativeBundleSignatures": "deep strict passed",
+    "formatAndDiff": "passed"
+  },
+  "installed": {
+    "bundle": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "launcherPID": 79760,
+    "networkPID": 79875,
+    "hashes": {
+      "Contents/MacOS/paneferry-launcher": "2d51133901712f09be294ccda6c264a03e2477e067974409fdb24ba1a7830094",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "cd9a87e7565a84d7e7a30a1da6eb5276b5a3cc3e4f31a0aff04661a04b489b39",
+      "Contents/Resources/paneferry-network": "3f40b97d0d12f233d592b86a712335128ac0facf6b1715f7c130645bb266386d",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "81cfe50c2588c26cd4cf3ec022d31e66d0175c8484fa05772e614fb274d73978"
+    },
+    "pairingAndPreferencesPreserved": true,
+    "nodeComponentUnchanged": true,
+    "ubuntuChanges": false
+  },
+  "visualCheck": {
+    "fixture": "local owned H.264 pixels, production local QUIC statistics; no remote app attachment",
+    "windowWidthPoints": 640,
+    "labels": [
+      "延迟展示验证 (网络往返 19 ms · 接收 640 × 480 像素 · 本机 640 × 480 点 · 等比显示 · 应用会话画面 · H.264 视频 · 近 2 秒收到约 3 fps)",
+      "延迟展示验证 – 网络往返 19 ms · 接收 640 × 480 像素 · 本机 640 × 480 点 · 等比显示 · 应用会话画面 · H.264 视频 · 近 2 秒收到约 3 fps"
+    ],
+    "rttSnapshotMS": 18.885773,
+    "latencyVisibleBeforeGeometry": true,
+    "screenshot": "dist/latency-display-20261029/installed-latency-title.png"
+  },
+  "boundary": "Local test video and actual paired QUIC connection statistics; no user application was attached, no input was injected, and no end-to-end latency benchmark was run."
+}
