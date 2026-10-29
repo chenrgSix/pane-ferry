@@ -1,11 +1,13 @@
 mod capture;
 mod video;
 use crate::{Geometry, Input, Target, VideoFrame, WindowSystem};
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, ensure, Context, Result};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashSet, VecDeque},
+    marker::PhantomData,
     mem::size_of,
+    rc::Rc,
 };
 use windows::{
     core::{BOOL, PWSTR},
@@ -28,6 +30,37 @@ pub struct Desktop {
     buttons: HashSet<u8>,
     fps: u32,
     stream: u64,
+    // Dropped after all capture/encoder COM objects, on their owning thread.
+    _runtime: CaptureRuntime,
+}
+
+/// Keep one on the publisher's main thread for its full service lifetime.
+/// Short-lived discovery connections must not tear down the last MTA while
+/// GraphicsCapture's internal threads are still completing asynchronous work.
+pub struct CaptureRuntime {
+    _thread_bound: PhantomData<Rc<()>>,
+}
+impl CaptureRuntime {
+    pub fn new() -> Result<Self> {
+        unsafe {
+            RoInitialize(RO_INIT_MULTITHREADED)?;
+            if let Err(error) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
+                RoUninitialize();
+                return Err(error.into());
+            }
+        }
+        Ok(Self {
+            _thread_bound: PhantomData,
+        })
+    }
+}
+impl Drop for CaptureRuntime {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = MFShutdown();
+            RoUninitialize();
+        }
+    }
 }
 const WINDOW_IDENTITY: windows::core::PCWSTR = windows::core::w!("PaneFerry.WindowIdentity.1");
 fn hwnd(target: &Target) -> HWND {
@@ -121,12 +154,8 @@ fn title(window: HWND) -> String {
 
 impl Desktop {
     pub fn new() -> Result<Self> {
+        let runtime = CaptureRuntime::new()?;
         unsafe {
-            RoInitialize(RO_INIT_MULTITHREADED)?;
-            if let Err(error) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
-                RoUninitialize();
-                return Err(error.into());
-            }
             // This worker uses physical capture pixels, including on mixed-DPI monitors.
             let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
@@ -138,6 +167,7 @@ impl Desktop {
             buttons: HashSet::new(),
             fps: 30,
             stream: 0,
+            _runtime: runtime,
         })
     }
     fn release(&mut self) {
@@ -150,31 +180,96 @@ impl Desktop {
             let _ = mouse_button(button, false);
         }
     }
-    fn focus(&self, target: &Target) -> Result<()> {
+    fn prepare_focus(&self, target: &Target) -> Result<()> {
         validate(target)?;
         unsafe {
+            // A modal dialog may have disabled its owner. Do not repeatedly
+            // activate that owner or deliver input to an unseen owned surface.
+            if !IsWindowEnabled(hwnd(target)).as_bool() {
+                return Err(anyhow::anyhow!("input_focus_required")
+                    .context("target disabled by modal window"));
+            }
+            if GetForegroundWindow() == hwnd(target) {
+                return Ok(());
+            }
             if IsIconic(hwnd(target)).as_bool() {
                 let _ = ShowWindow(hwnd(target), SW_RESTORE);
             }
             let _ = SetForegroundWindow(hwnd(target));
             if GetForegroundWindow() != hwnd(target) {
-                let foreground = GetForegroundWindow();
-                let thread = GetWindowThreadProcessId(foreground, None);
-                let current = GetCurrentThreadId();
-                let mut message = MSG::default();
-                let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
-                if thread != 0
-                    && thread != current
-                    && AttachThreadInput(current, thread, true).as_bool()
+                // Activation across input queues is asynchronous. Wait for its
+                // notification without joining another application's input queue
+                // (which could hang this worker when that application hangs).
+                let _ = SendMessageTimeoutW(
+                    hwnd(target),
+                    WM_NULL,
+                    WPARAM(0),
+                    LPARAM(0),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                    200,
+                    None,
+                );
+            }
+            if GetForegroundWindow() != hwnd(target) {
+                // The remote focus/click arrived over the network, not through
+                // the Windows input queue. Submit a zero-distance mouse event
+                // for this active operation before requesting foreground again.
+                // It changes no pointer position, presses no keys/buttons and
+                // never runs for passive hover. Z-order changes alone also need
+                // foreground permission and cannot solve this case.
+                send(&[INPUT {
+                    r#type: INPUT_MOUSE,
+                    Anonymous: INPUT_0 {
+                        mi: MOUSEINPUT {
+                            dwFlags: MOUSEEVENTF_MOVE,
+                            ..Default::default()
+                        },
+                    },
+                }])?;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+                while GetForegroundWindow() != hwnd(target) && std::time::Instant::now() < deadline
                 {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                     let _ = SetForegroundWindow(hwnd(target));
-                    let _ = AttachThreadInput(current, thread, false);
                 }
             }
-            ensure!(
-                GetForegroundWindow() == hwnd(target),
-                "input_focus_required"
+        }
+        Ok(())
+    }
+    fn focus(&self, target: &Target) -> Result<()> {
+        self.prepare_focus(target)?;
+        if unsafe { GetForegroundWindow() } != hwnd(target) {
+            return Err(
+                anyhow::anyhow!("input_focus_required").context("foreground activation denied")
             );
+        }
+        Ok(())
+    }
+    fn pointer_motion(&mut self, target: &Target, x: i32, y: i32) -> Result<()> {
+        unsafe {
+            // Hover is not a focus request. Receivers send it at pointer rate;
+            // ignoring a background/covered window avoids focus fights and an
+            // error/beep for every mouse movement. Release any interrupted drag.
+            if GetForegroundWindow() != hwnd(target)
+                || !IsWindowEnabled(hwnd(target)).as_bool()
+                || !self.geometry(target)?.visible
+            {
+                self.release();
+                return Ok(());
+            }
+            let rect = bounds(target)?;
+            if x < 0 || y < 0 || x >= rect.right - rect.left || y >= rect.bottom - rect.top {
+                return Ok(());
+            }
+            let point = POINT {
+                x: rect.left + x,
+                y: rect.top + y,
+            };
+            if GetAncestor(WindowFromPoint(point), GA_ROOT) != hwnd(target) {
+                self.release();
+                return Ok(());
+            }
+            SetCursorPos(point.x, point.y)?;
         }
         Ok(())
     }
@@ -184,6 +279,9 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
     if targets.len() >= 128
         || !IsWindowVisible(window).as_bool()
         || IsIconic(window).as_bool()
+        || window == GetShellWindow()
+        || GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0)
+            != 0
         || !GetPropW(window, windows::core::w!("PaneFerry.RemoteWindow.1"))
             .0
             .is_null()
@@ -210,27 +308,33 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
         return BOOL(1);
     };
     // Exclude this product's helpers by process image, never by window title.
-    if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-        let mut path = [0u16; 32768];
-        let mut length = path.len() as u32;
-        let result = QueryFullProcessImageNameW(
-            process,
-            PROCESS_NAME_WIN32,
-            PWSTR(path.as_mut_ptr()),
-            &mut length,
-        );
-        let _ = CloseHandle(process);
-        if result.is_err() {
+    let application_key =
+        if let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            let mut path = [0u16; 32768];
+            let mut length = path.len() as u32;
+            let result = QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                PWSTR(path.as_mut_ptr()),
+                &mut length,
+            );
+            let _ = CloseHandle(process);
+            if result.is_err() {
+                return BOOL(1);
+            }
+            let path = String::from_utf16_lossy(&path[..length as usize]).to_lowercase();
+            let filename = path.rsplit('\\').next().unwrap_or("");
+            if filename.starts_with("paneferry") || filename == "lan-remoteapp-launcher.exe" {
+                return BOOL(1);
+            }
+            crate::application_key(&path)
+        } else {
             return BOOL(1);
-        }
-        let path = String::from_utf16_lossy(&path[..length as usize]).to_lowercase();
-        let filename = path.rsplit('\\').next().unwrap_or("");
-        if filename.starts_with("paneferry") || filename == "lan-remoteapp-launcher.exe" {
-            return BOOL(1);
-        }
-    } else {
-        return BOOL(1);
-    }
+        };
+    // Only normal, activatable application windows are published. Invisible
+    // framework helpers can have WS_VISIBLE (for example a 16x16 tray surface)
+    // and must not be offered as a separate controllable application window.
+    let auto_connectable = true;
     // Window properties disappear on destruction, unlike a recycled HWND/PID.
     // SetProp also rejects elevated windows that this standard-user publisher cannot control.
     let mut generation = GetPropW(window, WINDOW_IDENTITY).0 as usize;
@@ -251,6 +355,8 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
         started: start,
         generation,
         name,
+        application_key,
+        auto_connectable,
     };
     if validate(&target).is_ok()
         && bounds(&target).is_ok_and(|r| {
@@ -343,7 +449,10 @@ impl WindowSystem for Desktop {
                 .stream
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("stream exhausted"))?;
-            self.encoder = Some(video::Encoder::new(w, h, self.fps, self.stream)?);
+            self.encoder = Some(
+                video::Encoder::new(w, h, self.fps, self.stream)
+                    .with_context(|| format!("initialize H.264 encoder {w}x{h}"))?,
+            );
         }
         let encoder = self.encoder.as_mut().unwrap();
         for (data, key_frame) in encoder.encode(&crate::pixels::nv12(&pixels, width, height)?)? {
@@ -359,6 +468,17 @@ impl WindowSystem for Desktop {
     }
     fn input(&mut self, target: &Target, input: Input) -> Result<()> {
         validate(target)?;
+        if let Input::Pointer {
+            x, y, button: 0, ..
+        } = input
+        {
+            return self.pointer_motion(target, x, y);
+        }
+        if matches!(input, Input::Focus) {
+            // Focusing the receiver prepares its source for a subsequent click.
+            // A denied programmatic activation is not a failed user click/key.
+            return self.prepare_focus(target);
+        }
         // Key/button release must not steal focus; all new input must target this window.
         let releasing = matches!(
             input,
@@ -369,11 +489,20 @@ impl WindowSystem for Desktop {
                     ..
                 }
         );
-        if !releasing {
-            if !matches!(input, Input::Focus) {
-                ensure!(self.geometry(target)?.visible, "window_unavailable");
+        if !releasing && !matches!(input, Input::Resize { .. } | Input::Close) {
+            ensure!(self.geometry(target)?.visible, "window_unavailable");
+            if matches!(
+                input,
+                Input::Pointer {
+                    button: 1..=3,
+                    pressed: true,
+                    ..
+                }
+            ) {
+                self.prepare_focus(target)?;
+            } else {
+                self.focus(target)?;
             }
-            self.focus(target)?;
         }
         match input {
             Input::Focus => {}
@@ -450,14 +579,37 @@ impl WindowSystem for Desktop {
                     "invalid_request"
                 );
                 unsafe {
-                    let under = WindowFromPoint(POINT {
-                        x: rect.left + x,
-                        y: rect.top + y,
-                    });
                     ensure!(
-                        GetAncestor(under, GA_ROOT) == hwnd(target),
+                        IsWindowEnabled(hwnd(target)).as_bool(),
                         "input_focus_required"
                     );
+                    let point = POINT {
+                        x: rect.left + x,
+                        y: rect.top + y,
+                    };
+                    // Foreground ownership may change before the other UI
+                    // thread finishes raising its window. Wait for the actual
+                    // hit-test result, not just a WM_NULL acknowledgement.
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(250);
+                    let mut under = WindowFromPoint(point);
+                    while GetAncestor(under, GA_ROOT) != hwnd(target)
+                        && GetForegroundWindow() == hwnd(target)
+                        && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        under = WindowFromPoint(point);
+                    }
+                    validate(target)?;
+                    ensure!(bounds(target)? == rect, "window_unavailable");
+                    if GetAncestor(under, GA_ROOT) != hwnd(target) {
+                        let hit = GetAncestor(under, GA_ROOT);
+                        return Err(anyhow::anyhow!("input_focus_required").context(format!(
+                            "pointer target occluded: target={:?} foreground={:?} hit={hit:?} hit_topmost={}",
+                            hwnd(target), GetForegroundWindow(),
+                            GetWindowLongPtrW(hit, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0
+                        )));
+                    }
                     SetCursorPos(rect.left + x, rect.top + y)?;
                 }
                 if button != 0 {
@@ -503,10 +655,6 @@ impl WindowSystem for Desktop {
 impl Drop for Desktop {
     fn drop(&mut self) {
         self.detach();
-        unsafe {
-            let _ = MFShutdown();
-            RoUninitialize();
-        }
     }
 }
 fn send(events: &[INPUT]) -> Result<()> {

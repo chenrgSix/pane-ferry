@@ -73,7 +73,15 @@ impl Capture {
     pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
         let frame = match self.pool.TryGetNextFrame() {
             Ok(frame) => frame,
-            Err(e) if e.code() == windows::Win32::Foundation::E_POINTER => return Ok(None),
+            // WGC returns S_OK + a null frame while its queue is empty. The
+            // windows-rs non-null projection represents that as Error::empty()
+            // (HRESULT S_OK), not E_POINTER. It is normal before the first frame.
+            Err(e)
+                if e.code() == windows::Win32::Foundation::S_OK
+                    || e.code() == windows::Win32::Foundation::E_POINTER =>
+            {
+                return Ok(None)
+            }
             Err(e) => return Err(e.into()),
         };
         let size = frame.ContentSize()?;

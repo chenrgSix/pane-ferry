@@ -10,11 +10,13 @@
 - Windows 本机 IPC 使用只允许当前账户且拒绝远程客户端的命名管道；身份和配对文件使用当前账户私有 ACL。Mac/Linux 仍使用原有 Unix socket。
 - `paneferry-windows` 同时管理本机发布与公共网络组件，默认不共享。通过 `serve --share` 或本机 `sharing on` 显式开启；远端无法修改共享开关。
 - 从“运行中的窗口”选择当前可见、同一用户和登录会话中的窗口。应用安装目录为空，不提供远程启动任意程序、桌面模式或后台隔离会话。Windows 接收端与图形管理入口见 [Windows 控制端](windows-receiving.md)。
+- 窗口列表提供基于可执行路径 SHA-256 的稳定 `application_key` 和 `auto_connectable`，供 Mac/Windows 工作台接管已有窗口、自动接入新窗口。排除工具窗口、不激活窗口和系统桌面，避免将托盘辅助窗口等后台表面当作可操作的应用窗口；应用标识只用于偏好匹配，接入仍核验具体窗口身份。
 - 用 Windows Graphics Capture 按 HWND 采集，使用系统 Media Foundation 软件 H.264 编码器，最高 30 fps，输出现有 Annex B 协议。每次连接、尺寸变化和隐藏恢复重建编码流；首帧必须是关键帧。没有 PNG 视频回退，不需要 FFmpeg 或额外下载编码器。
+- 发布服务在整个运行期间保留图形运行环境，避免短连接释放最后一个 MTA 后与 WGC 内部线程的清理竞争。尚无捕获帧时等待下一帧，不把空队列当作连接失败。
 - 接收 Mac 的 `input.key/keysym` 和 Ubuntu 的 `input.key.logical`；中文在接收端组合后以 Unicode 提交。常见导航、功能键和快捷键映射已实现；OEM 标点按初始美式键盘布局处理，其他布局待验证。
 - 通过窗口属性代次、PID、进程创建时间、账户与登录会话检查窗口身份，避免 HWND/PID 重用后接管新对象。源窗口退出后会话结束。
 - 首版不传输跨设备剪贴板。`clipboard.remote-only` 能力让新版接收端的复制／剪切／粘贴快捷键只操作 Windows 本机剪贴板，不读取或上传接收端剪贴板。
-- 标准用户权限运行；管理员程序、UAC 安全桌面、锁屏和注销不在支持范围。输入前确认目标前台窗口和鼠标落点，不允许点击遮挡它的其他窗口。前台激活失败会提示用户在 Windows 上打开目标窗口。
+- 标准用户权限运行；管理员程序、UAC 安全桌面、锁屏和注销不在支持范围。普通鼠标移动不抢焦点，目标处于后台、被遮挡或被模态弹窗禁用时忽略悬停输入；缩放也不激活源窗口。主动选择或点击窗口时尝试前台激活；若系统拒绝程序化激活，将这次主动操作以零位移鼠标事件提交给 Windows 输入队列，再有界重试激活，不发送额外按键或点击。获得焦点后等待实际窗口置前完成，每次点击仍核对落点，不允许点击遮挡它的其他窗口或未接入的模态弹窗；按键、文字和滚轮仍要求目标已在前台。不合并其他应用的输入队列，不修改系统前台限制设置。
 - 多窗口、菜单、模态弹窗、受保护内容、休眠、RDP 切换、无显示器运行、长期性能与硬件编码均待扩展或验证。本机与远端共享同一个焦点、鼠标和键盘，不提供隔离桌面。
 
 ## 准备与构建
@@ -61,6 +63,8 @@ Windows 也可主动配对：`pair` 从 stdin 读取含 `address`、`invitation`
 
 ## 已执行与未执行的验证
 
+2026-10-29 Windows → Mac 发布实机补充：用户已确认画面、前台切换和点击正常；新建普通窗口约 4 秒内被 Mac 自动接入。Windows 仍只发布普通独立窗口，所属弹窗、文件选择器及最小化窗口尚未覆盖，不能视为已与 Linux 的全窗口接管范围一致。控制端重新开启全窗口接管会重新导入此前关闭的接收窗口，这项修复需要更新控制端。
+
 截至 2026-10-24，本机已完成的范围以本次验证记录为准：
 
 - macOS 上运行 Rust 发布器集成测试，使用真实 QUIC 配对和合成桌面，覆盖窗口目录、启动请求去重、单控制端、两种按键协议、中文与 emoji 请求、不重放输入、断线释放、同会话重连、关键帧与依赖帧顺序、退出通知，以及拒绝未批准目标和未知字段。
@@ -71,6 +75,12 @@ Windows 也可主动配对：`pair` 从 stdin 读取含 `address`、`invitation`
 - 当前 Mac 缺少 Windows C SDK，完整 Windows 网络/发布器的交叉构建在 `ring` 的 C 依赖处受阻；由 Windows 构建脚本和后续 Windows CI/实机完成。未以跳过加密依赖的方式宣称构建通过。
 
 Windows 电脑准备好后的验收清单：
+
+可在已解锁且有普通应用窗口的 Windows 桌面执行 `cargo test -p paneferry-backend-windows --test capture_lifecycle -- --ignored --nocapture`。它选择一个可自动接入的可见窗口，在内存中反复采集、编码并断开 10 次，不保存像素或发送输入。2026-10-29 本机执行通过；这不替代 Mac 端画面与输入验收。
+
+真实输入验证使用 `tests/fixtures/windows-input.ps1 -ResultPath <临时文件>` 创建独立输入框。将该 PowerShell 进程 PID 和结果文件路径分别放入 `PANEFERRY_INPUT_FIXTURE_PID`、`PANEFERRY_INPUT_FIXTURE_RESULT`，执行 `cargo test -p paneferry-backend-windows --test input_activation -- --ignored --nocapture`。测试仅操作 PID 和固定标题均匹配的测试窗口，验证后台点击激活、输入框焦点及中文和 emoji 文本，不向其他应用打字。执行期间不要操作本机鼠标或键盘；测试窗口在 60 秒后关闭。2026-10-29 本机通过，Mac 到 Windows 的多窗口操作仍需实机确认。
+
+遮挡与前台限制回归：另起一个进程运行同一 fixture 并加 `-Blocker`，将其 PID 设为 `PANEFERRY_INPUT_BLOCKER_PID`。测试先确认窗口被该独立进程遮挡、直接 `SetForegroundWindow` 被拒绝，然后验证点击激活和输入。设置 `PANEFERRY_INPUT_FOCUS_FIRST=1` 还会验证显式远端焦点请求，并确认它不移动本机鼠标；不设置则直接验证后台点击。临时阻挡窗口退出时释放其前台锁，不改持久化系统设置。
 
 1. 运行 Windows 构建脚本；确认生成 exe 并通过真实 Windows 命名管道与合成发布器测试。
 2. 分别与 Mac、Ubuntu 配对，从各自实际接收窗口看见 Windows 记事本的实时画面。

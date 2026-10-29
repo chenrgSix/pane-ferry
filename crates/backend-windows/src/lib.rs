@@ -8,7 +8,7 @@ mod native;
 #[cfg(any(windows, test))]
 mod pixels;
 #[cfg(windows)]
-pub use native::Desktop;
+pub use native::{CaptureRuntime, Desktop};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -18,6 +18,32 @@ pub struct Target {
     pub started: u64,
     pub generation: usize,
     pub name: String,
+    /// Preference identity only; never used to authorize a window attachment.
+    pub application_key: String,
+    pub auto_connectable: bool,
+}
+
+#[cfg(any(windows, test))]
+fn application_key(executable: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let path = executable.replace('/', "\\").to_lowercase();
+    let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
+    format!("exe-{:x}", Sha256::digest(path.as_bytes()))
+}
+
+#[cfg(test)]
+mod application_tests {
+    use super::application_key;
+
+    #[test]
+    fn preferences_follow_the_executable_not_its_spelling_or_basename() {
+        let key = application_key(r"C:\Apps\Editor.exe");
+        assert_eq!(key, application_key("c:/apps/editor.exe"));
+        assert_eq!(key, application_key(r"\\?\C:\Apps\Editor.exe"));
+        assert_ne!(key, application_key(r"D:\Other\Editor.exe"));
+        assert_eq!(key.len(), 68);
+        assert!(key.starts_with("exe-"));
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

@@ -67,6 +67,9 @@ async fn run() -> Result<()> {
             }
             #[cfg(windows)]
             {
+                // The Tokio entry future runs on this calling thread. Keep its
+                // MTA alive across discovery requests and capture disconnects.
+                let _capture_runtime = paneferry_backend_windows::CaptureRuntime::new()?;
                 storage::private_directory(&root)?;
                 storage::private_directory(&node)?;
                 storage::private_directory(&network)?;

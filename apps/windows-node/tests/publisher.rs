@@ -41,11 +41,16 @@ fn target() -> Target {
         started: 42,
         generation: 7,
         name: "Windows fixture".into(),
+        application_key: "exe-fixture".into(),
+        auto_connectable: true,
     }
 }
 impl WindowSystem for Fixture {
     fn windows(&mut self) -> Result<Vec<Target>> {
-        Ok(vec![target()])
+        let mut utility = target();
+        utility.id = "win-utility".into();
+        utility.auto_connectable = false;
+        Ok(vec![target(), utility])
     }
     fn geometry(&mut self, t: &Target) -> Result<Geometry> {
         ensure!(
@@ -229,6 +234,22 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     send(&mut wr, json!({"type":"window.list"})).await;
     let list = read(&mut rd, "window.list").await;
     assert_eq!(list["windows"][0]["id"], "win-fixture");
+    // Exercise the same transport decoder used by the Mac takeover planner.
+    let windows = paneferry_transport::desktop_windows(&paneferry_transport::Target {
+        socket: route.clone(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        windows.windows[0].application_key.as_deref(),
+        Some("exe-fixture")
+    );
+    assert!(windows.windows[0].auto_connectable);
+    assert_eq!(
+        windows.windows[1].application_key,
+        windows.windows[0].application_key
+    );
+    assert!(!windows.windows[1].auto_connectable);
     send(&mut wr,json!({"type":"app.launch","app_id":"not-approved","request_id":"bad","backend":"native","attach":false})).await;
     assert_eq!(read(&mut rd, "error").await["code"], "app_not_approved");
     let launch = json!({"type":"app.launch","app_id":"win-fixture","request_id":"request-1","backend":"native","attach":false});

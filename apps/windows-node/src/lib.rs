@@ -248,7 +248,7 @@ impl Client {
                         .sessions
                         .iter()
                         .find(|(_, s)| s.target.id == target.id);
-                    windows.push(json!({"id":target.id,"window_id":windows.len()+1,"name":target.name,"title":g.title,"icon_png":null,"minimized":false,"controlled":existing.is_some_and(|(_,s)|s.controller.is_some()),"session_id":existing.map(|(id,_)|id)}));
+                    windows.push(json!({"id":target.id,"window_id":windows.len()+1,"name":target.name,"title":g.title,"icon_png":null,"minimized":false,"controlled":existing.is_some_and(|(_,s)|s.controller.is_some()),"session_id":existing.map(|(id,_)|id),"application_key":target.application_key,"auto_connectable":target.auto_connectable}));
                     approved.insert(target.id.clone(), target);
                 }
                 self.state.lock().unwrap().approved = approved;
@@ -400,7 +400,12 @@ impl Client {
                     .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("window_unavailable"))?
                     .1;
-                self.system.input(target, input)?;
+                if let Err(error) = self.system.input(target, input) {
+                    // Static failure stages only: do not log keys, text, pointer
+                    // positions, window titles or incoming request payloads.
+                    eprintln!("PaneFerry Windows input error: {error:#}");
+                    return Err(error);
+                }
             }
         }
         Ok(false)
@@ -441,7 +446,7 @@ impl Client {
     }
 }
 fn public_error(error: &anyhow::Error) -> &'static str {
-    match error.to_string().as_str() {
+    match error.root_cause().to_string().as_str() {
         "sharing_disabled" => "sharing_disabled",
         "desktop_locked" => "desktop_locked",
         "session_exited" => "session_exited",
@@ -522,6 +527,11 @@ pub async fn client(
                 last_frame=std::time::Instant::now();
                 if let Err(error)=client.tick(&mut write).await{
                     let code=public_error(&error);
+                    if code == "capture_failed" {
+                        // Local diagnostics only; never include request payloads,
+                        // window titles, captured pixels or authentication data.
+                        eprintln!("PaneFerry Windows frame error: {error:#}");
+                    }
                     if code=="session_exited" {
                         if let Some((id,_))=&client.session {client.state.lock().unwrap().sessions.remove(id);}
                         client.send(&mut write,json!({"type":"session.exited"})).await?;}
@@ -577,6 +587,8 @@ mod race_tests {
                     started: 1,
                     generation: 1,
                     name: "test".into(),
+                    application_key: "exe-test".into(),
+                    auto_connectable: true,
                 },
                 controller: Some(current),
             },
@@ -642,6 +654,8 @@ mod geometry_tests {
             started: 1,
             generation: 1,
             name: "resizing".into(),
+            application_key: "exe-test".into(),
+            auto_connectable: true,
         };
         let mut system = ResizingDesktop {
             resized: false,
