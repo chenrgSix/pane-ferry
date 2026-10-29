@@ -20,7 +20,21 @@ Linux 开发包由 `bash scripts/build-linux.sh` 生成，包含双向使用的 
 
 ## 窗口视频流
 
-Mac 宿主与 Linux Agent 协商 H.264。Agent 的独立输出线程通过稳定 C API 运行时加载系统 GStreamer，使用 appsrc、编码器、h264parse、appsink；X11 的 BGRx 输入仍经 videoconvert，奇数宽高用 videobox 补边。PipeWire 输入使用下述已经转换的 I420 帧。优先采用 `x264enc` 的 ultrafast / zerolatency 模式，关闭 B 帧和 lookahead，以 4 个 slice 线程处理同一帧，避免帧线程排队。组件缺失、初始化失败或首帧失败时采用原有 OpenH264 屏幕模式；已经输出视频的流不会中途换编码器。无需新增 Python 编码进程，也不会自动安装插件。x264 是系统可选组件（通常由 `gstreamer1.0-plugins-ugly` 提供）。
+Mac 宿主与 Linux Agent 协商 H.264。Agent 的独立编码线程通过稳定 C API 运行时加载系统 GStreamer，使用 appsrc、编码器、h264parse、appsink。
+X11/XWayland 在 DRI3、GBM 和 VA 组件可用时，可将私有线性目标直接交给 `vapostproc` / `vah264lpenc`，省去该阶段的 CPU 像素读回和再次上传。
+只租用 Agent 自己的目标，应用的源缓冲不会交给编码器。GstMemory 最后一个引用释放后目标才可复用；目标池最多四个，满时保留 Damage 重试，禁止覆盖在途帧。
+存储行对齐到 64 字节，可见尺寸保持不变；奇数宽高由 GPU 补黑边至偶数。CPU 映射延迟到软编实际需要时创建，快照仍为不可变独立字节。
+
+默认按每窗口的实际采集到编码完成时间选择路径：先软编 16 帧，再试 GPU 16 帧，各排除前 4 帧，比较其余 12 帧中位数。
+GPU 总耗时至少快 8%，且采集/编码瓶颈服务时间不恶化超过 3% 才保留；后续总耗时高于软编基线 15% 或瓶颈高于基线 10% 时返回软编。每帧只编码一次，没有额外的双重编码或 GPU 阶段 CPU 像素比较。软件模式保留像素去重，GPU 模式依靠 Damage 通知。
+切换在下一帧生效，使用新 stream ID 和 IDR；窗口几何变化或重新建立流后重测。
+`PANEFERRY_VIDEO_GPU=0` 禁用 GPU 帧路径；`PANEFERRY_VIDEO_GPU=1` 跳过性能比较直接尝试 GPU，仍保留错误回退。未设置时自动选择。
+这类短期观测不能保证在不断变化的系统负载下始终选到最优路径，保留单独的强制对照入口用于验证。
+
+缺少组件、目标不适用、初始化或首帧失败时使用软件编码；已发布 GPU 流发生错误时，以新 stream ID / IDR 重新启动软编，并停止该编码 worker 的后续硬编尝试。
+软编优先使用 `x264enc` ultrafast / zerolatency，关闭 B 帧和 lookahead，使用 4 个 slice 线程；失败后仍可使用 OpenH264 屏幕模式。
+PipeWire 原生窗口继续使用下述 I420 路径。无需新增 Python 编码进程，不会自动安装驱动或插件；VA 驱动需由部署环境提供，Intel 本机验证使用 `intel-media-va-driver`。
+大图 90 FPS 若超过输入 identity 的有符号字节率范围，也会使用软编。x264 通常由 `gstreamer1.0-plugins-ugly` 提供。
 
 PipeWire 不再生成裁剪后的 BGRx 中间图。Agent 校正 crop 的逻辑/像素单位并合并窗口边界后，通过 `videoconvertscale` 的 `converter-config` 显式指定源区域和同尺寸目标区域，直接生成 I420；奇数尺寸在转换时补黑边到偶数。已核对 Ubuntu 的 GStreamer 1.28.2：仅传 crop 元数据不会自动应用裁剪，因此不依赖这种行为。
 
@@ -30,7 +44,7 @@ PipeWire 不再生成裁剪后的 BGRx 中间图。Agent 校正 crop 的逻辑/�
 
 编码保持原分辨率、按像素数和协商帧率计算的目标码率、QP 上限 28 与不跳帧策略。identity 按协商帧率生成固定帧时间戳。窗口改变大小、隐藏恢复或重连后从新的关键帧开始；只在编码前合并旧画面，发布端保持编码依赖顺序；网络慢窗口丢帧后跳过后续依赖帧，并通过 `video.keyframe` 请求新的 IDR 恢复。实际显示像素尺寸保持不变，奇数宽高补至偶数后由 Mac 裁掉补边。编码为有损 4:2:0；编码器变化仍需解码画质和真实桌面验证，不能只比较帧率。`tests/performance/legacy_video_encoder.py` 仅作为旧编码画质基准。
 
-Agent 仅在组件可用时声明 `native.h264`；当前视频链路要求 H.264，不再提供 PNG 回退。编码结果等待上限为 2 秒；管线出错会断开控制连接并释放按键。视频经 QUIC 可靠流传输，不使用 WebRTC；不会配置 STUN、TURN、公网端口或更改防火墙。不运行客户端提供的管线或命令。
+Agent 仅在组件可用时声明 `native.h264`；当前视频链路要求 H.264，不再提供 PNG 回退。编码结果等待上限为 2 秒；无法通过软件回退恢复的管线错误会断开控制连接并释放按键。视频经 QUIC 可靠流传输，不使用 WebRTC；不会配置 STUN、TURN、公网端口或更改防火墙。不运行客户端提供的管线或命令。
 
 ## 接入现有 X11 窗口
 

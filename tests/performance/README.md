@@ -66,7 +66,7 @@ python3 tests/performance/publisher_stage_summary.py \
 以及原有 GStreamer 元件的 buffer pad probe。不会增加转换元件或读取 probe buffer 的画面内容。
 
 ```sh
-python3 tests/performance/gpu_publisher_probe.py /tmp/gpu-publisher-probe
+python3 tests/performance/gpu_publisher_probe.py /tmp/gpu-publisher-probe --revision bbc10c4
 cargo build --locked --release --manifest-path /tmp/gpu-publisher-probe/Cargo.toml \
   --target-dir /tmp/gpu-publisher-target -p paneferry-agent
 PANEFERRY_PUBLISHER_TRACE=/tmp/gpu-publisher-trace.jsonl \
@@ -105,6 +105,19 @@ VA API 的参数、返回值和缓冲内容保持原样，只记录调用时间�
 格式转换到 VA 池可能在转换元件内部触发上传，不能只看 `encoder_element` 的时间。
 这类插桩结果不能与未插桩的正式吞吐直接相减；归因和候选对照见
 [GPU 读回/上传诊断记录](../../docs/performance/2026-10-28-gpu-readback-upload.md)。
+
+### 正式 Agent 的 GPU 路径对照
+
+最新 `publisher_stage_probe.py` 支持 GPU 租约的采集 ID，以及实际 `encoder_backend`。
+为测试自有 Agent 设置 `PANEFERRY_VIDEO_GPU=0` 对照原 CPU 采集；`=1` 强制尝试 GPU；未设置为自动选择。
+自动模式可能产生新的 stream ID，使用 `PANEFERRY_SCROLL_ALLOW_CODEC_SWITCH=1` 验证每次切换从 IDR 开始，
+并在计时结束后解码整段流，检查所有计时帧的视觉计数。初始尺寸变化后的空白预热帧单独记录。
+可设置 `PANEFERRY_SCROLL_WARMUP_SECONDS=5` 延长两路相同的预热时间，另保留启动试跑的原始记录。
+不要把不同显卡负载、不同源码构建或不同测量边界的轮次相减为收益。
+
+上节 `gpu_publisher_probe.py --revision bbc10c4` 是旧快照结构的历史复现入口；新租约可能将 CPU 回退读回移至编码线程，
+应使用上述同帧发布插桩，不能沿用旧版线程内 copy/fence 区间解释。代码接入及本机更新记录见
+[正式 Agent 接入记录](../../docs/performance/2026-10-28-agent-dmabuf-integration.md)。
 
 ### 私有 DMA-buf 直达 GPU 的原型验证
 

@@ -1138,7 +1138,7 @@ fn launch(
         if let Ok(mut b) = Backend::connect(&disp) {
             b.set_private_display_dpi(scale_factor)?;
             b.set_scale_factor(scale_factor)?;
-            b.enable_async_capture()?;
+            b.enable_video_capture(video::gpu_available())?;
             s.backend = Some(Box::new(b));
             break;
         }

@@ -8,12 +8,126 @@ struct Canvas {
     pixmap: u32,
     picture: u32,
     size: (u32, u32),
-    linear: Option<crate::linear_capture::Buffer>,
+    linear: Option<Arc<crate::linear_capture::Buffer>>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires an explicitly selected GPU X11 display; uses only private pixmaps"]
+    fn gpu_leases_bound_pool_and_survive_reuse_resize_and_retirement() -> Result<()> {
+        let (conn, screen) = x11rb::connect(None)?;
+        let screen = &conn.setup().roots[screen];
+        let source = conn.generate_id()?;
+        conn.create_pixmap(24, source, screen.root, 2940, 1618)?
+            .check()?;
+        let gc = conn.generate_id()?;
+        conn.create_gc(gc, source, &CreateGCAux::new())?.check()?;
+        let mut render = RenderScale::new(&conn, screen.root);
+        let mut frames = Vec::new();
+        for color in [0xff0000, 0x00ff00, 0x0000ff, 0xffffff] {
+            conn.change_gc(gc, &ChangeGCAux::new().foreground(color))?;
+            conn.poly_fill_rectangle(
+                source,
+                gc,
+                &[Rectangle {
+                    x: 0,
+                    y: 0,
+                    width: 2940,
+                    height: 1618,
+                }],
+            )?;
+            let (target, _) = render
+                .capture_drawable(
+                    &conn,
+                    source,
+                    screen.root_visual,
+                    (2940, 1618),
+                    (2940, 1618),
+                )?
+                .context("GPU render unavailable")?;
+            let frame = render
+                .capture_gpu(&conn, target)?
+                .context("GPU lease unavailable")?;
+            assert_eq!(frame.stride() % 64, 0);
+            frames.push(frame);
+        }
+        assert!(
+            render
+                .capture_drawable(
+                    &conn,
+                    source,
+                    screen.root_visual,
+                    (2940, 1618),
+                    (2940, 1618)
+                )
+                .is_err(),
+            "a full pool must backpressure instead of overwriting leased memory"
+        );
+        let first = frames.remove(0);
+        let lease = Arc::downgrade(&first);
+        drop(frames);
+        let (target, _) = render
+            .capture_drawable(&conn, source, screen.root_visual, (2940, 1618), (640, 480))?
+            .unwrap();
+        let resized = render.capture_gpu(&conn, target)?.unwrap();
+        assert_eq!((resized.width(), resized.height()), (640, 480));
+        for size in [(1470, 809), (641, 483)] {
+            let (target, _) = render
+                .capture_drawable(&conn, source, screen.root_visual, (2940, 1618), size)?
+                .unwrap();
+            let frame = render.capture_gpu(&conn, target)?.unwrap();
+            assert_eq!((frame.width(), frame.height()), size);
+            let ew = size.0 + size.0 % 2;
+            let eh = size.1 + size.1 % 2;
+            let image = conn
+                .get_image(
+                    ImageFormat::Z_PIXMAP,
+                    target,
+                    0,
+                    0,
+                    ew as u16,
+                    eh as u16,
+                    u32::MAX,
+                )?
+                .reply()?;
+            for y in 0..eh {
+                for x in 0..ew {
+                    let offset = ((y * ew + x) * 4) as usize;
+                    let value = if x < size.0 && y < size.1 { 255 } else { 0 };
+                    assert_eq!(
+                        &image.data[offset..offset + 3],
+                        &[value; 3],
+                        "padding must not stretch/crop visible pixels"
+                    );
+                }
+            }
+            assert_eq!(
+                frame.cpu_image()?.data.len(),
+                (size.0 * size.1 * 4) as usize
+            );
+        }
+        render.clear(&conn);
+        conn.free_gc(gc)?;
+        conn.free_pixmap(source)?;
+        conn.flush()?;
+        // CPU fallback is deliberately delayed until after new GPU writes,
+        // resize and X11 resource retirement. The retained BO must stay red.
+        assert!(first
+            .cpu_image()?
+            .data
+            .chunks_exact(4)
+            .all(|p| p[..3] == [0, 0, 255]));
+        assert!(resized
+            .cpu_image()?
+            .data
+            .chunks_exact(4)
+            .all(|p| p[..3] == [255, 255, 255]));
+        drop(first);
+        assert!(lease.upgrade().is_none());
+        Ok(())
+    }
     #[test]
     #[ignore = "requires an explicitly selected local GPU X11 display with DRI3/GBM; only private pixmaps are drawn"]
     fn linear_snapshots_match_server_pixels_before_any_reference_readback() -> Result<()> {
@@ -383,6 +497,7 @@ pub(super) struct RenderScale {
     visual: u32,
     depth: u8,
     canvas: Option<Canvas>,
+    leased: Vec<Canvas>,
     linear: Option<crate::linear_capture::Device>,
     linear_enabled: bool,
     linear_probed: bool,
@@ -416,6 +531,7 @@ impl RenderScale {
             visual: screen.root_visual,
             depth: screen.root_depth,
             canvas: None,
+            leased: Vec::new(),
             linear: None,
             linear_enabled,
             linear_probed: false,
@@ -433,14 +549,58 @@ impl RenderScale {
             .map(|v| v.format)
             .context("RENDER visual unavailable")
     }
-    fn clear(&mut self, conn: &RustConnection) {
+    fn clear_current(&mut self, conn: &RustConnection) {
         if let Some(c) = self.canvas.take() {
+            if let Some(b) = &c.linear {
+                b.retire(conn);
+            }
+            let _ = conn.render_free_picture(c.picture);
+            let _ = conn.free_pixmap(c.pixmap);
+        }
+    }
+    fn clear(&mut self, conn: &RustConnection) {
+        for c in self.canvas.take().into_iter().chain(self.leased.drain(..)) {
             if let Some(linear) = &c.linear {
                 linear.retire(conn);
             }
             let _ = conn.render_free_picture(c.picture);
             let _ = conn.free_pixmap(c.pixmap);
         }
+    }
+    fn available_canvas(&mut self, conn: &RustConnection, target: (u32, u32)) -> Result<()> {
+        if self
+            .canvas
+            .as_ref()
+            .and_then(|c| c.linear.as_ref())
+            .is_some_and(|b| Arc::strong_count(b) > 1)
+        {
+            self.leased.push(self.canvas.take().unwrap());
+        }
+        for i in (0..self.leased.len()).rev() {
+            if self.leased[i]
+                .linear
+                .as_ref()
+                .is_some_and(|b| Arc::strong_count(b) == 1)
+            {
+                let c = self.leased.swap_remove(i);
+                if self.canvas.is_none() && c.size == target {
+                    self.canvas = Some(c);
+                } else {
+                    if let Some(b) = &c.linear {
+                        b.retire(conn);
+                    }
+                    let _ = conn.render_free_picture(c.picture);
+                    let _ = conn.free_pixmap(c.pixmap);
+                }
+            }
+        }
+        // Four targets, at most 32 MP, independent of pending frame budgets.
+        // Backpressure retries damage instead of overwriting an in-flight BO.
+        ensure!(
+            self.canvas.is_some() || self.leased.len() < 4,
+            "GPU target pool busy"
+        );
+        Ok(())
     }
     fn scale(
         &mut self,
@@ -457,13 +617,14 @@ impl RenderScale {
             .as_ref()
             .is_none_or(|c| c.size != target || (c.linear.is_some() && !self.linear_enabled))
         {
-            self.clear(conn);
+            self.clear_current(conn);
             let pixmap = conn.generate_id()?;
             let picture = conn.generate_id()?;
             let linear = if self.linear_enabled {
                 self.linear
                     .as_ref()
                     .and_then(|d| d.buffer(conn, self.root, pixmap, target).ok())
+                    .map(Arc::new)
             } else {
                 None
             };
@@ -486,6 +647,27 @@ impl RenderScale {
                     &render::CreatePictureAux::new(),
                 )?
                 .check()?;
+                if linear.is_some() {
+                    // Initialize even-sized chroma borders once on the GPU.
+                    // Every visible pixel is subsequently overwritten by SRC.
+                    conn.render_fill_rectangles(
+                        render::PictOp::SRC,
+                        picture,
+                        render::Color {
+                            red: 0,
+                            green: 0,
+                            blue: 0,
+                            alpha: u16::MAX,
+                        },
+                        &[Rectangle {
+                            x: 0,
+                            y: 0,
+                            width: (target.0 + target.0 % 2) as u16,
+                            height: (target.1 + target.1 % 2) as u16,
+                        }],
+                    )?
+                    .check()?;
+                }
                 Ok(())
             })() {
                 let _ = conn.free_pixmap(pixmap);
@@ -563,6 +745,7 @@ impl RenderScale {
         if self.formats.is_none() || target.0 > source.0 || target.1 > source.1 {
             return Ok(None);
         }
+        self.available_canvas(conn, target)?;
         // Keymap-only X11 connections and native Wayland capture must not open
         // a render device. Probe once, on this backend's first pixel request.
         if !self.linear_probed {
@@ -606,7 +789,7 @@ impl RenderScale {
         if !self.linear_enabled {
             return None;
         }
-        match canvas.linear.as_mut()?.snapshot(conn, drawable) {
+        match Arc::get_mut(canvas.linear.as_mut()?)?.snapshot(conn, drawable) {
             Ok(bytes) => Some((self.depth, self.visual, bytes)),
             Err(_) => {
                 // Keep this valid pixmap alive for the ordinary SHM fallback.
@@ -615,5 +798,29 @@ impl RenderScale {
                 None
             }
         }
+    }
+    pub fn capture_gpu(
+        &mut self,
+        conn: &RustConnection,
+        drawable: u32,
+    ) -> Result<Option<Arc<DmaBufFrame>>> {
+        let Some(canvas) = self.canvas.as_mut().filter(|c| c.pixmap == drawable) else {
+            return Ok(None);
+        };
+        if !self.linear_enabled {
+            return Ok(None);
+        }
+        let Some(buffer) = canvas.linear.as_mut() else {
+            return Ok(None);
+        };
+        if Arc::get_mut(buffer)
+            .context("GPU target still leased")?
+            .ready(conn, drawable)
+            .is_err()
+        {
+            self.linear_enabled = false;
+            return Ok(None);
+        }
+        Ok(Some(Arc::new(DmaBufFrame::new(buffer.clone()))))
     }
 }

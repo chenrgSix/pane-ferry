@@ -5,7 +5,10 @@ use std::{
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
     path::PathBuf,
-    sync::mpsc::{self, Receiver, SyncSender, TryRecvError},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, SyncSender, TryRecvError},
+    },
     thread,
     time::Duration,
 };
@@ -31,10 +34,11 @@ struct Job {
     surface: Surface,
     epoch: u64,
     owner: Option<Identity>,
+    software: Arc<AtomicBool>,
 }
 struct Finished {
     job: Job,
-    image: Result<Arc<CapturedImage>, String>,
+    image: Result<Arc<VideoCapture>, String>,
 }
 struct Worker {
     submit: Option<SyncSender<Job>>,
@@ -43,7 +47,7 @@ struct Worker {
     interrupt: Option<OwnedFd>,
 }
 impl Worker {
-    fn new(source: &ConnectionSource, root: u32, composite: bool) -> Result<Self> {
+    fn new(source: &ConnectionSource, root: u32, composite: bool, gpu: bool) -> Result<Self> {
         let conn = source.connect()?;
         if composite {
             conn.composite_query_version(0, 4)?.reply()?;
@@ -73,14 +77,25 @@ impl Worker {
                 Ok(())
             };
             validate()?;
-            let image = readback::capture(&conn, &mut shared, &mut render, &job.surface)?;
+            let mut image = readback::capture_video(
+                &conn,
+                &mut shared,
+                &mut render,
+                &job.surface,
+                gpu && !job.software.load(Ordering::Acquire),
+            )?;
+            if let VideoCapture::DmaBuf(frame) = &mut image {
+                Arc::get_mut(frame)
+                    .context("unexpected shared GPU lease")?
+                    .preference(job.software.clone());
+            }
             validate()?;
             Ok(image)
         })
     }
-    fn spawn(
+    fn spawn<T: Into<VideoCapture>>(
         interrupt: Option<OwnedFd>,
-        mut capture: impl FnMut(&Job) -> Result<CapturedImage> + Send + 'static,
+        mut capture: impl FnMut(&Job) -> Result<T> + Send + 'static,
     ) -> Result<Self> {
         let (submit, requests) = mpsc::sync_channel::<Job>(1);
         let (results, completed) = mpsc::sync_channel(1);
@@ -91,7 +106,9 @@ impl Worker {
             .name("x11-readback".into())
             .spawn(move || {
                 while let Ok(job) = requests.recv() {
-                    let image = capture(&job).map(Arc::new).map_err(|e| e.to_string());
+                    let image = capture(&job)
+                        .map(|i| Arc::new(i.into()))
+                        .map_err(|e| e.to_string());
                     if results.send(Finished { job, image }).is_err() {
                         break;
                     }
@@ -127,8 +144,9 @@ struct Slot {
     surface: Surface,
     epoch: u64,
     blocked: bool,
-    image: Option<Arc<CapturedImage>>,
+    image: Option<Arc<VideoCapture>>,
     last_started: Option<Instant>,
+    software: Arc<AtomicBool>,
 }
 #[derive(Default)]
 struct Frames {
@@ -154,6 +172,7 @@ impl Frames {
         if let Some(slot) = self.slots.get_mut(&id) {
             self.pixels -= slot.image.take().map_or(0, |image| image.pixels());
             slot.epoch = epoch;
+            slot.software = Arc::new(AtomicBool::new(false));
             slot.blocked |= block;
         }
     }
@@ -173,8 +192,8 @@ impl Frames {
             return false;
         }
         let Ok(image) = done.image else { return false };
-        if (image.width, image.height) != slot.surface.target
-            && (image.width, image.height) != slot.surface.source
+        if (image.width(), image.height()) != slot.surface.target
+            && (image.width(), image.height()) != slot.surface.source
         {
             return false;
         }
@@ -212,13 +231,16 @@ impl Backend {
     /// Enable before acquiring a controller. Authentication and initial X11
     /// setup happen here, never in response to an input or a capture deadline.
     pub fn enable_async_capture(&mut self) -> Result<()> {
+        self.enable_video_capture(false)
+    }
+    pub fn enable_video_capture(&mut self, gpu: bool) -> Result<()> {
         if self.async_capture.is_none() {
             let source = self
                 .connection_source
                 .as_ref()
                 .context("capture connection unavailable")?;
             self.async_capture = Some(AsyncCapture {
-                worker: Worker::new(source, self.root, self.process_id.is_some())?,
+                worker: Worker::new(source, self.root, self.process_id.is_some(), gpu)?,
                 frames: RefCell::new(Frames::default()),
             });
             self.sync_async_capture();
@@ -268,6 +290,7 @@ impl Backend {
                         blocked: false,
                         image: None,
                         last_started: None,
+                        software: Arc::new(AtomicBool::new(false)),
                     },
                 );
             }
@@ -393,6 +416,7 @@ impl Backend {
             surface: slot.surface.clone(),
             epoch: slot.epoch,
             owner,
+            software: slot.software.clone(),
         };
         // Rearm on the event connection before submitting to the independent
         // readback connection. New Damage during the job must survive completion.
@@ -426,6 +450,14 @@ impl Backend {
         Ok(())
     }
     pub fn take_capture(&self, w: &Window, width: u32, height: u32) -> Result<Arc<CapturedImage>> {
+        self.take_video_capture(w, width, height)?.cpu_image()
+    }
+    pub fn take_video_capture(
+        &self,
+        w: &Window,
+        width: u32,
+        height: u32,
+    ) -> Result<Arc<VideoCapture>> {
         let capture = self
             .async_capture
             .as_ref()
@@ -453,6 +485,89 @@ impl Backend {
 mod tests {
     use super::*;
     use x11rb::protocol::Event;
+    #[test]
+    #[ignore = "requires an explicitly selected GPU X11 display; uses only private pixmaps"]
+    fn software_choice_restores_classic_capture_without_reusing_a_gpu_lease() -> Result<()> {
+        let (painter, screen) = x11rb::connect(None)?;
+        let screen = &painter.setup().roots[screen];
+        let pixmap = painter.generate_id()?;
+        painter
+            .create_pixmap(24, pixmap, screen.root, 640, 480)?
+            .check()?;
+        let gc = painter.generate_id()?;
+        painter
+            .create_gc(gc, pixmap, &CreateGCAux::new().foreground(0xff0000))?
+            .check()?;
+        painter
+            .poly_fill_rectangle(
+                pixmap,
+                gc,
+                &[Rectangle {
+                    x: 0,
+                    y: 0,
+                    width: 640,
+                    height: 480,
+                }],
+            )?
+            .check()?;
+        let source = ConnectionSource::Display(std::env::var("DISPLAY")?);
+        let worker = Worker::new(&source, screen.root, false, true)?;
+        let request = Job {
+            surface: Surface {
+                window: pixmap,
+                source: (640, 480),
+                target: (640, 480),
+                visual: Some(screen.root_visual),
+                composite: false,
+            },
+            epoch: 1,
+            owner: None,
+            software: Arc::new(AtomicBool::new(false)),
+        };
+        worker.submit.as_ref().unwrap().try_send(request.clone())?;
+        let first = worker
+            .completed
+            .recv_timeout(Duration::from_secs(3))?
+            .image
+            .map_err(anyhow::Error::msg)?;
+        let VideoCapture::DmaBuf(frame) = first.as_ref() else {
+            bail!("expected GPU lease")
+        };
+        frame.prefer_software();
+        painter.change_gc(gc, &ChangeGCAux::new().foreground(0x00ff00))?;
+        painter
+            .poly_fill_rectangle(
+                pixmap,
+                gc,
+                &[Rectangle {
+                    x: 0,
+                    y: 0,
+                    width: 640,
+                    height: 480,
+                }],
+            )?
+            .check()?;
+        worker.submit.as_ref().unwrap().try_send(request)?;
+        let next = worker
+            .completed
+            .recv_timeout(Duration::from_secs(3))?
+            .image
+            .map_err(anyhow::Error::msg)?;
+        let VideoCapture::Cpu(image) = next.as_ref() else {
+            bail!("software choice must restore capture-side snapshots")
+        };
+        assert!(image.data.chunks_exact(4).all(|p| p[..3] == [0, 255, 0]));
+        drop(worker);
+        assert!(frame
+            .cpu_image()?
+            .data
+            .chunks_exact(4)
+            .all(|p| p[..3] == [0, 0, 255]));
+        painter.free_gc(gc)?;
+        painter.free_pixmap(pixmap)?;
+        painter.flush()?;
+        Ok(())
+    }
 
     fn image() -> CapturedImage {
         CapturedImage {
@@ -476,6 +591,7 @@ mod tests {
             },
             epoch: 1,
             owner: None,
+            software: Arc::new(AtomicBool::new(false)),
         }
     }
     #[test]
@@ -967,6 +1083,7 @@ mod tests {
             backend.connection_source.as_ref().unwrap(),
             backend.root,
             true,
+            false,
         )?;
         let request = Job {
             surface: Surface {
@@ -978,6 +1095,7 @@ mod tests {
             },
             epoch: 1,
             owner: Some(Identity::read(other.0.id())?.0),
+            software: Arc::new(AtomicBool::new(false)),
         };
         worker.submit.as_ref().unwrap().try_send(request)?;
         let result = worker.completed.recv_timeout(Duration::from_secs(2))?;

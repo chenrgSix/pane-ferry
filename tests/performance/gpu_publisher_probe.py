@@ -44,6 +44,8 @@ def main():
     destination = args.destination.resolve()
     backend = destination / 'crates/backend-x11/src'
     agent = destination / 'apps/linux-agent/src'
+    if 'fn capture_video(' in (backend/'readback.rs').read_text():
+        raise ValueError('GPU detail instrumentation targets snapshot capture: use --revision bbc10c4 for historical replay; use publisher_stage_probe.py for current DMA-buf leases')
     if args.encoder_source:
         (agent / 'video.rs').write_bytes(args.encoder_source.read_bytes())
 
