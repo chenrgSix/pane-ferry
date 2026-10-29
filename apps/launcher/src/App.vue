@@ -648,7 +648,7 @@ onUnmounted(() => {
             <span class="window-state">{{ automaticStatus.takeoverEnabled ? "接管中" : "未接管" }}</span>
             <button :disabled="automaticSaving" :aria-pressed="Boolean(automaticStatus.takeoverEnabled)" @click="deviceWindowAction()">{{ automaticSaving ? "处理中…" : automaticStatus.takeoverEnabled ? "停止接管" : "接管全部窗口" }}</button>
           </div>
-          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">正在自动接入已有和新开的窗口。停止接管会保留已连接的窗口，并恢复应用级规则。</p>
+          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">正在自动接入已有和新开的窗口。停止接管会保留已连接的窗口，并恢复应用级规则；再次开启会重新接入此前关闭的窗口。</p>
           <p v-if="automaticStatus.managedWindows" class="hint">此启动器管理 {{ automaticStatus.managedWindows }} 个应用接收窗口。<button :disabled="automaticSaving" @click="deviceWindowAction(true)">断开此设备全部应用窗口</button></p>
           <p v-if="takeoverError || (automaticStatus.takeoverEnabled && automaticStatus.warning)" class="alert error" role="alert">{{ takeoverError || automaticStatus.warning }}</p>
         </section>

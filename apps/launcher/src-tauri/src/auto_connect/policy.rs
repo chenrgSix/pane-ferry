@@ -76,6 +76,13 @@ impl Planner {
         // A device takeover deliberately includes the first inventory. Turning
         // it off keeps the seen boundary for application-scoped rules.
         if enabled {
+            // A new explicit takeover is a new request to import every window,
+            // including receivers closed during an earlier takeover. Repeated
+            // enabled ticks return above, so closing a receiver still suppresses
+            // it for the remainder of the current takeover.
+            self.dismissed.clear();
+            self.closed.clear();
+            self.closed_sessions.clear();
             self.armed = true;
         }
     }
@@ -331,22 +338,52 @@ mod tests {
         assert!(next(&p, &windows, &[all()], 2).is_none());
     }
     #[test]
-    fn mode_switch_drops_pending_imports_and_never_reopens_dismissed_windows() {
+    fn mode_switch_drops_pending_imports_and_new_takeover_reimports_dismissed_windows() {
         let mut p = Planner::default();
         let windows = [window("dismissed", "chooser"), window("old", "editor")];
         p.baseline(&windows);
         p.dismiss(&["dismissed".into()], "session", 0);
         p.set_takeover(true);
         p.observe(&windows, &[all()], 10_000);
-        assert_eq!(next(&p, &windows, &[all()], 10_000).unwrap().0.id, "old");
+        assert_eq!(
+            next(&p, &windows, &[all()], 10_000).unwrap().0.id,
+            "dismissed"
+        );
         p.set_takeover(false);
         p.observe(&windows, &[all()], 10_001);
         assert!(next(&p, &windows, &[all()], 10_001).is_none());
         p.set_takeover(true);
         p.observe(&windows, &[all()], 20_000);
-        assert_eq!(next(&p, &windows, &[all()], 20_000).unwrap().0.id, "old");
+        assert_eq!(
+            next(&p, &windows, &[all()], 20_000).unwrap().0.id,
+            "dismissed"
+        );
         assert!(p
-            .candidate(&windows, &[all()], ["old".into()].into_iter(), 20_000)
+            .candidate(
+                &windows,
+                &[all()],
+                ["old".into(), "dismissed".into()].into_iter(),
+                20_000
+            )
             .is_none());
+    }
+    #[test]
+    fn receiver_close_is_respected_until_a_new_explicit_takeover_even_inside_cooldown() {
+        let mut p = Planner::default();
+        let mut window = window("existing", "editor");
+        window.session_id = Some("session".into());
+        let windows = [window];
+        p.set_takeover(true);
+        p.observe(&windows, &[all()], 0);
+        assert!(next(&p, &windows, &[all()], 0).is_some());
+        p.finish("existing", false, 0);
+        p.dismiss(&["existing".into()], "session", 1);
+        p.set_takeover(true); // Ordinary polling must not reopen it.
+        p.observe(&windows, &[all()], 2);
+        assert!(next(&p, &windows, &[all()], 2).is_none());
+        p.set_takeover(false);
+        p.set_takeover(true); // Explicit user restart supersedes the dismissal.
+        p.observe(&windows, &[all()], 3);
+        assert_eq!(next(&p, &windows, &[all()], 3).unwrap().0.id, "existing");
     }
 }
