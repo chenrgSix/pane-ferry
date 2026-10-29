@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-29",
+  "source_revisions": {
+    "main_fix": "18e54eb",
+    "hidden_x11_liveness": "ef7e830",
+    "mac_bundle_source": "18e54eb",
+    "ubuntu_agent_source": "ef7e830"
+  },
+  "behavior": [
+    "Explicit Refresh Apps requests only app.list; initialization still loads current runtime metadata",
+    "Session listings inspect process/window metadata without control-path scans, capture preparation, geometry adjustment, input-scope claims or process cleanup",
+    "Wayland detached queries use the existing read-only global list operation, compatible with loaded bridge 6",
+    "X11 metadata inspection leaves oversized source windows unchanged and retains hidden pinned roots withdrawn from the WM list"
+  ],
+  "verification": {
+    "frontend_tests_passed": 47,
+    "frontend_production_build": "passed",
+    "mac_agent_tests": {
+      "passed": 48,
+      "ignored": 10
+    },
+    "mac_x11_unit_tests": {
+      "passed": 8,
+      "ignored": 17
+    },
+    "ubuntu_agent_final_tests": {
+      "passed": 49,
+      "ignored": 10
+    },
+    "ubuntu_x11_unit_tests": {
+      "passed": 12,
+      "ignored": 17
+    },
+    "explicit_xvfb_metadata_and_hidden_root_regression": "passed",
+    "old_agent_private_gnome_regression": "failed as expected: metadata query recreated a virtual capture output after idle",
+    "fixed_agent_private_gnome_regression": "passed 8 rounds of session/window/app/monitor queries with geometry, scale and monitor layout unchanged; explicit reconnect delivered a frame",
+    "native_video_pause_resume_regression": "passed static recovery and current geometry after paused resize",
+    "actual_mac_ui_refresh": "native accessibility dispatched Refresh Apps and Refresh Runtime on installed new client; catalogue timestamp displayed current time",
+    "actual_ubuntu_during_refresh": {
+      "source_windows": 6,
+      "source_geometry_unchanged": true,
+      "monitors_unchanged": true,
+      "source_processes_preserved": true
+    },
+    "final_deployment_source_geometry_and_processes_preserved": true,
+    "full_project_gate_repeated": false,
+    "end_to_end_latency_measured": false
+  },
+  "deployment": {
+    "mac_launcher_pid": 57003,
+    "mac_unchanged_helpers_preserved": true,
+    "mac_binary_sha256": {
+      "Contents/MacOS/paneferry-launcher": "950df7b9afdacc6e41d37fd2a021a0b1943cb78077272a2417a4a7141dc9aa46",
+      "Contents/Resources/paneferry-network": "37939a32b6d7d70569b27b77ab7e02b18f58b8cb26633b975a092aa5b5d3a778",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "a2ecd509900d580b67bb81fcd60297fdcb344138d954bbff164cab464167c47e",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "81cfe50c2588c26cd4cf3ec022d31e66d0175c8484fa05772e614fb274d73978"
+    },
+    "mac_configuration_preserved": true,
+    "ubuntu_agent_pid": 3095636,
+    "ubuntu_network_pid": 3060626,
+    "ubuntu_binary_sha256": {
+      "paneferry-agent": "4dfcfe775b913a9552363fc8ac3be30039afb087b76b2ea131bf420dca2fef21",
+      "paneferry-network": "e6e9ef38c64d7ff948c7be75a0ea8aef2fa74472527e3cb3e39deb089fcdb0fc"
+    },
+    "ubuntu_backup": "/home/chenrg/.local/state/lan-remoteapp/upgrades/read-only-discovery-20261029-18e54eb",
+    "owned_gui_applications_interrupted": 0,
+    "gnome_extension_changed": false,
+    "desktop_logout": false
+  },
+  "artifacts": {
+    "mac": {
+      "path": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/read-only-discovery-20261029/PaneFerry-macOS-18e54eb.zip",
+      "sha256": "1bda74f8b365fedf399c3c87eafd8e5927a25433490b29cf01dd66c14f7009d2"
+    },
+    "ubuntu": {
+      "path": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/read-only-discovery-20261029/PaneFerry-Ubuntu-ef7e830.tar.gz",
+      "sha256": "00f737138d4ab2e7686a1fe1691ccfaab7f0c938055b3c8b0803dd37a3b8b4ba"
+    }
+  },
+  "cleanup": {
+    "mac_isolated_build_removed": true,
+    "retired_bundle_retained_for_unchanged_helpers": true,
+    "root_debug_cache_removed": true,
+    "ubuntu_isolated_build_removed": true
+  },
+  "raw_evidence_directory": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/read-only-discovery-20261029"
+}
