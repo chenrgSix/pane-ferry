@@ -513,7 +513,13 @@ impl Backend {
             None
         };
         let mut windows = Vec::new();
-        for id in self.window_ids()? {
+        let mut ids = self.window_ids()?;
+        // A withdrawn/minimized root can be absent from the WM list before
+        // its first captured frame. Its pinned XID still proves it is alive.
+        ids.extend(self.root_window);
+        ids.sort_unstable();
+        ids.dedup();
+        for id in ids {
             if !self.belongs_to_process(id)
                 || Some(id) == wm
                 || wm_pid.is_some() && self.client_pid(id).ok() == wm_pid
@@ -523,7 +529,10 @@ impl Backend {
             let Ok(attrs) = self.conn.get_window_attributes(id)?.reply() else {
                 continue;
             };
-            if attrs.map_state != MapState::VIEWABLE && !self.windows.contains_key(&id) {
+            if attrs.map_state != MapState::VIEWABLE
+                && !self.windows.contains_key(&id)
+                && self.root_window != Some(id)
+            {
                 continue;
             }
             let Ok(geometry) = self.conn.get_geometry(id)?.reply() else {
@@ -1363,6 +1372,38 @@ mod geometry_tests {
                 "metadata queries must not prepare capture state"
             );
         }
+        backend.root_window = Some(id);
+        backend.conn.unmap_window(id)?.check()?;
+        backend
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                backend.root,
+                backend.atom("_NET_CLIENT_LIST"),
+                AtomEnum::WINDOW,
+                &[],
+            )?
+            .check()?;
+        let hidden = backend.inspect_windows()?;
+        assert_eq!(
+            hidden.len(),
+            1,
+            "a hidden pinned root is not a destroyed window"
+        );
+        assert!(!hidden[0].visible);
+        assert!(calls.lock().unwrap().is_empty());
+        backend.root_window = None;
+        backend.conn.map_window(id)?.check()?;
+        backend
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                backend.root,
+                backend.atom("_NET_CLIENT_LIST"),
+                AtomEnum::WINDOW,
+                &[id],
+            )?
+            .check()?;
         backend.scan()?;
         let resized = backend.conn.get_geometry(id)?.reply()?;
         paneferry_protocol::dimensions(resized.width.into(), resized.height.into())?;
