@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-29",
+  "source_revision": "c96d2c897a1f47825682821c3075e3e810d02150",
+  "product_version": "0.1.2 development build",
+  "request_scope": "Update only local macOS client for the user to test the standalone takeover button",
+  "build": {
+    "isolated_source": true,
+    "exit_code": 0,
+    "strict_deep_signature": "passed; launcher and embedded helpers"
+  },
+  "installation": {
+    "bundle": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/apps/launcher/src-tauri/target/release/bundle/macos/窗渡 PaneFerry.app",
+    "directory_swap": "atomic",
+    "launcher_node_network_restarted": true,
+    "running_processes": {
+      "launcher": 36753,
+      "node": 36767,
+      "network": 36769
+    },
+    "binary_sha256": {
+      "Contents/MacOS/paneferry-launcher": "f9136934b417a91bb8040b854d5a4c31ae644b33eba4978933ad9f01c932d7aa",
+      "Contents/Resources/paneferry-network": "db41917f1d9220f534d6d87aafbc85cd6b1e2d8c31bcc811520d10e4710ffbc8",
+      "Contents/Resources/PaneFerryWindowHost.app/Contents/MacOS/PaneFerryWindowHost": "387b6270be46507b0608ac27045c160a53d3ebc0fbee52e182ad7a528cf86ab5",
+      "Contents/Resources/PaneFerryNode.app/Contents/MacOS/PaneFerryNode": "c0e9cf7cc85b20524f2c807dfbd4d155c25b40a8b205092d6a80103dd804245e"
+    }
+  },
+  "actual_ui": {
+    "verified_on_installed_running_client": true,
+    "standalone_takeover_action": "接管全部窗口",
+    "button_enabled": true,
+    "mode_enabled": false,
+    "checked_by": "native macOS accessibility and screenshot",
+    "screenshot": "dist/takeover-button-update-20261029/actual-installed-client.png"
+  },
+  "preservation": {
+    "device_identity_and_pairing_preserved": true,
+    "paired_peers": 1,
+    "connected_peers": 1,
+    "preferences_byte_identical": true,
+    "existing_application_rules": 2
+  },
+  "ubuntu": {
+    "updated": false,
+    "read_only_quic_window_inventory": "passed",
+    "windows": 6,
+    "auto_connectable": 6,
+    "video_activity_advertised": false
+  },
+  "boundaries": [
+    "Did not enable live all-window takeover or start receiving user windows; left for the user to test",
+    "No new end-to-end latency measurement",
+    "Frontend 47 tests and build passed for this exact source commit in the preceding UI-change work; no unrelated suites repeated for this deployment"
+  ],
+  "cleanup": {
+    "isolated_build_directory_removed": true,
+    "extra_swapped_bundle_removed": true,
+    "temporary_build_allocated_bytes_removed": 2060156928,
+    "previous_bundle_retained": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/takeover-button-update-20261029/previous/窗渡 PaneFerry.app"
+  },
+  "package": {
+    "path": "/Users/chenzhirong/Code/ideProject/lan-remoteapp/dist/takeover-button-update-20261029/PaneFerry-macOS-c96d2c8.zip",
+    "sha256": "16e4a0185ac12d0ba2f713f6fd3d40a455a88076bab2eb5c3c540929896a58f7"
+  }
+}
