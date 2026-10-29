@@ -14,7 +14,9 @@ with tempfile.TemporaryDirectory(prefix='paneferry-termination-') as folder:
         *map(str, sorted(p for p in source.glob('*.swift') if p.name != 'main.swift')),
         str(types), str(root / 'tests/swift/TerminationSmoke.swift'), '-o', str(binary)],
         check=True, timeout=120)
-    for mode in ('session', 'quit', 'signal'):
+    for mode in ('session', 'quit', 'signal', 'notice-session', 'notice-quit',
+                 'notice-signal', 'notice-acknowledge', 'notice-close', 'notice-disconnect',
+                 'group-notice-quit', 'group-notice-signal'):
         result = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=6)
         assert result.returncode == 0 and 'PASS:' in result.stdout, (mode, result.stdout, result.stderr)
         print(mode, result.stdout.strip())

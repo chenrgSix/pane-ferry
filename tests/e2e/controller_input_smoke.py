@@ -9,10 +9,11 @@ source = root / 'apps/mac-windowhost/Sources/PaneFerryWindowHost'
 with tempfile.TemporaryDirectory(prefix='paneferry-input-', dir='/tmp') as directory:
     scratch = pathlib.Path(directory)
     binary = scratch / 'controller-input-smoke'
+    types = scratch / 'WindowHostTypes.swift'
+    types.write_text((source / 'main.swift').read_text().split('\n// WINDOWHOST_ENTRYPOINT\n')[0])
+    files = [str(path) for path in sorted(source.glob('*.swift')) if path.name != 'main.swift']
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
-                    str(source / 'VideoFrame.swift'), str(source / 'SurfaceView.swift'), str(source / 'ClipboardCopyGate.swift'), str(source / 'RenderGeometry.swift'),
-                    str(source / 'HostedWindow.swift'),
-                    str(source / 'ClipboardBundle.swift'), str(source / 'ClipboardBulkTransfer.swift'),
+                    *files, str(types),
                     str(root / 'tests/swift/ClipboardBundleSmoke.swift'),
                     str(root / 'tests/swift/ControllerInputSmoke.swift'), '-o', str(binary)],
                    check=True, timeout=120)

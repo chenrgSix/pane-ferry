@@ -364,6 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var wireSink: (([String: Any]) -> Void)?
     var terminateHost: () -> Void = { NSApp.terminate(nil) }
     var disconnectSession: (() -> Void)?
+    let notice = SessionNotice()
     var onFocus: (() -> Void)?
     var applicationMenu: NSMenu?
     var windowMenu: NSMenu?
@@ -553,17 +554,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let session = session else { return }
         controllerClipboard.clearContents(); controllerClipboard.setString(session, forType: .string)
     }
-    private func alert(_ message: String) {
-        let alert = NSAlert(); alert.messageText = applicationName; alert.informativeText = message
-        if let icon = applicationIcon { alert.icon = icon }
-        alert.addButton(withTitle: "好"); alert.runModal()
+    private func alert(_ message: String, key: String? = nil) {
+        guard !stopping else { return }
+        let parent = activeHost()?.window ?? windows.values.first { !$0.popup && $0.window.isVisible }?.window
+        notice.present(title: applicationName, message: message, icon: applicationIcon, parent: parent,
+            key: key, dismissed: key == nil ? nil : { [weak self] in
+                // A startup failure may have no video window to close. Closing
+                // its only notice must not leave an invisible session behind.
+                if let self = self, self.windows.isEmpty { self.requestDisconnect() }
+            }, disconnect: key == nil ? nil : { [weak self] in self?.requestDisconnect() })
+    }
+    func requestDisconnect() {
+        guard !stopping else { return }
+        if let disconnect = disconnectSession { disconnect() } else { terminateHost() }
     }
     func pump() {
+        guard !stopping else { return }
         let (events, error) = transport.drain()
         for event in events { if !connected { break }; receive(event) }
         if let error = error, connected {
             if error.retryable { connectionLost() }
-            else { stopRecovery(); alert(error.message) }
+            else { stopRecovery(); alert(error.message, key: "transport:\(error.message)") }
         }
         if let id = pendingVideoFeedbackID, connected {
             let now = ProcessInfo.processInfo.systemUptime
@@ -585,6 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     func startConnection() {
         guard !stopping else { return }
+        notice.resetSuppression()
         reconnectTimer?.invalidate(); reconnectTimer = nil
         transport = makeTransport(); connected = true; ready = false; lastSequence = 0; capabilities.removeAll()
         let readableTransport = transport
@@ -641,6 +653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func finishSession() {
         guard !stopping else { return }
         stopping = true
+        notice.dismiss()
         stopRecovery()
         poll?.invalidate(); poll = nil
         networkMonitor?.cancel(); networkMonitor = nil
@@ -729,13 +742,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         writeWire(wire)
     }
     func receive(_ incoming: Incoming) {
+        guard !stopping else { return }
         let object = incoming.object
         guard let type = object["type"] as? String else { return }
         if type == "hello" {
             guard !ready else { return }
             capabilities = Set(object["capabilities"] as? [String] ?? [])
             guard capabilities.contains("native.h264") else {
-                stopRecovery(); alert("远端不支持 H.264 视频，无法连接该窗口。")
+                stopRecovery(); alert("远端不支持 H.264 视频，无法连接该窗口。", key: "native_h264_unavailable")
                 return
             }
             if let limit = unsignedInteger(object["video_max_fps"]), (1...UInt64(maximumVideoFPS)).contains(limit) {
@@ -767,37 +781,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Display server error code, not an arbitrary message potentially containing app data.
             let code = object["code"] as? String ?? "unknown"
             if code.hasPrefix("page_scale_") {
-                alert("远端旧版显示模式无法继续，请重新连接普通窗口。"); return
+                alert("远端旧版显示模式无法继续，请重新连接普通窗口。", key: code); return
             }
             if code == "resolution_limited" {
                 if let number = unsignedInteger(object["window_id"]), number <= UInt32.max,
                    let host = windows[UInt32(number)] {
                     host.resolutionNotice = "超出远端采集范围，请缩小窗口或降低分辨率"
                 } else {
-                    stopRecovery(); alert("原窗口超过 Wayland 采集范围。请在 Ubuntu 缩小原窗口后重新连接。")
+                    stopRecovery(); alert("原窗口超过 Wayland 采集范围。请在 Ubuntu 缩小原窗口后重新连接。", key: code)
                 }
                 return
             }
             if ["window_size_unavailable", "window_resize_failed"].contains(code) {
                 stopRecovery()
-                alert(code == "window_size_unavailable" ? "应用窗口的尺寸约束超出采集范围，原会话已保留。" : "应用窗口未接受尺寸调整，请调整窗口设置后重新连接。")
+                alert(code == "window_size_unavailable" ? "应用窗口的尺寸约束超出采集范围，原会话已保留。" : "应用窗口未接受尺寸调整，请调整窗口设置后重新连接。", key: code)
                 return
             }
             if ["wayland_binary_clipboard_unavailable", "wayland_cut_unavailable"].contains(code) {
                 clipboardFailed()
-                alert(code == "wayland_cut_unavailable" ? "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。" : "当前 Wayland 窗口仅支持文字剪贴板。")
+                alert(code == "wayland_cut_unavailable" ? "当前 Wayland 窗口暂不支持远程剪切，请使用复制；远端内容未删除。" : "当前 Wayland 窗口仅支持文字剪贴板。", key: code)
                 return
             }
             if code == "wayland_bridge_outdated" {
-                stopRecovery(); alert("Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。"); return
+                stopRecovery(); alert("Ubuntu 仍在运行旧版窗口扩展。保存远端工作后，注销并重新登录以启用新版；当前应用不会自动关闭。", key: code); return
             }
             if ["wayland_bridge_unavailable", "wayland_bridge_failed", "wayland_capture_unavailable", "desktop_locked"].contains(code) {
-                stopRecovery(); alert(code == "desktop_locked" ? "远端桌面已锁定，请解锁后重新连接。" : "Wayland 窗口连接未就绪。请确认 Ubuntu 已启用窗渡 GNOME 扩展，且 PipeWire 组件正常。")
+                stopRecovery(); alert(code == "desktop_locked" ? "远端桌面已锁定，请解锁后重新连接。" : "Wayland 窗口连接未就绪。请确认 Ubuntu 已启用窗渡 GNOME 扩展，且 PipeWire 组件正常。", key: code)
                 return
             }
             if code == "desktop_secrets_unavailable" {
                 stopRecovery()
-                alert("应用需要 Ubuntu 桌面密钥服务。请确认 Ubuntu 桌面已登录且已安装 xdg-dbus-proxy，再重新打开应用。")
+                alert("应用需要 Ubuntu 桌面密钥服务。请确认 Ubuntu 桌面已登录且已安装 xdg-dbus-proxy，再重新打开应用。", key: code)
                 return
             }
             if ["desktop_authorization_pending", "desktop_authorization_denied", "desktop_input_paused", "desktop_input_unavailable"].contains(code) {
@@ -830,7 +844,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if code == "controller_text_failed" { NSSound.beep() } else { clipboardFailed() }; return
             }
             if handshakeTimer != nil { stopRecovery() }
-            alert("远端返回错误：" + String(code.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(80))); return
+            let safeCode = String(code.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }.prefix(80))
+            alert("远端返回错误：" + safeCode, key: "remote:\(safeCode)"); return
         }
         if type == "session.started" || type == "session.snapshot" {
             guard let id = object["session_id"] as? String, id.count <= 128 else { return }
@@ -920,7 +935,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         if type == "session.exited" {
-            if !receivedWindow { alert("应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新启动器的运行窗口列表后连接已有窗口。") }
+            if !receivedWindow {
+                stopRecovery()
+                alert("应用在产生窗口前已退出，可能已转交给原桌面的实例。请刷新启动器的运行窗口列表后连接已有窗口。", key: "exited_before_window")
+                return
+            }
             finishSession(); return
         }
         guard let number = unsignedInteger(object["window_id"]), number <= UInt64(UInt32.max) else { return }
@@ -973,7 +992,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
                 popup: role == "popup" || (parentID != nil && presentation.overlay), disconnect: { [weak self] in
                     guard let self = self else { return }
-                    if let disconnect = self.disconnectSession { disconnect() } else { self.terminateHost() }
+                    self.requestDisconnect()
                 }) { [weak self] in self?.send($0) }
             host.desktopMode = object["surface_type"] as? String == "desktop"
             host.sessionMode = object["surface_type"] as? String == "session"
@@ -1080,6 +1099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return .terminateLater
     }
     func detachSession(completion: @escaping () -> Void) {
+        notice.dismiss()
         for host in windows.values { host.surface.releaseInput() }
         send(["type": "session.detach"])
         // An intentional detach can finish the bridge before AppKit completes quit.
@@ -1098,7 +1118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         RunLoop.main.add(timer, forMode: .common)
     }
-    func applicationWillTerminate(_ notification: Notification) { stopping = true; NotificationCenter.default.removeObserver(self); networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
+    func applicationWillTerminate(_ notification: Notification) { stopping = true; notice.dismiss(); NotificationCenter.default.removeObserver(self); networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
 }
 
 // WINDOWHOST_ENTRYPOINT

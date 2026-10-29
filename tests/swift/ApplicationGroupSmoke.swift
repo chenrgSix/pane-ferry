@@ -64,13 +64,38 @@ import AppKit
         precondition((try? String(contentsOf: root.appendingPathComponent("connections-one"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) == "1")
         print("PASS: one transport reconnects in place while the other sessions keep their own windows/connections")
 
+        let captureError = Incoming(object: ["type": "error", "code": "capture_failed"], image: nil)
+        func errorBurst(_ session: String, _ controller: AppDelegate, number: Int, code: String = "capture_failed") throws {
+            try Data(code.utf8).write(to: root.appendingPathComponent("errors-\(session)"))
+            until { controller.windows[42]?.window.title.hasSuffix("error-burst-\(number)") == true }
+        }
+        try errorBurst("one", one, number: 1)
+        let firstNotice = one.notice.current!.window
+        try errorBurst("one", one, number: 2)
+        precondition(NSApp.modalWindow == nil && firstNotice.isVisible && one.notice.current?.window === firstNotice,
+                     "repeated remote errors must return immediately without stacking modal dialogs")
+        precondition(two.notice.current == nil && three.notice.current == nil)
+        one.notice.current!.buttons[0].performClick(nil)
+        try errorBurst("one", one, number: 3)
+        precondition(one.notice.current == nil && group.sessions["one"] === one && firstWindow.window.isVisible,
+                     "acknowledging a repeated error must not reopen it or close a live source window")
+        try errorBurst("one", one, number: 4, code: "different_failure")
+        try errorBurst("two", two, number: 1)
+        let secondNotice = two.notice.current!.window
+        precondition(one.notice.current?.window !== secondNotice && secondNotice.isVisible)
+        print("PASS: repeated errors are coalesced and acknowledged once, with independent modeless notices per session")
+
         firstWindow.window.performClose(nil)
         until { group.sessions["one"] == nil }
-        precondition(exits == 0 && group.sessions.count == 2 && secondWindow.window.isVisible && thirdWindow.window.isVisible)
+        precondition(exits == 0 && group.sessions.count == 2 && secondWindow.window.isVisible && thirdWindow.window.isVisible &&
+                     one.notice.current == nil && two.notice.current?.window === secondNotice && secondNotice.isVisible,
+                     "closing a window with an error must dismiss only that session's notice")
+        one.receive(captureError)
+        precondition(one.notice.current == nil, "late errors must not reopen a closed session")
         secondWindow.surface.insertText("after-close", replacementRange: NSRange(location: NSNotFound, length: 0))
         try Data().write(to: root.appendingPathComponent("end-two"))
         until { group.sessions["two"] == nil }
-        precondition(exits == 0 && group.sessions["three"] === three)
+        precondition(exits == 0 && group.sessions["three"] === three && two.notice.current == nil && !secondNotice.isVisible)
         print("PASS: closing one native window and exiting a source session leave the remaining session operational")
         group.detach("three")
         until { group.sessions.isEmpty && exits == 1 }

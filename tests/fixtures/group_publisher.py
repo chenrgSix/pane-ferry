@@ -13,6 +13,7 @@ session = None
 seq = 0
 generation = 0
 video = False
+error_bursts = 0
 
 def emit(**value):
     print(json.dumps(dict(value, version=1)), flush=True)
@@ -30,6 +31,20 @@ while True:
     if session and (root/f'end-{session}').exists():
         emit(type='session.exited', session_id=session, seq=seq+1)
         break
+    error_file = root/f'errors-{session}'
+    if session and error_file.exists():
+        code = error_file.read_text().strip()
+        error_file.unlink()
+        error_bursts += 1
+        for _ in range(100):
+            seq += 1
+            emit(type='error', session_id=session, seq=seq, code=code)
+        # Ordered metadata lets the receiver prove that the entire error burst
+        # traversed the real pipe and UI pump before asserting notice behavior.
+        seq += 1
+        emit(type='window.metadata', session_id=session, seq=seq, window_id=42,
+             title=f'Group fixture {session} error-burst-{error_bursts}', width=640, height=480,
+             geometry_revision=generation, scale_factor=1, visible=True, role='toplevel')
     if b'\n' not in pending:
         if not select.select([sys.stdin], [], [], .02)[0]:
             continue
