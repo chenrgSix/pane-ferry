@@ -29,10 +29,7 @@
       "app"
     ],
     "resources": {
-      "../../../LICENSE": "LICENSE",
-      "resources/PaneFerryWindowHost.app": "PaneFerryWindowHost.app",
-      "resources/PaneFerryNode.app": "PaneFerryNode.app",
-      "resources/paneferry-network": "paneferry-network"
+      "../../../LICENSE": "LICENSE"
     },
     "macOS": {
       "minimumSystemVersion": "13.0"

@@ -2,14 +2,14 @@
 
 首版目标：Windows 当前已登录桌面中的普通权限应用窗口，经现有设备配对与 QUIC，在 Mac/AppKit 或 Ubuntu/GTK 中显示和操作。一个会话只发布一个窗口，同一会话只允许一个控制端。断线和关闭接收窗口保留源应用，再连接使用原 session ID；不重新启动应用，不重放输入。
 
-代码已加入，**尚未在 Windows 电脑上运行，也未完成 Windows → Mac/Ubuntu 的真实桌面验收**。本地测试的合成桌面只能验证协议与会话行为，不能证明 Windows 采集、编码、输入或中文在真实应用中可用。
+2026-10-29 已在 Windows 电脑上完成构建、命名管道和配对 QUIC 的自动化测试，**尚未完成 Windows → Mac/Ubuntu 的真实桌面验收**。测试使用的合成桌面只能验证协议与会话行为，不能证明 Windows 采集、编码、输入或中文在真实应用中可用。
 
 ## 首版范围
 
 - 复用 `paneferry-network` 的邀请、证书固定、设备路由、QUIC 控制与每窗口视频流。
 - Windows 本机 IPC 使用只允许当前账户且拒绝远程客户端的命名管道；身份和配对文件使用当前账户私有 ACL。Mac/Linux 仍使用原有 Unix socket。
 - `paneferry-windows` 同时管理本机发布与公共网络组件，默认不共享。通过 `serve --share` 或本机 `sharing on` 显式开启；远端无法修改共享开关。
-- 从“运行中的窗口”选择当前可见、同一用户和登录会话中的窗口。首版应用安装目录为空，不提供远程启动任意程序、桌面模式、后台隔离会话或 Windows 接收端。
+- 从“运行中的窗口”选择当前可见、同一用户和登录会话中的窗口。应用安装目录为空，不提供远程启动任意程序、桌面模式或后台隔离会话。Windows 接收端与图形管理入口见 [Windows 控制端](windows-receiving.md)。
 - 用 Windows Graphics Capture 按 HWND 采集，使用系统 Media Foundation 软件 H.264 编码器，最高 30 fps，输出现有 Annex B 协议。每次连接、尺寸变化和隐藏恢复重建编码流；首帧必须是关键帧。没有 PNG 视频回退，不需要 FFmpeg 或额外下载编码器。
 - 接收 Mac 的 `input.key/keysym` 和 Ubuntu 的 `input.key.logical`；中文在接收端组合后以 Unicode 提交。常见导航、功能键和快捷键映射已实现；OEM 标点按初始美式键盘布局处理，其他布局待验证。
 - 通过窗口属性代次、PID、进程创建时间、账户与登录会话检查窗口身份，避免 HWND/PID 重用后接管新对象。源窗口退出后会话结束。
@@ -81,3 +81,9 @@ Windows 电脑准备好后的验收清单：
 7. 关闭源窗口、销毁后快速重建窗口、锁屏、关闭共享、撤销配对，检查旧会话和输入立即失效。
 
 参考系统接口：[WGC 指定窗口](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow)、[Media Foundation H.264 编码器](https://learn.microsoft.com/en-us/windows/win32/medfound/h-264-video-encoder)、[SendInput 权限边界](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)。
+
+## Windows 管理入口
+
+2026-10-29 开发变更增加了 Windows 图形管理入口，共用上述状态目录和服务。启动管理器默认不开启共享，可在“本机应用共享”中显式切换。管理器显示 Windows 的当前桌面支持范围，不显示 macOS 的录屏/辅助功能授权流程。发布器会过滤带 `PaneFerry.RemoteWindow.1` 属性的接收窗口，防止远程画面循环发布。
+
+构建脚本 `scripts/build-windows.ps1` 将发布器打入管理器资源，并提供当前用户 NSIS 安装包构建配置；安装包存在配置不代表已完成安装、升级和实机验收。

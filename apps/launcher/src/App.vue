@@ -59,7 +59,7 @@ retireLegacyPreferences(storage);
 const attempts = new PendingLaunches(storage);
 type StartingApp = { endpoint: string; appId: string; name: string; requestKey: string; missingReads: number };
 const startingApps = ref<StartingApp[]>([]), launchingAppId = ref<string | null>(null);
-type LocalNode = {device_id:string; name:string; sharing_enabled:boolean; permissions:{screen_recording:boolean; accessibility:boolean}};
+type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}};
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
@@ -629,7 +629,7 @@ onUnmounted(() => {
         <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
         <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
           <div class="section-title"><h2>整桌面</h2><button :disabled="busy" @click="refresh">刷新显示器</button></div>
-          <p class="hint">连接 Ubuntu 当前已登录的显示器。画面等比显示；关闭 Mac 窗口只会断开，Ubuntu 桌面和应用继续运行。</p>
+          <p class="hint">连接 Ubuntu 当前已登录的显示器。画面等比显示；关闭本机窗口只会断开，Ubuntu 桌面和应用继续运行。</p>
           <p v-if="monitorWarning" class="hint" role="status">{{ monitorWarning }}</p>
           <p v-if="!desktopMonitors.length && !monitorWarning" class="hint">当前没有可连接的显示器。</p>
           <div v-for="monitor in desktopMonitors" :key="monitor.id" class="desktop-window-row">
@@ -696,7 +696,7 @@ onUnmounted(() => {
             <h2>运行中的窗口 <span class="count">{{ runningConnections.length }}</span></h2>
             <button :disabled="busy" @click="refresh">刷新运行状态</button>
           </div>
-          <p class="hint">连接已有窗口可继续原来的工作；关闭 Mac 窗口只会断开，原设备上的应用继续运行。</p>
+          <p class="hint">连接已有窗口可继续原来的工作；关闭本机窗口只会断开，原设备上的应用继续运行。</p>
           <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
           <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
           <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口。" }}</p>
@@ -803,7 +803,11 @@ onUnmounted(() => {
           <p class="hint separated">应用仍在本机运行并显示。收到的远程应用不会再次共享给其他设备。</p>
           <p v-if="localWarning" class="alert error" role="alert">{{ localWarning }}</p>
         </section>
-        <section v-if="localNode" class="panel">
+        <section v-if="localNode?.platform === 'windows'" class="panel">
+          <div class="section-title"><h2>Windows 当前桌面</h2></div>
+          <p class="hint">共享当前用户已打开的普通权限应用窗口。请保持桌面登录并解锁；管理员程序和 UAC 安全桌面暂不支持。本机和远端共用鼠标、键盘与焦点。</p>
+        </section>
+        <section v-else-if="localNode?.permissions" class="panel">
           <div class="section-title"><h2>系统权限</h2></div>
           <div class="setting-row"><div><h3>屏幕录制</h3><p class="hint">用于传输本机应用窗口的画面。</p></div><span class="permission-state" :class="{ granted: localNode.permissions.screen_recording }">{{ localNode.permissions.screen_recording ? "已允许" : "待允许" }}</span></div>
           <div class="setting-row"><div><h3>辅助功能</h3><p class="hint">用于接收远程键盘和鼠标操作。</p></div><span class="permission-state" :class="{ granted: localNode.permissions.accessibility }">{{ localNode.permissions.accessibility ? "已允许" : "待允许" }}</span></div>

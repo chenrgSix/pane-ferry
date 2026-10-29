@@ -23,6 +23,7 @@ mod tests {
         retire(&root).unwrap();
         retire(&root).unwrap();
         assert!(!root.join("ssh-connections.json").exists());
+        #[cfg(unix)]
         std::os::unix::fs::symlink(
             root.join("identity.json"),
             root.join("ssh-connections.json"),

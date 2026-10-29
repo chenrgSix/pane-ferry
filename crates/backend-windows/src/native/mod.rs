@@ -184,6 +184,9 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
     if targets.len() >= 128
         || !IsWindowVisible(window).as_bool()
         || IsIconic(window).as_bool()
+        || !GetPropW(window, windows::core::w!("PaneFerry.RemoteWindow.1"))
+            .0
+            .is_null()
         || GetWindow(window, GW_OWNER).is_ok_and(|h| !h.0.is_null())
     {
         return BOOL(1);

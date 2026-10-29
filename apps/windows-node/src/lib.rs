@@ -212,7 +212,7 @@ impl Client {
             Request::Info => {
                 let value = {
                     let state = self.state.lock().unwrap();
-                    json!({"type":"node.info","device_id":state.device_id,"name":"Windows","platform":"windows","publishing_supported":true,"receiving_supported":false,"sharing_enabled":state.sharing,"session_count":state.sessions.len()})
+                    json!({"type":"node.info","device_id":state.device_id,"name":std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows".into()),"platform":"windows","publishing_supported":true,"receiving_supported":true,"sharing_enabled":state.sharing,"session_count":state.sessions.len()})
                 };
                 self.send(write, value).await?;
             }

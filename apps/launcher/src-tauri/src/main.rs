@@ -1,15 +1,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use paneferry_transport::{self as transport, AppCatalog};
 use serde::Serialize;
+#[cfg(not(windows))]
 use std::{path::PathBuf, process::Command};
 use tauri::Manager;
 mod legacy_settings;
+#[cfg_attr(windows, path = "windows/local_node.rs")]
 mod local_node;
+#[cfg_attr(windows, path = "windows/network.rs")]
 mod network;
 use network::Device;
 mod auto_connect;
+#[cfg(not(windows))]
 mod host_group;
+#[cfg(windows)]
+mod receiver;
+#[cfg(not(windows))]
 mod window_host;
+#[cfg(windows)]
+use receiver as host_group;
+#[cfg(windows)]
+#[path = "windows/rpc.rs"]
+mod local_rpc;
 #[tauri::command]
 async fn local_node_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     local_node::info(&app)
@@ -122,6 +134,7 @@ async fn list_sessions(
         .await
         .map_err(RequestFailure::from)
 }
+#[cfg(not(windows))]
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {
         return Err("原生 WindowHost 目前只支持 macOS。".into());
@@ -139,9 +152,25 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 struct NativeHost {
+    #[cfg(not(windows))]
     executable: PathBuf,
     group: String,
 }
+#[cfg(windows)]
+fn named_native_host(
+    _app: &tauri::AppHandle,
+    endpoint: &Device,
+    app_id: &str,
+    _name: Option<&str>,
+) -> Result<NativeHost, String> {
+    use sha2::{Digest, Sha256};
+    let identity =
+        serde_json::to_vec(&(1, endpoint.identity(), app_id)).map_err(|_| "应用身份无效。")?;
+    Ok(NativeHost {
+        group: format!("{:x}", Sha256::digest(identity)),
+    })
+}
+#[cfg(not(windows))]
 fn named_native_host(
     app: &tauri::AppHandle,
     endpoint: &Device,
@@ -166,6 +195,7 @@ fn named_native_host(
             .map_err(|_| "无法准备应用入口。")?,
     })
 }
+#[cfg(not(windows))]
 fn spawn_host(
     app: &tauri::AppHandle,
     path: NativeHost,
@@ -221,6 +251,21 @@ fn spawn_host(
         }
     });
     Ok(pid)
+}
+#[cfg(windows)]
+fn spawn_host(
+    app: &tauri::AppHandle,
+    path: NativeHost,
+    endpoint: &Device,
+    session_id: &str,
+    _icon: Option<String>,
+    video_fps: u8,
+    source: Option<auto_connect::Source>,
+    background: bool,
+) -> Result<u32, String> {
+    receiver::spawn(
+        app, path.group, endpoint, session_id, video_fps, source, background,
+    )
 }
 fn requested_video_fps(value: Option<u8>) -> Result<u8, transport::Error> {
     match value.unwrap_or(60) {
@@ -547,6 +592,14 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(windows)]
+            if window.label().starts_with("receiver-") {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    receiver::remove(window.label());
+                }
+                return;
+            }
+            #[cfg(not(windows))]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
@@ -568,11 +621,17 @@ fn main() {
             set_local_sharing,
             request_local_permissions,
             reveal_local_component,
-            network_action
+            network_action,
+            receiver_open,
+            receiver_next,
+            receiver_send,
+            receiver_disconnect
         ])
         .build(tauri::generate_context!())
         .expect("launcher startup failed")
         .run(|app, event| {
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app.get_webview_window("main") {
@@ -581,4 +640,60 @@ fn main() {
                 }
             }
         });
+}
+
+// Keep command registration identical across platforms; receiver windows are
+// created only on Windows. Other platforms retain their native hosts.
+#[tauri::command]
+async fn receiver_open(
+    window: tauri::WebviewWindow,
+    fps: Option<u8>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    {
+        return receiver::open(window.label(), fps).await;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, fps);
+        Err("仅支持 Windows。".into())
+    }
+}
+#[tauri::command]
+async fn receiver_next(
+    window: tauri::WebviewWindow,
+    epoch: u64,
+) -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    {
+        return receiver::next(window.label(), epoch).await;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, epoch);
+        Err("仅支持 Windows。".into())
+    }
+}
+#[tauri::command]
+async fn receiver_send(
+    window: tauri::WebviewWindow,
+    epoch: u64,
+    body: serde_json::Value,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        return receiver::send(window.label(), epoch, body).await;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, epoch, body);
+        Err("仅支持 Windows。".into())
+    }
+}
+#[tauri::command]
+async fn receiver_disconnect(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    receiver::disconnect(window.label());
+    let _ = window;
+    Ok(())
 }

@@ -30,7 +30,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。原生连接默认监听 UDP 42424，面向局域网；不自动配置公网映射。
 
-**Windows 发布端（源码开发预览，待实机验收）：** 已加入当前登录桌面的单窗口发布器，复用设备配对与 QUIC，供 Mac / Ubuntu 接收。当前提供命令行入口，不含 Windows 接收端和安装器；构建步骤与验证边界见 [Windows 发布指南](docs/windows-publishing.md)。
+**Windows 两端（源码开发预览，待跨设备实机验收）：** 已有当前登录桌面的单窗口发布器，并加入复用 macOS 工作台的 Windows 管理界面、H.264 接收窗口和 NSIS 打包入口。复用设备配对与 QUIC，支持键鼠、中文提交和同会话重连；见 [Windows 发布指南](docs/windows-publishing.md) 和 [Windows 控制端](docs/windows-receiving.md)。
 
 ## 仓库
 

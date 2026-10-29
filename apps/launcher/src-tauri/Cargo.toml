@@ -15,7 +15,15 @@ sha2 = "0.10"
 libc = "0.2"
 uuid = { version = "1", features = ["v4"] }
 paneferry-transport = { path = "../../../crates/transport" }
-tokio = { version = "1", features = ["process", "io-util", "time"] }
+paneferry-platform = { path = "../../../crates/platform" }
+paneferry-protocol = { path = "../../../crates/protocol" }
+tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt", "macros"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 # macOS 27 rejects misaligned dylibs produced by affected Rust strip paths.
 # Keep host build tools/proc macros intact; the application remains optimized.

@@ -10,7 +10,6 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -460,17 +459,17 @@ impl Service {
             return Err("自动接入设置已达到上限。".into());
         }
         let parent = self.path.parent().ok_or("设置目录无效。")?;
-        fs::create_dir_all(parent).map_err(|_| "无法创建设置目录。")?;
+        paneferry_platform::storage::private_directory(parent).map_err(|_| "无法创建设置目录。")?;
         let temp = parent.join(format!(".auto-connect-{}.tmp", uuid::Uuid::new_v4()));
         let result = (|| -> std::io::Result<()> {
-            let mut file = fs::OpenOptions::new()
+            let mut file = paneferry_platform::storage::options()
                 .create_new(true)
                 .write(true)
-                .mode(0o600)
                 .open(&temp)?;
             file.write_all(&serde_json::to_vec(&next)?)?;
             file.sync_all()?;
-            fs::rename(&temp, &self.path)
+            drop(file);
+            paneferry_platform::storage::replace(&temp, &self.path)
         })();
         if result.is_err() {
             let _ = fs::remove_file(temp);
