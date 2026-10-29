@@ -87,6 +87,7 @@ pub struct Source {
 struct Host {
     source: Source,
     pid: u32,
+    registration: u64,
     fps: u8,
     stop: Option<std::sync::mpsc::Sender<()>>,
 }
@@ -157,21 +158,31 @@ impl Peer {
             message: "该窗口已连接，继续使用现有接收窗口。".into(),
         })
     }
-    pub fn register(&self, session: &str, source: Source, pid: u32, fps: u8) {
+    pub fn register(&self, session: &str, source: Source, pid: u32, fps: u8) -> u64 {
         let mut data = self.data.lock().unwrap();
         data.revision += 1;
+        let registration = data.revision;
         data.hosts.insert(
             session.into(),
             Host {
                 source,
                 pid,
+                registration,
                 fps,
                 stop: None,
             },
         );
+        registration
     }
-    pub fn set_stop(&self, session: &str, stop: std::sync::mpsc::Sender<()>) {
-        if let Some(host) = self.data.lock().unwrap().hosts.get_mut(session) {
+    pub fn set_stop(&self, session: &str, registration: u64, stop: std::sync::mpsc::Sender<()>) {
+        if let Some(host) = self
+            .data
+            .lock()
+            .unwrap()
+            .hosts
+            .get_mut(session)
+            .filter(|h| h.registration == registration)
+        {
             host.stop = Some(stop);
         }
     }
@@ -185,9 +196,13 @@ impl Peer {
             }
         }
     }
-    pub fn closed(&self, session: &str, pid: u32) {
+    pub fn closed(&self, session: &str, pid: u32, registration: u64) {
         let mut data = self.data.lock().unwrap();
-        if !data.hosts.get(session).is_some_and(|h| h.pid == pid) {
+        if !data
+            .hosts
+            .get(session)
+            .is_some_and(|h| h.pid == pid && h.registration == registration)
+        {
             return;
         }
         let host = data.hosts.remove(session).unwrap();
@@ -751,7 +766,7 @@ mod tests {
     #[test]
     fn host_reuse_is_session_scoped_and_closing_one_host_preserves_the_other() {
         let p = peer();
-        p.register(
+        let first = p.register(
             "one",
             Source {
                 application_key: "gpt".into(),
@@ -772,11 +787,25 @@ mod tests {
         assert_eq!(p.existing("window-one", None).unwrap().pid, 11);
         assert_eq!(p.existing("gpt", None).unwrap().pid, 11);
         assert_eq!(p.existing("", Some("two")).unwrap().pid, 22);
-        p.closed("one", 999);
+        p.closed("one", 999, first);
         assert!(p.existing("gpt", None).is_some());
-        p.closed("one", 11);
+        p.closed("one", 11, first);
         assert!(p.existing("gpt", None).is_none());
         assert_eq!(p.existing("idea", None).unwrap().pid, 22);
+    }
+    #[test]
+    fn late_close_from_an_old_registration_cannot_remove_a_reopened_session_in_the_same_process() {
+        let p = peer();
+        let source = Source {
+            application_key: "editor".into(),
+            target_id: "window-one".into(),
+        };
+        let old = p.register("one", source.clone(), 42, 30);
+        let current = p.register("one", source, 42, 60);
+        p.closed("one", 42, old);
+        assert_eq!(p.existing("window-one", None).unwrap().pid, 42);
+        p.closed("one", 42, current);
+        assert!(p.existing("window-one", None).is_none());
     }
     #[test]
     fn manual_intent_precedes_async_work_and_unknown_outcome_stays_reserved() {
@@ -852,7 +881,8 @@ mod tests {
                 .len(),
             1
         );
-        p.closed("g", 1);
+        let registration = p.data.lock().unwrap().hosts["g"].registration;
+        p.closed("g", 1, registration);
         assert_eq!(
             loaded.active_rules(&peer_id, &p.data.lock().unwrap()).len(),
             1
@@ -931,7 +961,7 @@ mod tests {
         let (stop, stopped) = std::sync::mpsc::channel();
         let (other_stop, other_stopped) = std::sync::mpsc::channel();
         for (peer, sender) in [(&p, stop), (&other, other_stop)] {
-            peer.register(
+            let registration = peer.register(
                 "s",
                 Source {
                     application_key: "editor".into(),
@@ -940,7 +970,7 @@ mod tests {
                 42,
                 30,
             );
-            peer.set_stop("s", sender);
+            peer.set_stop("s", registration, sender);
         }
         p.disconnect_all();
         stopped.try_recv().unwrap();

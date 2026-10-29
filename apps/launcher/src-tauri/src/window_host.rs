@@ -9,6 +9,17 @@ use std::{
 const EXECUTABLE: &str = "Contents/MacOS/PaneFerryWindowHost";
 const FALLBACK_ICON: &str = "Contents/Resources/PaneFerry.png";
 
+/// Application identity must survive session IDs, window titles and code updates.
+pub fn application_identity(
+    endpoint: &impl serde::Serialize,
+    application_key: &str,
+) -> Result<String, serde_json::Error> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&(1, endpoint, application_key))?)
+    ))
+}
+
 fn display_name(value: Option<&str>) -> String {
     let value: String = value
         .unwrap_or_default()
@@ -155,7 +166,8 @@ fn prepare_inner(
         .ok_or("invalid WindowHost bundle")?;
     let icon = regular_bytes(&source_bundle.join(FALLBACK_ICON))?;
     let mut digest = Sha256::new();
-    digest.update(serde_json::to_vec(&(1, endpoint, app_id, &name))?);
+    let application = application_identity(endpoint, app_id)?;
+    digest.update(serde_json::to_vec(&(2, &application, &name))?);
     digest.update(Sha256::digest(&binary));
     digest.update(Sha256::digest(&icon));
     let identity = format!("{:x}", digest.finalize());
@@ -165,7 +177,7 @@ fn prepare_inner(
         ("CFBundleDisplayName", name.as_str()),
         (
             "CFBundleIdentifier",
-            &format!("io.lanremoteapp.host.{identity}"),
+            &format!("io.lanremoteapp.host.{application}"),
         ),
         ("CFBundleExecutable", "PaneFerryWindowHost"),
         ("CFBundlePackageType", "APPL"),
@@ -350,17 +362,42 @@ mod tests {
             .unwrap(),
             original
         );
+        let bundle_id = info.as_dictionary().unwrap()["CFBundleIdentifier"]
+            .as_string()
+            .unwrap();
         fs::write(source.join(EXECUTABLE), b"fixture binary v2").unwrap();
+        let updated = prepare(
+            &cache,
+            &source.join(EXECUTABLE),
+            &endpoint,
+            "app1",
+            Some("新窗口标题"),
+        )
+        .unwrap();
+        assert_ne!(updated, original);
+        let updated_info = plist::Value::from_file(
+            updated
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("Info.plist"),
+        )
+        .unwrap();
+        assert_eq!(
+            updated_info.as_dictionary().unwrap()["CFBundleIdentifier"]
+                .as_string()
+                .unwrap(),
+            bundle_id,
+            "code and display name updates preserve Dock identity"
+        );
         assert_ne!(
-            prepare(
-                &cache,
-                &source.join(EXECUTABLE),
-                &endpoint,
-                "app1",
-                Some("../设置 & <测试>🙂")
-            )
-            .unwrap(),
-            original
+            application_identity(&endpoint, "app1").unwrap(),
+            application_identity(&endpoint, "app2").unwrap()
+        );
+        assert_ne!(
+            application_identity(&endpoint, "app1").unwrap(),
+            application_identity(&other_endpoint, "app1").unwrap()
         );
         assert_eq!(
             fs::read(&original).unwrap(),

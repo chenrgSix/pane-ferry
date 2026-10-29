@@ -22,13 +22,15 @@ struct Options {
     var iconFromStdin = false
     var requestedVideoFPS = 60
     var backgroundStart = false
+    var applicationGroup: String?
+    var sourceTarget: String?
     let native: NativeRoute
     static func parse(_ args: [String]) throws -> Options {
         var values: [String: String] = [:]
         var i = 0
         var iconFromStdin = false
         var backgroundStart = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--application-group", "--source-target"]
         while i < args.count {
             if args[i] == "--background-start" {
                 guard !backgroundStart else { throw HostError.message("后台启动参数重复") }
@@ -53,12 +55,19 @@ struct Options {
         }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
-        for id in [app, session].compactMap({ $0 }) {
+        for id in [app, session, values["--source-target"]].compactMap({ $0 }) {
             guard id.count <= 128, id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil else {
                 throw HostError.message("应用/会话 ID 无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, backgroundStart: backgroundStart, native: native)
+        let group = values["--application-group"]
+        if let group = group {
+            guard session != nil, group.count == 64, group.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+                throw HostError.message("应用接收入口无效")
+            }
+        }
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps,
+                       backgroundStart: backgroundStart, applicationGroup: group, sourceTarget: values["--source-target"], native: native)
     }
 }
 enum HostError: Error { case message(String) }
@@ -353,6 +362,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
     var terminateHost: () -> Void = { NSApp.terminate(nil) }
+    var disconnectSession: (() -> Void)?
+    var onFocus: (() -> Void)?
+    var applicationMenu: NSMenu?
+    var windowMenu: NSMenu?
     var desktopInputNotice: String?
     private func writeWire(_ message: [String: Any]) { if let sink = wireSink { sink(message) } else { transport.send(message) } }
     var clipboardCopyGate = ClipboardCopyGate()
@@ -377,22 +390,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         termination.resume(); terminationSignal = termination
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        observeTerminationSignal()
-        NSApp.setActivationPolicy(.regular)
-        if let icon = applicationIcon { NSApp.applicationIconImage = icon }
+        startSession(managesApplication: true)
+    }
+    func startSession(managesApplication: Bool) {
+        if managesApplication {
+            observeTerminationSignal()
+            NSApp.setActivationPolicy(.regular)
+            if let icon = applicationIcon { NSApp.applicationIconImage = icon }
+        }
         let mainMenu = NSMenu()
         let appItem = NSMenuItem(title:applicationName, action:nil, keyEquivalent:""); mainMenu.addItem(appItem)
         let menu = NSMenu(); appItem.submenu = menu
-        menu.addItem(withTitle: "关于 \(applicationName)", action: #selector(showAbout), keyEquivalent: "")
-        menu.addItem(withTitle: "复制会话 ID", action: #selector(copySession), keyEquivalent: "")
+        menu.addItem(withTitle: "关于 \(applicationName)", action: #selector(showAbout), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "复制会话 ID", action: #selector(copySession), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "断开并退出（保留远端应用）", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        NSApp.mainMenu = mainMenu
+        applicationMenu = mainMenu
         let editItem = NSMenuItem(); mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "编辑"); editItem.submenu = editMenu
         editMenu.addItem(withTitle: "剪切到控制端", action: #selector(SurfaceView.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "复制到控制端", action: #selector(SurfaceView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "从控制端粘贴", action: #selector(SurfaceView.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let displayItem = NSMenuItem(); mainMenu.addItem(displayItem)
         let displayMenu = NSMenu(title: "显示"); displayItem.submenu = displayMenu
         displayMenu.addItem(withTitle: "自动适应窗口", action: #selector(automaticResolution), keyEquivalent: "0")
@@ -400,6 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         displayMenu.addItem(withTitle: "全屏显示", action: #selector(fullScreen), keyEquivalent: "")
         displayMenu.addItem(withTitle: "设置分辨率…", action: #selector(setResolution), keyEquivalent: "")
         displayMenu.addItem(withTitle: "原始像素大小", action: #selector(actualPixels), keyEquivalent: "")
+        for item in displayMenu.items { item.target = self }
         let rateItem = NSMenuItem(title: "帧率", action: nil, keyEquivalent: "")
         let rates = NSMenu(title: "帧率"); rateItem.submenu = rates
         for fps in [30, 60] {
@@ -407,8 +428,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             choice.tag = fps; choice.target = self; rates.addItem(choice); rateChoices.append(choice)
         }
         rateMenuItem = rateItem; displayMenu.addItem(rateItem); updateRateMenu()
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
+        let windowItem = NSMenuItem(); mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "窗口"); windowItem.submenu = windowMenu; self.windowMenu = windowMenu
+        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "前置全部窗口", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        if managesApplication {
+            installMenu()
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            statusItem?.button?.title = "PaneFerry · 连接中"; statusItem?.menu = menu.copy() as? NSMenu
+        }
         startConnection()
         let timer = Timer(timeInterval: 1.0 / 90.0, repeats: true) { [weak self] _ in self?.pump() }
         RunLoop.main.add(timer, forMode: .common); poll = timer
@@ -429,6 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         if !options.backgroundStart { NSApp.activate(ignoringOtherApps: true) }
     }
+    func installMenu() { NSApp.mainMenu = applicationMenu; NSApp.windowsMenu = windowMenu }
     @objc func showAbout() {
         alert("窗渡 PaneFerry 开发预览\n远端窗口跟随本机内容区的逻辑大小，已有应用沿用原缩放；收到的 H.264 画面等比显示。可在显示菜单选择 30 或 60 帧/秒上限，实际帧率随画面和连接状态变化。新应用和新画布使用普通 1× 分辨率。输入法在控制端组合，剪贴板只由主动操作触发。")
     }
@@ -933,7 +964,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard create, windows.count < 64 else { return }
             receivedWindow = true
             let host = HostedWindow(id: id, width: w, height: h, revision: rev, scale: Int(scale),
-                popup: role == "popup" || (parentID != nil && presentation.overlay), disconnect: { NSApp.terminate(nil) }) { [weak self] in self?.send($0) }
+                popup: role == "popup" || (parentID != nil && presentation.overlay), disconnect: { [weak self] in
+                    guard let self = self else { return }
+                    if let disconnect = self.disconnectSession { disconnect() } else { self.terminateHost() }
+                }) { [weak self] in self?.send($0) }
             host.desktopMode = object["surface_type"] as? String == "desktop"
             host.sessionMode = object["surface_type"] as? String == "session"
             windows[id] = host
@@ -941,7 +975,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             host.inputNotice = desktopInputNotice
             host.onScreenChange = { [weak self] in self?.refreshVideoFPS() }
             host.onLayoutChange = { [weak self] in self?.attachParents() }
-            host.onActivityChange = { [weak self] in self?.refreshVideoActivity() }
+            host.onActivityChange = { [weak self] in
+                guard let self = self else { return }
+                if self.activeHost() != nil { self.onFocus?() }
+                self.refreshVideoActivity()
+            }
         }
         guard let host = windows[id], rev >= host.revision else { return }
         host.applyPresentation(presentation, related: parentID != nil, role: role)
@@ -1030,6 +1068,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        detachSession { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+    func detachSession(completion: @escaping () -> Void) {
         for host in windows.values { host.surface.releaseInput() }
         send(["type": "session.detach"])
         // An intentional detach can finish the bridge before AppKit completes quit.
@@ -1042,23 +1084,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // AppKit may enter a nested termination loop before this main-queue
         // callback returns. A run-loop timer can reply there; another main-queue
         // block cannot run until the outer callback has finished.
-        let completion = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in
-            self?.transport.disconnect(); sender.reply(toApplicationShouldTerminate: true)
+        let timer = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in
+            self?.transport.disconnect()
+            completion()
         }
-        RunLoop.main.add(completion, forMode: .common)
-        return .terminateLater
+        RunLoop.main.add(timer, forMode: .common)
     }
     func applicationWillTerminate(_ notification: Notification) { stopping = true; NotificationCenter.default.removeObserver(self); networkMonitor?.cancel(); reconnectTimer?.invalidate(); handshakeTimer?.invalidate(); poll?.invalidate(); transport.disconnect() }
 }
 
 // WINDOWHOST_ENTRYPOINT
 let application = NSApplication.shared
-var applicationDelegate: AppDelegate?
+var applicationDelegate: NSObject?
 do {
     let options = try Options.parse(Array(CommandLine.arguments.dropFirst()))
     let icon = options.iconFromStdin ? ApplicationIcon.read(from: .standardInput) : nil
-    applicationDelegate = AppDelegate(options: options, applicationIcon: icon ?? ApplicationIcon.fallback())
-    application.delegate = applicationDelegate
+    if options.applicationGroup != nil {
+        let group = try ApplicationGroup(options: options, icon: icon ?? ApplicationIcon.fallback())
+        applicationDelegate = group; application.delegate = group
+    } else {
+        let session = AppDelegate(options: options, applicationIcon: icon ?? ApplicationIcon.fallback())
+        applicationDelegate = session; application.delegate = session
+    }
     application.run()
 } catch HostError.message(let message) {
     FileHandle.standardError.write(Data((message + "\n").utf8)); exit(2)

@@ -1,17 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use paneferry_transport::{self as transport, AppCatalog};
 use serde::Serialize;
-use std::{
-    io::Write,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::{path::PathBuf, process::Command};
 use tauri::Manager;
 mod legacy_settings;
 mod local_node;
 mod network;
 use network::Device;
 mod auto_connect;
+mod host_group;
 mod window_host;
 #[tauri::command]
 async fn local_node_info(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -141,28 +138,37 @@ fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+struct NativeHost {
+    executable: PathBuf,
+    group: String,
+}
 fn named_native_host(
     app: &tauri::AppHandle,
     endpoint: &Device,
     app_id: &str,
     app_name: Option<&str>,
-) -> Result<PathBuf, String> {
+) -> Result<NativeHost, String> {
     let directory = app
         .path()
         .app_data_dir()
         .map_err(|_| "无法定位本机应用目录。")?
         .join("WindowHosts");
-    window_host::prepare(
+    let executable = window_host::prepare(
         &directory,
         &native_host(app)?,
         &endpoint.identity(),
         app_id,
         app_name,
-    )
+    )?;
+    Ok(NativeHost {
+        executable,
+        group: window_host::application_identity(&endpoint.identity(), app_id)
+            .map_err(|_| "无法准备应用入口。")?,
+    })
 }
 fn spawn_host(
     app: &tauri::AppHandle,
-    path: PathBuf,
+    path: NativeHost,
     endpoint: &Device,
     session_id: &str,
     icon_png: Option<String>,
@@ -177,7 +183,7 @@ fn spawn_host(
     // Icons are already in the launcher catalog/window cache. Deliver once over
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
-    let mut command = Command::new(path);
+    let mut command = Command::new(path.executable);
     command
         .arg("--native-peer")
         .arg(&endpoint.peer_id)
@@ -192,53 +198,27 @@ fn spawn_host(
     if background {
         command.arg("--background-start");
     }
-    if icon.is_some() {
-        command.arg("--icon-stdin");
-    }
-    let mut child = command
-        .stdin(if icon.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| format!("原生宿主启动失败。远端会话 {session_id} 已保留，可重新连接。"))?;
-    let pid = child.id();
+    let attached = host_group::attach_or_start(
+        &path.group,
+        &mut command,
+        session_id,
+        source.as_ref().map(|s| s.target_id.as_str()),
+        video_fps,
+        background,
+        icon.as_deref(),
+    )?;
+    let pid = attached.pid;
     let (stop, stop_requests) = std::sync::mpsc::channel();
-    if let Some(source) = source {
-        peer.register(session_id, source, pid, video_fps);
-        peer.set_stop(session_id, stop);
-    }
+    let registration = source.map(|source| {
+        let registration = peer.register(session_id, source, pid, video_fps);
+        peer.set_stop(session_id, registration, stop);
+        registration
+    });
     let session_id = session_id.to_owned();
-    std::thread::spawn(move || {
-        // A missing or corrupt icon never prevents the session from connecting.
-        if let (Some(mut input), Some(icon)) = (child.stdin.take(), icon) {
-            let _ = input.write_all(icon.as_bytes());
+    attached.watch(stop_requests, move || {
+        if let Some(registration) = registration {
+            peer.closed(&session_id, pid, registration);
         }
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) | Err(_) => break,
-                _ => {}
-            }
-            match stop_requests.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(()) => {
-                    // Only this thread owns/reaps the Child. Its PID cannot be
-                    // reused between try_wait and the signal. WindowHost handles
-                    // SIGTERM through AppKit's normal detach/quit path.
-                    unsafe {
-                        libc::kill(pid as libc::pid_t, libc::SIGTERM);
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    let _ = child.wait();
-                    break;
-                }
-                _ => {}
-            }
-        }
-        peer.closed(&session_id, pid);
     });
     Ok(pid)
 }
@@ -294,7 +274,14 @@ async fn resume_session(
         .into_iter()
         .find(|s| s.session_id == session_id)
         .ok_or_else(|| RequestFailure::local("远端会话已退出，请刷新列表。"))?;
-    if session.controlled {
+    let key = application_key.as_deref().unwrap_or(&session.app_id);
+    let path = named_native_host(&app, &endpoint, key, app_name.as_deref())
+        .map_err(RequestFailure::local)?;
+    if session.controlled
+        && host_group::lookup(&path.group, Some(&session_id), None)
+            .map_err(RequestFailure::local)?
+            .is_none()
+    {
         return Err(RequestFailure::local(
             "该会话已连接，请先在原宿主中断开，再重新连接。",
         ));
@@ -313,8 +300,7 @@ async fn resume_session(
     }
     let pid = spawn_host(
         &app,
-        named_native_host(&app, &endpoint, &session.app_id, app_name.as_deref())
-            .map_err(RequestFailure::local)?,
+        path,
         &endpoint,
         &session_id,
         icon_png,
@@ -406,15 +392,52 @@ async fn launch_connected(
     let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&app_id)?;
     transport::validate_id(&request_id)?;
-    let path =
-        named_native_host(&app, &endpoint, &app_id, app_name.as_deref()).map_err(|message| {
-            LaunchFailure {
-                kind: "client",
-                message,
-                retry_same_request: false,
-                code: None,
-            }
+    let path = named_native_host(
+        &app,
+        &endpoint,
+        application_key.as_deref().unwrap_or(&app_id),
+        app_name.as_deref(),
+    )
+    .map_err(|message| LaunchFailure {
+        kind: "client",
+        message,
+        retry_same_request: false,
+        code: None,
+    })?;
+    if let Some(session_id) =
+        host_group::lookup(&path.group, None, Some(&app_id)).map_err(|message| LaunchFailure {
+            kind: "client",
+            message,
+            retry_same_request: true,
+            code: None,
+        })?
+    {
+        let pid = spawn_host(
+            &app,
+            path,
+            &endpoint,
+            &session_id,
+            icon_png,
+            video_fps,
+            Some(auto_connect::Source {
+                application_key: application_key.unwrap_or_else(|| app_id.clone()),
+                target_id: app_id,
+            }),
+            background,
+        )
+        .map_err(|message| LaunchFailure {
+            kind: "client",
+            message,
+            retry_same_request: true,
+            code: None,
         })?;
+        return Ok(LaunchResult {
+            session_id: Some(session_id),
+            display: None,
+            pid,
+            message: "该窗口已连接，继续使用现有接收窗口。".into(),
+        });
+    }
     // Startup uses ordinary resolution. Existing sessions retain source scale.
     let scale = render_scale.unwrap_or(1);
     let session = transport::launch_native(
