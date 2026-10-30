@@ -36,20 +36,13 @@ if [[ $(uname -s) == Darwin ]]; then
   python3 tests/e2e/mac_publisher_boundaries.py
   python3 tests/e2e/mac_encoder_generation.py
   (cd apps/mac-windowhost && swift build)
-  python3 tests/e2e/chroma_atlas_smoke.py
-  python3 tests/e2e/async_video_decode_smoke.py
-  python3 tests/e2e/video_presentation_smoke.py
-  python3 tests/e2e/transport_async_video_smoke.py
-  python3 tests/e2e/windowhost_pipe_smoke.py
-  python3 tests/e2e/controller_input_smoke.py
-  python3 tests/e2e/window_tree_smoke.py
-  python3 tests/e2e/windowhost_termination_smoke.py
-  python3 tests/e2e/application_group_smoke.py
-  python3 tests/e2e/network_latency_smoke.py
-  python3 tests/e2e/clipboard_ordering_smoke.py
-  python3 tests/e2e/automatic_reconnect_smoke.py
-  python3 tests/e2e/h264_only_smoke.py
-  python3 tests/e2e/native_transport_smoke.py
+  # Report every independent AppKit regression in one run; any failure still
+  # fails this gate. Slow builds must not hide the remaining failures.
+  mac_failed=0
+  for smoke in chroma_atlas_smoke async_video_decode_smoke video_presentation_smoke transport_async_video_smoke windowhost_pipe_smoke controller_input_smoke window_tree_smoke windowhost_termination_smoke application_group_smoke network_latency_smoke clipboard_ordering_smoke automatic_reconnect_smoke h264_only_smoke native_transport_smoke; do
+    if ! python3 "tests/e2e/${smoke}.py"; then mac_failed=1; fi
+  done
+  if [[ $mac_failed != 0 ]]; then exit 1; fi
 else
   cargo build -p paneferry-agent -p paneferry-network
   if command -v xvfb-run >/dev/null; then
