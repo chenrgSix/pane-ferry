@@ -165,6 +165,11 @@ struct ControllerInputSmoke {
         func geometry(_ width: Int, _ height: Int) { host.applyRemoteGeometry(width: width, height: height, rendering: scale) }
         func requests() -> [[String: Any]] { sent.filter { $0["type"] as? String == "window.configure" } }
 
+        // AppKit may constrain the initial window to the runner's display.
+        // Acknowledge that initial viewport before testing a source resize.
+        geometry(target.width, target.height)
+        sent.removeAll()
+
         // A source maximize after an already matched viewport must recover
         // without requiring another local drag or a menu action.
         geometry(3072, 1504)
