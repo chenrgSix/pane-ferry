@@ -27,11 +27,12 @@ import AppKit
         app.delegate = group
         group.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
         app.finishLaunching()
-        precondition(group.attach("two", target: "window-two", fps: 60, background: true))
+        precondition(group.attach("two", target: "window-two", fps: 60, pictureMode: .source, background: true))
         precondition(group.attach("three", target: "window-three", fps: 30, background: true))
         until { group.sessions.count == 3 && group.sessions.values.allSatisfy { $0.windows[42]?.surface.displayFrame != nil && $0.ready } }
         let one = group.sessions["one"]!, two = group.sessions["two"]!, three = group.sessions["three"]!
         let firstWindow = one.windows[42]!, secondWindow = two.windows[42]!, thirdWindow = three.windows[42]!
+        precondition(!firstWindow.preserveSourceSize && secondWindow.preserveSourceSize && !thirdWindow.preserveSourceSize, "each attachment snapshots its own display preference")
         precondition(firstWindow !== secondWindow && secondWindow !== thirdWindow)
         precondition(group.attach("two", target: "window-two", fps: 30, background: true))
         precondition(group.sessions.count == 3 && group.sessions["two"] === two && two.requestedVideoFPS == 60,

@@ -128,9 +128,19 @@ pub fn attach_or_start(
     fps: u8,
     background: bool,
     icon: Option<&str>,
+    picture_mode: crate::display_settings::PictureMode,
 ) -> Result<Attachment, String> {
-    attach_inner(group, command, session, target, fps, background, icon)
-        .map_err(|_| format!("无法接入本机应用入口。远端会话 {session} 已保留，可重试连接。"))
+    attach_inner(
+        group,
+        command,
+        session,
+        target,
+        fps,
+        background,
+        icon,
+        picture_mode,
+    )
+    .map_err(|_| format!("无法接入本机应用入口。远端会话 {session} 已保留，可重试连接。"))
 }
 fn attach_inner(
     group: &str,
@@ -140,6 +150,7 @@ fn attach_inner(
     fps: u8,
     background: bool,
     icon: Option<&str>,
+    picture_mode: crate::display_settings::PictureMode,
 ) -> io::Result<Attachment> {
     if group.len() != 64
         || !group
@@ -213,7 +224,7 @@ fn attach_inner(
     };
     send(
         &mut stream,
-        &json!({"version":1,"group":group,"op":"attach","session":session,"target":target,"fps":fps,"background":background}),
+        &json!({"version":1,"group":group,"op":"attach","session":session,"target":target,"fps":fps,"background":background,"picture_mode":picture_mode}),
     )?;
     let response = receive(&mut stream)?;
     let pid = response["pid"]
@@ -302,6 +313,10 @@ mod tests {
                 let id = request["session"].as_str().unwrap_or_default().to_owned();
                 match request["op"].as_str().unwrap() {
                     "attach" => {
+                        assert_eq!(
+                            request["picture_mode"],
+                            if id == "two" { "source" } else { "adapt" }
+                        );
                         send(
                             &mut stream,
                             &json!({"version":1,"pid":std::process::id(),"session":id}),
@@ -336,6 +351,7 @@ mod tests {
             30,
             false,
             None,
+            crate::display_settings::PictureMode::Adapt,
         )
         .unwrap();
         let two = attach_or_start(
@@ -346,6 +362,7 @@ mod tests {
             60,
             true,
             None,
+            crate::display_settings::PictureMode::Source,
         )
         .unwrap();
         assert_eq!(one.pid, two.pid);
@@ -417,6 +434,7 @@ mod tests {
             30,
             false,
             None,
+            crate::display_settings::PictureMode::Adapt,
         )
         .unwrap();
         let two = attach_or_start(
@@ -427,6 +445,7 @@ mod tests {
             60,
             true,
             None,
+            crate::display_settings::PictureMode::Adapt,
         )
         .unwrap();
         assert_eq!(one.pid, two.pid);
@@ -473,6 +492,7 @@ mod tests {
             30,
             true,
             None,
+            crate::display_settings::PictureMode::Adapt,
         )
         .unwrap();
         assert_eq!(three.pid, pid);

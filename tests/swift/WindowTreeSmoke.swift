@@ -196,6 +196,23 @@ import AppKit
         precondition(imported.window.isVisible && !imported.window.isKeyWindow && !imported.activateOnShow)
         precondition(!backgroundMessages.contains { $0["type"] as? String == "window.focus" }, "bulk imports do not seize input focus")
         imported.closeLocally(); background.windows.removeAll(); background.connected = false; background.stopping = true
+        var originalOptions = options
+        originalOptions.pictureMode = .source
+        let original = AppDelegate(options: originalOptions, clipboard: NSPasteboard.withUniqueName())
+        var originalMessages: [[String: Any]] = []
+        original.wireSink = { originalMessages.append($0) }
+        original.updateWindow(metadata(102, nil, "window", CGRect(x: 0, y: 0, width: 400, height: 300), 2), create: true)
+        let natural = original.windows[102]!
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        precondition(natural.preserveSourceSize && natural.surface.bounds.size == NSSize(width: 400, height: 300), "original mode must not maximize on arrival")
+        natural.window.setContentSize(NSSize(width: 600, height: 450))
+        natural.windowDidResize(Notification(name: NSWindow.didResizeNotification))
+        natural.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        precondition(!originalMessages.contains { $0["type"] as? String == "window.configure" }, "local resize must not resize the source")
+        original.updateWindow(metadata(102, nil, "window", CGRect(x: 0, y: 0, width: 500, height: 350), 2), create: false)
+        precondition(natural.surface.bounds.size == NSSize(width: 500, height: 350), "source geometry changes must size the local window at source density")
+        natural.closeLocally(); original.windows.removeAll(); original.connected = false; original.stopping = true
         for host in app.windows.values { host.closeLocally() }
         app.windows.removeAll(); app.connected = false; app.stopping = true
         print("PASS: source-relative nested overlays, fractional density, letterboxing, screen bounds, native overflow scrolling, bottom-item input, nested scroll anchors, passive tooltip hit testing, focus/resize isolation, dialogs, late parents, hidden/deleted owners and cycles")

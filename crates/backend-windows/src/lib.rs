@@ -1,4 +1,4 @@
-//! Current interactive desktop only. No process launch, service desktop or elevation.
+//! Current interactive desktop and locally discovered applications. No service desktop or elevation.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,14 @@ mod native;
 mod pixels;
 #[cfg(windows)]
 pub use native::{CaptureRuntime, Desktop};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Application {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub unavailable_reason: Option<String>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -48,6 +56,8 @@ mod application_tests {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Geometry {
+    #[serde(default)]
+    pub content_revision: u64,
     pub title: String,
     pub width: u32,
     pub height: u32,
@@ -55,6 +65,7 @@ pub struct Geometry {
 }
 
 pub struct VideoFrame {
+    pub content_revision: u64,
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -85,6 +96,14 @@ pub enum Input {
 
 /// All calls for an attached window stay on its owning worker thread.
 pub trait WindowSystem {
+    fn applications(&mut self) -> Result<Vec<Application>> {
+        Ok(Vec::new())
+    }
+    /// Resolve the local catalog again; false polls/reuses without launching a
+    /// second process after an interrupted request with the same request ID.
+    fn launch_application(&mut self, _id: &str, _start: bool) -> Result<Target> {
+        anyhow::bail!("app_not_approved")
+    }
     fn windows(&mut self) -> Result<Vec<Target>>;
     fn geometry(&mut self, target: &Target) -> Result<Geometry>;
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()>;

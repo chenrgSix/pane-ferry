@@ -4,6 +4,7 @@ use serde::Serialize;
 #[cfg(not(windows))]
 use std::{path::PathBuf, process::Command};
 use tauri::Manager;
+mod display_settings;
 mod legacy_settings;
 #[cfg_attr(windows, path = "windows/local_node.rs")]
 mod local_node;
@@ -213,6 +214,7 @@ fn spawn_host(
     // Icons are already in the launcher catalog/window cache. Deliver once over
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
+    let picture_mode = app.state::<display_settings::Service>().mode();
     let mut command = Command::new(path.executable);
     command
         .arg("--native-peer")
@@ -224,7 +226,9 @@ fn spawn_host(
         .arg("--session")
         .arg(session_id)
         .arg("--fps")
-        .arg(video_fps.to_string());
+        .arg(video_fps.to_string())
+        .arg("--picture-mode")
+        .arg(picture_mode.as_str());
     if background {
         command.arg("--background-start");
     }
@@ -236,6 +240,7 @@ fn spawn_host(
         video_fps,
         background,
         icon.as_deref(),
+        picture_mode,
     )?;
     let pid = attached.pid;
     let (stop, stop_requests) = std::sync::mpsc::channel();
@@ -434,6 +439,15 @@ async fn launch_connected(
     background: bool,
 ) -> Result<LaunchResult, LaunchFailure> {
     endpoint.validate()?;
+    // A local-sized scene canvas would resize the source even when the receiver
+    // never sends window.configure. Source mode uses native window geometry.
+    let scene = if app.state::<display_settings::Service>().mode()
+        == display_settings::PictureMode::Source
+    {
+        None
+    } else {
+        scene
+    };
     let video_fps = requested_video_fps(video_fps)?;
     transport::validate_id(&app_id)?;
     transport::validate_id(&request_id)?;
@@ -581,6 +595,9 @@ async fn start_desktop(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            app.manage(display_settings::Service::open(
+                app.path().app_data_dir()?.join("display-picture-mode.json"),
+            ));
             let settings = app.path().app_data_dir()?.join("automatic-windows.json");
             app.manage(auto_connect::Service::open(settings));
             app.state::<auto_connect::Service>().start(app.handle());
@@ -606,6 +623,8 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            display_settings::picture_mode,
+            display_settings::set_picture_mode,
             list_apps,
             list_desktop_windows,
             list_desktop_monitors,

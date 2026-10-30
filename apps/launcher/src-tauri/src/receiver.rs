@@ -30,6 +30,7 @@ struct Entry {
     session: String,
     route: PathBuf,
     fps: u8,
+    picture_mode: crate::display_settings::PictureMode,
     epoch: u64,
     connection: Option<Arc<Connection>>,
     on_close: Option<Box<dyn FnOnce() + Send>>,
@@ -87,6 +88,7 @@ pub fn spawn(
             session: session.into(),
             route,
             fps,
+            picture_mode: app.state::<crate::display_settings::Service>().mode(),
             epoch: 0,
             connection: None,
             on_close: None,
@@ -96,7 +98,7 @@ pub fn spawn(
         match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("receiver.html".into()))
             .title("远程应用 — 窗渡 PaneFerry")
             .inner_size(1000.0, 720.0)
-            .min_inner_size(400.0, 300.0)
+            .min_inner_size(160.0, 120.0)
             .visible(false)
             .focused(!background)
             .build()
@@ -196,7 +198,7 @@ pub async fn open(label: &str, selected_fps: Option<u8>) -> Result<Value, String
         }
     }
     disconnect(label);
-    let (route, session, fps, epoch) = {
+    let (route, session, fps, epoch, picture_mode) = {
         let entries = entries().lock().unwrap();
         let entry = entries.get(label).ok_or("窗口已关闭。")?;
         (
@@ -204,6 +206,7 @@ pub async fn open(label: &str, selected_fps: Option<u8>) -> Result<Value, String
             entry.session.clone(),
             entry.fps,
             entry.epoch,
+            entry.picture_mode,
         )
     };
     let result = tokio::time::timeout(Duration::from_secs(20), async {
@@ -244,7 +247,7 @@ pub async fn open(label: &str, selected_fps: Option<u8>) -> Result<Value, String
         let mut entries = entries().lock().unwrap();
         let entry = entries.get_mut(label).filter(|e| e.epoch == epoch).ok_or("连接已失效。")?;
         entry.connection = Some(connection);
-        Ok(json!({"epoch":epoch,"snapshot":snapshot,"capabilities":capabilities,"max_fps":max_fps,"selected_fps":fps}))
+        Ok(json!({"epoch":epoch,"snapshot":snapshot,"capabilities":capabilities,"max_fps":max_fps,"selected_fps":fps,"picture_mode":picture_mode.as_str()}))
     }).await.map_err(|_| "连接超时，请稍后重试。".to_string())?;
     result
 }

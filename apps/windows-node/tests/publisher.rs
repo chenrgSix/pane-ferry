@@ -1,7 +1,7 @@
 //! Actual QUIC and RWP state machine, with a synthetic desktop (no OS capture claim).
 use anyhow::{ensure, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use paneferry_backend_windows::{Geometry, Input, Target, VideoFrame, WindowSystem};
+use paneferry_backend_windows::{Application, Geometry, Input, Target, VideoFrame, WindowSystem};
 use paneferry_network::{
     framing,
     service::{Config, Service},
@@ -23,6 +23,8 @@ struct Observed {
     attached: usize,
     detached: usize,
     dead: bool,
+    launches: Vec<bool>,
+    pending_once: bool,
 }
 static OBSERVED: OnceLock<Mutex<Observed>> = OnceLock::new();
 fn observed() -> &'static Mutex<Observed> {
@@ -46,6 +48,24 @@ fn target() -> Target {
     }
 }
 impl WindowSystem for Fixture {
+    fn applications(&mut self) -> Result<Vec<Application>> {
+        Ok(vec![Application {
+            id: "exe-fixture".into(),
+            name: "Installed fixture".into(),
+            description: "Fixture".into(),
+            unavailable_reason: None,
+        }])
+    }
+    fn launch_application(&mut self, id: &str, start: bool) -> Result<Target> {
+        ensure!(id == "exe-fixture", "app_not_approved");
+        let mut observed = observed().lock().unwrap();
+        observed.launches.push(start);
+        if observed.pending_once {
+            observed.pending_once = false;
+            anyhow::bail!("application_window_pending");
+        }
+        Ok(target())
+    }
     fn windows(&mut self) -> Result<Vec<Target>> {
         let mut utility = target();
         utility.id = "win-utility".into();
@@ -58,6 +78,7 @@ impl WindowSystem for Fixture {
             "session_exited"
         );
         Ok(Geometry {
+            content_revision: 0,
             title: "Windows fixture".into(),
             width: 640,
             height: 480,
@@ -81,6 +102,7 @@ impl WindowSystem for Fixture {
         let n = self.next;
         self.next += 1;
         Ok(Some(VideoFrame {
+            content_revision: 0,
             data: self.frames[n].clone(),
             width: 640,
             height: 480,
@@ -252,6 +274,31 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     assert!(!windows.windows[1].auto_connectable);
     send(&mut wr,json!({"type":"app.launch","app_id":"not-approved","request_id":"bad","backend":"native","attach":false})).await;
     assert_eq!(read(&mut rd, "error").await["code"], "app_not_approved");
+    let catalog = paneferry_transport::catalog(&paneferry_transport::Target {
+        socket: route.clone(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(catalog.apps[0].id, "exe-fixture");
+    assert_eq!(catalog.apps[0].source, "desktop");
+    assert!(catalog.discovery_error.is_none());
+    observed().lock().unwrap().pending_once = true;
+    let app_launch = json!({"type":"app.launch","app_id":"exe-fixture","request_id":"installed-request","backend":"native","attach":false});
+    send(&mut wr, app_launch.clone()).await;
+    assert_eq!(
+        read(&mut rd, "error").await["code"],
+        "application_window_pending"
+    );
+    send(&mut wr, json!({"type":"app.launch","app_id":"win-fixture","request_id":"installed-request","backend":"native","attach":false})).await;
+    assert_eq!(read(&mut rd, "error").await["code"], "request_id_conflict");
+    send(&mut wr, app_launch.clone()).await;
+    let app_session = read(&mut rd, "session.started").await["session_id"].clone();
+    send(&mut wr, app_launch).await;
+    assert_eq!(
+        read(&mut rd, "session.started").await["session_id"],
+        app_session
+    );
+    assert_eq!(observed().lock().unwrap().launches, [true, false]);
     let launch = json!({"type":"app.launch","app_id":"win-fixture","request_id":"request-1","backend":"native","attach":false});
     send(&mut wr, launch.clone()).await;
     let started = read(&mut rd, "session.started").await;

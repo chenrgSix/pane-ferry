@@ -9,6 +9,10 @@ export function metadata(value: Record<string, unknown>): RemoteWindow {
   if(value.scale_factor!==undefined&&value.scale_factor!==1&&value.scale_factor!==2)throw Error('invalid_scale');
   return {window_id:Number(value.window_id),width:Number(value.width),height:Number(value.height),geometry_revision:Number(value.geometry_revision),title:typeof value.title==='string'?value.title.slice(0,256):'远程应用',visible:value.visible!==false,parent_id:typeof value.parent_id==='number'?value.parent_id:null,scale_factor:value.scale_factor===2?2:1};
 }
+// Source pixels use source density; the local monitor's DPI is irrelevant.
+export function sourceSize(window:RemoteWindow) {
+  return {width:window.width/window.scale_factor,height:window.height/window.scale_factor};
+}
 export function imageRect(viewWidth:number, viewHeight:number, width:number, height:number) {
   const fit=Math.min(viewWidth/width,viewHeight/height);
   return {x:(viewWidth-width*fit)/2,y:(viewHeight-height*fit)/2,width:width*fit,height:height*fit};

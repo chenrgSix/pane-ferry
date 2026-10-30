@@ -155,6 +155,7 @@ pub fn remote_error_message(code: &str) -> String {
         "application_discovery_unavailable" => {
             "Ubuntu 应用发现组件未就绪，请检查 Python GI、GTK 和 GIO 运行依赖。".into()
         }
+        "windows_application_discovery_unavailable" => "Windows 应用目录暂时无法读取，请刷新重试。".into(),
         "agent_upgrade_required" => "远端 Agent 需要更新，当前仅能读取自定义入口。".into(),
         "desktop_unavailable" => "未找到可连接的 Ubuntu 桌面，请确认用户已登录图形桌面。".into(),
         "session_limit" => "运行中的会话已达上限，请保存工作并关闭不用的远端应用。".into(),
