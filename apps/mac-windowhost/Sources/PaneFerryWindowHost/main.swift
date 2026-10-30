@@ -970,9 +970,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let host = windows[id], let image = incoming.displayFrame,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
-            host.present(image, mediaMode: "H.264 视频")
+            let mediaMode = object["color"] as? String == VideoColor.full.rawValue ? "4:4:4 色彩" : "H.264 视频"
+            host.present(image, mediaMode: mediaMode)
             attachParents()
-            statusItem?.button?.title = "PaneFerry · H.264 视频"
+            statusItem?.button?.title = "PaneFerry · \(mediaMode)"
             if capabilities.contains("video.qos"), let frameID = unsignedInteger(object["frame_id"]), frameID > 0 {
                 host.surface.didDrawFrame = { [weak self, weak host] in
                     guard let self=self, let host=host, self.connected, self.windows[id] === host, host.revision == revision else { return }

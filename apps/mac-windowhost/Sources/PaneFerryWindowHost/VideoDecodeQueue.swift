@@ -62,7 +62,8 @@ final class VideoDecodeQueue {
         // Include the currently decoding packet in the byte/count budget.
         lock.unlock()
         let decodingStarted = DispatchTime.now().uptimeNanoseconds
-        if let received = unsignedInteger(job.object["received_ns"]) { VideoTiming.record("mac.decode_queue", since: received) }
+        // This timestamp is inserted locally by Transport, not read from the wire.
+        if let received = job.object["received_ns"] as? UInt64 { VideoTiming.record("mac.decode_queue", since: received) }
         let result: Result<VideoFrame?, Error>
         do {
             if let decode = decodeOverride { result = .success(try decode(job).map { VideoFrame(image: $0) }) }

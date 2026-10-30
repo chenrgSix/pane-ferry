@@ -50,11 +50,27 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     }
     let stream = UnixStream::connect(path)?;
     // Socket permissions and the authenticated peer must agree.
-    let (mut uid, mut gid) = (0, 0);
     use std::os::fd::AsRawFd;
-    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0
-        || uid != unsafe { libc::geteuid() }
-    {
+    #[cfg(target_os = "linux")]
+    let same_user = unsafe {
+        let mut credentials: libc::ucred = std::mem::zeroed();
+        let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut credentials as *mut libc::ucred).cast(),
+            &mut length,
+        ) == 0
+            && length as usize == std::mem::size_of::<libc::ucred>()
+            && credentials.uid == libc::geteuid()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let same_user = unsafe {
+        let (mut uid, mut gid) = (0, 0);
+        libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) == 0 && uid == libc::geteuid()
+    };
+    if !same_user {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -317,6 +333,10 @@ mod tests {
                 match request["op"].as_str().unwrap() {
                     "attach" => {
                         assert_eq!(
+                            request["video_color"],
+                            if id == "two" { "444-atlas-v1" } else { "420" }
+                        );
+                        assert_eq!(
                             request["picture_mode"],
                             if id == "two" { "source" } else { "adapt" }
                         );
@@ -355,6 +375,7 @@ mod tests {
             false,
             None,
             crate::display_settings::PictureMode::Adapt,
+            crate::display_settings::VideoColor::Compatible,
         )
         .unwrap();
         let two = attach_or_start(
@@ -366,6 +387,7 @@ mod tests {
             true,
             None,
             crate::display_settings::PictureMode::Source,
+            crate::display_settings::VideoColor::Full,
         )
         .unwrap();
         assert_eq!(one.pid, two.pid);
@@ -438,6 +460,7 @@ mod tests {
             false,
             None,
             crate::display_settings::PictureMode::Adapt,
+            crate::display_settings::VideoColor::Compatible,
         )
         .unwrap();
         let two = attach_or_start(
@@ -449,6 +472,7 @@ mod tests {
             true,
             None,
             crate::display_settings::PictureMode::Adapt,
+            crate::display_settings::VideoColor::Compatible,
         )
         .unwrap();
         assert_eq!(one.pid, two.pid);
@@ -496,6 +520,7 @@ mod tests {
             true,
             None,
             crate::display_settings::PictureMode::Adapt,
+            crate::display_settings::VideoColor::Compatible,
         )
         .unwrap();
         assert_eq!(three.pid, pid);
