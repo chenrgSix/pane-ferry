@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   macos-video:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
           python3 tests/e2e/app_discovery_smoke.py --agent target/debug/paneferry-agent
           cargo test -p paneferry-agent video::tests::native_encoder_preserves_pixels_and_releases_capture_leases -- --ignored
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

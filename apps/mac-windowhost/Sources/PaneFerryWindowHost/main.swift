@@ -58,7 +58,7 @@ struct Options {
             throw HostError.message("帧率必须选择 30 或 60。")
         }
         guard let pictureMode = PictureMode(rawValue: values["--picture-mode"] ?? "adapt") else { throw HostError.message("画面尺寸模式无效") }
-        guard let videoColor = VideoColor(rawValue: values["--video-color"] ?? "420") else { throw HostError.message("??????") }
+        guard let videoColor = VideoColor(rawValue: values["--video-color"] ?? "420") else { throw HostError.message("色彩模式无效") }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
         for id in [app, session, values["--source-target"]].compactMap({ $0 }) {
@@ -776,7 +776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if options.videoColor == .full && capabilities.contains("video.color.444-atlas-v1") {
                 enable["color"] = VideoColor.full.rawValue
             } else if options.videoColor == .full {
-                alert("?????? 4:4:4????????????", key: "color_mode_unavailable")
+                alert("远端尚不支持 4:4:4，本次使用兼容色彩模式。", key: "color_mode_unavailable")
             }
             send(enable)
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }
@@ -789,7 +789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return
         }
-        if type == "video.ready" { statusItem?.button?.title = "PaneFerry · H.264 视频"; return }
+        if type == "video.ready" { statusItem?.button?.title = object["color"] as? String == VideoColor.full.rawValue ? "PaneFerry · 4:4:4 色彩" : "PaneFerry · H.264 视频"; return }
         if type == "video.activity.changed" { return }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.

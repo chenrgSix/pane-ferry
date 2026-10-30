@@ -73,7 +73,7 @@ impl Service {
             fs::write(&pending, serde_json::to_vec(&mode)?)?;
             fs::rename(pending, &path)
         };
-        save().map_err(|_| "?????????????".to_string())?;
+        save().map_err(|_| "色彩设置保存失败，请重试。".to_string())?;
         *current = mode;
         Ok(())
     }
