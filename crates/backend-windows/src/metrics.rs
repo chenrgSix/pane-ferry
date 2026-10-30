@@ -32,11 +32,31 @@ pub fn sample(stage: &'static str, elapsed: Duration) {
             if values.is_empty() { continue; }
             values.sort_unstable();
             eprintln!("PF_TIMING stage={stage} interval_ms={interval} count={} p50_us={} p95_us={} p99_us={}",
-                values.len(), values[values.len()/2], values[(values.len()-1)*95/100], values[(values.len()-1)*99/100]);
+                values.len(), percentile(values, 50), percentile(values, 95), percentile(values, 99));
             values.clear();
         }
         samples.start = Instant::now();
     });
+}
+fn percentile(sorted: &[u64], percent: usize) -> u64 {
+    sorted[(sorted.len() * percent).div_ceil(100).saturating_sub(1)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percentile;
+    #[test]
+    fn nearest_rank_percentiles_remain_ordered_for_small_samples() {
+        for len in 1..=2048 {
+            let values: Vec<_> = (0..len).collect();
+            let p50 = percentile(&values, 50);
+            let p95 = percentile(&values, 95);
+            let p99 = percentile(&values, 99);
+            assert!(p50 <= p95 && p95 <= p99);
+        }
+        assert_eq!(percentile(&[10, 20], 95), 20);
+        assert_eq!(percentile(&[10, 20], 50), 10);
+    }
 }
 pub struct Span {
     stage: &'static str,

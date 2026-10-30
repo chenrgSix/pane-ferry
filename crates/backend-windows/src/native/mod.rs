@@ -1,4 +1,5 @@
 mod applications;
+mod blend;
 mod capture;
 mod scene;
 mod video;

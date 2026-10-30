@@ -2,6 +2,61 @@ use super::*;
 use std::time::{Duration, Instant};
 
 #[test]
+#[ignore = "CPU compositor benchmark; run release with --nocapture"]
+fn benchmark_native_scene_composition() {
+    let rect = RECT {
+        left: -120,
+        top: 40,
+        right: 2440,
+        bottom: 1480,
+    };
+    let layout = Layout {
+        rect,
+        width: 2560,
+        height: 1440,
+        surfaces: vec![],
+    };
+    let mut pixels = vec![0u8; 2560 * 1440 * 4];
+    for (i, p) in pixels.chunks_exact_mut(4).enumerate() {
+        p.copy_from_slice(&[(i % 197) as u8, (i % 149) as u8, (i % 251) as u8, 255]);
+    }
+    let overlay = RECT {
+        left: 100,
+        top: 150,
+        right: 900,
+        bottom: 750,
+    };
+    let popup = [20, 70, 100, 128].repeat(800 * 600);
+    let mut output = vec![0; pixels.len()];
+    for layers in [1, 2] {
+        let mut times = Vec::new();
+        for iteration in 0..140 {
+            let start = Instant::now();
+            paint_base(
+                &layout,
+                rect,
+                2560,
+                1440,
+                std::hint::black_box(&pixels),
+                &mut output,
+            );
+            if layers == 2 {
+                paint(&layout, overlay, 800, 600, &popup, &mut output);
+            }
+            std::hint::black_box(&output);
+            if iteration >= 20 {
+                times.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        times.sort_by(f64::total_cmp);
+        eprintln!(
+            "COMPOSE_BENCH 2560x1440 layers={layers} p50_ms={:.3} p95_ms={:.3}",
+            times[59], times[113]
+        );
+    }
+}
+
+#[test]
 #[ignore = "read-only real application capture; set PANEFERRY_SCENE_ANCHOR_ID/CHILD_ID"]
 fn existing_application_and_dialog_share_one_encoded_scene() -> Result<()> {
     let anchor_id = std::env::var("PANEFERRY_SCENE_ANCHOR_ID")?;
@@ -93,6 +148,46 @@ fn composition_handles_negative_offsets_alpha_and_downscaling() {
         bottom: 5000,
     });
     assert!(paneferry_protocol::dimensions(w, h).is_ok());
+}
+
+#[test]
+fn first_layer_matches_cleared_canvas_including_gaps_scaling_and_transparency() {
+    let rect = RECT {
+        left: -8,
+        top: -4,
+        right: 8,
+        bottom: 4,
+    };
+    for (width, height) in [(16, 8), (8, 4)] {
+        let layout = Layout {
+            rect,
+            width,
+            height,
+            surfaces: vec![],
+        };
+        for surface in [
+            rect,
+            RECT {
+                left: -4,
+                top: -2,
+                right: 4,
+                bottom: 2,
+            },
+        ] {
+            let w = (surface.right - surface.left) as u32;
+            let h = (surface.bottom - surface.top) as u32;
+            let mut pixels = Vec::new();
+            for i in 0..w * h {
+                let a = [0, 64, 128, 255][i as usize % 4];
+                pixels.extend_from_slice(&[a / 4, a / 2, a, a]);
+            }
+            let mut expected = [24, 24, 24, 255].repeat((width * height) as usize);
+            let mut actual = vec![213; expected.len()];
+            paint(&layout, surface, w, h, &pixels, &mut expected);
+            paint_base(&layout, surface, w, h, &pixels, &mut actual);
+            assert_eq!(actual, expected);
+        }
+    }
 }
 
 #[test]

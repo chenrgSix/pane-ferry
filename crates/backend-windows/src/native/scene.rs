@@ -43,6 +43,7 @@ pub struct Scene {
     presented: Option<Layout>,
     output: Vec<u8>,
     composed_revision: Option<u64>,
+    pixels_changed: bool,
     last_composed: std::time::Instant,
     refresh_remaining: u8,
     force_frame: bool,
@@ -149,6 +150,7 @@ impl Scene {
             presented: None,
             output: Vec::new(),
             composed_revision: None,
+            pixels_changed: false,
             last_composed: std::time::Instant::now(),
             refresh_remaining: 0,
             force_frame: true,
@@ -281,7 +283,7 @@ impl Scene {
         if self.layout.surfaces.is_empty() {
             return Ok(None);
         }
-        let mut changed = self.composed_revision != Some(self.revision);
+        let mut changed = self.pixels_changed || self.composed_revision != Some(self.revision);
         for surface in &self.layout.surfaces {
             if let Err(error) = validate(&surface.target) {
                 if surface.target.id == self.anchor.id {
@@ -315,6 +317,9 @@ impl Scene {
                 pixels.0 = width;
                 pixels.1 = height;
                 changed = true;
+                // Keep dirtiness if a later popup is still resizing/not ready
+                // and this attempt returns before composition.
+                self.pixels_changed = true;
             }
             let Some((w, h, _)) = &layer.pixels else {
                 return Ok(None);
@@ -338,7 +343,11 @@ impl Scene {
         if !changed {
             self.refresh_remaining = self.refresh_remaining.saturating_sub(1);
         }
-        let _timing = crate::metrics::span(if changed {
+        let cached = !changed
+            && self.output.len() == self.layout.width as usize * self.layout.height as usize * 4;
+        let _timing = crate::metrics::span(if cached {
+            "scene.compose_cached"
+        } else if changed {
             "scene.compose_changed"
         } else {
             "scene.compose_refresh"
@@ -348,16 +357,19 @@ impl Scene {
             self.layout.width as usize * self.layout.height as usize * 4,
             24,
         );
-        output.fill(24);
-        for pixel in output.chunks_exact_mut(4) {
-            pixel[3] = 255;
-        }
-        for surface in &self.layout.surfaces {
-            let (w, h, pixels) = self.layers[&surface.target.id].pixels.as_ref().unwrap();
-            paint(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+        if !cached {
+            for (index, surface) in self.layout.surfaces.iter().enumerate() {
+                let (w, h, pixels) = self.layers[&surface.target.id].pixels.as_ref().unwrap();
+                if index == 0 {
+                    paint_base(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+                } else {
+                    paint(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+                }
+            }
         }
         self.presented = Some(self.layout.clone());
         self.composed_revision = Some(self.revision);
+        self.pixels_changed = false;
         self.last_composed = std::time::Instant::now();
         self.force_frame = false;
         Ok(Some((self.layout.width, self.layout.height, output)))
@@ -480,6 +492,20 @@ impl Drop for Scene {
     }
 }
 
+fn paint_base(layout: &Layout, rect: RECT, w: u32, h: u32, source: &[u8], output: &mut [u8]) {
+    if rect == layout.rect && w == layout.width && h == layout.height {
+        // Fuse canvas initialization with the first layer. Opaque pixels are
+        // copied once; translucent borders still blend over the same backdrop.
+        blend::over(source, output, true);
+    } else {
+        output.fill(24);
+        for pixel in output.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+        paint(layout, rect, w, h, source, output);
+    }
+}
+
 fn paint(layout: &Layout, rect: RECT, w: u32, h: u32, source: &[u8], output: &mut [u8]) {
     let canvas_w = (layout.rect.right - layout.rect.left) as i64;
     let canvas_h = (layout.rect.bottom - layout.rect.top) as i64;
@@ -504,20 +530,7 @@ fn paint(layout: &Layout, rect: RECT, w: u32, h: u32, source: &[u8], output: &mu
             let sx = (layout.rect.left + left as i32 - rect.left) as usize;
             let src = &source[(sy * w as usize + sx) * 4..][..(right - left) * 4];
             let dst = &mut output[(y * layout.width as usize + left) * 4..][..src.len()];
-            for (src, dst) in src.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
-                match src[3] {
-                    255 => dst.copy_from_slice(src),
-                    0 => {}
-                    alpha => {
-                        for c in 0..3 {
-                            dst[c] = (src[c] as u16
-                                + (dst[c] as u16 * (255 - alpha as u16) + 127) / 255)
-                                .min(255) as u8;
-                        }
-                        dst[3] = 255;
-                    }
-                }
-            }
+            blend::over(src, dst, false);
         }
         return;
     }
