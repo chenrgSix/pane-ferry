@@ -13,6 +13,7 @@ use windows::{
 };
 
 pub struct Capture {
+    item: GraphicsCaptureItem,
     pool: Direct3D11CaptureFramePool,
     session: GraphicsCaptureSession,
     device: ID3D11Device,
@@ -60,6 +61,7 @@ impl Capture {
             session.SetIsCursorCaptureEnabled(false)?;
             session.StartCapture()?;
             Ok(Self {
+                item,
                 pool,
                 session,
                 device,
@@ -98,12 +100,23 @@ impl Capture {
         paneferry_protocol::dimensions(size.Width as u32, size.Height as u32)?;
         if size != self.size {
             frame.Close()?;
-            self.pool.Recreate(
+            drop(frame);
+            // Recreate alone can leave WGC silent after fullscreen/restore,
+            // especially for a static surface. Start a fresh capture session on
+            // the same validated item/device so the new size gets an initial frame.
+            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
                 &self.runtime_device,
                 DirectXPixelFormat::B8G8R8A8UIntNormalized,
                 2,
                 size,
             )?;
+            let session = pool.CreateCaptureSession(&self.item)?;
+            session.SetIsCursorCaptureEnabled(false)?;
+            session.StartCapture()?;
+            self.session.Close()?;
+            self.pool.Close()?;
+            self.session = session;
+            self.pool = pool;
             self.size = size;
             self.staging = None;
             return Ok(None);
@@ -117,6 +130,18 @@ impl Capture {
                 desc.Width >= size.Width as u32 && desc.Height >= size.Height as u32,
                 "invalid capture size"
             );
+            if let Some(staging) = &self.staging {
+                let mut cached = D3D11_TEXTURE2D_DESC::default();
+                staging.GetDesc(&mut cached);
+                // WGC texture allocation can lag ContentSize during a resize.
+                // CopyResource requires matching allocations, not just visible size.
+                if cached.Width != desc.Width
+                    || cached.Height != desc.Height
+                    || cached.Format != desc.Format
+                {
+                    self.staging = None;
+                }
+            }
             if self.staging.is_none() {
                 desc.Usage = D3D11_USAGE_STAGING;
                 desc.BindFlags = 0;

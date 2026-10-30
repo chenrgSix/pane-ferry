@@ -148,3 +148,56 @@ fn capture_pipeline_throughput_probe() -> Result<()> {
     desktop.detach();
     Ok(())
 }
+
+#[test]
+#[ignore = "uses only the dedicated fixture specified by PANEFERRY_RESIZE_FIXTURE_PID"]
+fn maximize_restore_and_activity_rate_changes_keep_capture_alive() -> Result<()> {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{ShowWindow, SW_MAXIMIZE, SW_RESTORE},
+    };
+    let pid: u32 = std::env::var("PANEFERRY_RESIZE_FIXTURE_PID")?.parse()?;
+    let _runtime = CaptureRuntime::new()?;
+    let mut desktop = Desktop::new()?;
+    let target = desktop
+        .windows()?
+        .into_iter()
+        .find(|w| w.pid == pid && w.auto_connectable)
+        .context("missing fixture")?;
+    desktop.attach(&target, 60)?;
+    let mut streams = std::collections::HashSet::new();
+    for (index, fps) in [60, 1, 5, 60, 1, 60].into_iter().enumerate() {
+        unsafe {
+            let _ = ShowWindow(
+                HWND(target.handle as *mut _),
+                if index % 2 == 0 {
+                    SW_RESTORE
+                } else {
+                    SW_MAXIMIZE
+                },
+            );
+        }
+        desktop.set_video_fps(fps)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut captured = false;
+        while Instant::now() < deadline {
+            if let Some(frame) = desktop.frame(&target)? {
+                ensure!(frame.key_frame, "rate/size transition must start with IDR");
+                ensure!(
+                    streams.insert(frame.stream_id),
+                    "new encoder must have a new stream ID"
+                );
+                println!(
+                    "RESIZE fps={fps} frame={}x{} stream={}",
+                    frame.width, frame.height, frame.stream_id
+                );
+                captured = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        ensure!(captured, "no frame after rate/size transition");
+    }
+    desktop.detach();
+    Ok(())
+}
