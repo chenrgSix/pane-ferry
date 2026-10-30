@@ -150,38 +150,123 @@ pub fn check_private(path: &Path) -> io::Result<()> {
             return Err(io::Error::from_raw_os_error(status as i32));
         }
         let _descriptor = Descriptor(sd);
-        // An elevated token may create files owned by its default owner group.
-        // Accept only the current token's user/default owner; every grant must
-        // still name this user SID (never an Administrators/Everyone grant).
         let default_owner = token_sid(GetCurrentProcess(), TokenOwner)?;
-        if owner.is_null()
-            || dacl.is_null()
-            || (EqualSid(owner, sid.as_ptr().cast_mut().cast()) == 0
-                && EqualSid(owner, default_owner.as_ptr().cast_mut().cast()) == 0)
-        {
-            return Err(io::Error::other("invalid owner or DACL"));
-        }
-        for index in 0..(*dacl).AceCount {
-            let mut ace = ptr::null_mut();
-            if GetAce(dacl, index as u32, &mut ace) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let header = &*(ace as *const ACE_HEADER);
-            // A private directory may only grant access to this account.
-            if header.AceType != 0
-            /* ACCESS_ALLOWED_ACE_TYPE */
-            {
-                return Err(io::Error::other("unexpected private ACL"));
-            }
-            let entry = &*(ace as *const ACCESS_ALLOWED_ACE);
-            if EqualSid(
-                (&entry.SidStart as *const u32).cast_mut().cast(),
+        let normalize = validate_private_acl(owner, dacl, &sid, &default_owner)?;
+        if normalize {
+            // Older elevated launches created Administrators-owned state. A
+            // filtered token has a different default owner after restart. Only
+            // migrate after verifying every grant names this exact user; use
+            // its existing WRITE_OWNER right, never take-ownership privileges.
+            let status = SetNamedSecurityInfoW(
+                wide(path).as_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
                 sid.as_ptr().cast_mut().cast(),
-            ) == 0
-            {
-                return Err(io::Error::other("public private file"));
+                ptr::null_mut(),
+                ptr::null(),
+                ptr::null(),
+            );
+            if status != 0 {
+                return Err(io::Error::from_raw_os_error(status as i32));
             }
         }
         Ok(())
+    }
+}
+
+unsafe fn validate_private_acl(
+    owner: PSID,
+    dacl: *const ACL,
+    sid: &[u8],
+    default_owner: &[u8],
+) -> io::Result<bool> {
+    if owner.is_null() || dacl.is_null() {
+        return Err(io::Error::other("invalid owner or DACL"));
+    }
+    let normalize = EqualSid(owner, sid.as_ptr().cast_mut().cast()) == 0;
+    if normalize
+        && EqualSid(owner, default_owner.as_ptr().cast_mut().cast()) == 0
+        && IsWellKnownSid(owner, WinBuiltinAdministratorsSid) == 0
+    {
+        return Err(io::Error::other("invalid private owner"));
+    }
+    for index in 0..(*dacl).AceCount {
+        let mut ace = ptr::null_mut();
+        if GetAce(dacl, index as u32, &mut ace) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let header = &*(ace as *const ACE_HEADER);
+        // A private directory may only grant access to this account.
+        if header.AceType != 0
+        /* ACCESS_ALLOWED_ACE_TYPE */
+        {
+            return Err(io::Error::other("unexpected private ACL"));
+        }
+        let entry = &*(ace as *const ACCESS_ALLOWED_ACE);
+        if EqualSid(
+            (&entry.SidStart as *const u32).cast_mut().cast(),
+            sid.as_ptr().cast_mut().cast(),
+        ) == 0
+        {
+            return Err(io::Error::other("public private file"));
+        }
+    }
+    Ok(normalize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_admin_owner_requires_user_only_acl_before_migration() {
+        unsafe {
+            // Use distinct synthetic SIDs to model the elevated -> filtered
+            // transition without changing this test process's token.
+            let user = "S-1-5-21-100-200-300-1001";
+            for (owner, grants, expected) in [
+                ("BA", format!("(A;;FA;;;{user})"), Some(true)),
+                (user, format!("(A;;FA;;;{user})"), Some(false)),
+                ("BA", format!("(A;;FA;;;{user})(A;;FR;;;WD)"), None),
+                ("BA", "(A;;FA;;;BA)".into(), None),
+                ("SY", format!("(A;;FA;;;{user})"), None),
+            ] {
+                let mut user_sid = ptr::null_mut();
+                assert_ne!(
+                    ConvertStringSidToSidW(wide(user).as_ptr(), &mut user_sid),
+                    0
+                );
+                let sid = std::slice::from_raw_parts(
+                    user_sid.cast::<u8>(),
+                    GetLengthSid(user_sid) as usize,
+                );
+                let mut raw = ptr::null_mut();
+                assert_ne!(
+                    ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                        wide(format!("O:{owner}D:P{grants}")).as_ptr(),
+                        SDDL_REVISION_1,
+                        &mut raw,
+                        ptr::null_mut(),
+                    ),
+                    0
+                );
+                let _descriptor = Descriptor(raw);
+                let mut owner = ptr::null_mut();
+                let mut dacl = ptr::null_mut();
+                let mut defaulted = 0;
+                let mut present = 0;
+                assert_ne!(
+                    GetSecurityDescriptorOwner(raw, &mut owner, &mut defaulted),
+                    0
+                );
+                assert_ne!(
+                    GetSecurityDescriptorDacl(raw, &mut present, &mut dacl, &mut defaulted),
+                    0
+                );
+                assert_eq!(validate_private_acl(owner, dacl, sid, sid).ok(), expected);
+                assert!(validate_private_acl(owner, ptr::null(), sid, sid).is_err());
+                LocalFree(user_sid);
+            }
+        }
     }
 }
