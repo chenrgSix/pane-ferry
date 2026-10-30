@@ -103,3 +103,48 @@ fn passive_pointer_does_not_activate_or_report_errors_for_background_window() ->
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "profiles a visible desktop window without saving pixels or sending input"]
+fn capture_pipeline_throughput_probe() -> Result<()> {
+    let _runtime = CaptureRuntime::new()?;
+    let mut desktop = Desktop::new()?;
+    let selected = std::env::var("PANEFERRY_CAPTURE_WINDOW_ID").ok();
+    let target = desktop
+        .windows()?
+        .into_iter()
+        .find(|w| {
+            selected
+                .as_ref()
+                .map_or(w.auto_connectable, |id| &w.id == id)
+        })
+        .context("no eligible window")?;
+    desktop.attach(&target, 60)?;
+    let geometry = desktop.geometry(&target)?;
+    let mut timings = Vec::new();
+    let mut bytes = 0;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while timings.len() < 120 && Instant::now() < deadline {
+        let start = Instant::now();
+        desktop.geometry(&target)?;
+        if let Some(frame) = desktop.frame(&target)? {
+            timings.push(start.elapsed().as_secs_f64() * 1000.0);
+            bytes += frame.data.len();
+        } else {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    ensure!(!timings.is_empty(), "no captured frame");
+    timings.sort_by(f64::total_cmp);
+    println!(
+        "PIPELINE {}x{} frames={} bytes={} p50_ms={:.2} p95_ms={:.2}",
+        geometry.width,
+        geometry.height,
+        timings.len(),
+        bytes,
+        timings[timings.len() / 2],
+        timings[timings.len() * 95 / 100]
+    );
+    desktop.detach();
+    Ok(())
+}

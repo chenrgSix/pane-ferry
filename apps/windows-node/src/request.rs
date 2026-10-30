@@ -26,6 +26,10 @@ pub enum Request {
         #[serde(default)]
         feedback: bool,
     },
+    #[serde(rename = "video.configure")]
+    VideoConfigure { max_fps: u32 },
+    #[serde(rename = "video.feedback")]
+    VideoFeedback { frame_id: u64 },
     #[serde(rename = "video.keyframe")]
     KeyFrame { window_id: u32 },
     #[serde(rename = "app.launch")]

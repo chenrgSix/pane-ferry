@@ -256,8 +256,13 @@ impl Scene {
             visible: !self.layout.surfaces.is_empty(),
         })
     }
+    #[cfg(test)]
     pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
         self.refresh()?;
+        self.frame_prepared()
+    }
+    pub fn frame_prepared(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
+        // Desktop::frame has just refreshed geometry; avoid a third desktop scan.
         if self.layout.surfaces.is_empty() {
             return Ok(None);
         }
@@ -417,6 +422,34 @@ fn paint(layout: &Layout, rect: RECT, w: u32, h: u32, source: &[u8], output: &mu
     let bottom = (((rect.bottom - layout.rect.top) as i64 * layout.height as i64 + canvas_h - 1)
         / canvas_h)
         .min(layout.height as i64) as usize;
+    if right <= left || bottom <= top {
+        return;
+    }
+    if canvas_w == layout.width as i64 && canvas_h == layout.height as i64 {
+        // Native-size scenes need no resampling or per-pixel divisions. Most
+        // application pixels are opaque; retain blending at translucent borders.
+        for y in top..bottom {
+            let sy = (layout.rect.top + y as i32 - rect.top) as usize;
+            let sx = (layout.rect.left + left as i32 - rect.left) as usize;
+            let src = &source[(sy * w as usize + sx) * 4..][..(right - left) * 4];
+            let dst = &mut output[(y * layout.width as usize + left) * 4..][..src.len()];
+            for (src, dst) in src.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
+                match src[3] {
+                    255 => dst.copy_from_slice(src),
+                    0 => {}
+                    alpha => {
+                        for c in 0..3 {
+                            dst[c] = (src[c] as u16
+                                + (dst[c] as u16 * (255 - alpha as u16) + 127) / 255)
+                                .min(255) as u8;
+                        }
+                        dst[3] = 255;
+                    }
+                }
+            }
+        }
+        return;
+    }
     for y in top..bottom {
         for x in left..right {
             let sx = (layout.rect.left as i64 + x as i64 * canvas_w / layout.width as i64

@@ -1,4 +1,5 @@
 mod request;
+mod video_flow;
 use anyhow::{bail, ensure, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use paneferry_backend_windows::{Geometry, Target, WindowSystem};
@@ -103,6 +104,7 @@ struct Client {
     session: Option<(String, Target)>,
     video: bool,
     fps: u32,
+    flow: video_flow::VideoFlow,
     sequence: u64,
     geometry: Option<Geometry>,
     revision: u64,
@@ -306,6 +308,17 @@ impl Client {
                     .ok_or_else(|| anyhow::anyhow!("session_expired"))?;
                 self.system.keyframe(target)?;
             }
+            Request::VideoConfigure { max_fps } => {
+                ensure!(
+                    self.video && (1..=paneferry_protocol::MAX_VIDEO_FPS as u32).contains(&max_fps),
+                    "invalid_request"
+                );
+                self.system.set_video_fps(max_fps)?;
+                self.fps = max_fps;
+            }
+            Request::VideoFeedback { frame_id } => {
+                self.flow.acknowledge(frame_id);
+            }
             Request::Video {
                 codec,
                 max_fps,
@@ -315,10 +328,9 @@ impl Client {
                     self.session.is_none() && codec == "h264" && (1..=90).contains(&max_fps),
                     "invalid_request"
                 );
-                // No video.qos advertised yet; accept legacy negotiation but never claim feedback support.
-                let _ = feedback;
+                self.flow.enable(feedback);
                 self.video = true;
-                self.fps = max_fps.min(30);
+                self.fps = max_fps.min(paneferry_protocol::MAX_VIDEO_FPS as u32);
                 self.send(
                     write,
                     json!({"type":"video.ready","codec":"h264","max_fps":self.fps}),
@@ -494,6 +506,13 @@ impl Client {
             value["type"] = json!("window.metadata");
             self.send(write, value).await?;
         }
+        // Stop producing before the encoder when the controller falls behind.
+        // Encoded P-frames must never be dropped independently of their references.
+        match self.flow.ready(std::time::Instant::now()) {
+            video_flow::Ready::Wait => return Ok(()),
+            video_flow::Ready::Restart => self.system.keyframe(&target)?,
+            video_flow::Ready::Send => {}
+        }
         if let Some(frame) = self.system.frame(&target)? {
             // Old queued frames must never be relabelled with the new geometry revision.
             let geometry = self.geometry.as_ref().unwrap();
@@ -510,7 +529,8 @@ impl Client {
                 return Ok(());
             }
             ensure!(frame.data.len() <= 12 * 1024 * 1024, "capture_failed");
-            self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"encoded_width":frame.width+frame.width%2,"encoded_height":frame.height+frame.height%2,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"data":STANDARD.encode(frame.data)})).await?;
+            let frame_id = self.flow.sent(std::time::Instant::now());
+            self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"encoded_width":frame.width+frame.width%2,"encoded_height":frame.height+frame.height%2,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"frame_id":frame_id,"data":STANDARD.encode(frame.data)})).await?;
         }
         Ok(())
     }
@@ -567,11 +587,12 @@ pub async fn client(
         session: None,
         video: false,
         fps: 30,
+        flow: video_flow::VideoFlow::default(),
         sequence: 0,
         geometry: None,
         revision: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.keyframe","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":30})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.keyframe","video.qos","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {
@@ -583,21 +604,29 @@ pub async fn client(
             }
         }
     }));
-    let mut tick = tokio::time::interval(Duration::from_millis(10));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut last_frame = std::time::Instant::now();
+    // Exact deadlines avoid quantizing 60 fps to 50 fps (and 30 to 25) on a
+    // 10 ms polling clock. Input gets priority, with a bounded burst for fairness.
+    let mut next_frame = tokio::time::Instant::now();
+    let mut input_burst = 0;
     loop {
         tokio::select! {
-            request=rx.recv()=>{
+            biased;
+            request=rx.recv(), if input_burst < 8 =>{
+                input_burst += 1;
                 let value=request.ok_or_else(||anyhow::anyhow!("connection closed"))??;
                 let result=match request::parse(value){Ok(request)=>client.handle(request,&mut write,local).await,Err(error)=>Err(error)};
                 match result{Ok(true)=>return Ok(()),Ok(false)=>{},Err(error)=>{client.send(&mut write,json!({"type":"error","code":public_error(&error)})).await?;}}
             },
-            _=tick.tick()=>{
+            _=tokio::time::sleep_until(next_frame)=>{
+                input_burst = 0;
+                let period = Duration::from_secs_f64(1.0/client.fps as f64);
+                next_frame += period;
+                let now = tokio::time::Instant::now();
+                // Preserve cadence across sub-millisecond timer rounding, but
+                // never run a burst of overdue captures after a long stall.
+                if next_frame <= now { next_frame = now + period; }
                 if client.state.lock().unwrap().stopping {return Ok(());}
                 if client.session.is_none() {continue;}
-                if last_frame.elapsed()<Duration::from_secs_f64(1.0/client.fps as f64){continue;}
-                last_frame=std::time::Instant::now();
                 if let Err(error)=client.tick(&mut write).await{
                     let code=public_error(&error);
                     if code == "capture_failed" {
@@ -755,6 +784,7 @@ mod geometry_tests {
             session: Some(("session".into(), target)),
             video: true,
             fps: 30,
+            flow: video_flow::VideoFlow::default(),
             sequence: 0,
             geometry: Some(geometry),
             revision: 1,

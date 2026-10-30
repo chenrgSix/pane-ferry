@@ -107,6 +107,9 @@ pub trait WindowSystem {
     fn windows(&mut self) -> Result<Vec<Target>>;
     fn geometry(&mut self, target: &Target) -> Result<Geometry>;
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()>;
+    fn set_video_fps(&mut self, _fps: u32) -> Result<()> {
+        Ok(())
+    }
     fn keyframe(&mut self, target: &Target) -> Result<()>;
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>>;
     fn input(&mut self, target: &Target, input: Input) -> Result<()>;

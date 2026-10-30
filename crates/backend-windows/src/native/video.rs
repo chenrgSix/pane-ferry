@@ -8,6 +8,12 @@ use windows::{
     },
 };
 
+fn desktop_bitrate(width: u32, height: u32, fps: u32) -> u32 {
+    // Budget scales with motion rate as well as resolution. The previous fixed
+    // per-resolution budget halved bits/frame when moving from 30 to 60 fps.
+    (width as u64 * height as u64 * fps.clamp(1, 90) as u64 / 6).clamp(4_000_000, 80_000_000) as u32
+}
+
 /// Built-in synchronous software encoder: no external binaries or codec download.
 /// Hardware MFT selection is deliberately separate from this first implementation.
 pub struct Encoder {
@@ -36,11 +42,10 @@ impl Encoder {
             media.SetUINT64(&MF_MT_FRAME_RATE, ((fps as u64) << 32) | 1)?;
             media.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1 << 32) | 1)?;
             media.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-            media.SetUINT32(&MF_MT_MPEG2_PROFILE, 66)?;
-            media.SetUINT32(
-                &MF_MT_AVG_BITRATE,
-                (width * height * 4).clamp(2_000_000, 20_000_000),
-            )?;
+            // High profile improves desktop detail at a bounded bitrate; retain
+            // zero B-frames and low latency so quality does not add reorder delay.
+            media.SetUINT32(&MF_MT_MPEG2_PROFILE, 100)?;
+            media.SetUINT32(&MF_MT_AVG_BITRATE, desktop_bitrate(width, height, fps))?;
             transform.SetOutputType(0, &media, 0)?;
             let input = MFCreateMediaType()?;
             media.CopyAllItems(&input)?;
@@ -137,5 +142,84 @@ impl Encoder {
             }
             Ok(frames)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn desktop_quality_budget_tracks_frame_rate_and_stays_bounded() {
+        assert_eq!(desktop_bitrate(2560, 1440, 60), 36_864_000);
+        assert_eq!(desktop_bitrate(2560, 1440, 30), 18_432_000);
+        assert_eq!(desktop_bitrate(64, 48, 60), 4_000_000);
+        assert_eq!(desktop_bitrate(4096, 2160, 90), 80_000_000);
+    }
+    #[test]
+    #[ignore = "runs the installed Windows H.264 encoder; opt-in performance probe"]
+    fn encoder_throughput_probe() -> Result<()> {
+        let _runtime = crate::CaptureRuntime::new()?;
+        let (width, height) = (2560, 1440);
+        let mut pixels = vec![255u8; width as usize * height as usize * 4];
+        // A detailed, deterministic desktop-like grid with scrolling rows.
+        for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+            let x = i % width as usize;
+            let y = i / width as usize;
+            pixel[0] = if x % 13 < 7 && y % 23 < 13 { 32 } else { 220 };
+            pixel[1] = pixel[0];
+            pixel[2] = pixel[0];
+        }
+        let mut encoder = Encoder::new(width, height, 60, 1)?;
+        unsafe {
+            let api: ICodecAPI = encoder.transform.cast()?;
+            for (name, key) in [
+                ("rate_mode", CODECAPI_AVEncCommonRateControlMode),
+                ("mean_bitrate", CODECAPI_AVEncCommonMeanBitRate),
+                ("quality", CODECAPI_AVEncCommonQuality),
+            ] {
+                let value = api.GetValue(&key)?;
+                println!("ENCODER {name}={:?}", u32::try_from(&value));
+            }
+        }
+        // Optional synthetic-only artifacts for independent decoder validation.
+        let export = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR").map(std::path::PathBuf::from);
+        let mut bitstream = Vec::new();
+        if let Some(path) = &export {
+            std::fs::create_dir_all(path)?;
+        }
+        let mut convert = Vec::new();
+        let mut encode = Vec::new();
+        let mut bytes = 0;
+        let mut frames = 0;
+        for _ in 0..120 {
+            pixels.rotate_left(width as usize * 4);
+            let start = std::time::Instant::now();
+            let nv12 = crate::pixels::nv12(&pixels, width, height)?;
+            let converted = std::time::Instant::now();
+            if frames == 0 {
+                if let Some(path) = &export {
+                    std::fs::write(path.join("reference.nv12"), &nv12)?;
+                }
+            }
+            let packets = encoder.encode(&nv12)?;
+            let ended = std::time::Instant::now();
+            convert.push((converted - start).as_secs_f64() * 1000.0);
+            encode.push((ended - converted).as_secs_f64() * 1000.0);
+            for (data, _) in packets {
+                if export.is_some() {
+                    bitstream.extend_from_slice(&data);
+                }
+                bytes += data.len();
+                frames += 1;
+            }
+        }
+        if let Some(path) = &export {
+            std::fs::write(path.join("encoded.h264"), bitstream)?;
+        }
+        convert.sort_by(f64::total_cmp);
+        encode.sort_by(f64::total_cmp);
+        println!("BENCH 2560x1440@60 frames={frames} bytes={bytes} convert_p50_ms={:.2} convert_p95_ms={:.2} encode_p50_ms={:.2} encode_p95_ms={:.2}",convert[60],convert[114],encode[60],encode[114]);
+        ensure!(frames > 0, "no encoded output");
+        Ok(())
     }
 }

@@ -71,7 +71,7 @@ impl Capture {
         }
     }
     pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
-        let frame = match self.pool.TryGetNextFrame() {
+        let mut frame = match self.pool.TryGetNextFrame() {
             Ok(frame) => frame,
             // WGC returns S_OK + a null frame while its queue is empty. The
             // windows-rs non-null projection represents that as Error::empty()
@@ -84,6 +84,12 @@ impl Capture {
             }
             Err(e) => return Err(e.into()),
         };
+        // The two-slot WGC pool can contain an older frame after encoding or
+        // network backpressure. Discard raw superseded frames before GPU readback.
+        if let Ok(newest) = self.pool.TryGetNextFrame() {
+            frame.Close()?;
+            frame = newest;
+        }
         let size = frame.ContentSize()?;
         if size.Width <= 0 || size.Height <= 0 {
             frame.Close()?;

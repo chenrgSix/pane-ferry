@@ -379,3 +379,38 @@ fn modal_is_composed_outside_parent_and_receives_parent_stream_input() -> Result
     desktop.detach();
     Ok(())
 }
+
+#[test]
+fn native_size_composition_preserves_pixels_and_premultiplied_alpha() {
+    let layout = Layout {
+        rect: RECT {
+            left: -10,
+            top: -20,
+            right: -6,
+            bottom: -18,
+        },
+        width: 4,
+        height: 2,
+        surfaces: vec![],
+    };
+    let mut pixels = [10, 20, 30, 255].repeat(8);
+    let rect = RECT {
+        left: -9,
+        top: -20,
+        right: -7,
+        bottom: -18,
+    };
+    paint(
+        &layout,
+        rect,
+        2,
+        2,
+        &[1, 2, 3, 255, 0, 64, 0, 128, 0, 0, 0, 0, 4, 5, 6, 255],
+        &mut pixels,
+    );
+    assert_eq!(&pixels[4..8], &[1, 2, 3, 255]);
+    assert_eq!(&pixels[8..12], &[5, 74, 15, 255]);
+    assert_eq!(&pixels[20..24], &[10, 20, 30, 255]);
+    assert_eq!(&pixels[24..28], &[4, 5, 6, 255]);
+    assert_eq!(&pixels[0..4], &[10, 20, 30, 255]);
+}

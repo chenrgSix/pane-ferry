@@ -24,8 +24,29 @@ use windows::{
     },
 };
 
+// Scoped to active sharing. Pair every successful request with timeEndPeriod;
+// discovery-only connections and disconnected clients do not change timer precision.
+struct VideoTimer;
+impl VideoTimer {
+    fn new() -> Result<Self> {
+        ensure!(
+            unsafe { windows::Win32::Media::timeBeginPeriod(1) } == 0,
+            "video timer unavailable"
+        );
+        Ok(Self)
+    }
+}
+impl Drop for VideoTimer {
+    fn drop(&mut self) {
+        unsafe {
+            windows::Win32::Media::timeEndPeriod(1);
+        }
+    }
+}
+
 pub struct Desktop {
     scene: Option<scene::Scene>,
+    timer: Option<VideoTimer>,
     encoder: Option<video::Encoder>,
     pending: VecDeque<VideoFrame>,
     keys: HashSet<u16>,
@@ -213,6 +234,7 @@ impl Desktop {
         }
         Ok(Self {
             scene: None,
+            timer: None,
             encoder: None,
             pending: VecDeque::new(),
             keys: HashSet::new(),
@@ -513,8 +535,18 @@ impl WindowSystem for Desktop {
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()> {
         validate(target)?;
         self.detach();
-        self.fps = fps.clamp(1, 30);
+        self.fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
         self.scene = Some(scene::Scene::new(target)?);
+        self.timer = Some(VideoTimer::new()?);
+        Ok(())
+    }
+    fn set_video_fps(&mut self, fps: u32) -> Result<()> {
+        let fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
+        if self.fps != fps {
+            self.fps = fps;
+            self.encoder = None;
+            self.pending.clear();
+        }
         Ok(())
     }
     fn keyframe(&mut self, target: &Target) -> Result<()> {
@@ -542,8 +574,11 @@ impl WindowSystem for Desktop {
             self.pending.clear();
             self.encoder = None;
         }
-        let Some((width, height, pixels)) =
-            self.scene.as_mut().context("capture_failed")?.frame()?
+        let Some((width, height, pixels)) = self
+            .scene
+            .as_mut()
+            .context("capture_failed")?
+            .frame_prepared()?
         else {
             return Ok(None);
         };
@@ -629,6 +664,7 @@ impl WindowSystem for Desktop {
         self.input_one(&routed.0, routed.1)
     }
     fn detach(&mut self) {
+        self.timer = None;
         self.scene = None;
         self.release();
         self.encoder = None;

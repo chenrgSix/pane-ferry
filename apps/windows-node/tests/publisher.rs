@@ -23,6 +23,7 @@ struct Observed {
     attached: usize,
     detached: usize,
     dead: bool,
+    fps: u32,
     launches: Vec<bool>,
     pending_once: bool,
 }
@@ -85,11 +86,16 @@ impl WindowSystem for Fixture {
             visible: true,
         })
     }
-    fn attach(&mut self, t: &Target, _fps: u32) -> Result<()> {
+    fn attach(&mut self, t: &Target, fps: u32) -> Result<()> {
         self.geometry(t)?;
         self.attached = true;
         self.next = 0;
         observed().lock().unwrap().attached += 1;
+        observed().lock().unwrap().fps = fps;
+        Ok(())
+    }
+    fn set_video_fps(&mut self, fps: u32) -> Result<()> {
+        observed().lock().unwrap().fps = fps;
         Ok(())
     }
     fn keyframe(&mut self, _target: &Target) -> Result<()> {
@@ -310,10 +316,10 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     );
     send(
         &mut wr,
-        json!({"type":"video.enable","codec":"h264","max_fps":60}),
+        json!({"type":"video.enable","codec":"h264","max_fps":60,"feedback":true}),
     )
     .await;
-    assert_eq!(read(&mut rd, "video.ready").await["max_fps"], 30);
+    assert_eq!(read(&mut rd, "video.ready").await["max_fps"], 60);
     send(
         &mut wr,
         json!({"type":"session.resume","session_id":session}),
@@ -321,8 +327,15 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     .await;
     let snapshot = read(&mut rd, "session.snapshot").await;
     assert_eq!(snapshot["windows"][0]["window_id"], 1);
+    assert_eq!(observed().lock().unwrap().fps, 60);
     let frame = read(&mut rd, "frame").await;
     assert_eq!(frame["key_frame"], true);
+    assert!(frame["frame_id"].as_u64().unwrap() > 0);
+    send(
+        &mut wr,
+        json!({"type":"video.feedback","frame_id":frame["frame_id"]}),
+    )
+    .await;
     assert_eq!(
         frame["geometry_revision"],
         snapshot["windows"][0]["geometry_revision"]
@@ -330,6 +343,10 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     let pframe = read(&mut rd, "frame").await;
     assert_eq!(pframe["key_frame"], false);
     assert!(pframe["seq"].as_u64() > frame["seq"].as_u64());
+    send(&mut wr, json!({"type":"video.configure","max_fps":30})).await;
+    wait_for(|| observed().lock().unwrap().fps == 30).await;
+    send(&mut wr, json!({"type":"video.configure","max_fps":60})).await;
+    wait_for(|| observed().lock().unwrap().fps == 60).await;
     let (mut second_read, mut second_write) = handshake(connect(&route).await).await;
     send(
         &mut second_write,
