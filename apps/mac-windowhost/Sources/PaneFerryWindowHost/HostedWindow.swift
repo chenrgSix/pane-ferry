@@ -18,7 +18,8 @@ final class HostedWindow: NSObject, NSWindowDelegate {
     private(set) var overflowViewport: NSScrollView?
     var desktopMode = false
     var sessionMode = false
-    var fixedCanvas: Bool { desktopMode || sessionMode }
+    var preserveSourceSize = false
+    var fixedCanvas: Bool { desktopMode || sessionMode || preserveSourceSize }
     var revision: UInt64
     var applyingRemote = false
     var remoteVisible = false
@@ -224,12 +225,14 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         transmit(["type": "window.focus", "window_id": id])
     }
     func applyRemoteGeometry(width: Int, height: Int, rendering: RenderGeometry) {
+        let sizeChanged = surface.remoteWidth != width || surface.remoteHeight != height
         let scaleChanged = self.rendering.scale != rendering.scale
         self.rendering = rendering
         surface.remoteWidth = width; surface.remoteHeight = height
-        // Replies can describe an earlier resize. The controller owns the
-        // viewport; only remote-sized popup windows follow incoming geometry.
-        if popup && !relatedWindow {
+        // Original mode follows source geometry, including composed dialogs,
+        // without issuing a configure back to the source. Metadata-only updates
+        // must not undo a user's local-only resize.
+        if !relatedWindow && (popup || (preserveSourceSize && (sizeChanged || scaleChanged))) {
             applyingRemote = true
             window.setContentSize(rendering.points(width: width, height: height))
             applyingRemote = false
@@ -277,6 +280,7 @@ final class HostedWindow: NSObject, NSWindowDelegate {
         // Put the live latency before verbose geometry/scaling information so
         // AppKit's truncation keeps it visible in ordinary small windows.
         var parts = [networkLatency.text, frame.map { "接收 \($0.width) × \($0.height) 像素" } ?? "等待画面"]
+        if preserveSourceSize { parts.append("原画面 · 保持源窗口尺寸") }
         if fixedPixels == nil {
             parts.append("本机 \(Int(surface.bounds.width.rounded())) × \(Int(surface.bounds.height.rounded())) 点 · 等比显示")
         }

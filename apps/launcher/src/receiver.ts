@@ -1,6 +1,7 @@
 import {invoke} from '@tauri-apps/api/core';
 import {getCurrentWindow} from '@tauri-apps/api/window';
-import {inspectFrame,keysym,logicalKey,metadata,pointer,resizePixels,type RemoteWindow} from './receiver-core';
+import {LogicalSize} from '@tauri-apps/api/dpi';
+import {inspectFrame,keysym,logicalKey,metadata,pointer,resizePixels,sourceSize,type RemoteWindow} from './receiver-core';
 import './receiver.css';
 
 const root=document.querySelector<HTMLDivElement>('#app')!;
@@ -14,6 +15,7 @@ let epoch=0,run=0,ready=false,selected=0,composing=false,closing=false,retryTime
 let capabilities:string[]=[],catalog=new Map<number,RemoteWindow>();
 let displayed:RemoteWindow|undefined;
 const waitingKey=new Set<number>();
+let initialPictureMode=true,sourceGeometry='';
 let sentResize='',lastPoint={x:0,y:0},painted=0,rateStart=performance.now();
 const pressed=new Map<string,Record<string,unknown>>(),buttons=new Set<number>();
 type Video={decoder:VideoDecoder;stream:number;revision:number;pending:Map<number,number|undefined>;stamp:number};
@@ -52,6 +54,7 @@ function refreshMembers() {
   if(!catalog.has(selected))selected=[...catalog.values()].find(w=>w.parent_id===null)?.window_id??catalog.keys().next().value??0;
   members.value=String(selected);
   const current=catalog.get(selected);if(current)void local.setTitle(`${current.title} — 窗渡 PaneFerry`);
+  void followSourceSize();
 }
 function release() {
   for(const key of pressed.values())transmit({...key,pressed:false});pressed.clear();
@@ -59,6 +62,22 @@ function release() {
 }
 function focusRemote(){if(ready){transmit({type:'window.focus'});ime.focus({preventScroll:true});}}
 members.onchange=()=>{release();selected=Number(members.value);displayed=undefined;waitingKey.add(selected);sentResize='';clearVideo();context.clearRect(0,0,canvas.width,canvas.height);empty.hidden=false;empty.textContent='等待画面…';refreshMembers();transmit({type:'video.keyframe'});focusRemote();};
+async function followSourceSize() {
+  const remote=catalog.get(selected);if(!remote||size.value!=='source')return;
+  const key=`${selected}:${remote.width}:${remote.height}:${remote.scale_factor}`;
+  if(sourceGeometry===key)return;sourceGeometry=key;
+  const natural=sourceSize(remote);
+  try {
+    // Account for the receiver toolbar/footer, including wrapping at the new
+    // width. Resizing this local shell must never configure the source.
+    for(let pass=0;pass<2;pass++){
+      if(sourceGeometry!==key||size.value!=='source')return;
+      const chromeHeight=root.clientHeight-view.clientHeight;
+      await local.setSize(new LogicalSize(natural.width,natural.height+chromeHeight));
+      await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+    }
+  } catch { sourceGeometry='';message('无法调整本机窗口尺寸，当前仍接收源端原画面。'); }
+}
 function resize() {
   const window=catalog.get(selected);if(!ready||!window||size.value==='source')return;
   const requested=size.value==='auto'?resizePixels(view.clientWidth,view.clientHeight,window.scale_factor):{width:Number(size.value.split('x')[0]),height:Number(size.value.split('x')[1])};
@@ -68,7 +87,7 @@ function resize() {
 }
 let resizeTimer:ReturnType<typeof setTimeout>;
 new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(resize,180);}).observe(view);
-size.onchange=()=>{sentResize='';resize();};
+size.onchange=()=>{sentResize='';sourceGeometry='';void followSourceSize();resize();};
 // Renegotiate on a fresh connection so both legacy and QoS publishers obey the
 // chosen limit and start a new keyframe. The session itself remains unchanged.
 fps.onchange=()=>void connect(Number(fps.value));
@@ -151,9 +170,11 @@ async function connect(chosenFps?:number) {
   clearTimeout(retryTimer);const token=++run;invalidate('正在连接远程应用…');
   try {
     if(typeof VideoDecoder==='undefined')throw Error('decoder_unavailable');
-    const response=await invoke<{epoch:number;snapshot:{windows:Record<string,unknown>[];scale_factor?:number};capabilities:string[];max_fps:number;selected_fps:number}>('receiver_open',{fps:chosenFps});
+    const response=await invoke<{epoch:number;snapshot:{windows:Record<string,unknown>[];scale_factor?:number};capabilities:string[];max_fps:number;selected_fps:number;picture_mode:'adapt'|'source'}>('receiver_open',{fps:chosenFps});
     if(token!==run)return;
     epoch=response.epoch;capabilities=response.capabilities;fps.value=String(response.selected_fps);
+    if(initialPictureMode){size.value=response.picture_mode==='source'?'source':'auto';initialPictureMode=false;}
+    sourceGeometry='';
     catalog=new Map(response.snapshot.windows.map(value=>{const w=metadata(value);return [w.window_id,w];}));
     refreshMembers();ready=true;sentResize='';message(`已连接 · 帧率上限 ${response.max_fps} · 复制粘贴使用远端剪贴板`);focusRemote();resize();
     while(token===run&&!closing){

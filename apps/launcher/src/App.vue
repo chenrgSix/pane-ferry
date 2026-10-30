@@ -38,6 +38,22 @@ const endpoint = ref<Endpoint>({ peerId: "" }),
   sessionWarning = ref(""),
   monitorWarning = ref(""),
   search = ref("");
+type PictureMode = "adapt" | "source";
+const pictureMode = ref<PictureMode>("adapt");
+const pictureModeReady = ref(false);
+const pictureModeSaving = ref(false);
+const pictureModeError = ref("");
+async function readPictureMode() {
+  try { pictureMode.value = await invoke<PictureMode>("picture_mode"); pictureModeReady.value = true; }
+  catch { pictureModeError.value = "画面尺寸设置读取失败，请重新打开启动器。"; }
+}
+async function savePictureMode(event: Event) {
+  const mode = (event.target as HTMLSelectElement).value as PictureMode;
+  pictureModeSaving.value = true; pictureModeError.value = "";
+  try { await invoke("set_picture_mode", {mode}); pictureMode.value = mode; }
+  catch { pictureModeError.value = "画面尺寸设置保存失败，请重试。"; }
+  finally { (event.target as HTMLSelectElement).value = pictureMode.value; pictureModeSaving.value = false; }
+}
 const busy = ref(false),
   videoFPS = ref<30 | 60>(60),
   applicationScene = ref(false),
@@ -417,7 +433,7 @@ function record(name: string, result: Result) {
   save();
 }
 function useApplicationScene(appId: string): boolean {
-  if (!applicationScene.value) return false;
+  if (!applicationScene.value || pictureMode.value === "source") return false;
   const existing = sessions.value.filter(session => session.app_id === appId && session.mode !== "desktop");
   // Private application desktops retain their existing presentation. Only a
   // publisher-advertised live source can opt into the composed scene.
@@ -564,6 +580,7 @@ function onOnline() {
 watch(signature, restoreCatalog);
 watch(activePage, () => window.scrollTo?.(0, 0), { flush: "post" });
 onMounted(() => {
+  void readPictureMode();
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onOnline);
   restoreCatalog();
@@ -822,8 +839,10 @@ onUnmounted(() => {
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
           <div class="setting-row"><div><label for="video-fps">默认帧率上限</label><p class="hint">新打开或重新连接的窗口使用所选上限。已打开的窗口可在“显示 → 帧率”中即时切换；实际帧率随画面内容和连接状态变化。</p></div><select id="video-fps" v-model.number="videoFPS" :disabled="busy" @change="save"><option :value="30">30 帧/秒</option><option :value="60">60 帧/秒</option></select></div>
-          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy" @change="save" /></div>
-          <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">远端窗口跟随本机内容区的逻辑宽高，保留应用现有缩放，画面等比显示。可在应用窗口的“显示”菜单中适应屏幕，或指定远端像素宽高。</p></div><span class="subtle-label">跟随窗口</span></div>
+          <div class="setting-row"><div><label for="picture-mode">接收画面尺寸</label><p class="hint">通用于手动和自动接管。适配本机沿用当前策略；原画面按源系统的窗口尺寸显示，不随本机窗口调整源端大小。保存后，关闭接收窗口并重新接管即可应用。</p></div><select id="picture-mode" :value="pictureMode" :disabled="!pictureModeReady || pictureModeSaving || busy" @change="savePictureMode"><option value="adapt">调整画面 · 适配本机</option><option value="source">原画面 · 保持源窗口尺寸</option></select></div>
+          <p v-if="pictureModeError" role="alert">{{ pictureModeError }}</p>
+          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。原画面模式使用源窗口尺寸，不启用此固定画布。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy || pictureMode === 'source'" @change="save" /></div>
+          <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">适配本机时，远端窗口跟随本机内容区大小；原画面时，本机调整窗口仅缩放显示，源端窗口尺寸保持不变。两种模式都保留画面比例。</p></div><span class="subtle-label">{{ pictureMode === "source" ? "保持源尺寸" : "跟随窗口" }}</span></div>
         </section>
         <section class="panel">
           <div class="section-title"><h2>输入与剪贴板</h2></div>

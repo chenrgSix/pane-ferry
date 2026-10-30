@@ -17,6 +17,7 @@ async fn receiver_binds_session_negotiates_fps_and_cancels_idle_reads() {
             session: session.clone(),
             route,
             fps: 60,
+            picture_mode: crate::display_settings::PictureMode::Source,
             epoch: 0,
             connection: None,
             on_close: None,
@@ -54,6 +55,7 @@ async fn receiver_binds_session_negotiates_fps_and_cancels_idle_reads() {
         assert!(local_rpc::read(&mut input).await.is_err());
     });
     let opened = open(&label, None).await.unwrap();
+    assert_eq!(opened["picture_mode"], "source");
     let epoch = opened["epoch"].as_u64().unwrap();
     assert_eq!(opened["max_fps"], 30);
     assert_eq!(opened["selected_fps"], 60);

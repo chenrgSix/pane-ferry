@@ -16,11 +16,14 @@ func unsignedInteger(_ value: Any?) -> UInt64? {
     return UInt64(string)
 }
 
+enum PictureMode: String { case adapt, source }
+
 struct Options {
     let app: String?
     let session: String?
     var iconFromStdin = false
     var requestedVideoFPS = 60
+    var pictureMode: PictureMode = .adapt
     var backgroundStart = false
     var applicationGroup: String?
     var sourceTarget: String?
@@ -30,7 +33,7 @@ struct Options {
         var i = 0
         var iconFromStdin = false
         var backgroundStart = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--application-group", "--source-target"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--picture-mode", "--application-group", "--source-target"]
         while i < args.count {
             if args[i] == "--background-start" {
                 guard !backgroundStart else { throw HostError.message("后台启动参数重复") }
@@ -53,6 +56,7 @@ struct Options {
         guard let fps = Int(values["--fps"] ?? "60"), [30, 60].contains(fps) else {
             throw HostError.message("帧率必须选择 30 或 60。")
         }
+        guard let pictureMode = PictureMode(rawValue: values["--picture-mode"] ?? "adapt") else { throw HostError.message("画面尺寸模式无效") }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
         for id in [app, session, values["--source-target"]].compactMap({ $0 }) {
@@ -66,7 +70,7 @@ struct Options {
                 throw HostError.message("应用接收入口无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps,
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, pictureMode: pictureMode,
                        backgroundStart: backgroundStart, applicationGroup: group, sourceTarget: values["--source-target"], native: native)
     }
 }
@@ -975,6 +979,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     guard let self = self else { return }
                     if let disconnect = self.disconnectSession { disconnect() } else { self.terminateHost() }
                 }) { [weak self] in self?.send($0) }
+            host.preserveSourceSize = options.pictureMode == .source
             host.desktopMode = object["surface_type"] as? String == "desktop"
             host.sessionMode = object["surface_type"] as? String == "session"
             windows[id] = host
@@ -1008,7 +1013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let visibilityChanged = visible != host.remoteVisible
         host.applyRemoteVisibility(visible)
         if visibilityChanged { refreshVideoFPS() }
-        if justCreated, visible, parentID == nil, !host.popup, !options.backgroundStart, ["toplevel", "desktop"].contains(role) {
+        if justCreated, visible, parentID == nil, !host.popup, !options.backgroundStart, options.pictureMode == .adapt, ["toplevel", "desktop"].contains(role) {
             DispatchQueue.main.async { [weak host] in host?.fitToScreen() }
         }
     }

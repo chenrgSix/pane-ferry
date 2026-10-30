@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {metadata,pointer,resizePixels,keysym,logicalKey,annexB,spsInfo,inspectFrame} from '../src/receiver-core.ts';
+import {metadata,pointer,resizePixels,sourceSize,keysym,logicalKey,annexB,spsInfo,inspectFrame} from '../src/receiver-core.ts';
 const fixture=JSON.parse(fs.readFileSync(new URL('../../../tests/fixtures/native-video.json',import.meta.url)));
 const window=metadata({window_id:1,width:640,height:480,geometry_revision:1,title:'测试'});
 function frame(index=0){return {window_id:1,codec:'h264',width:640,height:480,encoded_width:640,encoded_height:480,stream_id:1,key_frame:index===0,geometry_revision:1,data:fixture.frames[index]};}
@@ -18,6 +18,10 @@ test('logical resize preserves aspect ratio under protocol pixel budget',()=>{
   assert.throws(()=>metadata({...scaled,scale_factor:3}));
   const size=resizePixels(7680,4320);assert.ok(size.width<=4096&&size.height<=2160&&size.width*size.height<=8_000_000);
   assert.ok(Math.abs(size.width/size.height-16/9)<.002);
+});
+test('original picture follows source dimensions and density without local DPI',()=>{
+  assert.deepEqual(sourceSize(window),{width:640,height:480});
+  assert.deepEqual(sourceSize(metadata({...window,width:1600,height:1200,scale_factor:2})),{width:800,height:600});
 });
 test('real Annex B fixture begins with validated SPS, PPS and IDR',()=>{
   const info=spsInfo(annexB(Uint8Array.from(Buffer.from(fixture.frames[0],'base64'))).find(n=>(n[0]&31)===7));
