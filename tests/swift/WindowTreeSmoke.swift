@@ -67,8 +67,11 @@ import AppKit
         let late = update(metadata(7, 1, "menu", CGRect(x: 0, y: 0, width: 100, height: 100)))
         precondition(orphan.window.isVisible && orphan.window.parent === late.window)
         let before = menu.window.frame.origin
-        root.window.setFrameOrigin(NSPoint(x: 150, y: 140)); app.attachParents()
-        precondition(abs(menu.window.frame.minX - before.x - 50) < 0.01 && abs(menu.window.frame.minY - before.y - 40) < 0.01)
+        let parentBefore = root.window.frame.origin
+        root.window.setFrameOrigin(NSPoint(x: parentBefore.x + 50, y: parentBefore.y + 40)); app.attachParents()
+        let dx = root.window.frame.minX - parentBefore.x, dy = root.window.frame.minY - parentBefore.y
+        precondition(abs(menu.window.frame.minX - before.x - dx) < 0.01 && abs(menu.window.frame.minY - before.y - dy) < 0.01,
+                     "child movement must follow the parent's actual movement: parent=\(parentBefore)->\(root.window.frame.origin) menu=\(before)->\(menu.window.frame.origin)")
         root.applyRemoteVisibility(false); app.attachParents()
         precondition([menu, tooltip, dialog, outside, orphan, late].allSatisfy { !$0.window.isVisible })
         root.applyRemoteVisibility(true); app.attachParents()

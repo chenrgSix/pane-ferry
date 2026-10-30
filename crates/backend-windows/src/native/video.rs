@@ -23,6 +23,30 @@ impl IMFAsyncCallback_Impl for TextureRelease_Impl {
     }
 }
 
+type EventResult = std::sync::Arc<(
+    std::sync::Mutex<Option<windows::core::Result<IMFMediaEvent>>>,
+    std::sync::Condvar,
+)>;
+#[windows::core::implement(IMFAsyncCallback)]
+struct EncoderEvent {
+    generator: IMFMediaEventGenerator,
+    result: EventResult,
+}
+impl IMFAsyncCallback_Impl for EncoderEvent_Impl {
+    fn GetParameters(&self, _: *mut u32, _: *mut u32) -> windows::core::Result<()> {
+        Err(windows::Win32::Foundation::E_NOTIMPL.into())
+    }
+    fn Invoke(&self, result: windows::core::Ref<IMFAsyncResult>) -> windows::core::Result<()> {
+        let event = unsafe { self.generator.EndGetEvent(result.as_ref()) };
+        let (slot, ready) = &*self.result;
+        if let Ok(mut slot) = slot.lock() {
+            *slot = Some(event);
+        }
+        ready.notify_one();
+        Ok(())
+    }
+}
+
 fn desktop_bitrate(width: u32, height: u32, fps: u32) -> u32 {
     // Budget scales with motion rate as well as resolution. The previous fixed
     // per-resolution budget halved bits/frame when moving from 30 to 60 fps.
@@ -255,13 +279,25 @@ impl Encoder {
                 Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => break,
                 Err(error) => return Err(error.into()),
             };
+            Self::record_event(&event, &mut self.need_input, &mut self.have_output)?;
+        }
+        Ok(())
+    }
+    unsafe fn record_event(
+        event: &IMFMediaEvent,
+        need_input: &mut u32,
+        have_output: &mut u32,
+    ) -> Result<()> {
+        unsafe {
             event.GetStatus()?.ok()?;
-            let kind = event.GetType()?;
-            if kind == METransformNeedInput.0 as u32 {
-                self.need_input = self.need_input.saturating_add(1);
-            }
-            if kind == METransformHaveOutput.0 as u32 {
-                self.have_output = self.have_output.saturating_add(1);
+            match event.GetType()? {
+                kind if kind == METransformNeedInput.0 as u32 => {
+                    *need_input = need_input.saturating_add(1)
+                }
+                kind if kind == METransformHaveOutput.0 as u32 => {
+                    *have_output = have_output.saturating_add(1)
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -282,7 +318,26 @@ impl Encoder {
                 started.elapsed() < std::time::Duration::from_millis(100),
                 "hardware encoder timeout"
             );
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            // No polling sleep on every frame: the MFT work queue wakes this
+            // capture worker as soon as input/output is available. There is at
+            // most one outstanding asynchronous event request, consumed before
+            // returning to GetEvent. A timeout retires this encoder entirely.
+            let result: EventResult =
+                std::sync::Arc::new((std::sync::Mutex::new(None), std::sync::Condvar::new()));
+            let events = self.events.as_ref().context("missing encoder events")?;
+            let callback: IMFAsyncCallback = EncoderEvent {
+                generator: events.clone(),
+                result: result.clone(),
+            }
+            .into();
+            events.BeginGetEvent(&callback, None)?;
+            let (slot, ready) = &*result;
+            let remaining = std::time::Duration::from_millis(100).saturating_sub(started.elapsed());
+            let (mut slot, _) = ready
+                .wait_timeout_while(slot.lock().unwrap(), remaining, |value| value.is_none())
+                .unwrap();
+            let event = slot.take().context("hardware encoder timeout")??;
+            Self::record_event(&event, &mut self.need_input, &mut self.have_output)?;
         }
     }
     pub fn set_quality(&mut self, quality: u32, fps: u32) -> Result<()> {
