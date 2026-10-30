@@ -41,6 +41,12 @@ pub struct Scene {
     layers: HashMap<String, Layer>,
     layout: Layout,
     presented: Option<Layout>,
+    output: Vec<u8>,
+    composed_revision: Option<u64>,
+    last_composed: std::time::Instant,
+    refresh_remaining: u8,
+    force_frame: bool,
+    pub signal: std::sync::Arc<capture::FrameSignal>,
 }
 
 unsafe extern "system" fn enumerate(window: HWND, data: LPARAM) -> BOOL {
@@ -141,6 +147,12 @@ impl Scene {
                 surfaces: vec![],
             },
             presented: None,
+            output: Vec::new(),
+            composed_revision: None,
+            last_composed: std::time::Instant::now(),
+            refresh_remaining: 0,
+            force_frame: true,
+            signal: std::sync::Arc::default(),
         };
         for window in all_windows()? {
             let mut pid = 0;
@@ -248,13 +260,16 @@ impl Scene {
     }
     pub fn geometry(&mut self) -> Result<Geometry> {
         self.refresh()?;
-        Ok(Geometry {
+        Ok(self.current_geometry())
+    }
+    pub fn current_geometry(&self) -> Geometry {
+        Geometry {
             content_revision: self.revision,
             title: title(hwnd(&self.anchor)),
             width: self.layout.width,
             height: self.layout.height,
             visible: !self.layout.surfaces.is_empty(),
-        })
+        }
     }
     #[cfg(test)]
     pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
@@ -266,6 +281,7 @@ impl Scene {
         if self.layout.surfaces.is_empty() {
             return Ok(None);
         }
+        let mut changed = self.composed_revision != Some(self.revision);
         for surface in &self.layout.surfaces {
             if let Err(error) = validate(&surface.target) {
                 if surface.target.id == self.anchor.id {
@@ -274,11 +290,12 @@ impl Scene {
                 return Ok(None); // A closing popup does not end its parent session.
             }
             if !self.layers.contains_key(&surface.target.id) {
-                let capture = match capture::Capture::new(hwnd(&surface.target)) {
-                    Ok(capture) => capture,
-                    Err(error) if surface.target.id == self.anchor.id => return Err(error),
-                    Err(_) => return Ok(None),
-                };
+                let capture =
+                    match capture::Capture::new(hwnd(&surface.target), self.signal.clone()) {
+                        Ok(capture) => capture,
+                        Err(error) if surface.target.id == self.anchor.id => return Err(error),
+                        Err(_) => return Ok(None),
+                    };
                 self.layers.insert(
                     surface.target.id.clone(),
                     Layer {
@@ -288,13 +305,16 @@ impl Scene {
                 );
             }
             let layer = self.layers.get_mut(&surface.target.id).unwrap();
-            let captured = match layer.capture.frame() {
+            let pixels = layer.pixels.get_or_insert_with(|| (0, 0, Vec::new()));
+            let captured = match layer.capture.frame_into(&mut pixels.2) {
                 Ok(frame) => frame,
                 Err(error) if surface.target.id == self.anchor.id => return Err(error),
                 Err(_) => return Ok(None),
             };
-            if let Some(pixels) = captured {
-                layer.pixels = Some(pixels);
+            if let Some((width, height)) = captured {
+                pixels.0 = width;
+                pixels.1 = height;
+                changed = true;
             }
             let Some((w, h, _)) = &layer.pixels else {
                 return Ok(None);
@@ -305,7 +325,30 @@ impl Scene {
                 return Ok(None);
             }
         }
-        let mut output = vec![24; self.layout.width as usize * self.layout.height as usize * 4];
+        if changed {
+            self.refresh_remaining = 12;
+        }
+        if !changed
+            && !self.force_frame
+            && (self.refresh_remaining == 0
+                || self.last_composed.elapsed() < std::time::Duration::from_millis(100))
+        {
+            return Ok(None);
+        }
+        if !changed {
+            self.refresh_remaining = self.refresh_remaining.saturating_sub(1);
+        }
+        let _timing = crate::metrics::span(if changed {
+            "scene.compose_changed"
+        } else {
+            "scene.compose_refresh"
+        });
+        let mut output = std::mem::take(&mut self.output);
+        output.resize(
+            self.layout.width as usize * self.layout.height as usize * 4,
+            24,
+        );
+        output.fill(24);
         for pixel in output.chunks_exact_mut(4) {
             pixel[3] = 255;
         }
@@ -314,8 +357,35 @@ impl Scene {
             paint(&self.layout, surface.rect, *w, *h, pixels, &mut output);
         }
         self.presented = Some(self.layout.clone());
+        self.composed_revision = Some(self.revision);
+        self.last_composed = std::time::Instant::now();
+        self.force_frame = false;
         Ok(Some((self.layout.width, self.layout.height, output)))
     }
+    pub fn recycle(&mut self, pixels: Vec<u8>) {
+        self.output = pixels;
+    }
+    pub fn force_frame(&mut self) {
+        self.force_frame = true;
+    }
+    pub fn input_snapshot(&self) -> InputScene {
+        InputScene {
+            anchor: self.anchor.clone(),
+            layout: self.layout.clone(),
+            presented: self.presented.clone(),
+        }
+    }
+    pub fn foreground_for(&self, target: &Target) -> bool {
+        self.input_snapshot().foreground_for(target)
+    }
+}
+#[derive(Clone)]
+pub(super) struct InputScene {
+    pub anchor: Target,
+    layout: Layout,
+    presented: Option<Layout>,
+}
+impl InputScene {
     pub fn foreground_for(&self, target: &Target) -> bool {
         let foreground = unsafe { GetForegroundWindow() };
         foreground == hwnd(target)
@@ -400,6 +470,7 @@ impl Scene {
         self.layout.surfaces.len() > 1
     }
 }
+
 impl Drop for Scene {
     fn drop(&mut self) {
         leases()

@@ -61,6 +61,8 @@ final class VideoDecodeQueue {
         let job = lane.jobs.removeFirst()
         // Include the currently decoding packet in the byte/count budget.
         lock.unlock()
+        let decodingStarted = DispatchTime.now().uptimeNanoseconds
+        if let received = unsignedInteger(job.object["received_ns"]) { VideoTiming.record("mac.decode_queue", since: received) }
         let result: Result<VideoFrame?, Error>
         do {
             if let decode = decodeOverride { result = .success(try decode(job).map { VideoFrame(image: $0) }) }
@@ -70,6 +72,7 @@ final class VideoDecodeQueue {
                     width: job.width, height: job.height, encodedWidth: job.encodedWidth, encodedHeight: job.encodedHeight))
             }
         } catch { result = .failure(error) }
+        VideoTiming.record("mac.decode", since: decodingStarted)
         lock.lock()
         bytes -= job.data.count; count -= 1
         let deliver = !closed && !lane.retired

@@ -3,12 +3,18 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub mod input;
+pub mod metrics;
 #[cfg(windows)]
 mod native;
 #[cfg(any(windows, test))]
 mod pixels;
 #[cfg(windows)]
+pub use native::PublishingDesktop;
+#[cfg(windows)]
 pub use native::{CaptureRuntime, Desktop};
+
+pub type FrameTask =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<VideoFrame>>> + Send>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Application {
@@ -94,7 +100,8 @@ pub enum Input {
     Close,
 }
 
-/// All calls for an attached window stay on its owning worker thread.
+/// Each instance stays on its creating thread. Capture implementations may own
+/// additional workers and expose owned frame tasks without moving COM objects.
 pub trait WindowSystem {
     fn applications(&mut self) -> Result<Vec<Application>> {
         Ok(Vec::new())
@@ -110,8 +117,17 @@ pub trait WindowSystem {
     fn set_video_fps(&mut self, _fps: u32) -> Result<()> {
         Ok(())
     }
+    fn set_video_quality(&mut self, _per_mille: u32) -> Result<()> {
+        Ok(())
+    }
     fn keyframe(&mut self, target: &Target) -> Result<()>;
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>>;
+    /// An owned task allows control input to run while the capture thread works.
+    /// Backends without a worker retain the synchronous implementation.
+    fn begin_frame(&mut self, target: &Target) -> Result<FrameTask> {
+        let result = self.frame(target);
+        Ok(Box::pin(async move { result }))
+    }
     fn input(&mut self, target: &Target, input: Input) -> Result<()>;
     fn detach(&mut self);
 }

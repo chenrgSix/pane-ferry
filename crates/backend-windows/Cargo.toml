@@ -10,6 +10,10 @@ paneferry-protocol = { path = "../protocol" }
 paneferry-platform = { path = "../platform" }
 serde.workspace = true
 sha2 = "0.10"
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 uuid = { version = "1", features = ["v4"] }

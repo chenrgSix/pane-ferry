@@ -2,6 +2,7 @@ mod applications;
 mod capture;
 mod scene;
 mod video;
+mod worker;
 use crate::{Geometry, Input, Target, VideoFrame, WindowSystem};
 use anyhow::{bail, ensure, Context, Result};
 use sha2::{Digest, Sha256};
@@ -23,6 +24,7 @@ use windows::{
         UI::{HiDpi::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
     },
 };
+pub use worker::PublishingDesktop;
 
 // Scoped to active sharing. Pair every successful request with timeEndPeriod;
 // discovery-only connections and disconnected clients do not change timer precision.
@@ -46,8 +48,12 @@ impl Drop for VideoTimer {
 
 pub struct Desktop {
     scene: Option<scene::Scene>,
+    input_scene: Option<scene::InputScene>,
     timer: Option<VideoTimer>,
     encoder: Option<video::Encoder>,
+    nv12: Vec<u8>,
+    hardware_failed: bool,
+    quality: u32,
     pending: VecDeque<VideoFrame>,
     keys: HashSet<u16>,
     buttons: HashSet<u8>,
@@ -212,6 +218,9 @@ fn window_geometry(target: &Target) -> Result<Geometry> {
 
 impl Desktop {
     fn input_foreground(&self, target: &Target) -> bool {
+        if let Some(scene) = &self.input_scene {
+            return scene.foreground_for(target);
+        }
         self.scene.as_ref().map_or_else(
             || unsafe { GetForegroundWindow() == hwnd(target) },
             |s| s.foreground_for(target),
@@ -234,8 +243,12 @@ impl Desktop {
         }
         Ok(Self {
             scene: None,
+            input_scene: None,
             timer: None,
             encoder: None,
+            nv12: Vec::new(),
+            hardware_failed: false,
+            quality: 1000,
             pending: VecDeque::new(),
             keys: HashSet::new(),
             buttons: HashSet::new(),
@@ -527,6 +540,7 @@ impl WindowSystem for Desktop {
         Ok(result)
     }
     fn geometry(&mut self, target: &Target) -> Result<Geometry> {
+        let _timing = crate::metrics::span("scene.geometry");
         if let Some(scene) = self.scene.as_mut().filter(|s| s.anchor.id == target.id) {
             return scene.geometry();
         }
@@ -535,6 +549,8 @@ impl WindowSystem for Desktop {
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()> {
         validate(target)?;
         self.detach();
+        self.hardware_failed = false;
+        self.quality = 1000;
         self.fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
         self.scene = Some(scene::Scene::new(target)?);
         self.timer = Some(VideoTimer::new()?);
@@ -544,18 +560,32 @@ impl WindowSystem for Desktop {
         let fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
         if self.fps != fps {
             self.fps = fps;
+            if let Some(scene) = &mut self.scene {
+                scene.force_frame();
+            }
             self.encoder = None;
             self.pending.clear();
         }
         Ok(())
     }
+    fn set_video_quality(&mut self, quality: u32) -> Result<()> {
+        self.quality = quality.clamp(250, 1000);
+        if let Some(encoder) = &mut self.encoder {
+            encoder.set_quality(self.quality, self.fps)?;
+        }
+        Ok(())
+    }
     fn keyframe(&mut self, target: &Target) -> Result<()> {
         validate(target)?;
+        if let Some(scene) = &mut self.scene {
+            scene.force_frame();
+        }
         self.encoder = None;
         self.pending.clear();
         Ok(())
     }
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>> {
+        let _timing = crate::metrics::span("video.total");
         validate(target)?;
         let geometry = self.geometry(target)?;
         if !geometry.visible {
@@ -601,12 +631,39 @@ impl WindowSystem for Desktop {
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("stream exhausted"))?;
             self.encoder = Some(
-                video::Encoder::new(w, h, self.fps, self.stream)
-                    .with_context(|| format!("initialize H.264 encoder {w}x{h}"))?,
+                (if self.hardware_failed {
+                    video::Encoder::software(w, h, self.fps, self.stream)
+                } else {
+                    video::Encoder::new(w, h, self.fps, self.stream)
+                })
+                .with_context(|| format!("initialize H.264 encoder {w}x{h}"))?,
             );
+            let encoder = self.encoder.as_mut().unwrap();
+            if !encoder.hardware {
+                self.hardware_failed = true;
+            }
+            let _ = encoder.set_quality(self.quality, self.fps);
         }
-        let encoder = self.encoder.as_mut().unwrap();
-        for (data, key_frame) in encoder.encode(&crate::pixels::nv12(&pixels, width, height)?)? {
+        let converted = crate::pixels::nv12_into(&pixels, width, height, &mut self.nv12);
+        self.scene.as_mut().unwrap().recycle(pixels);
+        converted?;
+        let encoded = self.encoder.as_mut().unwrap().encode(&self.nv12);
+        let packets = match encoded {
+            Ok(packets) => packets,
+            Err(error) if self.encoder.as_ref().unwrap().hardware => {
+                eprintln!("PF_ENCODER fallback=software reason={error:#}");
+                self.hardware_failed = true;
+                self.stream = self.stream.checked_add(1).context("stream exhausted")?;
+                self.pending.clear();
+                self.encoder = Some(video::Encoder::software(w, h, self.fps, self.stream)?);
+                let encoder = self.encoder.as_mut().unwrap();
+                let _ = encoder.set_quality(self.quality, self.fps);
+                encoder.encode(&self.nv12)?
+            }
+            Err(error) => return Err(error),
+        };
+        let encoder = self.encoder.as_ref().unwrap();
+        for (data, key_frame) in packets {
             self.pending.push_back(VideoFrame {
                 content_revision,
                 data,
@@ -619,6 +676,7 @@ impl WindowSystem for Desktop {
         Ok(self.pending.pop_front())
     }
     fn input(&mut self, target: &Target, input: Input) -> Result<()> {
+        let _timing = crate::metrics::span("input.execute");
         validate(target)?;
         // Releases are independent of a surface that may have just closed.
         match input {
@@ -645,7 +703,11 @@ impl WindowSystem for Desktop {
             }
             _ => {}
         }
-        let routed = if let Some(scene) = self.scene.as_ref().filter(|s| s.anchor.id == target.id) {
+        let snapshot = self
+            .input_scene
+            .clone()
+            .or_else(|| self.scene.as_ref().map(|s| s.input_snapshot()));
+        let routed = if let Some(scene) = snapshot.as_ref().filter(|s| s.anchor.id == target.id) {
             if matches!(input, Input::Resize { .. }) && scene.multiple() {
                 return Ok(());
             }
@@ -666,6 +728,7 @@ impl WindowSystem for Desktop {
     fn detach(&mut self) {
         self.timer = None;
         self.scene = None;
+        self.input_scene = None;
         self.release();
         self.encoder = None;
         self.pending.clear();

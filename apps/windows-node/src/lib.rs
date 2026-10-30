@@ -108,6 +108,7 @@ struct Client {
     sequence: u64,
     geometry: Option<Geometry>,
     revision: u64,
+    video_epoch: u64,
 }
 impl Drop for Client {
     fn drop(&mut self) {
@@ -160,6 +161,7 @@ impl Client {
         if value.get("session_id").is_none() {
             value["session_id"] = json!(self.session.as_ref().map(|s| s.0.as_str()).unwrap_or(""));
         }
+        let _timing = paneferry_backend_windows::metrics::span("publisher.ipc_send");
         tokio::time::timeout(Duration::from_secs(5), framing::json(write, &value)).await??;
         Ok(())
     }
@@ -300,6 +302,7 @@ impl Client {
                     .await?;
             }
             Request::KeyFrame { window_id } => {
+                self.video_epoch = self.video_epoch.wrapping_add(1);
                 self.shared()?;
                 ensure!(window_id == 1, "window_unavailable");
                 let (_, target) = self
@@ -313,11 +316,16 @@ impl Client {
                     self.video && (1..=paneferry_protocol::MAX_VIDEO_FPS as u32).contains(&max_fps),
                     "invalid_request"
                 );
+                if self.fps != max_fps {
+                    self.video_epoch = self.video_epoch.wrapping_add(1);
+                }
                 self.system.set_video_fps(max_fps)?;
                 self.fps = max_fps;
             }
             Request::VideoFeedback { frame_id } => {
-                self.flow.acknowledge(frame_id);
+                if let Some(quality) = self.flow.acknowledge(frame_id) {
+                    self.system.set_video_quality(quality)?;
+                }
             }
             Request::Video {
                 codec,
@@ -488,7 +496,17 @@ impl Client {
         }
         Ok(false)
     }
+    #[cfg(test)]
     async fn tick<W: AsyncWrite + Unpin>(&mut self, write: &mut W) -> Result<()> {
+        if let Some(task) = self.begin_tick(write).await? {
+            self.finish_tick(write, task.await?).await?;
+        }
+        Ok(())
+    }
+    async fn begin_tick<W: AsyncWrite + Unpin>(
+        &mut self,
+        write: &mut W,
+    ) -> Result<Option<paneferry_backend_windows::FrameTask>> {
         self.shared()?;
         let target = self.session.as_ref().unwrap().1.clone();
         let geometry = self.system.geometry(&target)?;
@@ -509,11 +527,20 @@ impl Client {
         // Stop producing before the encoder when the controller falls behind.
         // Encoded P-frames must never be dropped independently of their references.
         match self.flow.ready(std::time::Instant::now()) {
-            video_flow::Ready::Wait => return Ok(()),
+            video_flow::Ready::Wait => return Ok(None),
             video_flow::Ready::Restart => self.system.keyframe(&target)?,
             video_flow::Ready::Send => {}
         }
-        if let Some(frame) = self.system.frame(&target)? {
+        Ok(Some(self.system.begin_frame(&target)?))
+    }
+    async fn finish_tick<W: AsyncWrite + Unpin>(
+        &mut self,
+        write: &mut W,
+        frame: Option<paneferry_backend_windows::VideoFrame>,
+    ) -> Result<()> {
+        self.shared()?;
+        let target = self.session.as_ref().unwrap().1.clone();
+        if let Some(frame) = frame {
             // Old queued frames must never be relabelled with the new geometry revision.
             let geometry = self.geometry.as_ref().unwrap();
             if frame.width != geometry.width
@@ -591,6 +618,7 @@ pub async fn client(
         sequence: 0,
         geometry: None,
         revision: 0,
+        video_epoch: 0,
     };
     client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.keyframe","video.qos","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
@@ -599,7 +627,12 @@ pub async fn client(
         loop {
             let result = framing::line_limit(&mut read, 64 * 1024).await;
             let failed = result.is_err();
-            if tx.send(result).await.is_err() || failed {
+            if tx
+                .send(result.map(|value| (value, std::time::Instant::now())))
+                .await
+                .is_err()
+                || failed
+            {
                 break;
             }
         }
@@ -608,16 +641,40 @@ pub async fn client(
     // 10 ms polling clock. Input gets priority, with a bounded burst for fairness.
     let mut next_frame = tokio::time::Instant::now();
     let mut input_burst = 0;
+    let mut capture: Option<paneferry_backend_windows::FrameTask> = None;
+    let mut capture_epoch = 0;
     loop {
         tokio::select! {
             biased;
             request=rx.recv(), if input_burst < 8 =>{
                 input_burst += 1;
-                let value=request.ok_or_else(||anyhow::anyhow!("connection closed"))??;
+                let (value,received)=request.ok_or_else(||anyhow::anyhow!("connection closed"))??;
+                if value["type"].as_str().is_some_and(|kind| kind.starts_with("input.") || kind=="window.focus") {
+                    paneferry_backend_windows::metrics::sample("input.dispatch_delay",received.elapsed());
+                }
                 let result=match request::parse(value){Ok(request)=>client.handle(request,&mut write,local).await,Err(error)=>Err(error)};
                 match result{Ok(true)=>return Ok(()),Ok(false)=>{},Err(error)=>{client.send(&mut write,json!({"type":"error","code":public_error(&error)})).await?;}}
             },
-            _=tokio::time::sleep_until(next_frame)=>{
+            result = async { capture.as_mut().unwrap().await }, if capture.is_some() => {
+                capture = None;
+                if capture_epoch == client.video_epoch {
+                    match result {
+                        Ok(frame) => client.finish_tick(&mut write, frame).await?,
+                        Err(error) => {
+                            eprintln!("PaneFerry Windows frame error: {error:#}");
+                            let code=public_error(&error);
+                            if code=="session_exited" {
+                                if let Some((id,_))=&client.session { client.state.lock().unwrap().sessions.remove(id); }
+                                client.send(&mut write,json!({"type":"session.exited"})).await?;
+                            } else {
+                                client.send(&mut write,json!({"type":"error","code":code})).await?;
+                            }
+                            return Err(error);
+                        }
+                    }
+                }
+            },
+            _=tokio::time::sleep_until(next_frame), if capture.is_none()=>{
                 input_burst = 0;
                 let period = Duration::from_secs_f64(1.0/client.fps as f64);
                 next_frame += period;
@@ -627,7 +684,9 @@ pub async fn client(
                 if next_frame <= now { next_frame = now + period; }
                 if client.state.lock().unwrap().stopping {return Ok(());}
                 if client.session.is_none() {continue;}
-                if let Err(error)=client.tick(&mut write).await{
+                match client.begin_tick(&mut write).await {
+                    Ok(task) => { capture = task; capture_epoch = client.video_epoch; },
+                    Err(error) => {
                     let code=public_error(&error);
                     if code == "capture_failed" {
                         // Local diagnostics only; never include request payloads,
@@ -639,6 +698,7 @@ pub async fn client(
                         client.send(&mut write,json!({"type":"session.exited"})).await?;}
                     else{client.send(&mut write,json!({"type":"error","code":code})).await?;}
                     bail!("publisher stream ended");
+                    }
                 }
             }
         }
@@ -788,6 +848,7 @@ mod geometry_tests {
             sequence: 0,
             geometry: Some(geometry),
             revision: 1,
+            video_epoch: 0,
         };
         let mut output = Vec::new();
         client.tick(&mut output).await.unwrap();

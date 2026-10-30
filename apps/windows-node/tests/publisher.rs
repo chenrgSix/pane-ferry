@@ -26,6 +26,8 @@ struct Observed {
     fps: u32,
     launches: Vec<bool>,
     pending_once: bool,
+    frame_gate: Option<Arc<tokio::sync::Notify>>,
+    frame_requested: bool,
 }
 static OBSERVED: OnceLock<Mutex<Observed>> = OnceLock::new();
 fn observed() -> &'static Mutex<Observed> {
@@ -114,6 +116,20 @@ impl WindowSystem for Fixture {
             height: 480,
             stream_id: 1,
             key_frame: n == 0,
+        }))
+    }
+    fn begin_frame(&mut self, target: &Target) -> Result<paneferry_backend_windows::FrameTask> {
+        let result = self.frame(target);
+        let gate = {
+            let mut o = observed().lock().unwrap();
+            o.frame_requested = true;
+            o.frame_gate.clone()
+        };
+        Ok(Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            result
         }))
     }
     fn input(&mut self, t: &Target, input: Input) -> Result<()> {
@@ -343,6 +359,42 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     let pframe = read(&mut rd, "frame").await;
     assert_eq!(pframe["key_frame"], false);
     assert!(pframe["seq"].as_u64() > frame["seq"].as_u64());
+    // Hold capture indefinitely: input must complete before we release it.
+    let gate = Arc::new(tokio::sync::Notify::new());
+    {
+        let mut o = observed().lock().unwrap();
+        o.frame_gate = Some(gate.clone());
+        o.frame_requested = false;
+    }
+    wait_for(|| observed().lock().unwrap().frame_requested).await;
+    send(
+        &mut wr,
+        json!({"type":"input.pointer","window_id":1,"x":10,"y":10,"button":0,"pressed":false}),
+    )
+    .await;
+    send(
+        &mut wr,
+        json!({"type":"input.text.commit","window_id":1,"text":"capture-is-busy"}),
+    )
+    .await;
+    tokio::time::timeout(Duration::from_millis(500), async {
+        loop {
+            if observed().lock().unwrap().input.last()
+                == Some(&Input::Text("capture-is-busy".into()))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("input waited for capture");
+    {
+        let mut o = observed().lock().unwrap();
+        o.frame_gate = None;
+        o.input.clear();
+    }
+    gate.notify_one();
     send(&mut wr, json!({"type":"video.configure","max_fps":30})).await;
     wait_for(|| observed().lock().unwrap().fps == 30).await;
     send(&mut wr, json!({"type":"video.configure","max_fps":60})).await;

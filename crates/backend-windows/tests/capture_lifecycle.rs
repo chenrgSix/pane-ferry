@@ -158,7 +158,7 @@ fn maximize_restore_and_activity_rate_changes_keep_capture_alive() -> Result<()>
     };
     let pid: u32 = std::env::var("PANEFERRY_RESIZE_FIXTURE_PID")?.parse()?;
     let _runtime = CaptureRuntime::new()?;
-    let mut desktop = Desktop::new()?;
+    let mut desktop = paneferry_backend_windows::PublishingDesktop::new()?;
     let target = desktop
         .windows()?
         .into_iter()

@@ -966,6 +966,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if capabilities.contains("video.qos"), let frameID = unsignedInteger(object["frame_id"]), frameID > 0 {
                 host.surface.didDrawFrame = { [weak self, weak host] in
                     guard let self=self, let host=host, self.connected, self.windows[id] === host, host.revision == revision else { return }
+                    if let received = unsignedInteger(object["received_ns"]) { VideoTiming.record("mac.receive_to_commit", since: received) }
+                    if let decoded = unsignedInteger(object["decode_completed_ns"]) { VideoTiming.record("mac.decode_to_commit", since: decoded) }
                     self.pendingVideoFeedbackID = max(self.pendingVideoFeedbackID ?? 0, frameID)
                 }
             }

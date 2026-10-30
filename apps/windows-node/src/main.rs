@@ -96,7 +96,9 @@ async fn run() -> Result<()> {
                 })?;
                 let slots = Arc::new(Semaphore::new(16));
                 fn factory() -> Result<Box<dyn paneferry_backend_windows::WindowSystem>> {
-                    Ok(Box::new(paneferry_backend_windows::Desktop::new()?))
+                    Ok(Box::new(
+                        paneferry_backend_windows::PublishingDesktop::new()?
+                    ))
                 }
                 println!("PaneFerry Windows publisher running; sharing {}. Ctrl+C stops sharing and keeps applications open.",if share{"enabled"}else{"disabled"});
                 tokio::select! {

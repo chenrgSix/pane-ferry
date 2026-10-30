@@ -1,4 +1,34 @@
 use anyhow::{ensure, Result};
+use std::sync::{Arc, Condvar, Mutex};
+#[derive(Default)]
+pub struct FrameSignal {
+    generation: Mutex<u64>,
+    arrived: Condvar,
+}
+impl FrameSignal {
+    pub fn generation(&self) -> u64 {
+        *self.generation.lock().unwrap()
+    }
+    pub fn wait(&self, generation: u64, timeout: std::time::Duration) {
+        let guard = self.generation.lock().unwrap();
+        let _ = self
+            .arrived
+            .wait_timeout_while(guard, timeout, |value| *value == generation);
+    }
+    fn notify(&self) {
+        let mut generation = self.generation.lock().unwrap();
+        *generation = generation.wrapping_add(1);
+        self.arrived.notify_one();
+    }
+}
+fn watch(pool: &Direct3D11CaptureFramePool, signal: Arc<FrameSignal>) -> Result<i64> {
+    Ok(
+        pool.FrameArrived(&windows::Foundation::TypedEventHandler::new(move |_, _| {
+            signal.notify();
+            Ok(())
+        }))?,
+    )
+}
 use windows::{
     core::Interface,
     Graphics::{
@@ -21,9 +51,11 @@ pub struct Capture {
     runtime_device: IDirect3DDevice,
     size: windows::Graphics::SizeInt32,
     staging: Option<ID3D11Texture2D>,
+    signal: Arc<FrameSignal>,
+    frame_event: i64,
 }
 impl Capture {
-    pub fn new(hwnd: HWND) -> Result<Self> {
+    pub fn new(hwnd: HWND, signal: Arc<FrameSignal>) -> Result<Self> {
         ensure!(
             GraphicsCaptureSession::IsSupported()?,
             "capture_unavailable"
@@ -57,8 +89,13 @@ impl Capture {
                 2,
                 size,
             )?;
+            let frame_event = watch(&pool, signal.clone())?;
             let session = pool.CreateCaptureSession(&item)?;
             session.SetIsCursorCaptureEnabled(false)?;
+            // Optional on newer Windows. Avoid a second OS-side cadence gate;
+            // the publisher owns the negotiated frame rate and drains stale raw frames.
+            let _ =
+                session.SetMinUpdateInterval(windows::Foundation::TimeSpan { Duration: 40_000 });
             session.StartCapture()?;
             Ok(Self {
                 item,
@@ -69,10 +106,12 @@ impl Capture {
                 runtime_device,
                 size,
                 staging: None,
+                signal,
+                frame_event,
             })
         }
     }
-    pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
+    pub fn frame_into(&mut self, pixels: &mut Vec<u8>) -> Result<Option<(u32, u32)>> {
         let mut frame = match self.pool.TryGetNextFrame() {
             Ok(frame) => frame,
             // WGC returns S_OK + a null frame while its queue is empty. The
@@ -92,6 +131,7 @@ impl Capture {
             frame.Close()?;
             frame = newest;
         }
+        let _timing = crate::metrics::span("capture.readback_new");
         let size = frame.ContentSize()?;
         if size.Width <= 0 || size.Height <= 0 {
             frame.Close()?;
@@ -110,13 +150,20 @@ impl Capture {
                 2,
                 size,
             )?;
+            let frame_event = watch(&pool, self.signal.clone())?;
             let session = pool.CreateCaptureSession(&self.item)?;
             session.SetIsCursorCaptureEnabled(false)?;
+            // Optional on newer Windows. Avoid a second OS-side cadence gate;
+            // the publisher owns the negotiated frame rate and drains stale raw frames.
+            let _ =
+                session.SetMinUpdateInterval(windows::Foundation::TimeSpan { Duration: 40_000 });
             session.StartCapture()?;
             self.session.Close()?;
+            self.pool.RemoveFrameArrived(self.frame_event)?;
             self.pool.Close()?;
             self.session = session;
             self.pool = pool;
+            self.frame_event = frame_event;
             self.size = size;
             self.staging = None;
             return Ok(None);
@@ -157,7 +204,7 @@ impl Capture {
                 .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
             let row = size.Width as usize * 4;
             let result = if mapped.RowPitch as usize >= row {
-                let mut pixels = vec![0; row * size.Height as usize];
+                pixels.resize(row * size.Height as usize, 0);
                 for y in 0..size.Height as usize {
                     let source = std::slice::from_raw_parts(
                         mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize),
@@ -165,7 +212,7 @@ impl Capture {
                     );
                     pixels[y * row..(y + 1) * row].copy_from_slice(source);
                 }
-                Ok(Some((size.Width as u32, size.Height as u32, pixels)))
+                Ok(Some((size.Width as u32, size.Height as u32)))
             } else {
                 Err(anyhow::anyhow!("invalid capture pitch"))
             };
@@ -178,6 +225,7 @@ impl Capture {
 impl Drop for Capture {
     fn drop(&mut self) {
         let _ = self.session.Close();
+        let _ = self.pool.RemoveFrameArrived(self.frame_event);
         let _ = self.pool.Close();
     }
 }
