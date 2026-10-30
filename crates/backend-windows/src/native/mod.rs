@@ -374,26 +374,13 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
     let Some(owner) = application_owner(window) else {
         return BOOL(1);
     };
-    if owner != window {
-        let mut rect = RECT::default();
-        if GetWindowRect(window, &mut rect).is_err()
-            || rect.right - rect.left < 64
-            || rect.bottom - rect.top < 32
-        {
-            return BOOL(1);
-        }
-        let mut owner_pid = 0;
-        GetWindowThreadProcessId(owner, Some(&mut owner_pid));
-        if owner_pid == GetCurrentProcessId()
-            || !paneferry_platform::process_is_current_user(owner_pid)
-        {
-            return BOOL(1);
-        }
+    // The catalog offers session entry points. Owned dialogs and surfaces
+    // already included in a running scene remain in source-side composition,
+    // but must not appear as redundant independent connection buttons.
+    if owner != window || scene::claimed_as_secondary(window) {
+        return BOOL(1);
     }
-    let mut name = title(window);
-    if name.is_empty() && owner != window {
-        name = format!("{} — 对话框", title(owner));
-    }
+    let name = title(window);
     if name.is_empty() {
         return BOOL(1);
     }
