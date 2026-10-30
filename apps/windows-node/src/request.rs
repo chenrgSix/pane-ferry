@@ -163,3 +163,35 @@ impl Request {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paneferry_backend_windows::color::ColorMode;
+    #[test]
+    fn color_requires_explicit_supported_negotiation() {
+        for (color, expected) in [
+            (None, ColorMode::Compatible),
+            (Some("420"), ColorMode::Compatible),
+            (Some("444-atlas-v1"), ColorMode::Full),
+        ] {
+            let mut value = serde_json::json!({"type":"video.enable","codec":"h264"});
+            if let Some(color) = color {
+                value["color"] = color.into();
+            }
+            assert!(
+                matches!(serde_json::from_value::<Request>(value).unwrap(),Request::Video {color,..} if color==expected)
+            );
+        }
+        for color in [
+            serde_json::json!("444"),
+            serde_json::json!(true),
+            serde_json::json!(null),
+        ] {
+            assert!(serde_json::from_value::<Request>(
+                serde_json::json!({"type":"video.enable","codec":"h264","color":color})
+            )
+            .is_err());
+        }
+    }
+}
