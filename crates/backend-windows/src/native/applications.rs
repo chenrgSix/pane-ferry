@@ -30,7 +30,7 @@ pub fn packaged_key(id: &str) -> String {
     format!("appx-{:x}", Sha256::digest(id.to_lowercase().as_bytes()))
 }
 
-pub unsafe fn window_application_key(window: windows::Win32::Foundation::HWND) -> Option<String> {
+unsafe fn window_application_key(window: windows::Win32::Foundation::HWND) -> Option<String> {
     use windows::Win32::{System::Com::StructuredStorage::*, UI::Shell::PropertiesSystem::*};
     let store: IPropertyStore = SHGetPropertyStoreForWindow(window).ok()?;
     let mut value = store.GetValue(&PKEY_AppUserModel_ID).ok()?;
@@ -44,7 +44,32 @@ pub unsafe fn packaged_window_key(
     window: windows::Win32::Foundation::HWND,
     process: windows::Win32::Foundation::HANDLE,
 ) -> Option<String> {
-    window_application_key(window).or_else(|| {
+    // Dialogs often omit AUMID. Follow same-process ownership only, so shared
+    // package hosts retain the owner's identity without trusting another app.
+    let mut window_pid = 0;
+    windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+        window,
+        Some(&mut window_pid),
+    );
+    let mut current = window;
+    for _ in 0..16 {
+        if let Some(key) = window_application_key(current) {
+            return Some(key);
+        }
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindow, GetWindowThreadProcessId, GW_OWNER,
+        };
+        current = GetWindow(current, GW_OWNER).unwrap_or_default();
+        if current.0.is_null() {
+            break;
+        }
+        let mut owner_pid = 0;
+        GetWindowThreadProcessId(current, Some(&mut owner_pid));
+        if owner_pid != window_pid {
+            break;
+        }
+    }
+    {
         let mut id = [0u16; 1024];
         let mut length = id.len() as u32;
         if windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId(
@@ -57,7 +82,7 @@ pub unsafe fn packaged_window_key(
         }
         let end = id.iter().position(|c| *c == 0).unwrap_or(id.len());
         Some(packaged_key(&String::from_utf16_lossy(&id[..end])))
-    })
+    }
 }
 
 unsafe fn owned_string(value: windows::core::Result<PWSTR>) -> Result<String> {

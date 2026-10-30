@@ -295,28 +295,74 @@ impl Desktop {
         Ok(())
     }
 }
-unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
-    let targets = &mut *(data.0 as *mut Vec<Target>);
-    if targets.len() >= 128
-        || !IsWindowVisible(window).as_bool()
+// Owned top-level dialogs are separate WGC surfaces. Child controls remain in
+// their parent's capture; no-activate menus/tooltips and tray helpers do not.
+unsafe fn visible_surface(window: HWND) -> bool {
+    if !IsWindowVisible(window).as_bool()
         || IsIconic(window).as_bool()
         || window == GetShellWindow()
-        || GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0)
-            != 0
+        || GetWindowLongPtrW(window, GWL_STYLE) as u32 & WS_CHILD.0 != 0
+        || GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_NOACTIVATE.0 != 0
         || !GetPropW(window, windows::core::w!("PaneFerry.RemoteWindow.1"))
             .0
             .is_null()
-        || GetWindow(window, GW_OWNER).is_ok_and(|h| !h.0.is_null())
     {
-        return BOOL(1);
+        return false;
     }
     let mut cloaked = 0u32;
     if DwmGetWindowAttribute(window, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4).is_err()
         || cloaked != 0
     {
+        return false;
+    }
+    true
+}
+
+unsafe fn application_owner(window: HWND) -> Option<HWND> {
+    let mut root = window;
+    for _ in 0..16 {
+        if !visible_surface(root) {
+            return None;
+        }
+        let owner = GetWindow(root, GW_OWNER).unwrap_or_default();
+        if owner.0.is_null() {
+            return (GetWindowLongPtrW(root, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 == 0
+                && !title(root).is_empty())
+            .then_some(root);
+        }
+        root = owner;
+    }
+    None
+}
+
+unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
+    let targets = &mut *(data.0 as *mut Vec<Target>);
+    if targets.len() >= 128 {
         return BOOL(1);
     }
-    let name = title(window);
+    let Some(owner) = application_owner(window) else {
+        return BOOL(1);
+    };
+    if owner != window {
+        let mut rect = RECT::default();
+        if GetWindowRect(window, &mut rect).is_err()
+            || rect.right - rect.left < 64
+            || rect.bottom - rect.top < 32
+        {
+            return BOOL(1);
+        }
+        let mut owner_pid = 0;
+        GetWindowThreadProcessId(owner, Some(&mut owner_pid));
+        if owner_pid == GetCurrentProcessId()
+            || !paneferry_platform::process_is_current_user(owner_pid)
+        {
+            return BOOL(1);
+        }
+    }
+    let mut name = title(window);
+    if name.is_empty() && owner != window {
+        name = format!("{} — 对话框", title(owner));
+    }
     if name.is_empty() {
         return BOOL(1);
     }
@@ -357,9 +403,8 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
         } else {
             return BOOL(1);
         };
-    // Only normal, activatable application windows are published. Invisible
-    // framework helpers can have WS_VISIBLE (for example a 16x16 tray surface)
-    // and must not be offered as a separate controllable application window.
+    // Normal application windows and their activatable owned dialogs are
+    // eligible for the existing controller's new-window discovery policy.
     let auto_connectable = true;
     // Window properties disappear on destruction, unlike a recycled HWND/PID.
     // SetProp also rejects elevated windows that this standard-user publisher cannot control.
@@ -443,7 +488,14 @@ impl WindowSystem for Desktop {
         );
         paneferry_protocol::dimensions(width, height)?;
         Ok(Geometry {
-            title: title(hwnd(target)),
+            title: {
+                let current = title(hwnd(target));
+                if current.is_empty() {
+                    target.name.clone()
+                } else {
+                    current
+                }
+            },
             width,
             height,
             visible: unsafe {
