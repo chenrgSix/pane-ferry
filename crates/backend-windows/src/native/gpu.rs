@@ -2,7 +2,13 @@
 //! Only the final encoder input is read back; no application pixels leave the scene.
 use crate::color::ColorMode;
 use anyhow::{ensure, Context, Result};
-use std::{mem::size_of, sync::OnceLock};
+use std::{
+    mem::size_of,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
+};
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::{
     core::{s, Interface, PCSTR},
@@ -27,23 +33,45 @@ impl Device {
         unsafe {
             let mut device = None;
             let mut context = None;
-            D3D11CreateDevice(
+            let result = D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
                 None,
                 D3D11_SDK_VERSION,
                 Some(&mut device),
                 None,
                 Some(&mut context),
-            )?;
+            );
+            if result.is_err() {
+                // Capture/software encoding must not acquire a video-device
+                // requirement merely because direct hardware encoding exists.
+                device = None;
+                context = None;
+                D3D11CreateDevice(
+                    None,
+                    D3D_DRIVER_TYPE_HARDWARE,
+                    HMODULE::default(),
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    None,
+                    D3D11_SDK_VERSION,
+                    Some(&mut device),
+                    None,
+                    Some(&mut context),
+                )?;
+            }
             let device = device.unwrap();
+            let context = context.unwrap();
+            // Hardware MFTs use the same immediate context on their own threads.
+            let _ = context
+                .cast::<ID3D11Multithread>()?
+                .SetMultithreadProtected(true);
             let runtime =
                 CreateDirect3D11DeviceFromDXGIDevice(&device.cast::<IDXGIDevice>()?)?.cast()?;
             Ok(Self {
                 device,
-                context: context.unwrap(),
+                context,
                 runtime,
             })
         }
@@ -97,17 +125,68 @@ struct Readback {
     target: ID3D11UnorderedAccessView,
     staging: ID3D11Buffer,
 }
+struct TextureSlot {
+    texture: ID3D11Texture2D,
+    y: ID3D11UnorderedAccessView,
+    uv: ID3D11UnorderedAccessView,
+    busy: Arc<AtomicBool>,
+}
+/// The slot stays unavailable until the MFT releases its tracked input sample.
+pub struct TextureFrame {
+    pub texture: ID3D11Texture2D,
+    busy: Arc<AtomicBool>,
+}
+impl Drop for TextureFrame {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::Release);
+    }
+}
+#[cfg(test)]
+impl TextureFrame {
+    fn read_nv12(&self, device: &Device) -> Result<Vec<u8>> {
+        unsafe {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            self.texture.GetDesc(&mut desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+            let mut staging = None;
+            device
+                .device
+                .CreateTexture2D(&desc, None, Some(&mut staging))?;
+            let staging = staging.unwrap();
+            device.context.CopyResource(&staging, &self.texture);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            device
+                .context
+                .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+            let mut data = vec![0; (desc.Width * desc.Height * 3 / 2) as usize];
+            for (y, row) in data.chunks_exact_mut(desc.Width as usize).enumerate() {
+                row.copy_from_slice(std::slice::from_raw_parts(
+                    mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize),
+                    row.len(),
+                ));
+            }
+            device.context.Unmap(&staging, 0);
+            Ok(data)
+        }
+    }
+}
 pub struct Compositor {
     pub device: Device,
     compose: ID3D11ComputeShader,
     convert: ID3D11ComputeShader,
+    convert_texture: ID3D11ComputeShader,
+    textures: Vec<TextureSlot>,
+    texture_size: (u32, u32),
     params: ID3D11Buffer,
     canvas: Option<Canvas>,
     readback: Option<Readback>,
     current: Params,
 }
-fn shaders() -> Result<&'static (Vec<u8>, Vec<u8>)> {
-    static SHADERS: OnceLock<std::result::Result<(Vec<u8>, Vec<u8>), String>> = OnceLock::new();
+fn shaders() -> Result<&'static (Vec<u8>, Vec<u8>, Vec<u8>)> {
+    static SHADERS: OnceLock<std::result::Result<(Vec<u8>, Vec<u8>, Vec<u8>), String>> =
+        OnceLock::new();
     SHADERS
         .get_or_init(|| {
             fn compile(entry: PCSTR) -> Result<Vec<u8>> {
@@ -147,8 +226,14 @@ fn shaders() -> Result<&'static (Vec<u8>, Vec<u8>)> {
                     .to_vec())
                 }
             }
-            (|| Ok((compile(s!("compose"))?, compile(s!("convert"))?)))()
-                .map_err(|e: anyhow::Error| format!("{e:#}"))
+            (|| {
+                Ok((
+                    compile(s!("compose"))?,
+                    compile(s!("convert"))?,
+                    compile(s!("convertTexture"))?,
+                ))
+            })()
+            .map_err(|e: anyhow::Error| format!("{e:#}"))
         })
         .as_ref()
         .map_err(|e| anyhow::anyhow!(e.clone()))
@@ -192,9 +277,10 @@ impl Compositor {
             unsafe { device.device.GetFeatureLevel().0 } >= D3D_FEATURE_LEVEL_11_0.0,
             "GPU feature level unavailable"
         );
-        let (cs, convert) = shaders()?;
+        let (cs, convert, texture) = shaders()?;
         let mut compose_shader = None;
         let mut convert_shader = None;
+        let mut texture_shader = None;
         let mut params = None;
         unsafe {
             device
@@ -203,6 +289,9 @@ impl Compositor {
             device
                 .device
                 .CreateComputeShader(convert, None, Some(&mut convert_shader))?;
+            device
+                .device
+                .CreateComputeShader(texture, None, Some(&mut texture_shader))?;
             device.device.CreateBuffer(
                 &D3D11_BUFFER_DESC {
                     ByteWidth: size_of::<Params>() as u32,
@@ -218,6 +307,9 @@ impl Compositor {
             device,
             compose: compose_shader.unwrap(),
             convert: convert_shader.unwrap(),
+            convert_texture: texture_shader.unwrap(),
+            textures: Vec::new(),
+            texture_size: (0, 0),
             params: params.unwrap(),
             canvas: None,
             readback: None,
@@ -348,6 +440,110 @@ impl Compositor {
             ctx.CSSetUnorderedAccessViews(0, 1, Some([None].as_ptr()), None);
         }
         Ok(())
+    }
+    pub fn convert_texture(&mut self, mode: ColorMode) -> Result<TextureFrame> {
+        let _timing = crate::metrics::span("gpu.convert_texture_submit");
+        let (ew, eh) = mode.dimensions(self.current.width, self.current.height)?;
+        if self.texture_size != (ew, eh) {
+            self.textures.clear(); // Outstanding frames retain their own resources.
+            self.texture_size = (ew, eh);
+        }
+        let index = if let Some(index) = self
+            .textures
+            .iter()
+            .position(|s| !s.busy.load(Ordering::Acquire))
+        {
+            index
+        } else {
+            ensure!(
+                self.textures.len() < 3,
+                "hardware input texture pool exhausted"
+            );
+            unsafe {
+                let mut texture = None;
+                self.device.device.CreateTexture2D(
+                    &D3D11_TEXTURE2D_DESC {
+                        Width: ew,
+                        Height: eh,
+                        MipLevels: 1,
+                        ArraySize: 1,
+                        Format: DXGI_FORMAT_NV12,
+                        SampleDesc: DXGI_SAMPLE_DESC {
+                            Count: 1,
+                            Quality: 0,
+                        },
+                        Usage: D3D11_USAGE_DEFAULT,
+                        BindFlags: (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_UNORDERED_ACCESS.0)
+                            as u32,
+                        ..Default::default()
+                    },
+                    None,
+                    Some(&mut texture),
+                )?;
+                let texture = texture.unwrap();
+                let view = |format| -> Result<ID3D11UnorderedAccessView> {
+                    let mut view = None;
+                    self.device.device.CreateUnorderedAccessView(
+                        &texture,
+                        Some(&D3D11_UNORDERED_ACCESS_VIEW_DESC {
+                            Format: format,
+                            ViewDimension: D3D11_UAV_DIMENSION_TEXTURE2D,
+                            Anonymous: D3D11_UNORDERED_ACCESS_VIEW_DESC_0 {
+                                Texture2D: D3D11_TEX2D_UAV { MipSlice: 0 },
+                            },
+                        }),
+                        Some(&mut view),
+                    )?;
+                    Ok(view.unwrap())
+                };
+                let y = view(DXGI_FORMAT_R8_UINT)?;
+                let uv = view(DXGI_FORMAT_R8G8_UINT)?;
+                self.textures.push(TextureSlot {
+                    texture,
+                    y,
+                    uv,
+                    busy: Arc::new(AtomicBool::new(false)),
+                });
+            }
+            self.textures.len() - 1
+        };
+        self.current.ew = ew;
+        self.current.eh = eh;
+        self.current.full = u32::from(mode == ColorMode::Full);
+        self.update();
+        let slot = &self.textures[index];
+        slot.busy.store(true, Ordering::Release);
+        let frame = TextureFrame {
+            texture: slot.texture.clone(),
+            busy: slot.busy.clone(),
+        };
+        unsafe {
+            let ctx = &self.device.context;
+            ctx.CSSetShader(&self.convert_texture, None);
+            ctx.CSSetShaderResources(
+                1,
+                Some(&[Some(
+                    self.canvas
+                        .as_ref()
+                        .context("GPU canvas unavailable")?
+                        .view
+                        .clone(),
+                )]),
+            );
+            ctx.CSSetUnorderedAccessViews(
+                2,
+                2,
+                Some([Some(slot.y.clone()), Some(slot.uv.clone())].as_ptr()),
+                None,
+            );
+            ctx.Dispatch(ew.div_ceil(16), eh.div_ceil(16), 1);
+            ctx.CSSetShaderResources(1, Some(&[None]));
+            ctx.CSSetUnorderedAccessViews(2, 2, Some([None, None].as_ptr()), None);
+            // Submit writes before the hardware encoder consumes this surface.
+            ctx.Flush();
+            self.device.device.GetDeviceRemovedReason()?;
+        }
+        Ok(frame)
     }
     pub fn convert(&mut self, mode: ColorMode, output: &mut Vec<u8>) -> Result<()> {
         let _timing = crate::metrics::span("gpu.convert_readback");
@@ -496,6 +692,19 @@ mod tests {
                 let mut actual = Vec::new();
                 let mut reference = Vec::new();
                 gpu.convert(mode, &mut actual)?;
+                let direct = gpu.convert_texture(mode)?;
+                assert_eq!(
+                    direct.read_nv12(&gpu.device)?,
+                    actual,
+                    "texture planes must match packed NV12"
+                );
+                let second = gpu.convert_texture(mode)?;
+                let third = gpu.convert_texture(mode)?;
+                assert!(
+                    gpu.convert_texture(mode).is_err(),
+                    "never overwrite a retained encoder surface"
+                );
+                drop((direct, second, third));
                 match mode {
                     ColorMode::Compatible => {
                         crate::pixels::nv12_into(&expected, w, h, &mut reference)?

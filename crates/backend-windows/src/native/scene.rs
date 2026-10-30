@@ -309,12 +309,19 @@ impl Scene {
         &mut self,
         mode: crate::color::ColorMode,
         output: &mut Vec<u8>,
-    ) -> Result<Option<(u32, u32)>> {
+        texture: bool,
+    ) -> Result<Option<(u32, u32, Option<gpu::TextureFrame>)>> {
         let result = (|| {
             let Some((w, h, pixels)) = self.frame_prepared()? else {
                 return Ok(None);
             };
             if let Some(gpu) = &mut self.gpu {
+                if texture {
+                    match gpu.convert_texture(mode) {
+                        Ok(frame) => return Ok(Some((w, h, Some(frame)))),
+                        Err(error) => eprintln!("PF_CAPTURE texture_unavailable={error:#}"),
+                    }
+                }
                 gpu.convert(mode, output)?;
             } else {
                 let converted = match mode {
@@ -328,7 +335,7 @@ impl Scene {
                 self.recycle(pixels);
                 converted?;
             }
-            Ok(Some((w, h)))
+            Ok(Some((w, h, None)))
         })();
         if let Err(error) = &result {
             if self.gpu.is_some() {
@@ -338,6 +345,19 @@ impl Scene {
             }
         }
         result
+    }
+    pub fn gpu_device(&self) -> Option<windows::Win32::Graphics::Direct3D11::ID3D11Device> {
+        self.gpu.as_ref().map(|g| g.device.device.clone())
+    }
+    pub fn readback_current(
+        &mut self,
+        mode: crate::color::ColorMode,
+        output: &mut Vec<u8>,
+    ) -> Result<()> {
+        self.gpu
+            .as_mut()
+            .context("GPU scene unavailable")?
+            .convert(mode, output)
     }
     pub fn frame_prepared(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
         // Desktop::frame has just refreshed geometry; avoid a third desktop scan.

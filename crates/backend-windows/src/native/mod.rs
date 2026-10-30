@@ -66,6 +66,61 @@ pub struct Desktop {
     _runtime: CaptureRuntime,
 }
 
+#[cfg(test)]
+mod direct_encoding_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires windows-video.ps1 fixture and a D3D11 hardware encoder"]
+    fn hardware_failure_restarts_with_software_keyframe() -> Result<()> {
+        let _runtime = crate::CaptureRuntime::new()?;
+        let pid: u32 = std::env::var("PANEFERRY_VIDEO_FIXTURE_PID")?.parse()?;
+        let mut desktop = Desktop::new()?;
+        let target = desktop
+            .windows()?
+            .into_iter()
+            .find(|w| w.pid == pid && w.name == "PaneFerry dynamic video verification")
+            .context("video fixture missing")?;
+        desktop.set_video_color(crate::color::ColorMode::Full)?;
+        desktop.attach(&target, 60)?;
+        fn next(desktop: &mut Desktop, target: &Target) -> Result<VideoFrame> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::time::Instant::now() < deadline {
+                if let Some(frame) = desktop.frame(target)? {
+                    return Ok(frame);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            anyhow::bail!("no video frame")
+        }
+        let initial = next(&mut desktop, &target)?;
+        let encoder = desktop.encoder.as_mut().unwrap();
+        ensure!(
+            encoder.texture_input(),
+            "hardware encoder required for this test"
+        );
+        encoder.fail_next_texture = true;
+        let recovered = next(&mut desktop, &target)?;
+        ensure!(
+            recovered.key_frame && recovered.stream_id > initial.stream_id,
+            "fallback must start a new IDR stream"
+        );
+        ensure!(
+            recovered.width == initial.width && recovered.height == initial.height,
+            "fallback must preserve source dimensions"
+        );
+        ensure!(
+            !desktop.encoder.as_ref().unwrap().hardware && desktop.hardware_failed,
+            "fallback must stay on software"
+        );
+        let continued = next(&mut desktop, &target)?;
+        ensure!(
+            continued.stream_id == recovered.stream_id,
+            "fallback stream must keep running"
+        );
+        Ok(())
+    }
+}
+
 /// Keep one on the publisher's main thread for its full service lifetime.
 /// Short-lived discovery connections must not tear down the last MTA while
 /// GraphicsCapture's internal threads are still completing asynchronous work.
@@ -614,28 +669,11 @@ impl WindowSystem for Desktop {
             self.pending.clear();
             self.encoder = None;
         }
-        let Some((width, height)) = self
-            .scene
-            .as_mut()
-            .context("capture_failed")?
-            .encoded_input(self.color, &mut self.nv12)?
-        else {
-            return Ok(None);
-        };
-        let content_revision = self.scene.as_ref().unwrap().revision;
-        if width != geometry.width
-            || height != geometry.height
-            || content_revision != geometry.content_revision
-        {
-            self.encoder = None;
-            return Ok(None);
-        }
-        let (w, h) = self.color.dimensions(width, height)?;
-        if self
-            .encoder
-            .as_ref()
-            .is_none_or(|e| e.width != w || e.height != h)
-        {
+        let (w, h) = self.color.dimensions(geometry.width, geometry.height)?;
+        let device = self.scene.as_ref().context("capture_failed")?.gpu_device();
+        if self.encoder.as_ref().is_none_or(|e| {
+            e.width != w || e.height != h || (e.texture_input() && device.is_none())
+        }) {
             self.stream = self
                 .stream
                 .checked_add(1)
@@ -643,6 +681,8 @@ impl WindowSystem for Desktop {
             self.encoder = Some(
                 (if self.hardware_failed {
                     video::Encoder::software(w, h, self.fps, self.stream)
+                } else if let Some(device) = &device {
+                    video::Encoder::on_device(w, h, self.fps, self.stream, device)
                 } else {
                     video::Encoder::new(w, h, self.fps, self.stream)
                 })
@@ -654,7 +694,35 @@ impl WindowSystem for Desktop {
             }
             let _ = encoder.set_quality(self.quality, self.fps);
         }
-        let encoded = self.encoder.as_mut().unwrap().encode(&self.nv12);
+        let Some((width, height, texture)) = self
+            .scene
+            .as_mut()
+            .context("capture_failed")?
+            .encoded_input(
+                self.color,
+                &mut self.nv12,
+                self.encoder.as_ref().unwrap().texture_input(),
+            )?
+        else {
+            return Ok(None);
+        };
+        let content_revision = self.scene.as_ref().unwrap().revision;
+        if width != geometry.width
+            || height != geometry.height
+            || content_revision != geometry.content_revision
+        {
+            self.encoder = None;
+            return Ok(None);
+        }
+        let was_texture = texture.is_some();
+        let encoder = self.encoder.as_mut().unwrap();
+        let encoded = if let Some(texture) = texture {
+            encoder.encode_texture(texture)
+        } else if encoder.texture_input() {
+            Err(anyhow::anyhow!("GPU texture input unavailable"))
+        } else {
+            encoder.encode(&self.nv12)
+        };
         let packets = match encoded {
             Ok(packets) => packets,
             Err(error) if self.encoder.as_ref().unwrap().hardware => {
@@ -665,6 +733,12 @@ impl WindowSystem for Desktop {
                 self.encoder = Some(video::Encoder::software(w, h, self.fps, self.stream)?);
                 let encoder = self.encoder.as_mut().unwrap();
                 let _ = encoder.set_quality(self.quality, self.fps);
+                if was_texture {
+                    self.scene
+                        .as_mut()
+                        .unwrap()
+                        .readback_current(self.color, &mut self.nv12)?;
+                }
                 encoder.encode(&self.nv12)?
             }
             Err(error) => return Err(error),

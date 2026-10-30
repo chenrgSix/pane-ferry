@@ -52,3 +52,18 @@ void convert(uint3 id : SV_DispatchThreadID) {
     [unroll] for(uint i=0;i<4;i++) if(offset+i<length) bits|=value(offset+i)<<(i*8);
     packed.Store(offset,bits);
 }
+
+// Write the encoder's NV12 texture directly. Both planes contain the same
+// bytes as convert(), including the negotiated full-chroma carrier.
+RWTexture2D<uint> luma : register(u2);
+RWTexture2D<uint2> chroma : register(u3);
+[numthreads(16,16,1)]
+void convertTexture(uint3 id : SV_DispatchThreadID) {
+    uint2 p=id.xy;
+    if(p.x>=encodedWidth || p.y>=encodedHeight) return;
+    luma[p]=value(p.y*encodedWidth+p.x);
+    if(p.x<encodedWidth/2 && p.y<encodedHeight/2) {
+        uint i=encodedWidth*encodedHeight+p.y*encodedWidth+2*p.x;
+        chroma[p]=uint2(value(i),value(i+1));
+    }
+}

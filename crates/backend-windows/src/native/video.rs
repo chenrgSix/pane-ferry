@@ -3,10 +3,25 @@ use std::{mem::ManuallyDrop, ptr};
 use windows::{
     core::Interface,
     Win32::{
+        Graphics::{Direct3D11::ID3D11Device, Dxgi::IDXGIDevice},
         Media::MediaFoundation::*,
         System::{Com::*, Variant::VARIANT},
     },
 };
+
+#[windows::core::implement(IMFAsyncCallback)]
+struct TextureRelease(std::sync::Mutex<Option<super::gpu::TextureFrame>>);
+impl IMFAsyncCallback_Impl for TextureRelease_Impl {
+    fn GetParameters(&self, _: *mut u32, _: *mut u32) -> windows::core::Result<()> {
+        Err(windows::Win32::Foundation::E_NOTIMPL.into())
+    }
+    fn Invoke(&self, _: windows::core::Ref<IMFAsyncResult>) -> windows::core::Result<()> {
+        if let Ok(mut frame) = self.0.lock() {
+            frame.take();
+        }
+        Ok(())
+    }
+}
 
 fn desktop_bitrate(width: u32, height: u32, fps: u32) -> u32 {
     // Budget scales with motion rate as well as resolution. The previous fixed
@@ -15,7 +30,8 @@ fn desktop_bitrate(width: u32, height: u32, fps: u32) -> u32 {
 }
 
 /// System H.264 encoders only; no external binaries or codec downloads.
-/// Software is the measured low-latency default; auto enables hardware discovery.
+/// GPU scenes prefer texture-capable hardware; memory-only scenes retain the
+/// software default. Explicit software mode always disables hardware selection.
 pub struct Encoder {
     transform: IMFTransform,
     header: Vec<u8>,
@@ -30,15 +46,38 @@ pub struct Encoder {
     have_output: u32,
     output_sample: Option<IMFSample>,
     pub hardware: bool,
+    // Retain the manager until the transform has been flushed/shut down.
+    manager: Option<IMFDXGIDeviceManager>,
+    #[cfg(test)]
+    pub fail_next_texture: bool,
 }
 impl Encoder {
     pub fn new(width: u32, height: u32, fps: u32, stream: u64) -> Result<Self> {
-        Self::select(width, height, fps, stream, true)
+        Self::select(width, height, fps, stream, true, None)
+    }
+    pub fn on_device(
+        width: u32,
+        height: u32,
+        fps: u32,
+        stream: u64,
+        device: &ID3D11Device,
+    ) -> Result<Self> {
+        Self::select(width, height, fps, stream, true, Some(device))
+    }
+    pub fn texture_input(&self) -> bool {
+        self.manager.is_some()
     }
     pub fn software(width: u32, height: u32, fps: u32, stream: u64) -> Result<Self> {
-        Self::select(width, height, fps, stream, false)
+        Self::select(width, height, fps, stream, false, None)
     }
-    fn select(width: u32, height: u32, fps: u32, stream: u64, hardware: bool) -> Result<Self> {
+    fn select(
+        width: u32,
+        height: u32,
+        fps: u32,
+        stream: u64,
+        hardware: bool,
+        device: Option<&ID3D11Device>,
+    ) -> Result<Self> {
         ensure!(
             width > 0
                 && height > 0
@@ -51,12 +90,12 @@ impl Encoder {
         );
         // Capability-based selection across vendors; software remains available.
         if hardware
-            && matches!(
+            && (matches!(
                 std::env::var("PANEFERRY_VIDEO_ENCODER").as_deref(),
                 Ok("auto" | "hardware")
-            )
+            ) || (device.is_some() && std::env::var_os("PANEFERRY_VIDEO_ENCODER").is_none()))
         {
-            if let Ok(activations) = hardware_encoders() {
+            if let Ok(activations) = hardware_encoders(device) {
                 eprintln!("PF_ENCODER hardware_candidates={}", activations.len());
                 for activation in activations {
                     let mut name = [0u16; 256];
@@ -72,11 +111,18 @@ impl Encoder {
                     let result = unsafe { activation.ActivateObject::<IMFTransform>() }
                         .map_err(anyhow::Error::from)
                         .and_then(|transform| {
-                            Self::configure(transform, width, height, fps, stream, true)
+                            Self::configure(transform, width, height, fps, stream, true, device)
                         });
                     match result {
                         Ok(encoder) => {
-                            eprintln!("PF_ENCODER backend=hardware");
+                            eprintln!(
+                                "PF_ENCODER backend=hardware input={}",
+                                if encoder.texture_input() {
+                                    "d3d11_texture"
+                                } else {
+                                    "memory"
+                                }
+                            );
                             return Ok(encoder);
                         }
                         Err(error) => {
@@ -89,7 +135,7 @@ impl Encoder {
         }
         let transform =
             unsafe { CoCreateInstance(&CMSH264EncoderMFT, None, CLSCTX_INPROC_SERVER)? };
-        let encoder = Self::configure(transform, width, height, fps, stream, false)?;
+        let encoder = Self::configure(transform, width, height, fps, stream, false, None)?;
         eprintln!("PF_ENCODER backend=software");
         Ok(encoder)
     }
@@ -100,6 +146,7 @@ impl Encoder {
         fps: u32,
         stream: u64,
         hardware: bool,
+        device: Option<&ID3D11Device>,
     ) -> Result<Self> {
         unsafe {
             let events = if hardware {
@@ -107,6 +154,25 @@ impl Encoder {
                     .GetAttributes()?
                     .SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
                 Some(transform.cast::<IMFMediaEventGenerator>()?)
+            } else {
+                None
+            };
+            let manager = if let Some(device) = device {
+                ensure!(
+                    transform
+                        .GetAttributes()?
+                        .GetUINT32(&MF_SA_D3D11_AWARE)
+                        .unwrap_or(0)
+                        != 0,
+                    "encoder does not support D3D11 surfaces"
+                );
+                let mut token = 0;
+                let mut manager = None;
+                MFCreateDXGIDeviceManager(&mut token, &mut manager)?;
+                let manager = manager.unwrap();
+                manager.ResetDevice(device, token)?;
+                transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, manager.as_raw() as usize)?;
+                Some(manager)
             } else {
                 None
             };
@@ -173,6 +239,9 @@ impl Encoder {
                 have_output: 0,
                 output_sample: None,
                 hardware,
+                manager,
+                #[cfg(test)]
+                fail_next_texture: false,
             })
         }
     }
@@ -242,6 +311,46 @@ impl Encoder {
             buffer.Unlock()?;
             buffer.SetCurrentLength(pixels.len() as u32)?;
             input.AddBuffer(&buffer)?;
+            self.encode_sample(&input)
+        }
+    }
+    pub fn encode_texture(
+        &mut self,
+        frame: super::gpu::TextureFrame,
+    ) -> Result<Vec<(Vec<u8>, bool)>> {
+        let _timing = crate::metrics::span("video.encode_texture");
+        #[cfg(test)]
+        ensure!(
+            !std::mem::take(&mut self.fail_next_texture),
+            "injected hardware input failure"
+        );
+        ensure!(self.texture_input(), "encoder has no D3D11 manager");
+        unsafe {
+            let mut desc = windows::Win32::Graphics::Direct3D11::D3D11_TEXTURE2D_DESC::default();
+            frame.texture.GetDesc(&mut desc);
+            ensure!(
+                desc.Width == self.width
+                    && desc.Height == self.height
+                    && desc.Format == windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12,
+                "invalid encoder texture"
+            );
+            let buffer = MFCreateDXGISurfaceBuffer(
+                &windows::Win32::Graphics::Direct3D11::ID3D11Texture2D::IID,
+                &frame.texture,
+                0,
+                false,
+            )?;
+            let tracked = MFCreateTrackedSample()?;
+            let input: IMFSample = tracked.cast()?;
+            input.AddBuffer(&buffer)?;
+            let release: IMFAsyncCallback =
+                TextureRelease(std::sync::Mutex::new(Some(frame))).into();
+            tracked.SetAllocator(&release, None)?;
+            self.encode_sample(&input)
+        }
+    }
+    unsafe fn encode_sample(&mut self, input: &IMFSample) -> Result<Vec<(Vec<u8>, bool)>> {
+        unsafe {
             input.SetSampleTime(self.time)?;
             input.SetSampleDuration(self.duration)?;
             self.time += self.duration;
@@ -249,7 +358,7 @@ impl Encoder {
                 self.wait_event(true)?;
                 self.need_input -= 1;
             }
-            self.transform.ProcessInput(0, &input, 0)?;
+            self.transform.ProcessInput(0, input, 0)?;
             // One in-flight input limits hardware buffering; a driver requiring
             // lookahead or failing to produce output falls back to software.
             if self.events.is_some() {
@@ -369,7 +478,7 @@ impl Drop for Encoder {
         }
     }
 }
-fn hardware_encoders() -> Result<Vec<IMFActivate>> {
+fn hardware_encoders(device: Option<&ID3D11Device>) -> Result<Vec<IMFActivate>> {
     unsafe {
         let input = MFT_REGISTER_TYPE_INFO {
             guidMajorType: MFMediaType_Video,
@@ -381,14 +490,38 @@ fn hardware_encoders() -> Result<Vec<IMFActivate>> {
         };
         let mut raw = ptr::null_mut();
         let mut count = 0;
-        MFTEnumEx(
-            MFT_CATEGORY_VIDEO_ENCODER,
-            MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
-            Some(&input),
-            Some(&output),
-            &mut raw,
-            &mut count,
-        )?;
+        if let Some(device) = device {
+            let luid = device
+                .cast::<IDXGIDevice>()?
+                .GetAdapter()?
+                .GetDesc()?
+                .AdapterLuid;
+            let mut attrs = None;
+            MFCreateAttributes(&mut attrs, 1)?;
+            let attrs = attrs.unwrap();
+            attrs.SetUINT64(
+                &MFT_ENUM_ADAPTER_LUID,
+                ((luid.HighPart as u32 as u64) << 32) | luid.LowPart as u64,
+            )?;
+            MFTEnum2(
+                MFT_CATEGORY_VIDEO_ENCODER,
+                MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                Some(&input),
+                Some(&output),
+                &attrs,
+                &mut raw,
+                &mut count,
+            )?;
+        } else {
+            MFTEnumEx(
+                MFT_CATEGORY_VIDEO_ENCODER,
+                MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                Some(&input),
+                Some(&output),
+                &mut raw,
+                &mut count,
+            )?;
+        }
         if raw.is_null() {
             return Ok(Vec::new());
         }
@@ -405,6 +538,94 @@ fn hardware_encoders() -> Result<Vec<IMFActivate>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires a local D3D11 hardware encoder; synthetic pixels only"]
+    fn direct_texture_encoder_probe() -> Result<()> {
+        use super::super::gpu::{Compositor, Layer};
+        use windows::Win32::Graphics::{Direct3D11::*, Dxgi::Common::*};
+        let _runtime = crate::CaptureRuntime::new()?;
+        let mut gpu = Compositor::new()?;
+        for (width, height) in [(320u32, 180u32), (1602, 932), (2560, 1440)] {
+            let mut pixels: Vec<u8> = Vec::new();
+            for i in 0..width * height {
+                pixels.extend_from_slice(if i % 2 == 0 {
+                    &[0, 0, 255, 255]
+                } else {
+                    &[255, 0, 0, 255]
+                });
+            }
+            let mut texture = None;
+            unsafe {
+                gpu.device.device.CreateTexture2D(
+                    &D3D11_TEXTURE2D_DESC {
+                        Width: width,
+                        Height: height,
+                        MipLevels: 1,
+                        ArraySize: 1,
+                        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                        SampleDesc: DXGI_SAMPLE_DESC {
+                            Count: 1,
+                            Quality: 0,
+                        },
+                        Usage: D3D11_USAGE_DEFAULT,
+                        BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                        ..Default::default()
+                    },
+                    Some(&D3D11_SUBRESOURCE_DATA {
+                        pSysMem: pixels.as_ptr().cast(),
+                        SysMemPitch: width * 4,
+                        SysMemSlicePitch: 0,
+                    }),
+                    Some(&mut texture),
+                )?;
+            }
+            let layer = Layer::new(&gpu.device, texture.unwrap(), width, height)?;
+            let rect = windows::Win32::Foundation::RECT {
+                left: 0,
+                top: 0,
+                right: width as i32,
+                bottom: height as i32,
+            };
+            gpu.begin(width, height, rect)?;
+            gpu.paint(&layer, rect)?;
+            for mode in [
+                crate::color::ColorMode::Compatible,
+                crate::color::ColorMode::Full,
+            ] {
+                let (ew, eh) = mode.dimensions(width, height)?;
+                let mut encoder = Encoder::on_device(ew, eh, 60, 1, &gpu.device.device)?;
+                ensure!(
+                    encoder.texture_input(),
+                    "no texture-capable hardware encoder"
+                );
+                let mut bytes = Vec::new();
+                let start = std::time::Instant::now();
+                for index in 0..120 {
+                    let frame = gpu.convert_texture(mode)?;
+                    let packets = encoder.encode_texture(frame)?;
+                    ensure!(
+                        packets.len() == 1 && (index != 0 || packets[0].1),
+                        "one low-latency output per input required"
+                    );
+                    bytes.extend_from_slice(&packets[0].0);
+                }
+                eprintln!(
+                    "DIRECT_TEXTURE {width}x{height} {mode:?} frames=120 elapsed_ms={:.2} bytes={}",
+                    start.elapsed().as_secs_f64() * 1000.0,
+                    bytes.len()
+                );
+                if let Some(path) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
+                    let path = std::path::PathBuf::from(path);
+                    std::fs::create_dir_all(&path)?;
+                    std::fs::write(
+                        path.join(format!("direct-{width}-{height}-{mode:?}.h264")),
+                        bytes,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
     #[test]
     #[ignore = "installed Windows encoder, synthetic full-chroma samples only"]
     fn full_chroma_encoder_probe() -> Result<()> {
