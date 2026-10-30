@@ -64,7 +64,10 @@ import AppKit
         // A parent can arrive after its child. No orphan window flashes at screen center.
         let orphan = update(metadata(6, 7, "menu", CGRect(x: 10, y: 10, width: 60, height: 40)))
         precondition(!orphan.window.isVisible)
-        let late = update(metadata(7, 1, "menu", CGRect(x: 0, y: 0, width: 100, height: 100)))
+        // Keep the original menu as this scene's anchor. Giving this off-screen
+        // late menu order 0 would reanchor the entire cascade to a screen edge,
+        // making the movement check below exercise edge clamping instead.
+        let late = update(metadata(7, 1, "menu", CGRect(x: 0, y: 0, width: 100, height: 100), order: 30))
         precondition(orphan.window.isVisible && orphan.window.parent === late.window)
         let before = menu.window.frame.origin
         let parentBefore = root.window.frame.origin
