@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$ResultPath, [switch]$FileDialog)
+param([Parameter(Mandatory=$true)][string]$ResultPath, [switch]$FileDialog, [switch]$Composite)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -32,7 +32,7 @@ public static class PaneFerryDialogs {
     static extern bool ShowWindow(IntPtr window, int command);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
-    public static void Run(string result, bool fileDialog) {
+    public static void Run(string result, bool fileDialog, bool composite) {
         using(var main=new PaneFerryDialogFixture("PaneFerry dialog parent verification",result+".parent"))
         using(var child=new Form {Text="PaneFerry owned child verification", Size=new Size(240,160)})
         using(var tiny=new Form {Text="PaneFerry owned tiny helper", FormBorderStyle=FormBorderStyle.None, Size=new Size(16,16)})
@@ -50,6 +50,7 @@ public static class PaneFerryDialogs {
                     using(var picker=new OpenFileDialog {Title="PaneFerry file chooser verification"}) picker.ShowDialog(main);
                 } else {
                     using(var dialog=new PaneFerryDialogFixture("",result)) {
+                        if(composite) { dialog.Location=new Point(main.Right-50, main.Top-80); dialog.BackColor=Color.Lime; }
                         dialog.FormBorderStyle=FormBorderStyle.FixedToolWindow;
                         dialog.ShowInTaskbar=false;
                         dialog.ShowDialog(main);
@@ -62,4 +63,4 @@ public static class PaneFerryDialogs {
     }
 }
 '@
-[PaneFerryDialogs]::Run($ResultPath, $FileDialog.IsPresent)
+[PaneFerryDialogs]::Run($ResultPath, $FileDialog.IsPresent, $Composite.IsPresent)

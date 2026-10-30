@@ -56,6 +56,8 @@ mod application_tests {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Geometry {
+    #[serde(default)]
+    pub content_revision: u64,
     pub title: String,
     pub width: u32,
     pub height: u32,
@@ -63,6 +65,7 @@ pub struct Geometry {
 }
 
 pub struct VideoFrame {
+    pub content_revision: u64,
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,

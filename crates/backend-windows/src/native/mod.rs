@@ -1,5 +1,6 @@
 mod applications;
 mod capture;
+mod scene;
 mod video;
 use crate::{Geometry, Input, Target, VideoFrame, WindowSystem};
 use anyhow::{bail, ensure, Context, Result};
@@ -24,7 +25,7 @@ use windows::{
 };
 
 pub struct Desktop {
-    capture: Option<capture::Capture>,
+    scene: Option<scene::Scene>,
     encoder: Option<video::Encoder>,
     pending: VecDeque<VideoFrame>,
     keys: HashSet<u16>,
@@ -164,7 +165,37 @@ fn title(window: HWND) -> String {
         .collect()
 }
 
+fn window_geometry(target: &Target) -> Result<Geometry> {
+    validate(target)?;
+    let rect = bounds(target)?;
+    let (width, height) = (
+        (rect.right - rect.left) as u32,
+        (rect.bottom - rect.top) as u32,
+    );
+    paneferry_protocol::dimensions(width, height)?;
+    let current = title(hwnd(target));
+    Ok(Geometry {
+        content_revision: 0,
+        title: if current.is_empty() {
+            target.name.clone()
+        } else {
+            current
+        },
+        width,
+        height,
+        visible: unsafe {
+            IsWindowVisible(hwnd(target)).as_bool() && !IsIconic(hwnd(target)).as_bool()
+        },
+    })
+}
+
 impl Desktop {
+    fn input_foreground(&self, target: &Target) -> bool {
+        self.scene.as_ref().map_or_else(
+            || unsafe { GetForegroundWindow() == hwnd(target) },
+            |s| s.foreground_for(target),
+        )
+    }
     fn application_window(&mut self, id: &str) -> Result<Option<Target>> {
         let mut windows = self
             .windows()?
@@ -181,7 +212,7 @@ impl Desktop {
             let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         Ok(Self {
-            capture: None,
+            scene: None,
             encoder: None,
             pending: VecDeque::new(),
             keys: HashSet::new(),
@@ -210,7 +241,7 @@ impl Desktop {
                 return Err(anyhow::anyhow!("input_focus_required")
                     .context("target disabled by modal window"));
             }
-            if GetForegroundWindow() == hwnd(target) {
+            if self.input_foreground(target) {
                 return Ok(());
             }
             if IsIconic(hwnd(target)).as_bool() {
@@ -259,7 +290,7 @@ impl Desktop {
     }
     fn focus(&self, target: &Target) -> Result<()> {
         self.prepare_focus(target)?;
-        if unsafe { GetForegroundWindow() } != hwnd(target) {
+        if !self.input_foreground(target) {
             return Err(
                 anyhow::anyhow!("input_focus_required").context("foreground activation denied")
             );
@@ -271,9 +302,9 @@ impl Desktop {
             // Hover is not a focus request. Receivers send it at pointer rate;
             // ignoring a background/covered window avoids focus fights and an
             // error/beep for every mouse movement. Release any interrupted drag.
-            if GetForegroundWindow() != hwnd(target)
+            if !self.input_foreground(target)
                 || !IsWindowEnabled(hwnd(target)).as_bool()
-                || !self.geometry(target)?.visible
+                || !window_geometry(target)?.visible
             {
                 self.release();
                 return Ok(());
@@ -366,13 +397,20 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
     if name.is_empty() {
         return BOOL(1);
     }
+    if let Some(target) = describe_window(window, name) {
+        targets.push(target);
+    }
+    BOOL(1)
+}
+
+unsafe fn describe_window(window: HWND, name: String) -> Option<Target> {
     let mut pid = 0;
     GetWindowThreadProcessId(window, Some(&mut pid));
     if pid == GetCurrentProcessId() || !paneferry_platform::process_is_current_user(pid) {
-        return BOOL(1);
+        return None;
     }
     let Ok(start) = started(pid) else {
-        return BOOL(1);
+        return None;
     };
     // Exclude this product's helpers by process image, never by window title.
     let application_key =
@@ -388,12 +426,12 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
             let packaged_key = applications::packaged_window_key(window, process);
             let _ = CloseHandle(process);
             if result.is_err() {
-                return BOOL(1);
+                return None;
             }
             let path = String::from_utf16_lossy(&path[..length as usize]).to_lowercase();
             let filename = path.rsplit('\\').next().unwrap_or("");
             if filename.starts_with("paneferry") || filename == "lan-remoteapp-launcher.exe" {
-                return BOOL(1);
+                return None;
             }
             if let Some(key) = packaged_key {
                 key
@@ -401,18 +439,18 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
                 crate::application_key(&path)
             }
         } else {
-            return BOOL(1);
+            return None;
         };
     // Normal application windows and their activatable owned dialogs are
     // eligible for the existing controller's new-window discovery policy.
-    let auto_connectable = true;
+    let auto_connectable = !scene::claimed_as_secondary(window);
     // Window properties disappear on destruction, unlike a recycled HWND/PID.
     // SetProp also rejects elevated windows that this standard-user publisher cannot control.
     let mut generation = GetPropW(window, WINDOW_IDENTITY).0 as usize;
     if generation == 0 {
         generation = (uuid::Uuid::new_v4().as_u128() as usize).max(1);
         if SetPropW(window, WINDOW_IDENTITY, Some(HANDLE(generation as *mut _))).is_err() {
-            return BOOL(1);
+            return None;
         }
     }
     let id = format!(
@@ -435,9 +473,9 @@ unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
                 .is_ok()
         })
     {
-        targets.push(target);
+        return Some(target);
     }
-    BOOL(1)
+    None
 }
 
 impl WindowSystem for Desktop {
@@ -480,41 +518,22 @@ impl WindowSystem for Desktop {
         Ok(result)
     }
     fn geometry(&mut self, target: &Target) -> Result<Geometry> {
-        validate(target)?;
-        let rect = bounds(target)?;
-        let (width, height) = (
-            (rect.right - rect.left) as u32,
-            (rect.bottom - rect.top) as u32,
-        );
-        paneferry_protocol::dimensions(width, height)?;
-        Ok(Geometry {
-            title: {
-                let current = title(hwnd(target));
-                if current.is_empty() {
-                    target.name.clone()
-                } else {
-                    current
-                }
-            },
-            width,
-            height,
-            visible: unsafe {
-                IsWindowVisible(hwnd(target)).as_bool() && !IsIconic(hwnd(target)).as_bool()
-            },
-        })
+        if let Some(scene) = self.scene.as_mut().filter(|s| s.anchor.id == target.id) {
+            return scene.geometry();
+        }
+        window_geometry(target)
     }
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()> {
         validate(target)?;
         self.detach();
         self.fps = fps.clamp(1, 30);
-        self.capture = Some(capture::Capture::new(hwnd(target))?);
+        self.scene = Some(scene::Scene::new(target)?);
         Ok(())
     }
     fn keyframe(&mut self, target: &Target) -> Result<()> {
         validate(target)?;
         self.encoder = None;
         self.pending.clear();
-        self.capture = Some(capture::Capture::new(hwnd(target))?);
         Ok(())
     }
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>> {
@@ -522,25 +541,30 @@ impl WindowSystem for Desktop {
         let geometry = self.geometry(target)?;
         if !geometry.visible {
             self.release();
-            self.capture = None;
             self.encoder = None;
             self.pending.clear();
             return Ok(None);
         }
         if let Some(frame) = self.pending.pop_front() {
-            if frame.width == geometry.width && frame.height == geometry.height {
+            if frame.width == geometry.width
+                && frame.height == geometry.height
+                && frame.content_revision == geometry.content_revision
+            {
                 return Ok(Some(frame));
             }
             self.pending.clear();
             self.encoder = None;
         }
-        if self.capture.is_none() {
-            self.capture = Some(capture::Capture::new(hwnd(target))?);
-        }
-        let Some((width, height, pixels)) = self.capture.as_mut().unwrap().frame()? else {
+        let Some((width, height, pixels)) =
+            self.scene.as_mut().context("capture_failed")?.frame()?
+        else {
             return Ok(None);
         };
-        if width != geometry.width || height != geometry.height {
+        let content_revision = self.scene.as_ref().unwrap().revision;
+        if width != geometry.width
+            || height != geometry.height
+            || content_revision != geometry.content_revision
+        {
             self.encoder = None;
             return Ok(None);
         }
@@ -562,6 +586,7 @@ impl WindowSystem for Desktop {
         let encoder = self.encoder.as_mut().unwrap();
         for (data, key_frame) in encoder.encode(&crate::pixels::nv12(&pixels, width, height)?)? {
             self.pending.push_back(VideoFrame {
+                content_revision,
                 data,
                 key_frame,
                 width,
@@ -573,186 +598,52 @@ impl WindowSystem for Desktop {
     }
     fn input(&mut self, target: &Target, input: Input) -> Result<()> {
         validate(target)?;
-        if let Input::Pointer {
-            x, y, button: 0, ..
-        } = input
-        {
-            return self.pointer_motion(target, x, y);
-        }
-        if matches!(input, Input::Focus) {
-            // Focusing the receiver prepares its source for a subsequent click.
-            // A denied programmatic activation is not a failed user click/key.
-            return self.prepare_focus(target);
-        }
-        // Key/button release must not steal focus; all new input must target this window.
-        let releasing = matches!(
-            input,
-            Input::Key { pressed: false, .. }
-                | Input::Pointer {
-                    pressed: false,
-                    button: 1..=3,
-                    ..
-                }
-        );
-        if !releasing && !matches!(input, Input::Resize { .. } | Input::Close) {
-            ensure!(self.geometry(target)?.visible, "window_unavailable");
-            if matches!(
-                input,
-                Input::Pointer {
-                    button: 1..=3,
-                    pressed: true,
-                    ..
-                }
-            ) {
-                self.prepare_focus(target)?;
-            } else {
-                self.focus(target)?;
-            }
-        }
+        // Releases are independent of a surface that may have just closed.
         match input {
-            Input::Focus => {}
             Input::Key {
                 virtual_key,
-                pressed,
+                pressed: false,
             } => {
-                if !pressed && !self.keys.contains(&virtual_key) {
-                    return Ok(());
+                if self.keys.remove(&virtual_key) {
+                    key_event(virtual_key, false)?;
                 }
-                key_event(virtual_key, pressed)?;
-                if pressed {
-                    self.keys.insert(virtual_key);
-                } else {
-                    self.keys.remove(&virtual_key);
-                }
-            }
-            Input::Text(text) => {
-                paneferry_protocol::validate_text(&text)?;
-                self.release();
-                // UTF-16 code units preserve surrogate pairs for emoji and supplementary CJK.
-                let units: Vec<_> = text.encode_utf16().collect();
-                let mut offset = 0;
-                while offset < units.len() {
-                    let mut end = (offset + 64).min(units.len());
-                    if end < units.len() && (0xd800..=0xdbff).contains(&units[end - 1]) {
-                        end -= 1;
-                    }
-                    let chunk = &units[offset..end];
-                    offset = end;
-                    ensure!(
-                        unsafe { GetForegroundWindow() } == hwnd(target),
-                        "input_focus_required"
-                    );
-                    let mut events = Vec::new();
-                    for unit in chunk {
-                        for up in [false, true] {
-                            events.push(INPUT {
-                                r#type: INPUT_KEYBOARD,
-                                Anonymous: INPUT_0 {
-                                    ki: KEYBDINPUT {
-                                        wVk: VIRTUAL_KEY(0),
-                                        wScan: *unit,
-                                        dwFlags: KEYEVENTF_UNICODE
-                                            | if up {
-                                                KEYEVENTF_KEYUP
-                                            } else {
-                                                KEYBD_EVENT_FLAGS(0)
-                                            },
-                                        ..Default::default()
-                                    },
-                                },
-                            });
-                        }
-                    }
-                    send(&events)?;
-                }
+                return Ok(());
             }
             Input::Pointer {
-                x,
-                y,
-                button,
-                pressed,
+                button: 1..=3,
+                pressed: false,
+                ..
             } => {
-                if releasing {
+                if let Input::Pointer { button, .. } = input {
                     if self.buttons.remove(&button) {
                         mouse_button(button, false)?;
                     }
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
+        let routed = if let Some(scene) = self.scene.as_ref().filter(|s| s.anchor.id == target.id) {
+            if matches!(input, Input::Resize { .. }) && scene.multiple() {
+                return Ok(());
+            }
+            let passive = matches!(input, Input::Pointer { button: 0, .. });
+            match scene.route(input) {
+                Ok(routed) => routed,
+                Err(_) if passive => {
+                    self.release();
                     return Ok(());
                 }
-                let rect = bounds(target)?;
-                ensure!(
-                    x >= 0 && y >= 0 && x < rect.right - rect.left && y < rect.bottom - rect.top,
-                    "invalid_request"
-                );
-                unsafe {
-                    ensure!(
-                        IsWindowEnabled(hwnd(target)).as_bool(),
-                        "input_focus_required"
-                    );
-                    let point = POINT {
-                        x: rect.left + x,
-                        y: rect.top + y,
-                    };
-                    // Foreground ownership may change before the other UI
-                    // thread finishes raising its window. Wait for the actual
-                    // hit-test result, not just a WM_NULL acknowledgement.
-                    let deadline =
-                        std::time::Instant::now() + std::time::Duration::from_millis(250);
-                    let mut under = WindowFromPoint(point);
-                    while GetAncestor(under, GA_ROOT) != hwnd(target)
-                        && GetForegroundWindow() == hwnd(target)
-                        && std::time::Instant::now() < deadline
-                    {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                        under = WindowFromPoint(point);
-                    }
-                    validate(target)?;
-                    ensure!(bounds(target)? == rect, "window_unavailable");
-                    if GetAncestor(under, GA_ROOT) != hwnd(target) {
-                        let hit = GetAncestor(under, GA_ROOT);
-                        return Err(anyhow::anyhow!("input_focus_required").context(format!(
-                            "pointer target occluded: target={:?} foreground={:?} hit={hit:?} hit_topmost={}",
-                            hwnd(target), GetForegroundWindow(),
-                            GetWindowLongPtrW(hit, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0
-                        )));
-                    }
-                    SetCursorPos(rect.left + x, rect.top + y)?;
-                }
-                if button != 0 {
-                    mouse_button(button, pressed)?;
-                    if button <= 3 && pressed {
-                        self.buttons.insert(button);
-                    }
-                }
+                Err(error) => return Err(error),
             }
-            Input::Resize { width, height } => {
-                paneferry_protocol::dimensions(width, height)?;
-                unsafe {
-                    let frame = bounds(target)?;
-                    let mut outer = RECT::default();
-                    GetWindowRect(hwnd(target), &mut outer)?;
-                    SetWindowPos(
-                        hwnd(target),
-                        None,
-                        0,
-                        0,
-                        width as i32 + (outer.right - outer.left) - (frame.right - frame.left),
-                        height as i32 + (outer.bottom - outer.top) - (frame.bottom - frame.top),
-                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                    )?;
-                }
-                self.capture = None;
-                self.encoder = None;
-                self.pending.clear();
-            }
-            Input::Close => unsafe {
-                PostMessageW(Some(hwnd(target)), WM_CLOSE, WPARAM(0), LPARAM(0))?;
-            },
-        }
-        Ok(())
+        } else {
+            (target.clone(), input)
+        };
+        self.input_one(&routed.0, routed.1)
     }
     fn detach(&mut self) {
+        self.scene = None;
         self.release();
-        self.capture = None;
         self.encoder = None;
         self.pending.clear();
     }
@@ -815,4 +706,182 @@ fn mouse_button(button: u8, pressed: bool) -> Result<()> {
             },
         },
     }])
+}
+
+impl Desktop {
+    fn input_one(&mut self, target: &Target, input: Input) -> Result<()> {
+        validate(target)?;
+        if let Input::Pointer {
+            x, y, button: 0, ..
+        } = input
+        {
+            return self.pointer_motion(target, x, y);
+        }
+        if matches!(input, Input::Focus) {
+            // Focusing the receiver prepares its source for a subsequent click.
+            // A denied programmatic activation is not a failed user click/key.
+            return self.prepare_focus(target);
+        }
+        // Key/button release must not steal focus; all new input must target this window.
+        let releasing = matches!(
+            input,
+            Input::Key { pressed: false, .. }
+                | Input::Pointer {
+                    pressed: false,
+                    button: 1..=3,
+                    ..
+                }
+        );
+        if !releasing && !matches!(input, Input::Resize { .. } | Input::Close) {
+            ensure!(window_geometry(target)?.visible, "window_unavailable");
+            if matches!(
+                input,
+                Input::Pointer {
+                    button: 1..=3,
+                    pressed: true,
+                    ..
+                }
+            ) {
+                self.prepare_focus(target)?;
+            } else {
+                self.focus(target)?;
+            }
+        }
+        match input {
+            Input::Focus => {}
+            Input::Key {
+                virtual_key,
+                pressed,
+            } => {
+                if !pressed && !self.keys.contains(&virtual_key) {
+                    return Ok(());
+                }
+                key_event(virtual_key, pressed)?;
+                if pressed {
+                    self.keys.insert(virtual_key);
+                } else {
+                    self.keys.remove(&virtual_key);
+                }
+            }
+            Input::Text(text) => {
+                paneferry_protocol::validate_text(&text)?;
+                self.release();
+                // UTF-16 code units preserve surrogate pairs for emoji and supplementary CJK.
+                let units: Vec<_> = text.encode_utf16().collect();
+                let mut offset = 0;
+                while offset < units.len() {
+                    let mut end = (offset + 64).min(units.len());
+                    if end < units.len() && (0xd800..=0xdbff).contains(&units[end - 1]) {
+                        end -= 1;
+                    }
+                    let chunk = &units[offset..end];
+                    offset = end;
+                    ensure!(self.input_foreground(target), "input_focus_required");
+                    let mut events = Vec::new();
+                    for unit in chunk {
+                        for up in [false, true] {
+                            events.push(INPUT {
+                                r#type: INPUT_KEYBOARD,
+                                Anonymous: INPUT_0 {
+                                    ki: KEYBDINPUT {
+                                        wVk: VIRTUAL_KEY(0),
+                                        wScan: *unit,
+                                        dwFlags: KEYEVENTF_UNICODE
+                                            | if up {
+                                                KEYEVENTF_KEYUP
+                                            } else {
+                                                KEYBD_EVENT_FLAGS(0)
+                                            },
+                                        ..Default::default()
+                                    },
+                                },
+                            });
+                        }
+                    }
+                    send(&events)?;
+                }
+            }
+            Input::Pointer {
+                x,
+                y,
+                button,
+                pressed,
+            } => {
+                if releasing {
+                    if self.buttons.remove(&button) {
+                        mouse_button(button, false)?;
+                    }
+                    return Ok(());
+                }
+                let rect = bounds(target)?;
+                ensure!(
+                    x >= 0 && y >= 0 && x < rect.right - rect.left && y < rect.bottom - rect.top,
+                    "invalid_request"
+                );
+                unsafe {
+                    ensure!(
+                        IsWindowEnabled(hwnd(target)).as_bool(),
+                        "input_focus_required"
+                    );
+                    let point = POINT {
+                        x: rect.left + x,
+                        y: rect.top + y,
+                    };
+                    // Foreground ownership may change before the other UI
+                    // thread finishes raising its window. Wait for the actual
+                    // hit-test result, not just a WM_NULL acknowledgement.
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(250);
+                    let mut under = WindowFromPoint(point);
+                    while GetAncestor(under, GA_ROOT) != hwnd(target)
+                        && self.input_foreground(target)
+                        && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        under = WindowFromPoint(point);
+                    }
+                    validate(target)?;
+                    ensure!(bounds(target)? == rect, "window_unavailable");
+                    if GetAncestor(under, GA_ROOT) != hwnd(target) {
+                        let hit = GetAncestor(under, GA_ROOT);
+                        return Err(anyhow::anyhow!("input_focus_required").context(format!(
+                            "pointer target occluded: target={:?} foreground={:?} hit={hit:?} hit_topmost={}",
+                            hwnd(target), GetForegroundWindow(),
+                            GetWindowLongPtrW(hit, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0
+                        )));
+                    }
+                    SetCursorPos(rect.left + x, rect.top + y)?;
+                }
+                if button != 0 {
+                    mouse_button(button, pressed)?;
+                    if button <= 3 && pressed {
+                        self.buttons.insert(button);
+                    }
+                }
+            }
+            Input::Resize { width, height } => {
+                paneferry_protocol::dimensions(width, height)?;
+                unsafe {
+                    let frame = bounds(target)?;
+                    let mut outer = RECT::default();
+                    GetWindowRect(hwnd(target), &mut outer)?;
+                    SetWindowPos(
+                        hwnd(target),
+                        None,
+                        0,
+                        0,
+                        width as i32 + (outer.right - outer.left) - (frame.right - frame.left),
+                        height as i32 + (outer.bottom - outer.top) - (frame.bottom - frame.top),
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    )?;
+                }
+                self.encoder = None;
+                self.pending.clear();
+            }
+            Input::Close => unsafe {
+                PostMessageW(Some(hwnd(target)), WM_CLOSE, WPARAM(0), LPARAM(0))?;
+            },
+        }
+        Ok(())
+    }
 }

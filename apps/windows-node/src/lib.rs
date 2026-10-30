@@ -175,8 +175,8 @@ impl Client {
             session.target.clone()
         };
         let result = (|| {
-            let geometry = self.system.geometry(&target)?;
             self.system.attach(&target, self.fps)?;
+            let geometry = self.system.geometry(&target)?;
             self.geometry = Some(geometry);
             Ok(())
         })();
@@ -485,6 +485,7 @@ impl Client {
                 g.width != geometry.width
                     || g.height != geometry.height
                     || g.visible != geometry.visible
+                    || g.content_revision != geometry.content_revision
             }) {
                 self.revision += 1;
             }
@@ -496,7 +497,10 @@ impl Client {
         if let Some(frame) = self.system.frame(&target)? {
             // Old queued frames must never be relabelled with the new geometry revision.
             let geometry = self.geometry.as_ref().unwrap();
-            if frame.width != geometry.width || frame.height != geometry.height || !geometry.visible
+            if frame.width != geometry.width
+                || frame.height != geometry.height
+                || !geometry.visible
+                || frame.content_revision != geometry.content_revision
             {
                 // The source window may resize after the metadata snapshot but
                 // before capture. Do not disconnect or label this frame with an
@@ -678,6 +682,7 @@ mod geometry_tests {
 
     struct ResizingDesktop {
         resized: bool,
+        layout_only: bool,
         keyframes: Arc<AtomicUsize>,
     }
     impl WindowSystem for ResizingDesktop {
@@ -686,8 +691,13 @@ mod geometry_tests {
         }
         fn geometry(&mut self, _: &Target) -> Result<Geometry> {
             Ok(Geometry {
+                content_revision: u64::from(self.resized),
                 title: "resizing".into(),
-                width: if self.resized { 800 } else { 640 },
+                width: if self.resized && !self.layout_only {
+                    800
+                } else {
+                    640
+                },
                 height: 480,
                 visible: true,
             })
@@ -702,8 +712,9 @@ mod geometry_tests {
         fn frame(&mut self, _: &Target) -> Result<Option<VideoFrame>> {
             self.resized = true;
             Ok(Some(VideoFrame {
+                content_revision: 1,
                 data: vec![0, 0, 0, 1, 0x65],
-                width: 800,
+                width: if self.layout_only { 640 } else { 800 },
                 height: 480,
                 stream_id: 2,
                 key_frame: true,
@@ -716,6 +727,10 @@ mod geometry_tests {
     }
     #[tokio::test]
     async fn resize_between_metadata_and_capture_restarts_video_without_disconnect() {
+        verify_geometry_race(false).await;
+        verify_geometry_race(true).await;
+    }
+    async fn verify_geometry_race(layout_only: bool) {
         let keyframes = Arc::new(AtomicUsize::new(0));
         let target = Target {
             id: "resize".into(),
@@ -729,6 +744,7 @@ mod geometry_tests {
         };
         let mut system = ResizingDesktop {
             resized: false,
+            layout_only,
             keyframes: keyframes.clone(),
         };
         let geometry = system.geometry(&target).unwrap();
@@ -758,7 +774,7 @@ mod geometry_tests {
             .collect();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0]["type"], "window.metadata");
-        assert_eq!(events[0]["width"], 800);
+        assert_eq!(events[0]["width"], if layout_only { 640 } else { 800 });
         assert_eq!(events[1]["type"], "frame");
         assert_eq!(
             events[1]["geometry_revision"],

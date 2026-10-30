@@ -78,6 +78,7 @@ impl WindowSystem for Fixture {
             "session_exited"
         );
         Ok(Geometry {
+            content_revision: 0,
             title: "Windows fixture".into(),
             width: 640,
             height: 480,
@@ -101,6 +102,7 @@ impl WindowSystem for Fixture {
         let n = self.next;
         self.next += 1;
         Ok(Some(VideoFrame {
+            content_revision: 0,
             data: self.frames[n].clone(),
             width: 640,
             height: 480,
