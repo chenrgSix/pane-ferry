@@ -1,4 +1,4 @@
-param([int]$Frames=120, [string]$WindowId='', [string]$WindowTitle='', [string]$StatePath=(Join-Path $env:LOCALAPPDATA 'PaneFerry'))
+param([ValidateSet('420','444-atlas-v1')][string]$Color='420', [int]$Frames=120, [string]$WindowId='', [string]$WindowTitle='', [string]$StatePath=(Join-Path $env:LOCALAPPDATA 'PaneFerry'))
 # Local RWP throughput probe: no input, saved pixels, or pairing changes.
 $ErrorActionPreference='Stop'
 $pipePath='\\?\' + (Join-Path $StatePath 'node\management.sock')
@@ -29,7 +29,9 @@ try {
     $catalog=Read-Packet 'window.list'
     $selected=$catalog.windows | Where-Object { $_.auto_connectable -and -not $_.controlled -and (-not $WindowId -or $_.id -eq $WindowId) -and (-not $WindowTitle -or $_.title -eq $WindowTitle) } | Select-Object -First 1
     if(-not $selected){throw 'No available test window'}
-    Send-Packet @{type='video.enable';codec='h264';max_fps=60;feedback=$true}
+    $enable=@{type='video.enable';codec='h264';max_fps=60;feedback=$true}
+    if($Color -ne '420') { if($hello.capabilities -notcontains 'video.color.444-atlas-v1'){throw 'Publisher does not support full chroma'}; $enable.color=$Color }
+    Send-Packet $enable
     $ready=Read-Packet 'video.ready'
     Send-Packet @{type='app.launch';app_id=$selected.id;request_id=[guid]::NewGuid().ToString();backend='native';attach=$true}
     $snapshot=Read-Packet 'window.created'
@@ -46,6 +48,9 @@ try {
     [pscustomobject]@{
         advertised_max_fps=$hello.video_max_fps
         negotiated_fps=$ready.max_fps
+        color=$frame.color
+        encoded_width=$frame.encoded_width
+        encoded_height=$frame.encoded_height
         width=$snapshot.width
         height=$snapshot.height
         frames=$Frames

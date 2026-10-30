@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
 };
+use windows::core::Interface;
 
 type Leases = HashMap<String, (u64, String)>;
 static LEASES: OnceLock<Mutex<Leases>> = OnceLock::new();
@@ -32,6 +33,7 @@ struct Layout {
 struct Layer {
     capture: capture::Capture,
     pixels: Option<(u32, u32, Vec<u8>)>,
+    texture: Option<gpu::Layer>,
 }
 pub struct Scene {
     pub revision: u64,
@@ -42,6 +44,7 @@ pub struct Scene {
     layout: Layout,
     presented: Option<Layout>,
     output: Vec<u8>,
+    gpu: Option<gpu::Compositor>,
     composed_revision: Option<u64>,
     pixels_changed: bool,
     last_composed: std::time::Instant,
@@ -149,6 +152,7 @@ impl Scene {
             },
             presented: None,
             output: Vec::new(),
+            gpu: None,
             composed_revision: None,
             pixels_changed: false,
             last_composed: std::time::Instant::now(),
@@ -276,7 +280,64 @@ impl Scene {
     #[cfg(test)]
     pub fn frame(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
         self.refresh()?;
-        self.frame_prepared()
+        let frame = self.frame_prepared()?;
+        match (frame, &self.gpu) {
+            (Some((w, h, _)), Some(gpu)) => Ok(Some((w, h, gpu.read_bgra()?))),
+            (frame, _) => Ok(frame),
+        }
+    }
+    pub fn enable_gpu(&mut self) {
+        if std::env::var("PANEFERRY_VIDEO_GPU").as_deref() == Ok("off") {
+            return;
+        }
+        match gpu::Compositor::new() {
+            Ok(gpu) => {
+                self.gpu = Some(gpu);
+                eprintln!("PF_CAPTURE composition=gpu");
+            }
+            Err(error) => eprintln!("PF_CAPTURE composition=cpu reason={error:#}"),
+        }
+    }
+    fn disable_gpu(&mut self) {
+        if self.gpu.take().is_some() {
+            self.layers.clear();
+            self.composed_revision = None;
+            self.force_frame = true;
+        }
+    }
+    pub fn encoded_input(
+        &mut self,
+        mode: crate::color::ColorMode,
+        output: &mut Vec<u8>,
+    ) -> Result<Option<(u32, u32)>> {
+        let result = (|| {
+            let Some((w, h, pixels)) = self.frame_prepared()? else {
+                return Ok(None);
+            };
+            if let Some(gpu) = &mut self.gpu {
+                gpu.convert(mode, output)?;
+            } else {
+                let converted = match mode {
+                    crate::color::ColorMode::Compatible => {
+                        crate::pixels::nv12_into(&pixels, w, h, output)
+                    }
+                    crate::color::ColorMode::Full => {
+                        crate::color::atlas_into(&pixels, w, h, output)
+                    }
+                };
+                self.recycle(pixels);
+                converted?;
+            }
+            Ok(Some((w, h)))
+        })();
+        if let Err(error) = &result {
+            if self.gpu.is_some() {
+                eprintln!("PF_CAPTURE fallback=cpu reason={error:#}");
+                self.disable_gpu();
+                return Ok(None);
+            }
+        }
+        result
     }
     pub fn frame_prepared(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>> {
         // Desktop::frame has just refreshed geometry; avoid a third desktop scan.
@@ -292,26 +353,48 @@ impl Scene {
                 return Ok(None); // A closing popup does not end its parent session.
             }
             if !self.layers.contains_key(&surface.target.id) {
-                let capture =
-                    match capture::Capture::new(hwnd(&surface.target), self.signal.clone()) {
-                        Ok(capture) => capture,
-                        Err(error) if surface.target.id == self.anchor.id => return Err(error),
-                        Err(_) => return Ok(None),
-                    };
+                let capture = match if let Some(gpu) = &self.gpu {
+                    capture::Capture::with_device(
+                        hwnd(&surface.target),
+                        self.signal.clone(),
+                        &gpu.device,
+                    )
+                } else {
+                    capture::Capture::new(hwnd(&surface.target), self.signal.clone())
+                } {
+                    Ok(capture) => capture,
+                    Err(error) if surface.target.id == self.anchor.id => return Err(error),
+                    Err(_) => return Ok(None),
+                };
                 self.layers.insert(
                     surface.target.id.clone(),
                     Layer {
                         capture,
                         pixels: None,
+                        texture: None,
                     },
                 );
             }
             let layer = self.layers.get_mut(&surface.target.id).unwrap();
             let pixels = layer.pixels.get_or_insert_with(|| (0, 0, Vec::new()));
-            let captured = match layer.capture.frame_into(&mut pixels.2) {
-                Ok(frame) => frame,
-                Err(error) if surface.target.id == self.anchor.id => return Err(error),
-                Err(_) => return Ok(None),
+            let captured = if let Some(gpu) = &self.gpu {
+                match layer.capture.frame_texture()? {
+                    Some((w, h, texture)) => {
+                        if layer.texture.as_ref().is_none_or(|t| {
+                            t.width != w || t.height != h || t.texture.as_raw() != texture.as_raw()
+                        }) {
+                            layer.texture = Some(gpu::Layer::new(&gpu.device, texture, w, h)?);
+                        }
+                        Some((w, h))
+                    }
+                    None => None,
+                }
+            } else {
+                match layer.capture.frame_into(&mut pixels.2) {
+                    Ok(frame) => frame,
+                    Err(error) if surface.target.id == self.anchor.id => return Err(error),
+                    Err(_) => return Ok(None),
+                }
             };
             if let Some((width, height)) = captured {
                 pixels.0 = width;
@@ -344,7 +427,9 @@ impl Scene {
             self.refresh_remaining = self.refresh_remaining.saturating_sub(1);
         }
         let cached = !changed
-            && self.output.len() == self.layout.width as usize * self.layout.height as usize * 4;
+            && (self.gpu.is_some()
+                || self.output.len()
+                    == self.layout.width as usize * self.layout.height as usize * 4);
         let _timing = crate::metrics::span(if cached {
             "scene.compose_cached"
         } else if changed {
@@ -353,17 +438,33 @@ impl Scene {
             "scene.compose_refresh"
         });
         let mut output = std::mem::take(&mut self.output);
-        output.resize(
-            self.layout.width as usize * self.layout.height as usize * 4,
-            24,
-        );
-        if !cached {
-            for (index, surface) in self.layout.surfaces.iter().enumerate() {
-                let (w, h, pixels) = self.layers[&surface.target.id].pixels.as_ref().unwrap();
-                if index == 0 {
-                    paint_base(&self.layout, surface.rect, *w, *h, pixels, &mut output);
-                } else {
-                    paint(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+        if let Some(gpu) = &mut self.gpu {
+            if !cached {
+                let _timing = crate::metrics::span("gpu.compose_submit");
+                gpu.begin(self.layout.width, self.layout.height, self.layout.rect)?;
+                for surface in &self.layout.surfaces {
+                    gpu.paint(
+                        self.layers[&surface.target.id]
+                            .texture
+                            .as_ref()
+                            .context("GPU layer unavailable")?,
+                        surface.rect,
+                    )?;
+                }
+            }
+        } else {
+            output.resize(
+                self.layout.width as usize * self.layout.height as usize * 4,
+                24,
+            );
+            if !cached {
+                for (index, surface) in self.layout.surfaces.iter().enumerate() {
+                    let (w, h, pixels) = self.layers[&surface.target.id].pixels.as_ref().unwrap();
+                    if index == 0 {
+                        paint_base(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+                    } else {
+                        paint(&self.layout, surface.rect, *w, *h, pixels, &mut output);
+                    }
                 }
             }
         }

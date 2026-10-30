@@ -20,7 +20,7 @@ out = args.output.resolve(); out.mkdir(parents=True, exist_ok=True)
 source = root/'apps/mac-windowhost/Sources/PaneFerryWindowHost'
 binary = out/'probe'
 subprocess.run(['swiftc', '-O', '-module-cache-path', '/tmp/lra-network-verification/swift-cache',
-    str(source/'H264Decoder.swift'), str(source/'SurfaceView.swift'), str(source/'RenderGeometry.swift'),
+    str(source/'ChromaAtlas.swift'), str(source/'H264Decoder.swift'), str(source/'SurfaceView.swift'), str(source/'RenderGeometry.swift'),
     str(root/'tests/performance/MacDisplayQuality.swift'), '-o', str(binary)], check=True)
 subprocess.run([str(binary), 'generate', str(out)], check=True)
 ffmpeg = shutil.which('ffmpeg')

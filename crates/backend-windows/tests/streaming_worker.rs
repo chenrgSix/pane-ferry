@@ -14,6 +14,9 @@ fn real_capture_worker_streams_and_accepts_input() -> Result<()> {
         .into_iter()
         .find(|w| w.pid == pid && w.name == "PaneFerry dynamic video verification")
         .context("video fixture missing")?;
+    if std::env::var("PANEFERRY_TEST_COLOR").as_deref() == Ok("444") {
+        desktop.set_video_color(paneferry_backend_windows::color::ColorMode::Full)?;
+    }
     desktop.attach(&target, 60)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

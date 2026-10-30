@@ -39,7 +39,16 @@ impl Encoder {
         Self::select(width, height, fps, stream, false)
     }
     fn select(width: u32, height: u32, fps: u32, stream: u64, hardware: bool) -> Result<Self> {
-        paneferry_protocol::dimensions(width, height)?;
+        ensure!(
+            width > 0
+                && height > 0
+                && width <= 4096
+                && height <= 4096
+                && width % 2 == 0
+                && height % 2 == 0
+                && width as u64 * height as u64 <= 16_000_000,
+            "invalid encoder dimensions"
+        );
         // Capability-based selection across vendors; software remains available.
         if hardware
             && matches!(
@@ -252,7 +261,11 @@ impl Encoder {
                 output_attempts += 1;
                 ensure!(output_attempts <= 32, "encoder output loop");
                 let info = self.transform.GetOutputStreamInfo(0)?;
-                ensure!(info.cbSize <= 12 * 1024 * 1024, "encoder output too large");
+                // The MFT worst-case workspace can exceed the actual wire packet limit.
+                ensure!(
+                    info.cbSize <= 64 * 1024 * 1024,
+                    "encoder output workspace too large"
+                );
                 if self.events.is_some() {
                     self.poll_events()?;
                     if self.have_output == 0 {
@@ -392,6 +405,45 @@ fn hardware_encoders() -> Result<Vec<IMFActivate>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "installed Windows encoder, synthetic full-chroma samples only"]
+    fn full_chroma_encoder_probe() -> Result<()> {
+        let _runtime = crate::CaptureRuntime::new()?;
+        for (width, height) in [(64u32, 48u32), (1602, 932), (2560, 1440), (4096, 1900)] {
+            let (ew, eh) = crate::color::ColorMode::Full.dimensions(width, height)?;
+            let mut pixels = Vec::new();
+            for i in 0..width * height {
+                pixels.extend_from_slice(if i % 2 == 0 {
+                    &[0, 0, 255, 255]
+                } else {
+                    &[255, 0, 0, 255]
+                });
+            }
+            let mut input = Vec::new();
+            crate::color::atlas_into(&pixels, width, height, &mut input)?;
+            let mut encoder = Encoder::software(ew, eh, 60, 1)?;
+            let start = std::time::Instant::now();
+            let packets = encoder.encode(&input)?;
+            ensure!(
+                packets.len() == 1 && packets[0].1,
+                "missing full-chroma keyframe"
+            );
+            eprintln!(
+                "FULL_CHROMA source={width}x{height} carrier={ew}x{eh} bytes={} encode_ms={:.2}",
+                packets[0].0.len(),
+                start.elapsed().as_secs_f64() * 1000.0
+            );
+            if let Some(directory) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
+                let directory = std::path::PathBuf::from(directory);
+                std::fs::create_dir_all(&directory)?;
+                std::fs::write(
+                    directory.join(format!("atlas-{width}-{height}.h264")),
+                    &packets[0].0,
+                )?;
+            }
+        }
+        Ok(())
+    }
     use super::*;
     #[test]
     fn desktop_quality_budget_tracks_frame_rate_and_stays_bounded() {

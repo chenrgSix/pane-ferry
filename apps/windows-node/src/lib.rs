@@ -103,6 +103,7 @@ struct Client {
     system: Box<dyn WindowSystem>,
     session: Option<(String, Target)>,
     video: bool,
+    color: paneferry_backend_windows::color::ColorMode,
     fps: u32,
     flow: video_flow::VideoFlow,
     sequence: u64,
@@ -329,6 +330,7 @@ impl Client {
             }
             Request::Video {
                 codec,
+                color,
                 max_fps,
                 feedback,
             } => {
@@ -336,12 +338,14 @@ impl Client {
                     self.session.is_none() && codec == "h264" && (1..=90).contains(&max_fps),
                     "invalid_request"
                 );
+                self.system.set_video_color(color)?;
+                self.color = color;
                 self.flow.enable(feedback);
                 self.video = true;
                 self.fps = max_fps.min(paneferry_protocol::MAX_VIDEO_FPS as u32);
                 self.send(
                     write,
-                    json!({"type":"video.ready","codec":"h264","max_fps":self.fps}),
+                    json!({"type":"video.ready","codec":"h264","color":self.color,"max_fps":self.fps}),
                 )
                 .await?;
             }
@@ -557,7 +561,7 @@ impl Client {
             }
             ensure!(frame.data.len() <= 12 * 1024 * 1024, "capture_failed");
             let frame_id = self.flow.sent(std::time::Instant::now());
-            self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"encoded_width":frame.width+frame.width%2,"encoded_height":frame.height+frame.height%2,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"frame_id":frame_id,"data":STANDARD.encode(frame.data)})).await?;
+            self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"color":self.color,"encoded_width":self.color.dimensions(frame.width,frame.height)?.0,"encoded_height":self.color.dimensions(frame.width,frame.height)?.1,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"frame_id":frame_id,"data":STANDARD.encode(frame.data)})).await?;
         }
         Ok(())
     }
@@ -613,6 +617,7 @@ pub async fn client(
         system,
         session: None,
         video: false,
+        color: Default::default(),
         fps: 30,
         flow: video_flow::VideoFlow::default(),
         sequence: 0,
@@ -620,7 +625,7 @@ pub async fn client(
         revision: 0,
         video_epoch: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.keyframe","video.qos","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.keyframe","video.qos","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {
@@ -843,6 +848,7 @@ mod geometry_tests {
             system: Box::new(system),
             session: Some(("session".into(), target)),
             video: true,
+            color: Default::default(),
             fps: 30,
             flow: video_flow::VideoFlow::default(),
             sequence: 0,

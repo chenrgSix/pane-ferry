@@ -21,6 +21,12 @@ struct H264OnlySmoke {
         }
         let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
         let thirtyApp = AppDelegate(options: thirtyOptions, clipboard: board)
+        let fullOptions = try Options.parse(args + ["--video-color", "444-atlas-v1"])
+        let full = AppDelegate(options: fullOptions, clipboard: board)
+        var fullSent: [[String: Any]] = []; full.wireSink = { fullSent.append($0) }
+        full.receive(Incoming(object:["type":"hello","capabilities":["native.h264","video.color.444-atlas-v1"]],image:nil))
+        precondition(fullSent.first?["color"] as? String == "444-atlas-v1")
+        precondition(fullSent.first?["codec"] as? String == "h264")
         var thirtySent: [[String: Any]] = []; thirtyApp.wireSink = { thirtySent.append($0) }
         thirtyApp.receive(Incoming(object:["type":"hello","capabilities":["native.h264","video.qos"],"video_max_fps":60],image:nil))
         precondition(thirtySent.first?["max_fps"] as? Int == 30, "the launch argument must reach video.enable")

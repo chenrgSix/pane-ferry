@@ -30,7 +30,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='paneferry-quality-', dir='/tmp') as temp:
         binary = Path(temp) / 'quality-sample'
         subprocess.run(['swiftc', '-O', '-module-cache-path', str(Path(temp) / 'modules'),
-                        *[str(source / name) for name in ('H264Decoder.swift', 'SurfaceView.swift', 'RenderGeometry.swift')],
+                        *[str(source / name) for name in ('ChromaAtlas.swift', 'H264Decoder.swift', 'SurfaceView.swift', 'RenderGeometry.swift')],
                         str(Path(__file__).with_name('QualitySample.swift')), '-o', str(binary)],
                        check=True, timeout=120)
         subprocess.run([str(binary), *parameters],

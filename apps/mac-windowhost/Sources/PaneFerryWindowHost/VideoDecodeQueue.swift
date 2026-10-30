@@ -68,8 +68,9 @@ final class VideoDecodeQueue {
             if let decode = decodeOverride { result = .success(try decode(job).map { VideoFrame(image: $0) }) }
             else {
                 if lane.generation != job.generation { lane.decoder = H264Decoder(); lane.generation = job.generation }
+                guard let color = VideoColor(rawValue: job.object["color"] as? String ?? "420") else { throw VideoDecodeError.invalidFrame }
                 result = .success(try lane.decoder!.decodeFrame(job.data, streamID: job.stream,
-                    width: job.width, height: job.height, encodedWidth: job.encodedWidth, encodedHeight: job.encodedHeight))
+                    width: job.width, height: job.height, encodedWidth: job.encodedWidth, encodedHeight: job.encodedHeight, colorMode: color))
             }
         } catch { result = .failure(error) }
         VideoTiming.record("mac.decode", since: decodingStarted)

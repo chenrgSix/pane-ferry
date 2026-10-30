@@ -37,7 +37,7 @@ use windows::{
     },
     Win32::{
         Foundation::HWND,
-        Graphics::{Direct3D::*, Direct3D11::*, Dxgi::IDXGIDevice},
+        Graphics::Direct3D11::*,
         System::WinRT::{Direct3D11::*, Graphics::Capture::IGraphicsCaptureItemInterop},
     },
 };
@@ -51,33 +51,27 @@ pub struct Capture {
     runtime_device: IDirect3DDevice,
     size: windows::Graphics::SizeInt32,
     staging: Option<ID3D11Texture2D>,
+    latest: Option<ID3D11Texture2D>,
     signal: Arc<FrameSignal>,
     frame_event: i64,
 }
 impl Capture {
     pub fn new(hwnd: HWND, signal: Arc<FrameSignal>) -> Result<Self> {
+        Self::with_device(hwnd, signal, &super::gpu::Device::new()?)
+    }
+    pub fn with_device(
+        hwnd: HWND,
+        signal: Arc<FrameSignal>,
+        shared: &super::gpu::Device,
+    ) -> Result<Self> {
         ensure!(
             GraphicsCaptureSession::IsSupported()?,
             "capture_unavailable"
         );
         unsafe {
-            let mut device = None;
-            let mut context = None;
-            D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                windows::Win32::Foundation::HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut context),
-            )?;
-            let device = device.unwrap();
-            let context = context.unwrap();
-            let runtime_device: IDirect3DDevice =
-                CreateDirect3D11DeviceFromDXGIDevice(&device.cast::<IDXGIDevice>()?)?.cast()?;
+            let device = shared.device.clone();
+            let context = shared.context.clone();
+            let runtime_device = shared.runtime.clone();
             let interop: IGraphicsCaptureItemInterop =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd)?;
@@ -106,12 +100,13 @@ impl Capture {
                 runtime_device,
                 size,
                 staging: None,
+                latest: None,
                 signal,
                 frame_event,
             })
         }
     }
-    pub fn frame_into(&mut self, pixels: &mut Vec<u8>) -> Result<Option<(u32, u32)>> {
+    fn next_frame(&mut self) -> Result<Option<(u32, u32, Direct3D11CaptureFrame)>> {
         let mut frame = match self.pool.TryGetNextFrame() {
             Ok(frame) => frame,
             // WGC returns S_OK + a null frame while its queue is empty. The
@@ -131,7 +126,7 @@ impl Capture {
             frame.Close()?;
             frame = newest;
         }
-        let _timing = crate::metrics::span("capture.readback_new");
+        let _timing = crate::metrics::span("capture.texture_new");
         let size = frame.ContentSize()?;
         if size.Width <= 0 || size.Height <= 0 {
             frame.Close()?;
@@ -166,8 +161,19 @@ impl Capture {
             self.frame_event = frame_event;
             self.size = size;
             self.staging = None;
+            self.latest = None;
             return Ok(None);
         }
+        Ok(Some((size.Width as u32, size.Height as u32, frame)))
+    }
+    pub fn frame_texture(&mut self) -> Result<Option<(u32, u32, ID3D11Texture2D)>> {
+        let Some((width, height, frame)) = self.next_frame()? else {
+            return Ok(None);
+        };
+        let size = windows::Graphics::SizeInt32 {
+            Width: width as i32,
+            Height: height as i32,
+        };
         unsafe {
             let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
             let texture: ID3D11Texture2D = access.GetInterface()?;
@@ -175,6 +181,60 @@ impl Capture {
             texture.GetDesc(&mut desc);
             ensure!(
                 desc.Width >= size.Width as u32 && desc.Height >= size.Height as u32,
+                "invalid capture size"
+            );
+            if self.latest.is_none() {
+                desc.Width = size.Width as u32;
+                desc.Height = size.Height as u32;
+                desc.Usage = D3D11_USAGE_DEFAULT;
+                desc.BindFlags = D3D11_BIND_SHADER_RESOURCE.0 as u32;
+                desc.CPUAccessFlags = 0;
+                desc.MiscFlags = 0;
+                self.device
+                    .CreateTexture2D(&desc, None, Some(&mut self.latest))?;
+            }
+            let latest = self.latest.as_ref().unwrap();
+            self.context.CopySubresourceRegion(
+                latest,
+                0,
+                0,
+                0,
+                0,
+                &texture,
+                0,
+                Some(&D3D11_BOX {
+                    left: 0,
+                    top: 0,
+                    front: 0,
+                    right: size.Width as u32,
+                    bottom: size.Height as u32,
+                    back: 1,
+                }),
+            );
+            frame.Close()?;
+            Ok(Some((
+                size.Width as u32,
+                size.Height as u32,
+                latest.clone(),
+            )))
+        }
+    }
+    pub fn frame_into(&mut self, pixels: &mut Vec<u8>) -> Result<Option<(u32, u32)>> {
+        let Some((width, height, frame)) = self.next_frame()? else {
+            return Ok(None);
+        };
+        let _timing = crate::metrics::span("capture.readback_new");
+        unsafe {
+            let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
+            let texture: ID3D11Texture2D = access.GetInterface()?;
+            let size = windows::Graphics::SizeInt32 {
+                Width: width as i32,
+                Height: height as i32,
+            };
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            texture.GetDesc(&mut desc);
+            ensure!(
+                desc.Width >= width && desc.Height >= height,
                 "invalid capture size"
             );
             if let Some(staging) = &self.staging {

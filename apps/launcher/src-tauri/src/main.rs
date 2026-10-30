@@ -215,6 +215,7 @@ fn spawn_host(
     // stdin, without command-line image data, temporary files or another scan.
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
     let picture_mode = app.state::<display_settings::Service>().mode();
+    let video_color = app.state::<display_settings::Service>().color();
     let mut command = Command::new(path.executable);
     command
         .arg("--native-peer")
@@ -228,7 +229,9 @@ fn spawn_host(
         .arg("--fps")
         .arg(video_fps.to_string())
         .arg("--picture-mode")
-        .arg(picture_mode.as_str());
+        .arg(picture_mode.as_str())
+        .arg("--video-color")
+        .arg(video_color.as_str());
     if background {
         command.arg("--background-start");
     }
@@ -241,6 +244,7 @@ fn spawn_host(
         background,
         icon.as_deref(),
         picture_mode,
+        video_color,
     )?;
     let pid = attached.pid;
     let (stop, stop_requests) = std::sync::mpsc::channel();
@@ -625,6 +629,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             display_settings::picture_mode,
             display_settings::set_picture_mode,
+            display_settings::video_color,
+            display_settings::set_video_color,
             list_apps,
             list_desktop_windows,
             list_desktop_monitors,

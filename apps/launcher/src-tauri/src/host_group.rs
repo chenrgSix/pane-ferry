@@ -129,6 +129,7 @@ pub fn attach_or_start(
     background: bool,
     icon: Option<&str>,
     picture_mode: crate::display_settings::PictureMode,
+    video_color: crate::display_settings::VideoColor,
 ) -> Result<Attachment, String> {
     attach_inner(
         group,
@@ -139,6 +140,7 @@ pub fn attach_or_start(
         background,
         icon,
         picture_mode,
+        video_color,
     )
     .map_err(|_| format!("无法接入本机应用入口。远端会话 {session} 已保留，可重试连接。"))
 }
@@ -151,6 +153,7 @@ fn attach_inner(
     background: bool,
     icon: Option<&str>,
     picture_mode: crate::display_settings::PictureMode,
+    video_color: crate::display_settings::VideoColor,
 ) -> io::Result<Attachment> {
     if group.len() != 64
         || !group
@@ -224,7 +227,7 @@ fn attach_inner(
     };
     send(
         &mut stream,
-        &json!({"version":1,"group":group,"op":"attach","session":session,"target":target,"fps":fps,"background":background,"picture_mode":picture_mode}),
+        &json!({"version":1,"group":group,"op":"attach","session":session,"target":target,"fps":fps,"background":background,"picture_mode":picture_mode,"video_color":video_color}),
     )?;
     let response = receive(&mut stream)?;
     let pid = response["pid"]

@@ -2,6 +2,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod color;
 pub mod input;
 pub mod metrics;
 #[cfg(windows)]
@@ -114,6 +115,13 @@ pub trait WindowSystem {
     fn windows(&mut self) -> Result<Vec<Target>>;
     fn geometry(&mut self, target: &Target) -> Result<Geometry>;
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()>;
+    fn set_video_color(&mut self, mode: color::ColorMode) -> Result<()> {
+        anyhow::ensure!(
+            mode == color::ColorMode::Compatible,
+            "color_mode_unavailable"
+        );
+        Ok(())
+    }
     fn set_video_fps(&mut self, _fps: u32) -> Result<()> {
         Ok(())
     }

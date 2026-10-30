@@ -54,6 +54,19 @@ async function savePictureMode(event: Event) {
   catch { pictureModeError.value = "画面尺寸设置保存失败，请重试。"; }
   finally { (event.target as HTMLSelectElement).value = pictureMode.value; pictureModeSaving.value = false; }
 }
+type VideoColor = "420" | "444-atlas-v1";
+const videoColor = ref<VideoColor>("420"), videoColorReady = ref(false), videoColorSaving = ref(false), videoColorError = ref("");
+async function readVideoColor() {
+  try { videoColor.value = await invoke<VideoColor>("video_color"); videoColorReady.value = true; }
+  catch { videoColorError.value = "??????????????????"; }
+}
+async function saveVideoColor(event: Event) {
+  const mode = (event.target as HTMLSelectElement).value as VideoColor;
+  videoColorSaving.value = true; videoColorError.value = "";
+  try { await invoke("set_video_color", {mode}); videoColor.value = mode; }
+  catch { videoColorError.value = "?????????????"; }
+  finally { (event.target as HTMLSelectElement).value = videoColor.value; videoColorSaving.value = false; }
+}
 const busy = ref(false),
   videoFPS = ref<30 | 60>(60),
   applicationScene = ref(false),
@@ -581,6 +594,7 @@ watch(signature, restoreCatalog);
 watch(activePage, () => window.scrollTo?.(0, 0), { flush: "post" });
 onMounted(() => {
   void readPictureMode();
+  void readVideoColor();
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onOnline);
   restoreCatalog();
@@ -841,6 +855,8 @@ onUnmounted(() => {
           <div class="setting-row"><div><label for="video-fps">默认帧率上限</label><p class="hint">新打开或重新连接的窗口使用所选上限。已打开的窗口可在“显示 → 帧率”中即时切换；实际帧率随画面内容和连接状态变化。</p></div><select id="video-fps" v-model.number="videoFPS" :disabled="busy" @change="save"><option :value="30">30 帧/秒</option><option :value="60">60 帧/秒</option></select></div>
           <div class="setting-row"><div><label for="picture-mode">接收画面尺寸</label><p class="hint">通用于手动和自动接管。适配本机沿用当前策略；原画面按源系统的窗口尺寸显示，不随本机窗口调整源端大小。保存后，关闭接收窗口并重新接管即可应用。</p></div><select id="picture-mode" :value="pictureMode" :disabled="!pictureModeReady || pictureModeSaving || busy" @change="savePictureMode"><option value="adapt">调整画面 · 适配本机</option><option value="source">原画面 · 保持源窗口尺寸</option></select></div>
           <p v-if="pictureModeError" role="alert">{{ pictureModeError }}</p>
+          <div v-if="localNode?.platform === 'macos'" class="setting-row"><div><label for="video-color">????</label><p class="hint">4:4:4 ???????????????????? Windows ?????????????????????????????????????????????????????</p></div><select id="video-color" :value="videoColor" :disabled="!videoColorReady || videoColorSaving || busy" @change="saveVideoColor"><option value="420">?? ? 4:2:0</option><option value="444-atlas-v1">???? ? 4:4:4????</option></select></div>
+          <p v-if="videoColorError" role="alert">{{ videoColorError }}</p>
           <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。原画面模式使用源窗口尺寸，不启用此固定画布。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy || pictureMode === 'source'" @change="save" /></div>
           <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">适配本机时，远端窗口跟随本机内容区大小；原画面时，本机调整窗口仅缩放显示，源端窗口尺寸保持不变。两种模式都保留画面比例。</p></div><span class="subtle-label">{{ pictureMode === "source" ? "保持源尺寸" : "跟随窗口" }}</span></div>
         </section>

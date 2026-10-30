@@ -9,6 +9,6 @@ with tempfile.TemporaryDirectory(prefix='paneferry-async-video-') as directory:
     scratch = Path(directory)
     binary = scratch / 'decode-smoke'
     subprocess.run(['swiftc', '-module-cache-path', str(scratch / 'modules'),
-                    str(source / 'VideoFrame.swift'), str(source / 'H264Decoder.swift'), str(source / 'VideoDecodeQueue.swift'),
+                    str(source / 'VideoFrame.swift'), str(source / 'ChromaAtlas.swift'), str(source / 'H264Decoder.swift'), str(source / 'VideoDecodeQueue.swift'),
                     str(root / 'tests/swift/AsyncVideoDecodeSmoke.swift'), '-o', str(binary)], check=True, timeout=120)
     subprocess.run([str(binary)], check=True, timeout=15)

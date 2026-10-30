@@ -36,10 +36,10 @@ final class ApplicationGroup: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "断开全部会话并退出（保留远端应用）", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem?.menu = menu
-        if let session = options.session { _ = attach(session, target: options.sourceTarget, fps: options.requestedVideoFPS, pictureMode: options.pictureMode, background: options.backgroundStart) }
+        if let session = options.session { _ = attach(session, target: options.sourceTarget, fps: options.requestedVideoFPS, pictureMode: options.pictureMode, videoColor: options.videoColor, background: options.backgroundStart) }
     }
     @discardableResult
-    func attach(_ id: String, target: String?, fps: Int, pictureMode: PictureMode = .adapt, background: Bool) -> Bool {
+    func attach(_ id: String, target: String?, fps: Int, pictureMode: PictureMode = .adapt, videoColor: VideoColor = .compatible, background: Bool) -> Bool {
         guard !quitting, !detaching.contains(id) else { return false }
         if let controller = sessions[id] {
             if !background { select(controller); controller.windows.values.first { !$0.popup }?.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
@@ -48,7 +48,7 @@ final class ApplicationGroup: NSObject, NSApplicationDelegate {
         guard sessions.count < 32 else { return false }
         // Group options always use --session, so each connection resumes only
         // its own session and cannot relaunch another application's contents.
-        let sessionOptions = Options(app: nil, session: id, requestedVideoFPS: fps, pictureMode: pictureMode, backgroundStart: background,
+        let sessionOptions = Options(app: nil, session: id, requestedVideoFPS: fps, pictureMode: pictureMode, videoColor: videoColor, backgroundStart: background,
                                  applicationGroup: options.applicationGroup, sourceTarget: target, native: options.native)
         let controller = makeSession(sessionOptions, icon)
         sessions[id] = controller; targets[id] = target
@@ -87,8 +87,9 @@ final class ApplicationGroup: NSObject, NSApplicationDelegate {
               id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil else { client.shutdown(); return }
         if request["op"] as? String == "attach", let fps = unsignedInteger(request["fps"]), [30, 60].contains(fps),
            let pictureMode = PictureMode(rawValue: request["picture_mode"] as? String ?? "adapt"),
+           let videoColor = VideoColor(rawValue: request["video_color"] as? String ?? "420"),
            let background = request["background"] as? Bool,
-           attach(id, target: request["target"] as? String, fps: Int(fps), pictureMode: pictureMode, background: background) {
+           attach(id, target: request["target"] as? String, fps: Int(fps), pictureMode: pictureMode, videoColor: videoColor, background: background) {
             broker.watch(id, client: client)
             client.reply(["version": 1, "pid": getpid(), "session": id]); return
         }

@@ -24,6 +24,7 @@ struct Options {
     var iconFromStdin = false
     var requestedVideoFPS = 60
     var pictureMode: PictureMode = .adapt
+    var videoColor: VideoColor = .compatible
     var backgroundStart = false
     var applicationGroup: String?
     var sourceTarget: String?
@@ -33,7 +34,7 @@ struct Options {
         var i = 0
         var iconFromStdin = false
         var backgroundStart = false
-        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--picture-mode", "--application-group", "--source-target"]
+        let allowed: Set<String> = ["--app", "--session", "--native-peer", "--native-state", "--native-helper", "--fps", "--picture-mode", "--video-color", "--application-group", "--source-target"]
         while i < args.count {
             if args[i] == "--background-start" {
                 guard !backgroundStart else { throw HostError.message("后台启动参数重复") }
@@ -57,6 +58,7 @@ struct Options {
             throw HostError.message("帧率必须选择 30 或 60。")
         }
         guard let pictureMode = PictureMode(rawValue: values["--picture-mode"] ?? "adapt") else { throw HostError.message("画面尺寸模式无效") }
+        guard let videoColor = VideoColor(rawValue: values["--video-color"] ?? "420") else { throw HostError.message("??????") }
         let app = values["--app"], session = values["--session"]
         guard (app == nil) != (session == nil) else { throw HostError.message("必须且只能指定 --app 或 --session") }
         for id in [app, session, values["--source-target"]].compactMap({ $0 }) {
@@ -70,7 +72,7 @@ struct Options {
                 throw HostError.message("应用接收入口无效")
             }
         }
-        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, pictureMode: pictureMode,
+        return Options(app: app, session: session, iconFromStdin: iconFromStdin, requestedVideoFPS: fps, pictureMode: pictureMode, videoColor: videoColor,
                        backgroundStart: backgroundStart, applicationGroup: group, sourceTarget: values["--source-target"], native: native)
     }
 }
@@ -263,11 +265,14 @@ final class RWPTransport {
                                   let ew = object["encoded_width"] as? Int, let eh = object["encoded_height"] as? Int,
                                   let encoded = object["data"] as? String, let data = Data(base64Encoded: encoded),
                                   data.count <= 12 * 1024 * 1024 else { throw HostError.message("无效 H.264 帧") }
+                        guard let color = VideoColor(rawValue: object["color"] as? String ?? "420") else { throw VideoDecodeError.invalidFrame }
+                        let expected = try color.dimensions(width: w, height: h)
+                        guard ew == expected.0, eh == expected.1 else { throw VideoDecodeError.invalidFrame }
                         let windowID = UInt32(id)
-                        guard videoPixels.filter({ $0.key != windowID }).values.reduce(0, +) + w * h <= 16_000_000 else {
+                        guard videoPixels.filter({ $0.key != windowID }).values.reduce(0, +) + ew * eh <= 16_000_000 else {
                             throw HostError.message("视频解码像素总量超限")
                         }
-                        videoPixels[windowID] = w * h
+                        videoPixels[windowID] = ew * eh
                         lock.lock(); let generation = decodeMembers[windowID]; lock.unlock()
                         guard let generation else { continue }
                         var lightweight = object; lightweight.removeValue(forKey: "data")
@@ -767,6 +772,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 enable["max_fps"] = videoFPS
                 enable["feedback"] = true
                 configuredVideoFPS = videoFPS
+            }
+            if options.videoColor == .full && capabilities.contains("video.color.444-atlas-v1") {
+                enable["color"] = VideoColor.full.rawValue
+            } else if options.videoColor == .full {
+                alert("?????? 4:4:4????????????", key: "color_mode_unavailable")
             }
             send(enable)
             if let id = session ?? options.session { send(["type": "session.resume", "session_id": id]) }

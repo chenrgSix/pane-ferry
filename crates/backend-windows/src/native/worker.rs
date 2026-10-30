@@ -36,7 +36,7 @@ impl Worker {
             .try_send(work)
             .map_err(|_| anyhow::anyhow!("capture_failed"))
     }
-    fn new(target: &Target, fps: u32) -> Result<Self> {
+    fn new(target: &Target, fps: u32, color: crate::color::ColorMode) -> Result<Self> {
         let (tx, rx) = mpsc::sync_channel(8);
         let (ready, initialized) = mpsc::sync_channel::<Result<Snapshot>>(1);
         let captured_target = target.clone();
@@ -45,6 +45,7 @@ impl Worker {
             .spawn(move || {
                 let initialize = || -> Result<(Desktop, Snapshot)> {
                     let mut desktop = Desktop::new()?;
+                    desktop.set_video_color(color)?;
                     desktop.attach(&captured_target, fps)?;
                     let geometry = desktop.geometry(&captured_target)?;
                     let snapshot = Arc::new(Mutex::new((
@@ -127,12 +128,14 @@ impl Worker {
 pub struct PublishingDesktop {
     control: Desktop,
     worker: Option<Worker>,
+    color: crate::color::ColorMode,
 }
 impl PublishingDesktop {
     pub fn new() -> Result<Self> {
         Ok(Self {
             control: Desktop::new()?,
             worker: None,
+            color: crate::color::ColorMode::Compatible,
         })
     }
 }
@@ -155,7 +158,12 @@ impl WindowSystem for PublishingDesktop {
     }
     fn attach(&mut self, target: &Target, fps: u32) -> Result<()> {
         self.detach();
-        self.worker = Some(Worker::new(target, fps)?);
+        self.worker = Some(Worker::new(target, fps, self.color)?);
+        Ok(())
+    }
+    fn set_video_color(&mut self, mode: crate::color::ColorMode) -> Result<()> {
+        ensure!(self.worker.is_none(), "invalid_request");
+        self.color = mode;
         Ok(())
     }
     fn set_video_fps(&mut self, fps: u32) -> Result<()> {

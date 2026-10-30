@@ -21,6 +21,8 @@ pub enum Request {
     #[serde(rename = "video.enable")]
     Video {
         codec: String,
+        #[serde(default)]
+        color: paneferry_backend_windows::color::ColorMode,
         #[serde(default = "fps")]
         max_fps: u32,
         #[serde(default)]

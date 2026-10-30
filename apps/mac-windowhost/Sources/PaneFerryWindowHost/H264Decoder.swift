@@ -12,6 +12,8 @@ final class H264Decoder {
     private var session: VTDecompressionSession?
     private var format: CMVideoFormatDescription?
     private var stream: UInt64?
+    private var color: VideoColor?
+    private let atlas = ChromaAtlas()
     private var sps = Data(), pps = Data()
     private let resultLock = NSLock()
     private var output: CVImageBuffer?
@@ -48,11 +50,12 @@ final class H264Decoder {
     func decode(_ data: Data, streamID: UInt64, width: Int, height: Int, encodedWidth: Int, encodedHeight: Int) throws -> CGImage? {
         try decodeFrame(data, streamID: streamID, width: width, height: height, encodedWidth: encodedWidth, encodedHeight: encodedHeight)?.image
     }
-    func decodeFrame(_ data: Data, streamID: UInt64, width: Int, height: Int, encodedWidth: Int, encodedHeight: Int) throws -> VideoFrame? {
-        guard width > 0, height > 0, width <= 4096, height <= 4096, width * height <= 8_000_000,
-              encodedWidth == width + width % 2, encodedHeight == height + height % 2,
+    func decodeFrame(_ data: Data, streamID: UInt64, width: Int, height: Int, encodedWidth: Int, encodedHeight: Int, colorMode: VideoColor = .compatible) throws -> VideoFrame? {
+        let expected = try colorMode.dimensions(width: width, height: height)
+        guard encodedWidth == expected.0, encodedHeight == expected.1,
               data.count <= 12 * 1024 * 1024 else { throw VideoDecodeError.invalidFrame }
-        if stream != streamID { reset(); stream = streamID }
+        if stream != streamID { reset(); stream = streamID; color = colorMode }
+        guard color == colorMode else { throw VideoDecodeError.invalidFrame }
         let units = try Self.nalUnits(data)
         let nextSPS: Data = units.first(where: { $0.first.map { $0 & 31 == 7 } ?? false }) ?? sps
         let nextPPS: Data = units.first(where: { $0.first.map { $0 & 31 == 8 } ?? false }) ?? pps
@@ -98,7 +101,8 @@ final class H264Decoder {
         guard let pixelBuffer = pixelBuffer,
               CVPixelBufferGetWidth(pixelBuffer) == encodedWidth, CVPixelBufferGetHeight(pixelBuffer) == encodedHeight
         else { throw VideoDecodeError.invalidFrame }
-        return try VideoFrame(buffer: pixelBuffer, width: width, height: height)
+        let display = colorMode == .full ? try atlas.unpack(pixelBuffer, width: width, height: height) : pixelBuffer
+        return try VideoFrame(buffer: display, width: width, height: height)
     }
     private func createSession(encodedWidth: Int, encodedHeight: Int) throws {
         let status = sps.withUnsafeBytes { spsBytes in
@@ -124,7 +128,7 @@ final class H264Decoder {
         }, decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque())
         let attributes: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferWidthKey: encodedWidth, kCVPixelBufferHeightKey: encodedHeight,
-            kCVPixelBufferIOSurfacePropertiesKey: [:]]
+            kCVPixelBufferMetalCompatibilityKey: true, kCVPixelBufferIOSurfacePropertiesKey: [:]]
         let specification: [CFString: Any] = [kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: true]
         let result = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault, formatDescription: format,
             decoderSpecification: specification as CFDictionary, imageBufferAttributes: attributes as CFDictionary,

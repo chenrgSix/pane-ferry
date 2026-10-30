@@ -1,6 +1,7 @@
 mod applications;
 mod blend;
 mod capture;
+mod gpu;
 mod scene;
 mod video;
 mod worker;
@@ -55,6 +56,7 @@ pub struct Desktop {
     nv12: Vec<u8>,
     hardware_failed: bool,
     quality: u32,
+    color: crate::color::ColorMode,
     pending: VecDeque<VideoFrame>,
     keys: HashSet<u16>,
     buttons: HashSet<u8>,
@@ -250,6 +252,7 @@ impl Desktop {
             nv12: Vec::new(),
             hardware_failed: false,
             quality: 1000,
+            color: crate::color::ColorMode::Compatible,
             pending: VecDeque::new(),
             keys: HashSet::new(),
             buttons: HashSet::new(),
@@ -554,7 +557,13 @@ impl WindowSystem for Desktop {
         self.quality = 1000;
         self.fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
         self.scene = Some(scene::Scene::new(target)?);
+        self.scene.as_mut().unwrap().enable_gpu();
         self.timer = Some(VideoTimer::new()?);
+        Ok(())
+    }
+    fn set_video_color(&mut self, mode: crate::color::ColorMode) -> Result<()> {
+        ensure!(self.scene.is_none(), "invalid_request");
+        self.color = mode;
         Ok(())
     }
     fn set_video_fps(&mut self, fps: u32) -> Result<()> {
@@ -605,11 +614,11 @@ impl WindowSystem for Desktop {
             self.pending.clear();
             self.encoder = None;
         }
-        let Some((width, height, pixels)) = self
+        let Some((width, height)) = self
             .scene
             .as_mut()
             .context("capture_failed")?
-            .frame_prepared()?
+            .encoded_input(self.color, &mut self.nv12)?
         else {
             return Ok(None);
         };
@@ -621,7 +630,7 @@ impl WindowSystem for Desktop {
             self.encoder = None;
             return Ok(None);
         }
-        let (w, h) = (width + width % 2, height + height % 2);
+        let (w, h) = self.color.dimensions(width, height)?;
         if self
             .encoder
             .as_ref()
@@ -645,9 +654,6 @@ impl WindowSystem for Desktop {
             }
             let _ = encoder.set_quality(self.quality, self.fps);
         }
-        let converted = crate::pixels::nv12_into(&pixels, width, height, &mut self.nv12);
-        self.scene.as_mut().unwrap().recycle(pixels);
-        converted?;
         let encoded = self.encoder.as_mut().unwrap().encode(&self.nv12);
         let packets = match encoded {
             Ok(packets) => packets,
