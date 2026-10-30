@@ -30,4 +30,8 @@ GPU 场景默认尝试纹理硬编码；`PANEFERRY_VIDEO_ENCODER=software` 强�
 
 `gpu.convert_texture_submit` 只记录提交时间，GPU 完成与编码器等待包含在 `video.encode_texture`。所有本机测量均不等于 EasyTier 到 Mac 的实际端到端延迟。
 
+事件唤醒版在同一台机器的 1602×932 动态测试窗口读取 240 帧：4:2:0 / 全色度分别交付约 60.14 / 60.13 fps，帧间隔 P95 约 19.75 / 19.02 ms。普通模式稳定计时区间的单次处理 P50/P95 为 2.082/2.437 ms；此前软件编码版本的顺序对照为 2.788/3.572 ms。全色度对应 3.249/4.326 ms。区间包含无帧调用，内容运动与系统调度并非完全相同，不据此推断真实 Mac 端的延迟改善比例。
+
+已在正式 Windows 发布端验证 `PF_ENCODER backend=hardware input=d3d11_texture`，仍监听 UDP 42424，部署前后身份文件摘要相同。强制 CPU 合成及软件编码的 4:4:4 真实窗口测试、硬编码运行时故障回退、硬编码菜单合成与点击均通过。
+
 参考：[MFTEnum2 与适配器选择](https://learn.microsoft.com/en-us/windows/win32/api/mfapi/nf-mfapi-mftenum2)、[NV12 平面视图](https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format)、[跟踪输入样本释放](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-imftrackedsample-setallocator)。

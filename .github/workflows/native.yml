@@ -19,6 +19,7 @@ jobs:
           python3 tests/e2e/h264_only_smoke.py
           python3 tests/e2e/application_group_smoke.py
           python3 tests/e2e/window_tree_smoke.py
+          python3 tests/e2e/controller_input_smoke.py
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

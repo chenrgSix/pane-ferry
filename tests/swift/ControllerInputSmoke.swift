@@ -164,6 +164,14 @@ struct ControllerInputSmoke {
         func wait(_ seconds: Double) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
         func geometry(_ width: Int, _ height: Int) { host.applyRemoteGeometry(width: width, height: height, rendering: scale) }
         func requests() -> [[String: Any]] { sent.filter { $0["type"] as? String == "window.configure" } }
+        func waitForRequests(_ count: Int) {
+            let deadline = Date().addingTimeInterval(2)
+            while requests().count < count && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+            }
+            precondition(requests().count == count,
+                         "resize requests=\(requests()) expected=\(count) target=\(target) viewport=\(host.surface.bounds.size)")
+        }
 
         // AppKit may constrain the initial window to the runner's display.
         // Acknowledge that initial viewport before testing a source resize.
@@ -173,7 +181,7 @@ struct ControllerInputSmoke {
         // A source maximize after an already matched viewport must recover
         // without requiring another local drag or a menu action.
         geometry(3072, 1504)
-        wait(0.45)
+        waitForRequests(1)
         precondition(requests().count == 1 && requests()[0]["width"] as? Int == target.width &&
                      requests()[0]["height"] as? Int == target.height)
         geometry(target.width, target.height)
@@ -190,7 +198,7 @@ struct ControllerInputSmoke {
 
         // A constrained app or lost reply cannot produce a feedback loop.
         geometry(1000, 700)
-        wait(0.85)
+        waitForRequests(3)
         precondition(requests().count == 3)
         for _ in 0..<10 { geometry(1000, 700) }
         wait(0.45)
@@ -202,7 +210,7 @@ struct ControllerInputSmoke {
         wait(0.45)
         precondition(requests().count == 3, "hidden source cancels pending resize")
         host.applyRemoteVisibility(true)
-        wait(0.45)
+        waitForRequests(4)
         precondition(requests().count == 4, "restoration reconciles the original viewport")
         geometry(target.width, target.height)
         for mode in ["related", "desktop", "session"] {
