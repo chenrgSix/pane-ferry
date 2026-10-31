@@ -36,10 +36,14 @@ try {
     Send-Packet @{type='app.launch';app_id=$selected.id;request_id=[guid]::NewGuid().ToString();backend='native';attach=$true}
     $snapshot=Read-Packet 'window.created'
     $times=@(); $bytes=0
+    $streams=[Collections.Generic.HashSet[UInt64]]::new()
+    $revisions=[Collections.Generic.HashSet[UInt64]]::new()
     $clock=[Diagnostics.Stopwatch]::StartNew()
     for($i=0;$i -lt $Frames;$i++) {
         if($KeyframeEvery -gt 0 -and $i -gt 0 -and $i % $KeyframeEvery -eq 0){Send-Packet @{type='video.keyframe';window_id=1}}
         $frame=Read-Packet 'frame'
+        [void]$streams.Add([UInt64]$frame.stream_id)
+        [void]$revisions.Add([UInt64]$frame.geometry_revision)
         $times+= $clock.Elapsed.TotalSeconds
         $bytes+= $frame.data.Length*3/4
         # Match the Mac receiver's approximately 50 ms acknowledgement cadence.
@@ -60,6 +64,8 @@ try {
         interval_p99_ms=[Math]::Round($intervals[[int][Math]::Floor(($intervals.Count-1)*0.99)],2)
         interval_max_ms=[Math]::Round($intervals[-1],2)
         keyframe_every=$KeyframeEvery
+        stream_count=$streams.Count
+        geometry_revision_count=$revisions.Count
         local_delivered_fps=[Math]::Round(($Frames-1)/($times[-1]-$times[0]),2)
         approximate_mbps=[Math]::Round($bytes*8/$clock.Elapsed.TotalSeconds/1000000,2)
     } | ConvertTo-Json

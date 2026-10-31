@@ -515,20 +515,7 @@ impl Client {
         self.shared()?;
         let target = self.session.as_ref().unwrap().1.clone();
         let geometry = self.system.geometry(&target)?;
-        if self.geometry.as_ref() != Some(&geometry) {
-            if self.geometry.as_ref().is_none_or(|g| {
-                g.width != geometry.width
-                    || g.height != geometry.height
-                    || g.visible != geometry.visible
-                    || g.content_revision != geometry.content_revision
-            }) {
-                self.revision += 1;
-            }
-            self.geometry = Some(geometry);
-            let mut value = self.metadata();
-            value["type"] = json!("window.metadata");
-            self.send(write, value).await?;
-        }
+        self.publish_geometry(write, geometry).await?;
         // Stop producing before the encoder when the controller falls behind.
         // Encoded P-frames must never be dropped independently of their references.
         match self.flow.ready(std::time::Instant::now()) {
@@ -541,6 +528,37 @@ impl Client {
         }
         Ok(Some(self.system.begin_frame(&target)?))
     }
+    async fn publish_geometry<W: AsyncWrite + Unpin>(
+        &mut self,
+        write: &mut W,
+        geometry: Geometry,
+    ) -> Result<()> {
+        // Layout inside the composed canvas is video content, not a wire
+        // geometry change. Advancing the wire revision would discard queued
+        // reference frames in the network receiver and reset the video stream.
+        let changed = self.geometry.as_ref().is_none_or(|g| {
+            g.width != geometry.width
+                || g.height != geometry.height
+                || g.visible != geometry.visible
+                || g.title != geometry.title
+        });
+        if changed {
+            if self.geometry.as_ref().is_none_or(|g| {
+                g.width != geometry.width
+                    || g.height != geometry.height
+                    || g.visible != geometry.visible
+            }) {
+                self.revision += 1;
+            }
+            self.geometry = Some(geometry);
+            let mut value = self.metadata();
+            value["type"] = json!("window.metadata");
+            self.send(write, value).await?;
+        } else {
+            self.geometry = Some(geometry);
+        }
+        Ok(())
+    }
     async fn finish_tick<W: AsyncWrite + Unpin>(
         &mut self,
         write: &mut W,
@@ -549,12 +567,18 @@ impl Client {
         self.shared()?;
         let target = self.session.as_ref().unwrap().1.clone();
         if let Some(frame) = frame {
-            // Old queued frames must never be relabelled with the new geometry revision.
-            let geometry = self.geometry.as_ref().unwrap();
+            // The worker publishes the layout used by this capture before it
+            // completes the task. Compare against that snapshot, not the one
+            // read before capture (which necessarily predates a new popup).
+            let geometry = self.system.geometry(&target)?;
+            let dimensions_changed = self.geometry.as_ref().is_none_or(|g| {
+                g.width != geometry.width || g.height != geometry.height || !g.visible
+            });
             if frame.width != geometry.width
                 || frame.height != geometry.height
                 || !geometry.visible
                 || frame.content_revision != geometry.content_revision
+                || (dimensions_changed && !frame.key_frame)
             {
                 // The source window may resize after the metadata snapshot but
                 // before capture. Do not disconnect or label this frame with an
@@ -564,6 +588,7 @@ impl Client {
                 self.system.keyframe(&target)?;
                 return Ok(());
             }
+            self.publish_geometry(write, geometry).await?;
             ensure!(frame.data.len() <= 12 * 1024 * 1024, "capture_failed");
             let frame_id = self.flow.sent(std::time::Instant::now());
             self.send(write,json!({"type":"frame","window_id":1,"geometry_revision":self.revision,"codec":"h264","width":frame.width,"height":frame.height,"color":self.color,"encoded_width":self.color.dimensions(frame.width,frame.height)?.0,"encoded_height":self.color.dimensions(frame.width,frame.height)?.1,"stream_id":frame.stream_id,"key_frame":frame.key_frame,"frame_id":frame_id,"data":STANDARD.encode(frame.data)})).await?;
@@ -783,9 +808,93 @@ mod geometry_tests {
     use paneferry_backend_windows::{Input, VideoFrame};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires windows-composed-motion.ps1 and PANEFERRY_COMPOSED_MOTION_PID"]
+    async fn moving_owned_window_preserves_encoded_reference_chain() -> Result<()> {
+        use paneferry_backend_windows::{color::ColorMode, CaptureRuntime, PublishingDesktop};
+        let pid: u32 = std::env::var("PANEFERRY_COMPOSED_MOTION_PID")?.parse()?;
+        let _runtime = CaptureRuntime::new()?;
+        let mut system = PublishingDesktop::new()?;
+        let target = system
+            .windows()?
+            .into_iter()
+            .find(|w| w.pid == pid && w.name == "PaneFerry composed motion verification")
+            .ok_or_else(|| anyhow::anyhow!("composed motion fixture missing"))?;
+        system.set_video_color(ColorMode::Full)?;
+        system.attach(&target, 60)?;
+        let geometry = system.geometry(&target)?;
+        let mut client = Client {
+            id: uuid::Uuid::new_v4(),
+            state: State::new("test".into(), true),
+            system: Box::new(system),
+            session: Some(("fixture".into(), target)),
+            video: true,
+            color: ColorMode::Full,
+            fps: 60,
+            flow: video_flow::VideoFlow::default(),
+            sequence: 0,
+            geometry: Some(geometry),
+            revision: 1,
+            video_epoch: 0,
+        };
+        let mut streams = std::collections::HashSet::new();
+        let mut layouts = std::collections::HashSet::new();
+        let mut bitstream = Vec::new();
+        let mut frames = 0;
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while frames < 120 && std::time::Instant::now() < deadline {
+            let mut output = Vec::new();
+            client.tick(&mut output).await?;
+            layouts.insert(client.geometry.as_ref().unwrap().content_revision);
+            for line in output
+                .split(|b| *b == b'\n')
+                .filter(|line| !line.is_empty())
+            {
+                let event: Value = serde_json::from_slice(line)?;
+                if event["type"] != "frame" {
+                    continue;
+                }
+                ensure!(
+                    event["geometry_revision"] == 1,
+                    "internal layout changed wire geometry"
+                );
+                streams.insert(event["stream_id"].as_u64().unwrap());
+                if frames == 0 {
+                    ensure!(event["key_frame"] == true, "missing initial IDR");
+                }
+                bitstream.extend(STANDARD.decode(event["data"].as_str().unwrap())?);
+                frames += 1;
+            }
+            tokio::time::sleep(Duration::from_millis(16)).await;
+        }
+        ensure!(
+            frames == 120 && layouts.len() >= 10,
+            "fixture must animate multiple layouts"
+        );
+        ensure!(
+            streams.len() == 1,
+            "internal motion restarted the video stream"
+        );
+        if let Some(dir) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(
+                std::path::PathBuf::from(dir).join("composed-motion.h264"),
+                bitstream,
+            )?;
+        }
+        eprintln!(
+            "COMPOSED_MOTION frames={frames} layouts={} streams={}",
+            layouts.len(),
+            streams.len()
+        );
+        Ok(())
+    }
+
     struct ResizingDesktop {
         resized: bool,
         layout_only: bool,
+        stale_frame: bool,
         keyframes: Arc<AtomicUsize>,
     }
     impl WindowSystem for ResizingDesktop {
@@ -794,7 +903,15 @@ mod geometry_tests {
         }
         fn geometry(&mut self, _: &Target) -> Result<Geometry> {
             Ok(Geometry {
-                content_revision: u64::from(self.resized),
+                content_revision: if self.resized {
+                    if self.stale_frame {
+                        2
+                    } else {
+                        1
+                    }
+                } else {
+                    0
+                },
                 title: "resizing".into(),
                 width: if self.resized && !self.layout_only {
                     800
@@ -820,7 +937,7 @@ mod geometry_tests {
                 width: if self.layout_only { 640 } else { 800 },
                 height: 480,
                 stream_id: 2,
-                key_frame: true,
+                key_frame: !self.layout_only,
             }))
         }
         fn input(&mut self, _: &Target, _: Input) -> Result<()> {
@@ -829,11 +946,16 @@ mod geometry_tests {
         fn detach(&mut self) {}
     }
     #[tokio::test]
-    async fn resize_between_metadata_and_capture_restarts_video_without_disconnect() {
-        verify_geometry_race(false).await;
-        verify_geometry_race(true).await;
+    async fn capture_layout_is_published_without_discarding_current_video() {
+        verify_geometry_race(false, false).await;
+        verify_geometry_race(true, false).await;
     }
-    async fn verify_geometry_race(layout_only: bool) {
+    #[tokio::test]
+    async fn obsolete_capture_still_requests_a_new_keyframe() {
+        verify_geometry_race(false, true).await;
+        verify_geometry_race(true, true).await;
+    }
+    async fn verify_geometry_race(layout_only: bool, stale_frame: bool) {
         let keyframes = Arc::new(AtomicUsize::new(0));
         let target = Target {
             id: "resize".into(),
@@ -848,6 +970,7 @@ mod geometry_tests {
         let mut system = ResizingDesktop {
             resized: false,
             layout_only,
+            stale_frame,
             keyframes: keyframes.clone(),
         };
         let geometry = system.geometry(&target).unwrap();
@@ -867,17 +990,32 @@ mod geometry_tests {
         };
         let mut output = Vec::new();
         client.tick(&mut output).await.unwrap();
-        assert!(
-            output.is_empty(),
-            "raced frame must not carry stale metadata"
-        );
-        assert_eq!(keyframes.load(Ordering::SeqCst), 1);
-        client.tick(&mut output).await.unwrap();
+        if stale_frame {
+            assert!(output.is_empty(), "obsolete capture must not be relabelled");
+            assert_eq!(keyframes.load(Ordering::SeqCst), 1);
+            return;
+        }
+        assert_eq!(keyframes.load(Ordering::SeqCst), 0);
         let events: Vec<Value> = String::from_utf8(output)
             .unwrap()
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
+        if layout_only {
+            assert_eq!(
+                events.len(),
+                1,
+                "internal layout must not invalidate wire geometry"
+            );
+            assert_eq!(events[0]["type"], "frame");
+            assert_eq!(events[0]["geometry_revision"], 1);
+            assert_eq!(
+                events[0]["key_frame"], false,
+                "keep the coded reference chain"
+            );
+            assert_eq!(client.geometry.as_ref().unwrap().content_revision, 1);
+            return;
+        }
         assert_eq!(events.len(), 2);
         assert_eq!(events[0]["type"], "window.metadata");
         assert_eq!(events[0]["width"], if layout_only { 640 } else { 800 });
