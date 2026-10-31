@@ -1,0 +1,14 @@
+[package]
+name = "paneferry-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+opus = "0.4"
+tokio = { version = "1", features = ["sync"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+cpal = "0.16"
+crossbeam-queue = "0.3"

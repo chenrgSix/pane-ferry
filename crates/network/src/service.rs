@@ -1252,6 +1252,8 @@ fn allowed_request(value: &Value) -> bool {
             value["type"].as_str(),
             Some(
                 "hello"
+                    | "audio.subscribe"
+                    | "audio.ack"
                     | "node.info"
                     | "app.list"
                     | "window.list"
@@ -1349,6 +1351,105 @@ mod tests {
         })
         .unwrap();
         (root, service)
+    }
+
+    #[tokio::test]
+    async fn audio_subscription_uses_an_independent_ordered_quic_stream() {
+        let (root, source) = test_service();
+        let (_remote_root, remote) = test_service();
+        let dialing = remote
+            .endpoint
+            .connect_with(
+                remote
+                    .identity
+                    .client(&source.identity.certificate)
+                    .unwrap(),
+                source.address(),
+                "lan-remoteapp",
+            )
+            .unwrap();
+        let (client, server) = tokio::join!(dialing, async {
+            source.endpoint.accept().await.unwrap().await.unwrap()
+        });
+        let client = client.unwrap();
+        let (mut requests, mut responses) = client.open_bi().await.unwrap();
+        Packet::new(json!({"version":1,"type":"hello"}), 0)
+            .unwrap()
+            .write(&mut requests)
+            .await
+            .unwrap();
+        let (send, recv) = server.accept_bi().await.unwrap();
+        let path = root.path().join("a.sock");
+        let listener = bind(&path).unwrap();
+        let (fixture, publisher) = tokio::join!(UnixStream::connect(&path), listener.accept());
+        let fixture = fixture.unwrap();
+        let (publisher, _) = publisher.unwrap();
+        let publishing = tokio::spawn(async move {
+            source
+                .publish(
+                    server,
+                    send,
+                    recv,
+                    publisher,
+                    "audio-test".into(),
+                    Arc::new(DeviceQuota::default()),
+                )
+                .await
+        });
+        let fixture = tokio::spawn(async move {
+            let (read, mut write) = fixture.into_split();
+            let mut read = BufReader::new(read);
+            assert_eq!(framing::line(&mut read).await.unwrap()["type"], "hello");
+            framing::json(
+                &mut write,
+                &json!({"type":"hello","capabilities":["audio.system.opus.v1"]}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                framing::line(&mut read).await.unwrap()["type"],
+                "audio.subscribe"
+            );
+            framing::json(&mut write, &json!({"type":"audio.format","codec":"opus","sample_rate":48000,"channels":2,"frame_samples":480})).await.unwrap();
+            for sequence in 1..=3 {
+                framing::json(&mut write, &json!({"type":"audio.frame","sequence":sequence,"timestamp_ms":sequence*10,"data":"AQID"})).await.unwrap();
+                let ack = framing::line(&mut read).await.unwrap();
+                assert_eq!(ack["type"], "audio.ack");
+                assert_eq!(ack["sequence"], sequence);
+            }
+        });
+        assert_eq!(
+            Packet::read(&mut responses).await.unwrap().value["type"],
+            "hello"
+        );
+        Packet::new(json!({"version":1,"type":"audio.subscribe"}), 0)
+            .unwrap()
+            .write(&mut requests)
+            .await
+            .unwrap();
+        assert_eq!(
+            Packet::read(&mut responses).await.unwrap().value["type"],
+            "audio.format"
+        );
+        for sequence in 1..=3 {
+            let packet = Packet::read(&mut responses).await.unwrap();
+            assert_eq!(packet.barrier, sequence + 2);
+            assert!(packet.payload.is_empty());
+            assert_eq!(packet.restore()["data"], "AQID");
+            Packet::new(
+                json!({"version":1,"type":"audio.ack","sequence":sequence}),
+                0,
+            )
+            .unwrap()
+            .write(&mut requests)
+            .await
+            .unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), fixture)
+            .await
+            .unwrap()
+            .unwrap();
+        publishing.abort();
     }
 
     #[tokio::test]

@@ -161,9 +161,36 @@ function changeAutomaticApplication(id: string, event: Event) {
   void saveAutomatic({ mode: "selected", applications: [...applications] });
 }
 const addressEdits=ref<Record<string,string>>({});
+type AudioStatus = { enabled: boolean; state: string; message: string };
+const deviceAudio = ref<Record<string, AudioStatus>>({});
+const audioSaving = ref<Record<string, boolean>>({});
+const audioErrors = ref<Record<string, string>>({});
+let audioRevision = 0;
+async function readAudio() {
+  const revision = audioRevision;
+  try {
+    const status = await invoke<Record<string, AudioStatus>>("device_audio_status");
+    if (!disposed && revision === audioRevision) deviceAudio.value = status;
+  } catch { /* Keep the last known setting; an update reports a visible error. */ }
+}
+function audioLabel(id: string) {
+  const status = deviceAudio.value[id];
+  if (!status?.enabled) return "已关闭";
+  return ({ connecting: "正在连接声音…", playing: "已接收系统声音", unavailable: "声音暂不可用，自动重试中", unsupported: "发布端需要更新" } as Record<string, string>)[status.state] || "正在连接声音…";
+}
+async function setAudio(id: string, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const enabled = input.checked;
+  if (audioSaving.value[id]) return;
+  audioSaving.value[id] = true; audioErrors.value[id] = ""; audioRevision++;
+  try { deviceAudio.value[id] = await invoke<AudioStatus>("set_device_audio", { endpoint: { peerId: id }, enabled }); }
+  catch (error) { audioErrors.value[id] = typeof error === "string" ? error : "声音设置保存失败，请重试。"; }
+  finally { input.checked = deviceAudio.value[id]?.enabled ?? false; audioSaving.value[id] = false; audioRevision++; }
+}
 let inviteTimer:ReturnType<typeof setTimeout>|undefined;
 async function networkAction(body:Record<string,unknown>) { return invoke<any>("network_action",{body}); }
 async function readNetwork() {
+  void readAudio();
   try { const status=await networkAction({op:"status"}); nativePeers.value=status.peers;
     for(const peer of nativePeers.value) addressEdits.value[peer.device_id] ??= peer.address;
     nativeWarning.value=""; }
@@ -805,6 +832,11 @@ onUnmounted(() => {
               <button class="danger-action" :disabled="pairing" @click="revokePeer(peer)">撤销配对</button>
             </div>
             <p class="fingerprint" :title="peer.fingerprint">设备指纹 <code>{{ peer.fingerprint }}</code></p>
+            <div v-if="localNode?.platform === 'macos' || localNode?.platform === 'windows'" class="setting-row">
+              <div><label :for="'audio-' + peer.device_id">接收这台设备的系统声音</label><p class="hint">默认关闭。需要新版 Windows 发布端；接收所有应用播放的声音，不采集麦克风。多个窗口只播放一份；关闭画面后仍可收听，关闭此开关停止。</p><p class="hint" role="status">{{ audioLabel(peer.device_id) }}</p></div>
+              <input :id="'audio-' + peer.device_id" type="checkbox" :checked="deviceAudio[peer.device_id]?.enabled ?? false" :disabled="audioSaving[peer.device_id] || pairing" @change="setAudio(peer.device_id, $event)" />
+            </div>
+            <p v-if="audioErrors[peer.device_id] || deviceAudio[peer.device_id]?.message" class="hint" role="status">{{ audioErrors[peer.device_id] || deviceAudio[peer.device_id]?.message }}</p>
           </article>
         </section>
         <section class="panel">

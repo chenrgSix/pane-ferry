@@ -9,7 +9,7 @@ function Run-Cargo {
 }
 
 Run-Cargo fmt --all -- --check
-Run-Cargo test --locked -p paneferry-platform -p paneferry-backend-windows -p paneferry-windows
+Run-Cargo test --locked -p paneferry-audio -p paneferry-platform -p paneferry-backend-windows -p paneferry-windows
 Run-Cargo test --locked -p paneferry-core node::tests
 # Existing Unix socket integration tests are covered on macOS/Linux. The Windows
 # publisher integration test above exercises real Windows pipes and paired QUIC.

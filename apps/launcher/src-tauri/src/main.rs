@@ -4,6 +4,7 @@ use serde::Serialize;
 #[cfg(not(windows))]
 use std::{path::PathBuf, process::Command};
 use tauri::Manager;
+mod audio;
 mod display_settings;
 mod legacy_settings;
 #[cfg_attr(windows, path = "windows/local_node.rs")]
@@ -48,7 +49,15 @@ async fn network_action(
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match body["op"].as_str() {
-        Some("status" | "invite" | "pair" | "revoke" | "address") => network::manage(&app, body),
+        Some("status" | "invite" | "pair" | "revoke" | "address") => {
+            let revoked = (body["op"] == "revoke")
+                .then(|| body["device_id"].as_str().unwrap_or_default().to_string());
+            let result = network::manage(&app, body)?;
+            if let Some(peer) = revoked {
+                app.state::<audio::Service>().forget(&peer);
+            }
+            Ok(result)
+        }
         _ => Err("操作无效。".into()),
     }
 }
@@ -599,6 +608,10 @@ async fn start_desktop(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            app.manage(audio::Service::open(
+                app.path().app_data_dir()?.join("device-audio.json"),
+            ));
+            app.state::<audio::Service>().start(app.handle());
             app.manage(display_settings::Service::open(
                 app.path().app_data_dir()?.join("display-picture-mode.json"),
             ));
@@ -627,6 +640,8 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            audio::device_audio_status,
+            audio::set_device_audio,
             display_settings::picture_mode,
             display_settings::set_picture_mode,
             display_settings::video_color,
@@ -655,6 +670,9 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("launcher startup failed")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<audio::Service>().stop();
+            }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
             #[cfg(target_os = "macos")]

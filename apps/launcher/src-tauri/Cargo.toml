@@ -17,6 +17,8 @@ uuid = { version = "1", features = ["v4"] }
 paneferry-transport = { path = "../../../crates/transport" }
 paneferry-platform = { path = "../../../crates/platform" }
 paneferry-protocol = { path = "../../../crates/protocol" }
+paneferry-audio = { path = "../../../crates/audio" }
+base64 = "0.22"
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt", "macros"] }
 
 [target.'cfg(windows)'.dependencies]

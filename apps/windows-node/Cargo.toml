@@ -14,6 +14,7 @@ paneferry-platform = { path = "../../crates/platform" }
 paneferry-protocol = { path = "../../crates/protocol" }
 paneferry-core = { path = "../../crates/core" }
 paneferry-network = { path = "../../crates/network" }
+paneferry-audio = { path = "../../crates/audio" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "signal"] }
 uuid = { version = "1", features = ["v4"] }
 

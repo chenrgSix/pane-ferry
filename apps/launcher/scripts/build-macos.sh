@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ "$(uname -s)" != Darwin ]]; then echo "需要 macOS 和 Xcode Command Line Tools。" >&2; exit 1; fi
+command -v cmake >/dev/null || { echo '音频 Opus 编译需要 CMake，请先运行 brew install cmake。' >&2; exit 1; }
 ../mac-windowhost/scripts/build-app.sh
 ../mac-node/build-app.sh
 mkdir -p src-tauri/resources

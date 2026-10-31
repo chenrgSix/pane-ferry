@@ -144,6 +144,7 @@ main { margin-left: 210px; width: calc(100% - 210px); max-width: 1450px; min-hei
 .setting-row + .setting-row { border-top: 1px solid #e7ecdf; }
 .setting-row:last-child { padding-bottom: 0; }
 .setting-row .hint { margin-top: 6px; }
+.setting-row > input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex: 0 0 20px; accent-color: #486b37; }
 .permission-state { font-size: 12px; color: #a16d38; white-space: nowrap; }
 .permission-state.granted { color: #5b7d42; }
 .button-row { display: flex; gap: 9px; margin-top: 22px; flex-wrap: wrap; }

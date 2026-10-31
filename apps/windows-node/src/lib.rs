@@ -1,3 +1,4 @@
+mod audio;
 mod request;
 mod video_flow;
 use anyhow::{bail, ensure, Result};
@@ -725,7 +726,7 @@ pub async fn client(
         revision: 0,
         video_epoch: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.color.444-atlas-v2","video.keyframe","video.qos","video.feedback.timing.v1","platform.windows","desktop.list","desktop.start","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["audio.system.opus.v1","native.h264","video.color.444-atlas-v1","video.color.444-atlas-v2","video.keyframe","video.qos","video.feedback.timing.v1","platform.windows","desktop.list","desktop.start","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {
@@ -758,7 +759,13 @@ pub async fn client(
                 if value["type"].as_str().is_some_and(|kind| kind.starts_with("input.") || kind=="window.focus") {
                     paneferry_backend_windows::metrics::sample("input.dispatch_delay",received.elapsed());
                 }
-                let result=match request::parse(value){Ok(request)=>client.handle(request,&mut write,local).await,Err(error)=>Err(error)};
+                let result=match request::parse(value){
+                    Ok(Request::Audio) if client.session.is_none() && !client.video => {
+                        client.shared()?;
+                        return audio::serve(&client.state, &mut rx, &mut write).await;
+                    }
+                    Ok(request)=>client.handle(request,&mut write,local).await,Err(error)=>Err(error)
+                };
                 match result{Ok(true)=>return Ok(()),Ok(false)=>{},Err(error)=>{client.send(&mut write,json!({"type":"error","code":public_error(&error)})).await?;}}
             },
             result = async { capture.as_mut().unwrap().await }, if capture.is_some() => {

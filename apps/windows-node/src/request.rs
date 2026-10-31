@@ -6,6 +6,8 @@ use serde_json::Value;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum Request {
+    #[serde(rename = "audio.subscribe")]
+    Audio,
     #[serde(rename = "node.info")]
     Info,
     #[serde(rename = "sharing.set")]
