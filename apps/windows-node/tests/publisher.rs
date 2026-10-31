@@ -367,17 +367,21 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
         o.frame_requested = false;
     }
     wait_for(|| observed().lock().unwrap().frame_requested).await;
-    send(
-        &mut wr,
-        json!({"type":"input.pointer","window_id":1,"x":10,"y":10,"button":0,"pressed":false}),
-    )
-    .await;
+    // Cross several fairness bursts while capture is blocked indefinitely.
+    // A single event missed the old deadlock after the eighth request.
+    for x in 0..32 {
+        send(
+            &mut wr,
+            json!({"type":"input.pointer","window_id":1,"x":x,"y":10,"button":0,"pressed":false}),
+        )
+        .await;
+    }
     send(
         &mut wr,
         json!({"type":"input.text.commit","window_id":1,"text":"capture-is-busy"}),
     )
     .await;
-    tokio::time::timeout(Duration::from_millis(500), async {
+    let input_result = tokio::time::timeout(Duration::from_millis(500), async {
         loop {
             if observed().lock().unwrap().input.last()
                 == Some(&Input::Text("capture-is-busy".into()))
@@ -387,14 +391,14 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
     })
-    .await
-    .expect("input waited for capture");
+    .await;
     {
         let mut o = observed().lock().unwrap();
         o.frame_gate = None;
         o.input.clear();
     }
     gate.notify_one();
+    input_result.expect("input waited for capture");
     send(&mut wr, json!({"type":"video.configure","max_fps":30})).await;
     wait_for(|| observed().lock().unwrap().fps == 30).await;
     send(&mut wr, json!({"type":"video.configure","max_fps":60})).await;

@@ -624,6 +624,7 @@ impl WindowSystem for Desktop {
     fn set_video_fps(&mut self, fps: u32) -> Result<()> {
         let fps = fps.clamp(1, paneferry_protocol::MAX_VIDEO_FPS as u32);
         if self.fps != fps {
+            eprintln!("PF_ENCODER invalidate=fps previous={} next={fps}", self.fps);
             self.fps = fps;
             if let Some(scene) = &mut self.scene {
                 scene.force_frame();
@@ -645,8 +646,19 @@ impl WindowSystem for Desktop {
         if let Some(scene) = &mut self.scene {
             scene.force_frame();
         }
-        self.encoder = None;
         self.pending.clear();
+        if let Some(encoder) = &mut self.encoder {
+            let stream = self.stream.checked_add(1).context("stream exhausted")?;
+            match encoder.restart(stream) {
+                Ok(()) => {
+                    self.stream = stream;
+                    eprintln!("PF_ENCODER keyframe=in_place stream={stream}");
+                    return Ok(());
+                }
+                Err(error) => eprintln!("PF_ENCODER keyframe=recreate reason={error:#}"),
+            }
+        }
+        self.encoder = None;
         Ok(())
     }
     fn frame(&mut self, target: &Target) -> Result<Option<VideoFrame>> {
@@ -667,7 +679,7 @@ impl WindowSystem for Desktop {
                 return Ok(Some(frame));
             }
             self.pending.clear();
-            self.encoder = None;
+            self.keyframe(target)?;
         }
         let (w, h) = self.color.dimensions(geometry.width, geometry.height)?;
         let device = self.scene.as_ref().context("capture_failed")?.gpu_device();
@@ -678,6 +690,10 @@ impl WindowSystem for Desktop {
                 .stream
                 .checked_add(1)
                 .ok_or_else(|| anyhow::anyhow!("stream exhausted"))?;
+            eprintln!(
+                "PF_ENCODER initialize width={w} height={h} fps={} stream={}",
+                self.fps, self.stream
+            );
             self.encoder = Some(
                 (if self.hardware_failed {
                     video::Encoder::software(w, h, self.fps, self.stream)
@@ -711,7 +727,7 @@ impl WindowSystem for Desktop {
             || height != geometry.height
             || content_revision != geometry.content_revision
         {
-            self.encoder = None;
+            self.keyframe(target)?;
             return Ok(None);
         }
         let was_texture = texture.is_some();

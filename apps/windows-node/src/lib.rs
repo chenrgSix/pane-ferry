@@ -643,7 +643,8 @@ pub async fn client(
         }
     }));
     // Exact deadlines avoid quantizing 60 fps to 50 fps (and 30 to 25) on a
-    // 10 ms polling clock. Input gets priority, with a bounded burst for fairness.
+    // 10 ms polling clock. After each input burst, give capture/timers a chance
+    // to run without making further input depend on a pending video frame.
     let mut next_frame = tokio::time::Instant::now();
     let mut input_burst = 0;
     let mut capture: Option<paneferry_backend_windows::FrameTask> = None;
@@ -705,6 +706,9 @@ pub async fn client(
                     bail!("publisher stream ended");
                     }
                 }
+            },
+            _=tokio::task::yield_now(), if input_burst >= 8 => {
+                input_burst = 0;
             }
         }
     }

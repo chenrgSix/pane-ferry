@@ -25,17 +25,28 @@ fn real_capture_worker_streams_and_accepts_input() -> Result<()> {
     let start = Instant::now();
     let mut frames = 0;
     let mut first_stream = None;
+    let mut restarting = None;
     let mut pending = desktop.begin_frame(&target)?;
     runtime.block_on(async {
         while frames < 120 && start.elapsed() < Duration::from_secs(15) {
             let frame = (&mut pending).await?;
             if let Some(frame) = frame {
+                if let Some(previous) = restarting.take() {
+                    ensure!(
+                        frame.stream_id > previous && frame.key_frame,
+                        "resync did not start a new independently decodable stream"
+                    );
+                }
                 if first_stream.is_none() {
                     ensure!(frame.key_frame, "missing initial IDR");
                     first_stream = Some(frame.stream_id);
                 }
                 bitstream.extend_from_slice(&frame.data);
                 frames += 1;
+                if frames == 40 || frames == 80 {
+                    desktop.keyframe(&target)?;
+                    restarting = Some(frame.stream_id);
+                }
             }
             if frames == 0 {
                 tokio::time::sleep(Duration::from_millis(2)).await;

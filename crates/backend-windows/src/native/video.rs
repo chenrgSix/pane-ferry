@@ -65,6 +65,9 @@ pub struct Encoder {
     pub height: u32,
     pub stream: u64,
     first: bool,
+    // Only restart in place when the previous input has produced its output.
+    // A buffered frame must never acquire the identity of a new stream.
+    restart_ready: bool,
     events: Option<IMFMediaEventGenerator>,
     need_input: u32,
     have_output: u32,
@@ -102,6 +105,7 @@ impl Encoder {
         hardware: bool,
         device: Option<&ID3D11Device>,
     ) -> Result<Self> {
+        let _timing = crate::metrics::span("video.encoder_init");
         ensure!(
             width > 0
                 && height > 0
@@ -258,6 +262,7 @@ impl Encoder {
                 height,
                 stream,
                 first: true,
+                restart_ready: false,
                 events,
                 need_input: 0,
                 have_output: 0,
@@ -351,6 +356,24 @@ impl Encoder {
         }
         Ok(())
     }
+    pub fn restart(&mut self, stream: u64) -> Result<()> {
+        // Retain the established recreate path for software and buffering MFTs.
+        ensure!(
+            self.hardware && self.restart_ready,
+            "encoder requires recreation"
+        );
+        unsafe {
+            self.poll_events()?;
+            ensure!(self.have_output == 0, "encoder still has pending output");
+            self.transform
+                .cast::<ICodecAPI>()?
+                .SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(1u32))?;
+        }
+        self.stream = stream;
+        self.first = true;
+        self.restart_ready = false;
+        Ok(())
+    }
     pub fn encode(&mut self, pixels: &[u8]) -> Result<Vec<(Vec<u8>, bool)>> {
         let _timing = crate::metrics::span("video.encode");
         ensure!(
@@ -406,6 +429,8 @@ impl Encoder {
     }
     unsafe fn encode_sample(&mut self, input: &IMFSample) -> Result<Vec<(Vec<u8>, bool)>> {
         unsafe {
+            self.restart_ready = false;
+            let input_time = self.time;
             input.SetSampleTime(self.time)?;
             input.SetSampleDuration(self.duration)?;
             self.time += self.duration;
@@ -420,6 +445,7 @@ impl Encoder {
                 self.wait_event(false)?;
             }
             let mut frames = Vec::new();
+            let mut matched_input = false;
             let mut output_attempts = 0;
             loop {
                 output_attempts += 1;
@@ -479,6 +505,11 @@ impl Encoder {
                     return Err(e.into());
                 }
                 let sample = sample.ok_or_else(|| anyhow::anyhow!("missing encoded sample"))?;
+                matched_input = sample.GetSampleTime().ok() == Some(input_time);
+                ensure!(
+                    !self.first || input_time == 0 || matched_input,
+                    "restarted stream contains buffered output"
+                );
                 let buffer = sample.ConvertToContiguousBuffer()?;
                 let mut pointer = ptr::null_mut();
                 let mut length = 0;
@@ -495,7 +526,10 @@ impl Encoder {
                     "encoder must produce Annex B"
                 );
                 let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 0;
-                ensure!(!self.first || key, "first frame must be an IDR");
+                ensure!(
+                    !self.first || (key && has_nal(&bytes, 5)),
+                    "first frame must be an IDR"
+                );
                 let mut data = Vec::new();
                 if key {
                     let output_type = self.transform.GetOutputCurrentType(0)?;
@@ -513,14 +547,24 @@ impl Encoder {
                     data.extend_from_slice(&self.header);
                 }
                 data.extend_from_slice(&bytes);
+                ensure!(
+                    !self.first || (has_nal(&data, 7) && has_nal(&data, 8)),
+                    "first frame must include SPS and PPS"
+                );
                 ensure!(data.len() <= 12 * 1024 * 1024, "H264 packet too large");
                 frames.push((data, key));
                 self.first = false;
                 ensure!(frames.len() <= 4, "encoder backlog");
             }
+            self.restart_ready = frames.len() == 1 && matched_input;
             Ok(frames)
         }
     }
+}
+
+fn has_nal(data: &[u8], kind: u8) -> bool {
+    data.windows(4)
+        .any(|bytes| bytes[..3] == [0, 0, 1] && bytes[3] & 0x1f == kind)
 }
 
 impl Drop for Encoder {
@@ -654,14 +698,35 @@ mod tests {
                     "no texture-capable hardware encoder"
                 );
                 let mut bytes = Vec::new();
+                let mut restarted_bytes = Vec::new();
+                let transform = encoder.transform.as_raw();
                 let start = std::time::Instant::now();
                 for index in 0..120 {
+                    let restart = index > 0 && index % 30 == 0;
+                    let frame_start = std::time::Instant::now();
+                    if restart {
+                        encoder.restart(1 + index / 30)?;
+                        ensure!(encoder.transform.as_raw() == transform, "MFT was recreated");
+                    }
                     let frame = gpu.convert_texture(mode)?;
                     let packets = encoder.encode_texture(frame)?;
                     ensure!(
-                        packets.len() == 1 && (index != 0 || packets[0].1),
+                        packets.len() == 1 && (!(index == 0 || restart) || packets[0].1),
                         "one low-latency output per input required"
                     );
+                    if restart {
+                        ensure!(has_nal(&packets[0].0, 5), "restart must be an IDR");
+                        eprintln!(
+                            "DIRECT_RESTART {width}x{height} {mode:?} stream={} elapsed_ms={:.2}",
+                            encoder.stream,
+                            frame_start.elapsed().as_secs_f64() * 1000.0
+                        );
+                    }
+                    // Decode this suffix independently to prove no earlier
+                    // reference frame or parameter set is needed after resync.
+                    if index >= 90 {
+                        restarted_bytes.extend_from_slice(&packets[0].0);
+                    }
                     bytes.extend_from_slice(&packets[0].0);
                 }
                 eprintln!(
@@ -675,6 +740,10 @@ mod tests {
                     std::fs::write(
                         path.join(format!("direct-{width}-{height}-{mode:?}.h264")),
                         bytes,
+                    )?;
+                    std::fs::write(
+                        path.join(format!("restart-{width}-{height}-{mode:?}.h264")),
+                        restarted_bytes,
                     )?;
                 }
             }

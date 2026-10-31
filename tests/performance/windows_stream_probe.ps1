@@ -1,4 +1,4 @@
-param([ValidateSet('420','444-atlas-v1')][string]$Color='420', [int]$Frames=120, [string]$WindowId='', [string]$WindowTitle='', [string]$StatePath=(Join-Path $env:LOCALAPPDATA 'PaneFerry'))
+param([ValidateSet('420','444-atlas-v1')][string]$Color='420', [int]$Frames=120, [string]$WindowId='', [string]$WindowTitle='', [string]$StatePath=(Join-Path $env:LOCALAPPDATA 'PaneFerry'), [ValidateRange(0,10000)][int]$KeyframeEvery=0)
 # Local RWP throughput probe: no input, saved pixels, or pairing changes.
 $ErrorActionPreference='Stop'
 $pipePath='\\?\' + (Join-Path $StatePath 'node\management.sock')
@@ -38,6 +38,7 @@ try {
     $times=@(); $bytes=0
     $clock=[Diagnostics.Stopwatch]::StartNew()
     for($i=0;$i -lt $Frames;$i++) {
+        if($KeyframeEvery -gt 0 -and $i -gt 0 -and $i % $KeyframeEvery -eq 0){Send-Packet @{type='video.keyframe';window_id=1}}
         $frame=Read-Packet 'frame'
         $times+= $clock.Elapsed.TotalSeconds
         $bytes+= $frame.data.Length*3/4
@@ -57,6 +58,8 @@ try {
         interval_p50_ms=[Math]::Round($intervals[[int][Math]::Floor(($intervals.Count-1)*0.50)],2)
         interval_p95_ms=[Math]::Round($intervals[[int][Math]::Floor(($intervals.Count-1)*0.95)],2)
         interval_p99_ms=[Math]::Round($intervals[[int][Math]::Floor(($intervals.Count-1)*0.99)],2)
+        interval_max_ms=[Math]::Round($intervals[-1],2)
+        keyframe_every=$KeyframeEvery
         local_delivered_fps=[Math]::Round(($Frames-1)/($times[-1]-$times[0]),2)
         approximate_mbps=[Math]::Round($bytes*8/$clock.Elapsed.TotalSeconds/1000000,2)
     } | ConvertTo-Json
