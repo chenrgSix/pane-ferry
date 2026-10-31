@@ -114,6 +114,22 @@ struct H264OnlySmoke {
         adaptive.pendingVideoFeedbackID = 45; adaptive.pendingVideoFeedbackTiming = report(44)
         adaptive.lastVideoFeedback = 0; adaptive.pump()
         precondition(adaptiveSent.last?["timing"] == nil, "measurements must belong to the acknowledged frame")
+        // A normal 60 fps stream must return every presentation credit. A
+        // burst still coalesces to its newest frame, including the final still.
+        let pacedCount = adaptiveSent.count
+        let base = adaptive.lastVideoFeedback
+        for i in 1...60 {
+            adaptive.pendingVideoFeedbackID = UInt64(100 + i)
+            adaptive.flushVideoFeedback(now: base + Double(i) / 60)
+        }
+        precondition(adaptiveSent.count == pacedCount + 60, "60 fps feedback must not wait for 50 ms batches")
+        for i in 1...10 {
+            adaptive.pendingVideoFeedbackID = UInt64(160 + i)
+            adaptive.flushVideoFeedback(now: base + 1 + Double(i) / 10000)
+        }
+        precondition(adaptiveSent.count == pacedCount + 60, "burst feedback remains bounded")
+        adaptive.flushVideoFeedback(now: base + 1.02)
+        precondition(adaptiveSent.last?["frame_id"] as? UInt64 == 170)
         let context = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let image = context.makeImage()!
@@ -125,6 +141,21 @@ struct H264OnlySmoke {
         }
         precondition(host.window.subtitle.contains("fps"), "active frames should show a receive rate")
         adaptive.windows[host.id] = host
+        adaptive.lastVideoFeedback = 0
+        let received = DispatchTime.now().uptimeNanoseconds - 3_000_000
+        adaptive.receive(Incoming(object: ["type": "frame", "window_id": host.id,
+            "geometry_revision": host.revision, "frame_id": UInt64(171),
+            "received_ns": received, "decode_started_ns": received + 1_000_000,
+            "decode_completed_ns": received + 2_000_000], image: image))
+        let beforePresentation = adaptiveSent.count
+        host.surface.frameWasPresented(host.surface.displayFrame!)
+        precondition(adaptiveSent.count == beforePresentation + 1, "presentation must send feedback without waiting for pump")
+        precondition(adaptiveSent.last?["frame_id"] as? UInt64 == 171)
+        let presentedTiming = adaptiveSent.last?["timing"] as? [String: UInt64]
+        precondition(presentedTiming?["queue_us"] == 1000 && presentedTiming?["decode_us"] == 1000,
+            "local timestamps must survive receive/presentation into negotiated feedback")
+        host.surface.frameWasPresented(host.surface.displayFrame!)
+        precondition(adaptiveSent.count == beforePresentation + 1, "a redraw cannot return duplicate credit")
         Thread.sleep(forTimeInterval: 2.1)
         adaptive.pump()
         precondition(host.window.subtitle.contains("近 2 秒未收到新画面"), "an idle source must not retain an old fps")

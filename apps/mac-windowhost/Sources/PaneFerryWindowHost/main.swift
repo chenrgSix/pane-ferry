@@ -586,9 +586,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if error.retryable { connectionLost() }
             else { stopRecovery(); alert(error.message, key: "transport:\(error.message)") }
         }
+        flushVideoFeedback()
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastFrameRateRefresh >= 1 {
+            lastFrameRateRefresh = now
+            if ready && connected && !stopping { networkLatency.refresh() }
+            for host in windows.values {
+                host.networkLatency = ready && connected && !stopping ? networkLatency.state : .unavailable
+                host.updateSubtitle()
+            }
+        }
+    }
+    // Return display credit at presentation, rather than adding a 50 ms batch
+    // delay to a six-frame publisher window. Coalesce bursts (e.g. after a
+    // network stall); pump() still delivers the final held ACK on a still image.
+    func flushVideoFeedback(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard !stopping else { return }
         if let id = pendingVideoFeedbackID, connected {
-            let now = ProcessInfo.processInfo.systemUptime
-            if lastVideoFeedback == 0 || now - lastVideoFeedback >= 0.05 {
+            if lastVideoFeedback == 0 || now - lastVideoFeedback >= 1.0 / 120.0 {
                 pendingVideoFeedbackID = nil
                 lastVideoFeedback = now
                 var feedback: [String: Any] = ["type": "video.feedback", "frame_id": id]
@@ -599,15 +614,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 pendingVideoFeedbackTiming = nil
                 send(feedback)
-            }
-        }
-        let now = ProcessInfo.processInfo.systemUptime
-        if now - lastFrameRateRefresh >= 1 {
-            lastFrameRateRefresh = now
-            if ready && connected && !stopping { networkLatency.refresh() }
-            for host in windows.values {
-                host.networkLatency = ready && connected && !stopping ? networkLatency.state : .unavailable
-                host.updateSubtitle()
             }
         }
     }
@@ -994,6 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                             decoding: unsignedInteger(object["decode_started_ns"]),
                             decoded: unsignedInteger(object["decode_completed_ns"]),
                             presented: DispatchTime.now().uptimeNanoseconds)
+                        self.flushVideoFeedback()
                     }
                 }
             }
