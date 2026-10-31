@@ -43,6 +43,11 @@ async fn main() -> Result<()> {
         "frame limit must be 2..1800"
     );
     let mut encoded = Vec::new();
+    let color = std::env::var("PANEFERRY_CADENCE_COLOR").unwrap_or_else(|_| "444-atlas-v1".into());
+    ensure!(
+        matches!(color.as_str(), "420" | "444-atlas-v1" | "444-atlas-v2"),
+        "unsupported probe color"
+    );
     let root = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
@@ -67,7 +72,7 @@ async fn main() -> Result<()> {
         .iter()
         .find(|w| w["title"] == "PaneFerry dynamic video verification" && w["controlled"] != true)
         .ok_or_else(|| anyhow::anyhow!("synthetic fixture unavailable"))?;
-    framing::json(&mut output, &json!({"version":1,"type":"video.enable","codec":"h264","color":"444-atlas-v1","max_fps":60,"feedback":true})).await?;
+    framing::json(&mut output, &json!({"version":1,"type":"video.enable","codec":"h264","color":color,"max_fps":60,"feedback":true})).await?;
     framing::json(&mut output, &json!({"version":1,"type":"app.launch","app_id":target["id"],"request_id":uuid::Uuid::new_v4().to_string(),"backend":"native","attach":true})).await?;
     let origin = Instant::now();
     let mut last = None;

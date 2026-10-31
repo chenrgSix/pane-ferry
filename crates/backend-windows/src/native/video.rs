@@ -722,7 +722,11 @@ mod tests {
     fn bitrate_adaptation_probe() -> Result<()> {
         let _runtime = crate::CaptureRuntime::new()?;
         let (width, height, fps) = (2560u32, 1440u32, 60u32);
-        let mode = crate::color::ColorMode::Full;
+        let mode = if std::env::var("PANEFERRY_PROBE_ATLAS_LAYOUT").as_deref() == Ok("aligned") {
+            crate::color::ColorMode::FullAligned
+        } else {
+            crate::color::ColorMode::Full
+        };
         let (ew, eh) = mode.dimensions(width, height)?;
         let mut pixels = vec![255u8; (width * height * 4) as usize];
         for y in 0..height {
@@ -742,8 +746,8 @@ mod tests {
             if index == 180 {
                 encoder.set_quality(250, fps)?;
             }
-            // A changing detailed region makes the low-rate stage genuinely
-            // bitrate-limited; a translating flat grid is almost free to code.
+            // Keep the same changing region for layout comparisons. The aligned
+            // layout may already fit below the reduced budget at high quality.
             for y in height * 15 / 16..height {
                 for x in 0..width {
                     let hash = (x / 32 + (y / 32) * 65537 + index * 104729).wrapping_mul(0x45d9f3b);
@@ -754,7 +758,7 @@ mod tests {
                     pixels[offset + 2] = (hash >> 16) as u8;
                 }
             }
-            crate::color::atlas_into(&pixels, width, height, &mut input)?;
+            crate::color::atlas_into_mode(mode, &pixels, width, height, &mut input)?;
             let packets = encoder.encode(&input)?;
             ensure!(packets.len() == 1, "one output required");
             let (data, key) = &packets[0];
@@ -777,7 +781,7 @@ mod tests {
         }
         ensure!(keys == 1, "rate changes must not reintroduce periodic IDRs");
         ensure!(
-            low_bps < high_bps * 3 / 5,
+            high_bps <= low_target as u64 || low_bps < high_bps * 3 / 5,
             "congestion feedback did not reduce actual output"
         );
         ensure!(
@@ -839,6 +843,7 @@ mod tests {
             for mode in [
                 crate::color::ColorMode::Compatible,
                 crate::color::ColorMode::Full,
+                crate::color::ColorMode::FullAligned,
             ] {
                 let (ew, eh) = mode.dimensions(width, height)?;
                 let mut encoder = Encoder::on_device(ew, eh, 60, 1, &gpu.device.device)?;
@@ -903,46 +908,51 @@ mod tests {
     #[ignore = "installed Windows encoder, synthetic full-chroma samples only"]
     fn full_chroma_encoder_probe() -> Result<()> {
         let _runtime = crate::CaptureRuntime::new()?;
-        for (width, height) in [(64u32, 48u32), (1602, 932), (2560, 1440), (4096, 1900)] {
-            let (ew, eh) = crate::color::ColorMode::Full.dimensions(width, height)?;
-            let mut pixels = Vec::new();
-            for i in 0..width * height {
-                pixels.extend_from_slice(if i % 2 == 0 {
-                    &[0, 0, 255, 255]
-                } else {
-                    &[255, 0, 0, 255]
-                });
-            }
-            let mut input = Vec::new();
-            crate::color::atlas_into(&pixels, width, height, &mut input)?;
-            let mut encoder = Encoder::software(ew, eh, 60, 1)?;
-            let start = std::time::Instant::now();
-            let packets = encoder.encode(&input)?;
-            ensure!(
-                packets.len() == 1 && packets[0].1,
-                "missing full-chroma keyframe"
-            );
-            if width == 64 {
-                for _ in 1..125 {
-                    let next = encoder.encode(&input)?;
-                    ensure!(
-                        next.len() == 1 && !next[0].1,
-                        "unexpected periodic software IDR"
-                    );
+        for mode in [
+            crate::color::ColorMode::Full,
+            crate::color::ColorMode::FullAligned,
+        ] {
+            for (width, height) in [(64u32, 48u32), (1602, 932), (2560, 1440), (4096, 1900)] {
+                let (ew, eh) = mode.dimensions(width, height)?;
+                let mut pixels = Vec::new();
+                for i in 0..width * height {
+                    pixels.extend_from_slice(if i % 2 == 0 {
+                        &[0, 0, 255, 255]
+                    } else {
+                        &[255, 0, 0, 255]
+                    });
                 }
-            }
-            eprintln!(
+                let mut input = Vec::new();
+                crate::color::atlas_into_mode(mode, &pixels, width, height, &mut input)?;
+                let mut encoder = Encoder::software(ew, eh, 60, 1)?;
+                let start = std::time::Instant::now();
+                let packets = encoder.encode(&input)?;
+                ensure!(
+                    packets.len() == 1 && packets[0].1,
+                    "missing full-chroma keyframe"
+                );
+                if width == 64 {
+                    for _ in 1..125 {
+                        let next = encoder.encode(&input)?;
+                        ensure!(
+                            next.len() == 1 && !next[0].1,
+                            "unexpected periodic software IDR"
+                        );
+                    }
+                }
+                eprintln!(
                 "FULL_CHROMA source={width}x{height} carrier={ew}x{eh} bytes={} encode_ms={:.2}",
                 packets[0].0.len(),
                 start.elapsed().as_secs_f64() * 1000.0
             );
-            if let Some(directory) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
-                let directory = std::path::PathBuf::from(directory);
-                std::fs::create_dir_all(&directory)?;
-                std::fs::write(
-                    directory.join(format!("atlas-{width}-{height}.h264")),
-                    &packets[0].0,
-                )?;
+                if let Some(directory) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory)?;
+                    std::fs::write(
+                        directory.join(format!("atlas-{width}-{height}-{mode:?}.h264")),
+                        &packets[0].0,
+                    )?;
+                }
             }
         }
         Ok(())

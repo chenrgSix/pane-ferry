@@ -206,6 +206,7 @@ mod tests {
             (None, ColorMode::Compatible),
             (Some("420"), ColorMode::Compatible),
             (Some("444-atlas-v1"), ColorMode::Full),
+            (Some("444-atlas-v2"), ColorMode::FullAligned),
         ] {
             let mut value = serde_json::json!({"type":"video.enable","codec":"h264"});
             if let Some(color) = color {

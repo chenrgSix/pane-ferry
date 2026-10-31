@@ -509,7 +509,7 @@ impl Compositor {
         };
         self.current.ew = ew;
         self.current.eh = eh;
-        self.current.full = u32::from(mode == ColorMode::Full);
+        self.current.full = u32::from(mode.is_full());
         self.update();
         let slot = &self.textures[index];
         slot.busy.store(true, Ordering::Release);
@@ -597,7 +597,7 @@ impl Compositor {
             }
             self.current.ew = ew;
             self.current.eh = eh;
-            self.current.full = u32::from(mode == ColorMode::Full);
+            self.current.full = u32::from(mode.is_full());
             self.update();
             let readback = self.readback.as_ref().unwrap();
             let ctx = &self.device.context;
@@ -642,7 +642,7 @@ mod tests {
     #[ignore = "uses the local D3D11 device, synthetic pixels only"]
     fn gpu_composition_and_both_color_modes_match_cpu() -> Result<()> {
         let mut gpu = Compositor::new()?;
-        for (w, h) in [(3u32, 5u32), (64, 32), (1602, 932)] {
+        for (w, h) in [(3u32, 5u32), (64, 32), (1602, 932), (2051, 65), (33, 2049)] {
             let rect = RECT {
                 left: -30,
                 top: -20,
@@ -688,7 +688,11 @@ mod tests {
             // ordering and blending against the already composed background.
             gpu.paint(&layer, rect)?;
             super::super::blend::over(&pixels, &mut expected, false);
-            for mode in [ColorMode::Compatible, ColorMode::Full] {
+            for mode in [
+                ColorMode::Compatible,
+                ColorMode::Full,
+                ColorMode::FullAligned,
+            ] {
                 let mut actual = Vec::new();
                 let mut reference = Vec::new();
                 gpu.convert(mode, &mut actual)?;
@@ -709,7 +713,9 @@ mod tests {
                     ColorMode::Compatible => {
                         crate::pixels::nv12_into(&expected, w, h, &mut reference)?
                     }
-                    ColorMode::Full => crate::color::atlas_into(&expected, w, h, &mut reference)?,
+                    ColorMode::Full | ColorMode::FullAligned => {
+                        crate::color::atlas_into_mode(mode, &expected, w, h, &mut reference)?
+                    }
                 }
                 assert_eq!(actual.len(), reference.len());
                 if let Some(i) = actual.iter().zip(&reference).position(|(a, b)| a != b) {

@@ -10,9 +10,10 @@ struct ChromaAtlasSmoke {
         let width = object["width"] as! Int, height = object["height"] as! Int
         let ew = object["encoded_width"] as! Int, eh = object["encoded_height"] as! Int
         let bytes = Data(base64Encoded: object["data"] as! String)!
+        let mode = VideoColor(rawValue: object["color"] as? String ?? "444-atlas-v1")!
         let decoder = H264Decoder()
         let frame = try decoder.decodeFrame(bytes, streamID: 1, width: width, height: height,
-            encodedWidth: ew, encodedHeight: eh, colorMode: .full)!
+            encodedWidth: ew, encodedHeight: eh, colorMode: mode)!
         precondition(frame.width == width && frame.height == height)
         let image = frame.image!
         var pixels = [UInt8](repeating: 0, count: width*height*4)
@@ -32,11 +33,19 @@ struct ChromaAtlasSmoke {
                 encodedWidth: ew, encodedHeight: eh, colorMode: .compatible)
             preconditionFailure("atlas accepted without explicit color mode")
         } catch VideoDecodeError.invalidFrame {}
-        for (w,h) in [(1,1),(3,5),(1602,932),(2560,1440),(4096,1900)] {
-            let (a,b) = try VideoColor.full.dimensions(width: w, height: h)
-            precondition(a <= 4096 && b <= 4096 && a*b <= 16_000_000)
-            precondition(a*b >= 2*(w+w%2)*(h+h%2))
+        for mode in [VideoColor.full, .fullAligned] {
+            for (w,h) in [(1,1),(3,5),(1602,932),(2560,1440),(4096,1900),(1602,2049),(1920,4096)] {
+                let (a,b) = try mode.dimensions(width: w, height: h)
+                precondition(a <= 4096 && b <= 4096 && a*b <= 16_000_000)
+                precondition(a*b >= 2*(w+w%2)*(h+h%2))
+            }
         }
+        let aligned = try VideoColor.fullAligned.dimensions(width: 2561, height: 1391)
+        precondition(aligned.0 == 2562 && aligned.1 == 2784)
+        do {
+            _ = try VideoColor.fullAligned.dimensions(width: 4095, height: 1953)
+            preconditionFailure("padded atlas exceeds pixel budget")
+        } catch VideoDecodeError.invalidFrame {}
         print("PASS: Windows H.264 atlas decoded and full-resolution red/blue chroma restored")
     }
 }

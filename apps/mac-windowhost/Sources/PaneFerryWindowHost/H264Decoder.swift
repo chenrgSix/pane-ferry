@@ -101,7 +101,7 @@ final class H264Decoder {
         guard let pixelBuffer = pixelBuffer,
               CVPixelBufferGetWidth(pixelBuffer) == encodedWidth, CVPixelBufferGetHeight(pixelBuffer) == encodedHeight
         else { throw VideoDecodeError.invalidFrame }
-        let display = colorMode == .full ? try atlas.unpack(pixelBuffer, width: width, height: height) : pixelBuffer
+        let display = colorMode.isFull ? try atlas.unpack(pixelBuffer, width: width, height: height, colorMode: colorMode) : pixelBuffer
         return try VideoFrame(buffer: display, width: width, height: height)
     }
     private func createSession(encodedWidth: Int, encodedHeight: Int) throws {

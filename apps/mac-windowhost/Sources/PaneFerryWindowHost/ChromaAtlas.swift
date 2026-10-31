@@ -3,12 +3,17 @@ import CoreVideo
 import Metal
 
 enum VideoColor: String {
-    case compatible = "420", full = "444-atlas-v1"
+    case compatible = "420", full = "444-atlas-v1", fullAligned = "444-atlas-v2"
+    var isFull: Bool { self != .compatible }
     func dimensions(width: Int, height: Int) throws -> (Int, Int) {
         guard width > 0, height > 0, width <= 4096, height <= 4096,
               width * height <= 8_000_000 else { throw VideoDecodeError.invalidFrame }
         let w = width + width % 2, h = height + height % 2
         if self == .compatible { return (w, h) }
+        if self == .fullAligned && h <= 2048 {
+            guard w * h * 2 <= 16_000_000 else { throw VideoDecodeError.invalidFrame }
+            return (w, h * 2)
+        }
         let ew = min(w * 2, 4096), rows = (2 * w * h + ew - 1) / ew
         let eh = rows + rows % 2
         guard eh <= 4096, ew * eh <= 16_000_000 else { throw VideoDecodeError.invalidFrame }
@@ -56,8 +61,9 @@ final class ChromaAtlas {
     private var poolWidth = 0, poolHeight = 0
     private var gpuFailed = false
 
-    func unpack(_ input: CVPixelBuffer, width: Int, height: Int) throws -> CVPixelBuffer {
-        let (ew, eh) = try VideoColor.full.dimensions(width: width, height: height)
+    func unpack(_ input: CVPixelBuffer, width: Int, height: Int, colorMode: VideoColor = .full) throws -> CVPixelBuffer {
+        guard colorMode.isFull else { throw VideoDecodeError.invalidFrame }
+        let (ew, eh) = try colorMode.dimensions(width: width, height: height)
         guard CVPixelBufferGetPixelFormatType(input) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
               CVPixelBufferGetPlaneCount(input) == 2, CVPixelBufferGetWidth(input) == ew,
               CVPixelBufferGetHeight(input) == eh else { throw VideoDecodeError.invalidFrame }

@@ -33,6 +33,10 @@ struct H264OnlySmoke {
         full.receive(Incoming(object:["type":"hello","capabilities":["native.h264","video.color.444-atlas-v1"]],image:nil))
         precondition(fullSent.first?["color"] as? String == "444-atlas-v1")
         precondition(fullSent.first?["codec"] as? String == "h264")
+        let aligned = AppDelegate(options: fullOptions, clipboard: board)
+        var alignedSent: [[String: Any]] = []; aligned.wireSink = { alignedSent.append($0) }
+        aligned.receive(Incoming(object:["type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.color.444-atlas-v2"]],image:nil))
+        precondition(alignedSent.first?["color"] as? String == "444-atlas-v2")
         var thirtySent: [[String: Any]] = []; thirtyApp.wireSink = { thirtySent.append($0) }
         thirtyApp.receive(Incoming(object:["type":"hello","capabilities":["native.h264","video.qos"],"video_max_fps":60],image:nil))
         precondition(thirtySent.first?["max_fps"] as? Int == 30, "the launch argument must reach video.enable")

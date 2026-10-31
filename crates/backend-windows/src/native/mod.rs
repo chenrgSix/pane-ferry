@@ -80,7 +80,7 @@ mod direct_encoding_tests {
             .into_iter()
             .find(|w| w.pid == pid && w.name == "PaneFerry dynamic video verification")
             .context("video fixture missing")?;
-        desktop.set_video_color(crate::color::ColorMode::Full)?;
+        desktop.set_video_color(crate::color::ColorMode::FullAligned)?;
         desktop.attach(&target, 60)?;
         fn next(desktop: &mut Desktop, target: &Target) -> Result<VideoFrame> {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

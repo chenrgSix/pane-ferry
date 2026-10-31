@@ -328,8 +328,8 @@ impl Scene {
                     crate::color::ColorMode::Compatible => {
                         crate::pixels::nv12_into(&pixels, w, h, output)
                     }
-                    crate::color::ColorMode::Full => {
-                        crate::color::atlas_into(&pixels, w, h, output)
+                    crate::color::ColorMode::Full | crate::color::ColorMode::FullAligned => {
+                        crate::color::atlas_into_mode(mode, &pixels, w, h, output)
                     }
                 };
                 self.recycle(pixels);

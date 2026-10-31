@@ -787,9 +787,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 enable["feedback"] = true
                 configuredVideoFPS = videoFPS
             }
-            if options.videoColor == .full && capabilities.contains("video.color.444-atlas-v1") {
+            if options.videoColor.isFull && capabilities.contains("video.color.444-atlas-v2") {
+                enable["color"] = VideoColor.fullAligned.rawValue
+            } else if options.videoColor.isFull && capabilities.contains("video.color.444-atlas-v1") {
                 enable["color"] = VideoColor.full.rawValue
-            } else if options.videoColor == .full {
+            } else if options.videoColor.isFull {
                 alert("远端尚不支持 4:4:4，本次使用兼容色彩模式。", key: "color_mode_unavailable")
             }
             send(enable)
@@ -803,7 +805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return
         }
-        if type == "video.ready" { statusItem?.button?.title = object["color"] as? String == VideoColor.full.rawValue ? "PaneFerry · 4:4:4 色彩" : "PaneFerry · H.264 视频"; return }
+        if type == "video.ready" { statusItem?.button?.title = VideoColor(rawValue: object["color"] as? String ?? "420")?.isFull == true ? "PaneFerry · 4:4:4 色彩" : "PaneFerry · H.264 视频"; return }
         if type == "video.activity.changed" { return }
         if type == "error" {
             // Display server error code, not an arbitrary message potentially containing app data.
@@ -984,7 +986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let host = windows[id], let image = incoming.displayFrame,
                   let revision = unsignedInteger(object["geometry_revision"]), revision == host.revision,
                   image.width == host.surface.remoteWidth, image.height == host.surface.remoteHeight else { return }
-            let mediaMode = object["color"] as? String == VideoColor.full.rawValue ? "4:4:4 色彩" : "H.264 视频"
+            let mediaMode = VideoColor(rawValue: object["color"] as? String ?? "420")?.isFull == true ? "4:4:4 色彩" : "H.264 视频"
             host.present(image, mediaMode: mediaMode)
             attachParents()
             statusItem?.button?.title = "PaneFerry · \(mediaMode)"
