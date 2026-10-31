@@ -6,6 +6,8 @@ pub const RATE: u32 = 48_000;
 pub const SAMPLES: usize = 480;
 pub const MAX_PACKET: usize = 1275;
 pub const CAPABILITY: &str = "audio.system.opus.v1";
+#[cfg(any(windows, target_os = "macos", test))]
+mod playback;
 
 #[derive(Clone, Debug)]
 pub struct Packet {

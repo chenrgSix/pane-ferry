@@ -312,6 +312,10 @@ async fn receive(
     let clock = Instant::now();
     let mut timing = Timing::default();
     let mut last = 0;
+    let mut report = Instant::now();
+    let mut last_arrival = Instant::now();
+    let mut arrival_max_ms = 0;
+    let mut stale_packets = 0;
     loop {
         let value = read(&mut reader).await?;
         if !player.healthy() {
@@ -320,6 +324,8 @@ async fn receive(
         match value["type"].as_str() {
             Some("audio.heartbeat") => {}
             Some("audio.frame") => {
+                arrival_max_ms = arrival_max_ms.max(last_arrival.elapsed().as_millis() as u64);
+                last_arrival = Instant::now();
                 let sequence = value["sequence"].as_u64().ok_or("声音数据无效。")?;
                 let stamp = value["timestamp_ms"]
                     .as_u64()
@@ -344,12 +350,18 @@ async fn receive(
                             data,
                         })
                         .map_err(|_| "声音播放暂时中断，正在恢复。")?;
+                } else {
+                    stale_packets += 1;
                 }
-                send(
-                    &mut write,
-                    json!({"version":1,"type":"audio.ack","sequence":sequence}),
-                )
-                .await?;
+                let mut ack = json!({"version":1,"type":"audio.ack","sequence":sequence});
+                if report.elapsed() >= Duration::from_secs(5) {
+                    let stats = player.stats();
+                    ack["playback"] = json!({"underruns":stats.underruns,"packet_drops":stats.packet_drops,"missing":stats.missing,"concealed":stats.concealed,"pcm_drops":stats.pcm_drops,"queued_ms":stats.queued_ms,"callback_max":stats.callback_max,"sample_rate":stats.sample_rate,"prebuffer_ms":stats.prebuffer_ms,"stale_packets":stale_packets,"arrival_max_ms":arrival_max_ms});
+                    report = Instant::now();
+                    arrival_max_ms = 0;
+                    stale_packets = 0;
+                }
+                send(&mut write, ack).await?;
             }
             Some("error") => return Err("远端声音暂时中断，正在恢复。".into()),
             _ => return Err("声音数据无效。".into()),

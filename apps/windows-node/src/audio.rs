@@ -1,5 +1,5 @@
 //! An audio subscription exclusively owns its IPC/QUIC control stream. Video
-//! never queues here. Eight acknowledged packets bound reliable-stream backlog.
+//! never queues here. Sixteen acknowledged packets bound reliable-stream backlog.
 use super::*;
 #[cfg(any(windows, test))]
 use anyhow::Context;
@@ -55,6 +55,10 @@ async fn run_packets<W: AsyncWrite + Unpin>(
     let mut last_ack = 0;
     let mut timer = tokio::time::interval(Duration::from_millis(200));
     let mut heartbeat = Instant::now();
+    let mut measured = Instant::now();
+    let mut received_stats = Instant::now();
+    let (mut sent, mut credit_drops, mut age_drops, mut lagged, mut ack_max_us) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
     loop {
         tokio::select! {
             biased;
@@ -64,12 +68,26 @@ async fn run_packets<W: AsyncWrite + Unpin>(
                 let ack = value["sequence"].as_u64().context("invalid audio acknowledgment")?;
                 ensure!(ack >= last_ack && ack <= last_sent, "invalid audio acknowledgment");
                 last_ack = ack;
-                while outstanding.front().is_some_and(|(sequence, _)| *sequence <= ack) { outstanding.pop_front(); }
+                while outstanding.front().is_some_and(|(sequence, _)| *sequence <= ack) {
+                    if let Some((_, when)) = outstanding.pop_front() { ack_max_us = ack_max_us.max(when.elapsed().as_micros() as u64); }
+                }
+                // Only bounded counters are accepted, never arbitrary peer log text.
+                if received_stats.elapsed() >= Duration::from_secs(4) {
+                    if let Some(stats) = value.get("playback").and_then(playback_stats) {
+                        eprintln!("PF_AUDIO_RECEIVE {stats}");
+                        received_stats = Instant::now();
+                    }
+                }
             }
             _ = timer.tick() => {
                 let sharing = { let state = state.lock().unwrap(); state.sharing && !state.stopping };
                 ensure!(sharing, "sharing disabled");
                 ensure!(!outstanding.front().is_some_and(|(_, sent)| sent.elapsed() > Duration::from_millis(500)), "audio receiver stalled");
+                if measured.elapsed() >= Duration::from_secs(5) {
+                    eprintln!("PF_AUDIO_SEND interval_ms={} sent={sent} credit_drops={credit_drops} age_drops={age_drops} lagged={lagged} ack_max_us={ack_max_us} outstanding={}", measured.elapsed().as_millis(), outstanding.len());
+                    (sent, credit_drops, age_drops, lagged, ack_max_us) = (0, 0, 0, 0, 0);
+                    measured = Instant::now();
+                }
                 if heartbeat.elapsed() >= Duration::from_secs(1) {
                     send(write, json!({"type":"audio.heartbeat"})).await?;
                     heartbeat = Instant::now();
@@ -79,17 +97,41 @@ async fn run_packets<W: AsyncWrite + Unpin>(
                 let packet = match packet {
                     Ok(Ok(packet)) => packet,
                     Ok(Err(error)) => bail!("{error}"),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => { lagged += count; continue; },
                     Err(_) => bail!("audio capture ended"),
                 };
-                if outstanding.len() >= 8 || packet.created.elapsed() > Duration::from_millis(60) { continue; }
+                if outstanding.len() >= 16 { credit_drops += 1; continue; }
+                if packet.created.elapsed() > Duration::from_millis(60) { age_drops += 1; continue; }
                 ensure!(state.lock().unwrap().sharing, "sharing disabled");
                 send(write, json!({"type":"audio.frame","sequence":packet.sequence,"timestamp_ms":packet.created.saturating_duration_since(start).as_millis() as u64,"data":STANDARD.encode(packet.data)})).await?;
                 last_sent = packet.sequence;
+                sent += 1;
                 outstanding.push_back((last_sent, Instant::now()));
             }
         }
     }
+}
+
+#[cfg(any(windows, test))]
+fn playback_stats(value: &Value) -> Option<Value> {
+    let mut result = serde_json::Map::new();
+    for key in [
+        "underruns",
+        "packet_drops",
+        "missing",
+        "concealed",
+        "pcm_drops",
+        "queued_ms",
+        "callback_max",
+        "sample_rate",
+        "prebuffer_ms",
+        "stale_packets",
+        "arrival_max_ms",
+    ] {
+        let count = value.get(key)?.as_u64().filter(|v| *v <= 1_000_000_000)?;
+        result.insert(key.into(), json!(count));
+    }
+    Some(Value::Object(result))
 }
 
 #[cfg(test)]
@@ -110,7 +152,7 @@ mod tests {
             framing::line(&mut reader).await.unwrap()["type"],
             "audio.format"
         );
-        for sequence in 1..=8 {
+        for sequence in 1..=16 {
             packets
                 .send(Ok(paneferry_audio::Packet {
                     sequence,
@@ -123,7 +165,7 @@ mod tests {
         }
         packets
             .send(Ok(paneferry_audio::Packet {
-                sequence: 9,
+                sequence: 17,
                 created: Instant::now(),
                 data: vec![4],
             }))
@@ -135,19 +177,19 @@ mod tests {
         );
         requests
             .send(Ok((
-                json!({"version":1,"type":"audio.ack","sequence":8}),
+                json!({"version":1,"type":"audio.ack","sequence":16}),
                 Instant::now(),
             )))
             .await
             .unwrap();
         packets
             .send(Ok(paneferry_audio::Packet {
-                sequence: 10,
+                sequence: 18,
                 created: Instant::now(),
                 data: vec![5],
             }))
             .unwrap();
-        assert_eq!(framing::line(&mut reader).await.unwrap()["sequence"], 10);
+        assert_eq!(framing::line(&mut reader).await.unwrap()["sequence"], 18);
         state.lock().unwrap().sharing = false;
         let error = tokio::time::timeout(Duration::from_secs(1), task)
             .await

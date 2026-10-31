@@ -4,7 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_queue::ArrayQueue;
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc,
     },
     time::{Duration, Instant},
@@ -259,6 +259,9 @@ fn capture_loop(
     let mut encoded = [0u8; MAX_PACKET];
     let mut sequence = 0;
     let mut checked = Instant::now();
+    let mut measured = Instant::now();
+    let (mut encoded_packets, mut aged_frames, mut encode_max_us, mut device_poll_max_us) =
+        (0u64, 0u64, 0u64, 0u64);
     stream.play()?;
     let _ = ready.send(Ok(()));
     while !stop.load(Ordering::Acquire) {
@@ -267,18 +270,34 @@ fn capture_loop(
             "audio output device unavailable"
         );
         if checked.elapsed() >= Duration::from_secs(1) {
+            let poll = Instant::now();
             ensure!(!device_changed(&name), "audio output device changed");
+            device_poll_max_us = device_poll_max_us.max(poll.elapsed().as_micros() as u64);
             checked = Instant::now();
+        }
+        if measured.elapsed() >= Duration::from_secs(5) {
+            eprintln!("PF_AUDIO_CAPTURE interval_ms={} encoded={encoded_packets} aged_frames={aged_frames} encode_max_us={encode_max_us} device_poll_max_us={device_poll_max_us}", measured.elapsed().as_millis());
+            (
+                encoded_packets,
+                aged_frames,
+                encode_max_us,
+                device_poll_max_us,
+            ) = (0, 0, 0, 0);
+            measured = Instant::now();
         }
         if let Some(sample) = queue.pop() {
             if sample.captured.elapsed() > Duration::from_millis(80) {
+                aged_frames += 1;
                 pcm.clear();
                 resampler = Resampler::new(config.sample_rate.0, RATE)?;
                 continue;
             }
             resampler.push(sample.stereo, &mut pcm);
             while pcm.len() >= SAMPLES * 2 {
+                let encoding = Instant::now();
                 let size = encoder.encode_float(&pcm[..SAMPLES * 2], &mut encoded)?;
+                encode_max_us = encode_max_us.max(encoding.elapsed().as_micros() as u64);
+                encoded_packets += 1;
                 pcm.drain(..SAMPLES * 2);
                 sequence += 1;
                 let _ = sender.send(Ok(Packet {
@@ -295,9 +314,59 @@ fn capture_loop(
 }
 
 pub struct Player {
-    sender: mpsc::SyncSender<Packet>,
+    packets: Arc<ArrayQueue<Packet>>,
     stop: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    stats: Arc<PlaybackStats>,
+}
+#[derive(Default)]
+struct PlaybackStats {
+    underruns: AtomicU64,
+    packet_drops: AtomicU64,
+    missing: AtomicU64,
+    concealed: AtomicU64,
+    pcm_drops: AtomicU64,
+    queued: AtomicU64,
+    callback_max: AtomicU64,
+    rate: AtomicU64,
+    prebuffer_ms: AtomicU64,
+}
+pub struct PlaybackSnapshot {
+    pub underruns: u64,
+    pub packet_drops: u64,
+    pub missing: u64,
+    pub concealed: u64,
+    pub pcm_drops: u64,
+    pub queued_ms: u64,
+    pub callback_max: u64,
+    pub sample_rate: u64,
+    pub prebuffer_ms: u64,
+}
+#[cfg(test)]
+mod playback_tests {
+    use super::*;
+    #[test]
+    fn retransmission_burst_drops_old_packets_without_disconnect() {
+        let player = Player {
+            packets: Arc::new(ArrayQueue::new(16)),
+            stop: Arc::new(AtomicBool::new(false)),
+            failed: Arc::new(AtomicBool::new(false)),
+            stats: Arc::new(PlaybackStats::default()),
+        };
+        for sequence in 1..=24 {
+            player
+                .push(Packet {
+                    sequence,
+                    created: Instant::now(),
+                    data: vec![1],
+                })
+                .unwrap();
+        }
+        assert!(player.healthy());
+        assert_eq!(player.stats().packet_drops, 8);
+        assert_eq!(player.packets.pop().unwrap().sequence, 9);
+        assert_eq!(player.packets.len(), 15);
+    }
 }
 impl Drop for Player {
     fn drop(&mut self) {
@@ -307,19 +376,22 @@ impl Drop for Player {
 impl Player {
     /// Own the non-Send CoreAudio/WASAPI stream entirely on its playback thread.
     pub fn start() -> Result<Self> {
-        let (sender, receive) = mpsc::sync_channel(8);
+        let packets = Arc::new(ArrayQueue::new(16));
+        let receive = packets.clone();
+        let stats = Arc::new(PlaybackStats::default());
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let player = Self {
-            sender,
+            packets,
             stop: stop.clone(),
             failed: failed.clone(),
+            stats: stats.clone(),
         };
         let (ready, wait) = mpsc::sync_channel(1);
         std::thread::Builder::new()
             .name("device-audio-playback".into())
             .spawn(move || {
-                if let Err(error) = playback_loop(stop, failed.clone(), receive, &ready) {
+                if let Err(error) = playback_loop(stop, failed.clone(), receive, &ready, stats) {
                     failed.store(true, Ordering::Release);
                     let _ = ready.try_send(Err(error.to_string()));
                 }
@@ -337,11 +409,26 @@ impl Player {
             !packet.data.is_empty() && packet.data.len() <= MAX_PACKET,
             "invalid audio packet"
         );
-        // Backpressure restarts the subscription; it never builds an unbounded delay.
-        self.sender
-            .try_send(packet)
-            .context("audio playback queue full or closed")?;
+        // A retransmission can deliver a burst. Keep the newest bounded data;
+        // queue pressure must not trigger a three-second subscription reconnect.
+        if self.packets.force_push(packet).is_some() {
+            self.stats.packet_drops.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
+    }
+    pub fn stats(&self) -> PlaybackSnapshot {
+        let rate = self.stats.rate.load(Ordering::Relaxed).max(1);
+        PlaybackSnapshot {
+            underruns: self.stats.underruns.swap(0, Ordering::Relaxed),
+            packet_drops: self.stats.packet_drops.swap(0, Ordering::Relaxed),
+            missing: self.stats.missing.swap(0, Ordering::Relaxed),
+            concealed: self.stats.concealed.swap(0, Ordering::Relaxed),
+            pcm_drops: self.stats.pcm_drops.swap(0, Ordering::Relaxed),
+            queued_ms: self.stats.queued.load(Ordering::Relaxed) * 1000 / rate,
+            callback_max: self.stats.callback_max.swap(0, Ordering::Relaxed),
+            sample_rate: rate,
+            prebuffer_ms: self.stats.prebuffer_ms.load(Ordering::Relaxed),
+        }
     }
     pub fn healthy(&self) -> bool {
         !self.failed.load(Ordering::Acquire)
@@ -354,25 +441,39 @@ fn output_stream<T>(
     queue: Arc<ArrayQueue<[f32; 2]>>,
     failed: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    stats: Arc<PlaybackStats>,
 ) -> Result<cpal::Stream>
 where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let channels = config.channels as usize;
-    let prebuffer = config.sample_rate.0 as usize / 50; // 20 ms after startup/underrun.
+    let mut prebuffer = crate::playback::Prebuffer::new(config.sample_rate.0);
     let mut primed = false;
     Ok(device.build_output_stream(
         config,
         move |data: &mut [T], _| {
-            if !primed && queue.len() >= prebuffer {
+            let callback_frames = data.len() / channels;
+            stats
+                .callback_max
+                .fetch_max(callback_frames as u64, Ordering::Relaxed);
+            if !primed && queue.len() >= prebuffer.frames(callback_frames) {
                 primed = true;
             }
+            let mut played = 0;
             for frame in data.chunks_exact_mut(channels) {
                 let stereo = if primed && !stop.load(Ordering::Acquire) {
-                    queue.pop().unwrap_or_else(|| {
-                        primed = false;
-                        [0.0; 2]
-                    })
+                    match queue.pop() {
+                        Some(sample) => {
+                            played += 1;
+                            sample
+                        }
+                        None => {
+                            primed = false;
+                            prebuffer.underrun();
+                            stats.underruns.fetch_add(1, Ordering::Relaxed);
+                            [0.0; 2]
+                        }
+                    }
                 } else {
                     [0.0; 2]
                 };
@@ -385,6 +486,13 @@ where
                     *sample = T::from_sample(value.clamp(-1.0, 1.0));
                 }
             }
+            if primed {
+                prebuffer.played(played);
+            }
+            stats.queued.store(queue.len() as u64, Ordering::Relaxed);
+            stats
+                .prebuffer_ms
+                .store(prebuffer.milliseconds as u64, Ordering::Relaxed);
         },
         move |_| {
             failed.store(true, Ordering::Release);
@@ -395,13 +503,17 @@ where
 fn playback_loop(
     stop: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
-    receive: mpsc::Receiver<Packet>,
+    receive: Arc<ArrayQueue<Packet>>,
     ready: &mpsc::SyncSender<Result<(), String>>,
+    stats: Arc<PlaybackStats>,
 ) -> Result<()> {
     let (device, supported) = output()?;
     let name = device.name()?;
     let config: cpal::StreamConfig = supported.clone().into();
-    let queue = Arc::new(ArrayQueue::new(config.sample_rate.0 as usize / 10));
+    stats
+        .rate
+        .store(config.sample_rate.0 as u64, Ordering::Relaxed);
+    let queue = Arc::new(ArrayQueue::new(config.sample_rate.0 as usize * 120 / 1000));
     let stream = match supported.sample_format() {
         cpal::SampleFormat::F32 => output_stream::<f32>(
             &device,
@@ -409,6 +521,7 @@ fn playback_loop(
             queue.clone(),
             failed.clone(),
             stop.clone(),
+            stats.clone(),
         )?,
         cpal::SampleFormat::I16 => output_stream::<i16>(
             &device,
@@ -416,6 +529,7 @@ fn playback_loop(
             queue.clone(),
             failed.clone(),
             stop.clone(),
+            stats.clone(),
         )?,
         cpal::SampleFormat::I32 => output_stream::<i32>(
             &device,
@@ -423,6 +537,7 @@ fn playback_loop(
             queue.clone(),
             failed.clone(),
             stop.clone(),
+            stats.clone(),
         )?,
         cpal::SampleFormat::U16 => output_stream::<u16>(
             &device,
@@ -430,6 +545,7 @@ fn playback_loop(
             queue.clone(),
             failed.clone(),
             stop.clone(),
+            stats.clone(),
         )?,
         cpal::SampleFormat::F64 => output_stream::<f64>(
             &device,
@@ -437,14 +553,14 @@ fn playback_loop(
             queue.clone(),
             failed.clone(),
             stop.clone(),
+            stats.clone(),
         )?,
         _ => bail!("unsupported audio playback format"),
     };
-    let mut decoder = opus::Decoder::new(RATE, opus::Channels::Stereo)?;
+    let mut decoder = crate::playback::Decoder::new()?;
     let mut resampler = Resampler::new(RATE, config.sample_rate.0)?;
-    let mut pcm = [0.0; SAMPLES * 2];
+    let mut pcm = Vec::with_capacity(SAMPLES * 8);
     let mut converted = Vec::with_capacity(SAMPLES * 8);
-    let mut sequence = None;
     let mut checked = Instant::now();
     stream.play()?;
     let _ = ready.send(Ok(()));
@@ -454,29 +570,27 @@ fn playback_loop(
             ensure!(!device_changed(&name), "audio playback device changed");
             checked = Instant::now();
         }
-        match receive.recv_timeout(Duration::from_millis(20)) {
-            Ok(packet) => {
+        match receive.pop() {
+            Some(packet) => {
                 if packet.created.elapsed() > Duration::from_millis(80) {
+                    stats.packet_drops.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
-                if sequence.is_some_and(|last| packet.sequence != last + 1) {
-                    decoder.reset_state()?;
-                    resampler = Resampler::new(RATE, config.sample_rate.0)?;
-                    while queue.pop().is_some() {}
-                }
-                sequence = Some(packet.sequence);
-                let count = decoder.decode_float(&packet.data, &mut pcm, false)?;
-                ensure!(count == SAMPLES, "invalid audio duration");
+                let (missing, concealed) =
+                    decoder.decode(packet.sequence, &packet.data, !queue.is_empty(), &mut pcm)?;
+                stats.missing.fetch_add(missing, Ordering::Relaxed);
+                stats.concealed.fetch_add(concealed, Ordering::Relaxed);
                 converted.clear();
                 for frame in pcm.chunks_exact(2) {
                     resampler.push([frame[0], frame[1]], &mut converted);
                 }
                 for frame in converted.chunks_exact(2) {
-                    queue.force_push([frame[0], frame[1]]);
+                    if queue.force_push([frame[0], frame[1]]).is_some() {
+                        stats.pcm_drops.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            None => std::thread::sleep(Duration::from_millis(2)),
         }
     }
     Ok(())
