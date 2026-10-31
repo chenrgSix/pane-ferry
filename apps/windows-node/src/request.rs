@@ -31,7 +31,11 @@ pub enum Request {
     #[serde(rename = "video.configure")]
     VideoConfigure { max_fps: u32 },
     #[serde(rename = "video.feedback")]
-    VideoFeedback { frame_id: u64 },
+    VideoFeedback {
+        frame_id: u64,
+        #[serde(default)]
+        timing: Option<crate::video_flow::FeedbackTiming>,
+    },
     #[serde(rename = "video.keyframe")]
     KeyFrame { window_id: u32 },
     #[serde(rename = "app.launch")]
@@ -96,7 +100,15 @@ pub fn parse(mut value: Value) -> Result<Request> {
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("invalid_request"))?
         .remove("version");
-    serde_json::from_value(value).map_err(|_| anyhow::anyhow!("invalid_request"))
+    let request = serde_json::from_value(value).map_err(|_| anyhow::anyhow!("invalid_request"))?;
+    if let Request::VideoFeedback {
+        timing: Some(timing),
+        ..
+    } = &request
+    {
+        ensure!(timing.valid(), "invalid_request");
+    }
+    Ok(request)
 }
 impl Request {
     pub fn input(self) -> Result<(u32, Input)> {
@@ -168,6 +180,26 @@ impl Request {
 mod tests {
     use super::*;
     use paneferry_backend_windows::color::ColorMode;
+    #[test]
+    fn feedback_timing_is_optional_bounded_and_strict() {
+        let legacy = serde_json::json!({"version":1,"type":"video.feedback","frame_id":7});
+        assert!(parse(legacy.clone()).is_ok());
+        let mut timed = legacy;
+        timed["timing"] = serde_json::json!({"queue_us":1000,"decode_us":2000,"present_us":3000,"feedback_wait_us":4000});
+        assert!(parse(timed.clone()).is_ok());
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(5_000_001),
+            serde_json::json!(true),
+            serde_json::json!(1.5),
+        ] {
+            let mut bad = timed.clone();
+            bad["timing"]["decode_us"] = invalid;
+            assert!(parse(bad).is_err());
+        }
+        timed["timing"]["unexpected"] = serde_json::json!(1);
+        assert!(parse(timed).is_err());
+    }
     #[test]
     fn color_requires_explicit_supported_negotiation() {
         for (color, expected) in [

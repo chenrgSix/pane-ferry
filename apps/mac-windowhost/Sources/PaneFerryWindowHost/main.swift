@@ -369,6 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var lastVideoFeedback: TimeInterval = 0
     var lastFrameRateRefresh: TimeInterval = 0
     var pendingVideoFeedbackID: UInt64?
+    var pendingVideoFeedbackTiming: VideoFeedbackTiming?
     let controllerClipboard: NSPasteboard
     var wireSink: (([String: Any]) -> Void)?
     var terminateHost: () -> Void = { NSApp.terminate(nil) }
@@ -590,7 +591,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if lastVideoFeedback == 0 || now - lastVideoFeedback >= 0.05 {
                 pendingVideoFeedbackID = nil
                 lastVideoFeedback = now
-                send(["type": "video.feedback", "frame_id": id])
+                var feedback: [String: Any] = ["type": "video.feedback", "frame_id": id]
+                if capabilities.contains("video.feedback.timing.v1"),
+                   let timing = pendingVideoFeedbackTiming, timing.frameID == id,
+                   let value = timing.wire(at: DispatchTime.now().uptimeNanoseconds) {
+                    feedback["timing"] = value
+                }
+                pendingVideoFeedbackTiming = nil
+                send(feedback)
             }
         }
         let now = ProcessInfo.processInfo.systemUptime
@@ -616,7 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         publisherMaxVideoFPS = maximumVideoFPS
         configuredVideoFPS = nil; sentVideoActivity = nil
         updateRateMenu()
-        lastVideoFeedback = 0; pendingVideoFeedbackID = nil
+        lastVideoFeedback = 0; pendingVideoFeedbackID = nil; pendingVideoFeedbackTiming = nil
         do {
             try transport.start(options)
             writeWire(["type": "hello"])
@@ -979,7 +987,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     guard let self=self, let host=host, self.connected, self.windows[id] === host, host.revision == revision else { return }
                     if let received = unsignedInteger(object["received_ns"]) { VideoTiming.record("mac.receive_to_commit", since: received) }
                     if let decoded = unsignedInteger(object["decode_completed_ns"]) { VideoTiming.record("mac.decode_to_commit", since: decoded) }
-                    self.pendingVideoFeedbackID = max(self.pendingVideoFeedbackID ?? 0, frameID)
+                    if frameID >= (self.pendingVideoFeedbackID ?? 0) {
+                        self.pendingVideoFeedbackID = frameID
+                        self.pendingVideoFeedbackTiming = VideoFeedbackTiming(frameID: frameID,
+                            received: unsignedInteger(object["received_ns"]),
+                            decoding: unsignedInteger(object["decode_started_ns"]),
+                            decoded: unsignedInteger(object["decode_completed_ns"]),
+                            presented: DispatchTime.now().uptimeNanoseconds)
+                    }
                 }
             }
         default: break

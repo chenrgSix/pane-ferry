@@ -349,7 +349,7 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     assert!(frame["frame_id"].as_u64().unwrap() > 0);
     send(
         &mut wr,
-        json!({"type":"video.feedback","frame_id":frame["frame_id"]}),
+        json!({"type":"video.feedback","frame_id":frame["frame_id"],"timing":{"queue_us":0,"decode_us":0,"present_us":0,"feedback_wait_us":0}}),
     )
     .await;
     assert_eq!(

@@ -324,8 +324,8 @@ impl Client {
                 self.system.set_video_fps(max_fps)?;
                 self.fps = max_fps;
             }
-            Request::VideoFeedback { frame_id } => {
-                if let Some(quality) = self.flow.acknowledge(frame_id) {
+            Request::VideoFeedback { frame_id, timing } => {
+                if let Some(quality) = self.flow.acknowledge(frame_id, timing) {
                     self.system.set_video_quality(quality)?;
                 }
             }
@@ -655,7 +655,7 @@ pub async fn client(
         revision: 0,
         video_epoch: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.keyframe","video.qos","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.keyframe","video.qos","video.feedback.timing.v1","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {

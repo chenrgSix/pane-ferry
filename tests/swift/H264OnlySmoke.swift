@@ -3,6 +3,12 @@ import AppKit
 @main
 struct H264OnlySmoke {
     static func main() throws {
+        let timing = VideoFeedbackTiming(frameID: 1, received: 0, decoding: 1000, decoded: 2_001_000, presented: 5_001_000)!
+        let measured = timing.wire(at: 9_001_000)!
+        precondition(measured == ["queue_us": 1, "decode_us": 2000, "present_us": 3000, "feedback_wait_us": 4000])
+        precondition(VideoFeedbackTiming(frameID: 1, received: nil, decoding: 1, decoded: 2, presented: 3) == nil)
+        precondition(VideoFeedbackTiming(frameID: 1, received: 3, decoding: 1, decoded: 2, presented: 4) == nil)
+        precondition(timing.wire(at: 1) == nil && timing.wire(at: 6_000_000_000) == nil)
         _ = NSApplication.shared
         let args = ["--native-peer", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "--native-state", "/tmp/fixture",
                     "--native-helper", "/tmp/fixture/bridge", "--session", "retained"]
@@ -92,6 +98,22 @@ struct H264OnlySmoke {
         adaptive.lastVideoFeedback = ProcessInfo.processInfo.systemUptime - 0.1
         adaptive.pump()
         precondition(adaptiveSent.last?["frame_id"] as? UInt64 == 42, "the final still frame must be acknowledged")
+        func report(_ id: UInt64) -> VideoFeedbackTiming {
+            let now = DispatchTime.now().uptimeNanoseconds
+            return VideoFeedbackTiming(frameID: id, received: now - 7_000_000, decoding: now - 6_000_000,
+                decoded: now - 4_000_000, presented: now - 1_000_000)!
+        }
+        adaptive.pendingVideoFeedbackID = 43; adaptive.pendingVideoFeedbackTiming = report(43)
+        adaptive.lastVideoFeedback = 0; adaptive.pump()
+        precondition(adaptiveSent.last?["timing"] == nil, "legacy publishers must not receive new fields")
+        adaptive.capabilities.insert("video.feedback.timing.v1")
+        adaptive.pendingVideoFeedbackID = 44; adaptive.pendingVideoFeedbackTiming = report(44)
+        adaptive.lastVideoFeedback = 0; adaptive.pump()
+        let sentTiming = adaptiveSent.last?["timing"] as? [String: UInt64]
+        precondition(sentTiming?["decode_us"] == 2000 && sentTiming?["present_us"] == 3000)
+        adaptive.pendingVideoFeedbackID = 45; adaptive.pendingVideoFeedbackTiming = report(44)
+        adaptive.lastVideoFeedback = 0; adaptive.pump()
+        precondition(adaptiveSent.last?["timing"] == nil, "measurements must belong to the acknowledged frame")
         let context = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let image = context.makeImage()!

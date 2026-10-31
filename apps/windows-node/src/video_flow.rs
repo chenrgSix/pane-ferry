@@ -10,6 +10,53 @@ pub enum Ready {
     Wait,
     Restart,
 }
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackTiming {
+    pub queue_us: u32,
+    pub decode_us: u32,
+    pub present_us: u32,
+    pub feedback_wait_us: u32,
+}
+impl FeedbackTiming {
+    pub fn valid(&self) -> bool {
+        [
+            self.queue_us,
+            self.decode_us,
+            self.present_us,
+            self.feedback_wait_us,
+        ]
+        .into_iter()
+        .all(|us| us <= 5_000_000)
+    }
+    fn record(&self, roundtrip: Duration) {
+        let total = Duration::from_micros(
+            self.queue_us as u64
+                + self.decode_us as u64
+                + self.present_us as u64
+                + self.feedback_wait_us as u64,
+        );
+        // These are optional, untrusted peer measurements, never flow-control
+        // credits. Ignore inconsistent reports and keep the real local RTT.
+        if !self.valid() || total > roundtrip {
+            return;
+        }
+        for (stage, us) in [
+            ("receiver.decode_queue", self.queue_us),
+            ("receiver.decode", self.decode_us),
+            ("receiver.decode_to_commit", self.present_us),
+            ("receiver.feedback_hold", self.feedback_wait_us),
+        ] {
+            paneferry_backend_windows::metrics::sample(stage, Duration::from_micros(us as u64));
+        }
+        // Includes transport, IPC/bridge work and the feedback return path.
+        // This residual is deliberately not labelled as pure network latency.
+        paneferry_backend_windows::metrics::sample(
+            "publisher.transport_and_bridge_roundtrip",
+            roundtrip - total,
+        );
+    }
+}
 #[derive(Default)]
 pub struct VideoFlow {
     enabled: bool,
@@ -20,6 +67,7 @@ pub struct VideoFlow {
     bad_samples: u8,
     stable_since: Option<Instant>,
     last_adjusted: Option<Instant>,
+    gate_started: Option<Instant>,
 }
 impl VideoFlow {
     pub fn enable(&mut self, enabled: bool) {
@@ -30,6 +78,7 @@ impl VideoFlow {
         self.bad_samples = 0;
         self.stable_since = None;
         self.last_adjusted = None;
+        self.gate_started = None;
     }
     pub fn ready(&mut self, now: Instant) -> Ready {
         if !self.enabled {
@@ -41,14 +90,25 @@ impl VideoFlow {
             .is_some_and(|(_, sent)| now.duration_since(*sent) >= Duration::from_millis(500))
         {
             self.pending.clear();
+            self.finish_gate(now);
             return Ready::Restart;
         }
         // Allow the Mac host's 50 ms feedback cadence plus ~30 ms RTT at 60 fps.
         // Bound stalled display/network queues without throttling healthy feedback.
         if self.pending.len() >= 6 {
+            self.gate_started.get_or_insert(now);
             Ready::Wait
         } else {
+            self.finish_gate(now);
             Ready::Send
+        }
+    }
+    fn finish_gate(&mut self, now: Instant) {
+        if let Some(started) = self.gate_started.take() {
+            paneferry_backend_windows::metrics::sample(
+                "publisher.feedback_gate_wait",
+                now.saturating_duration_since(started),
+            );
         }
     }
     pub fn sent(&mut self, now: Instant) -> Option<u64> {
@@ -59,8 +119,14 @@ impl VideoFlow {
         self.pending.push_back((self.next, now));
         Some(self.next)
     }
-    pub fn acknowledge(&mut self, id: u64) -> Option<u32> {
-        self.acknowledge_at(id, Instant::now())
+    pub fn acknowledge(&mut self, id: u64, timing: Option<FeedbackTiming>) -> Option<u32> {
+        let now = Instant::now();
+        if let (Some(timing), Some((_, sent))) =
+            (timing, self.pending.iter().find(|(frame, _)| *frame == id))
+        {
+            timing.record(now.saturating_duration_since(*sent));
+        }
+        self.acknowledge_at(id, now)
     }
     fn acknowledge_at(&mut self, id: u64, now: Instant) -> Option<u32> {
         // Cumulative ACKs may skip frames. Unknown/stale ACKs affect nothing.
@@ -110,6 +176,31 @@ impl VideoFlow {
 mod tests {
     use super::*;
     #[test]
+    fn reported_receiver_timing_cannot_add_credits_for_unknown_frames() {
+        let now = Instant::now();
+        let mut flow = VideoFlow::default();
+        flow.enable(true);
+        for _ in 0..6 {
+            flow.sent(now);
+        }
+        assert_eq!(flow.ready(now), Ready::Wait);
+        assert!(flow.gate_started.is_some());
+        let sample = || {
+            Some(FeedbackTiming {
+                queue_us: 1,
+                decode_us: 1,
+                present_us: 1,
+                feedback_wait_us: 1,
+            })
+        };
+        flow.acknowledge(999, sample());
+        assert_eq!(flow.ready(now + Duration::from_millis(100)), Ready::Wait);
+        flow.acknowledge(3, sample());
+        assert_eq!(flow.ready(now + Duration::from_millis(101)), Ready::Send);
+        assert!(flow.gate_started.is_none());
+        assert_eq!(flow.pending.len(), 3);
+    }
+    #[test]
     fn bounds_backlog_and_recovers_without_dropping_coded_references() {
         let now = Instant::now();
         let mut flow = VideoFlow::default();
@@ -119,15 +210,15 @@ mod tests {
             flow.sent(now);
         }
         assert_eq!(flow.ready(now), Ready::Wait);
-        flow.acknowledge(999);
+        flow.acknowledge(999, None);
         assert_eq!(flow.ready(now), Ready::Wait);
-        flow.acknowledge(3);
+        flow.acknowledge(3, None);
         assert_eq!(flow.ready(now), Ready::Send);
         flow.sent(now);
         assert_eq!(flow.ready(now + Duration::from_millis(501)), Ready::Restart);
         assert_eq!(flow.ready(now + Duration::from_millis(502)), Ready::Send);
         assert_eq!(flow.sent(now), Some(8));
-        flow.acknowledge(4);
+        flow.acknowledge(4, None);
         assert_eq!(flow.pending.len(), 1);
     }
     #[test]

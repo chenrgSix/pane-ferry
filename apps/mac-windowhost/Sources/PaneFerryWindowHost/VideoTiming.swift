@@ -1,5 +1,27 @@
 import Foundation
 
+/// Per-frame elapsed intervals on this receiver's monotonic clock. Only sent
+/// when the publisher advertises support; no absolute timestamps or content.
+struct VideoFeedbackTiming {
+    let frameID: UInt64
+    let received: UInt64, decoding: UInt64, decoded: UInt64, presented: UInt64
+    init?(frameID: UInt64, received: UInt64?, decoding: UInt64?, decoded: UInt64?, presented: UInt64) {
+        guard let received = received, let decoding = decoding, let decoded = decoded,
+              received <= decoding, decoding <= decoded, decoded <= presented else { return nil }
+        self.frameID = frameID; self.received = received
+        self.decoding = decoding; self.decoded = decoded; self.presented = presented
+    }
+    func wire(at now: UInt64) -> [String: UInt64]? {
+        guard now >= presented else { return nil }
+        let queue = (decoding - received) / 1000
+        let decode = (decoded - decoding) / 1000
+        let present = (presented - decoded) / 1000
+        let hold = (now - presented) / 1000
+        guard queue <= 5_000_000, decode <= 5_000_000, present <= 5_000_000, hold <= 5_000_000 else { return nil }
+        return ["queue_us": queue, "decode_us": decode, "present_us": present, "feedback_wait_us": hold]
+    }
+}
+
 /// Local monotonic intervals only. No content, titles, keys or network identity.
 enum VideoTiming {
     static let enabled = ProcessInfo.processInfo.environment["PANEFERRY_VIDEO_TIMING"] == "1"

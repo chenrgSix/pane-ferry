@@ -10,7 +10,7 @@ final class VideoDecodeQueue {
         let stream: UInt64
         let width: Int, height: Int, encodedWidth: Int, encodedHeight: Int
         let data: Data
-        let object: [String: Any]
+        var object: [String: Any]
     }
     private final class Lane {
         var jobs: [Job] = []
@@ -58,10 +58,11 @@ final class VideoDecodeQueue {
         guard !closed, !lane.retired, !lane.jobs.isEmpty else {
             lane.busy = false; outstanding -= 1; lock.unlock(); return
         }
-        let job = lane.jobs.removeFirst()
+        var job = lane.jobs.removeFirst()
         // Include the currently decoding packet in the byte/count budget.
         lock.unlock()
         let decodingStarted = DispatchTime.now().uptimeNanoseconds
+        job.object["decode_started_ns"] = decodingStarted
         // This timestamp is inserted locally by Transport, not read from the wire.
         if let received = job.object["received_ns"] as? UInt64 { VideoTiming.record("mac.decode_queue", since: received) }
         let result: Result<VideoFrame?, Error>
