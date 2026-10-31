@@ -53,6 +53,38 @@ fn desktop_bitrate(width: u32, height: u32, fps: u32) -> u32 {
     (width as u64 * height as u64 * fps.clamp(1, 90) as u64 / 6).clamp(4_000_000, 80_000_000) as u32
 }
 
+struct OutputRate {
+    start: std::time::Instant,
+    bytes: u64,
+    frames: u32,
+    keys: u32,
+    largest: usize,
+}
+impl OutputRate {
+    fn new() -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            bytes: 0,
+            frames: 0,
+            keys: 0,
+            largest: 0,
+        }
+    }
+    fn record(&mut self, bytes: usize, key: bool, target: u32, stream: u64) {
+        self.bytes += bytes as u64;
+        self.frames += 1;
+        self.keys += u32::from(key);
+        self.largest = self.largest.max(bytes);
+        let elapsed = self.start.elapsed();
+        if elapsed >= std::time::Duration::from_secs(2) {
+            let bps = (self.bytes as u128 * 8_000_000_000 / elapsed.as_nanos()) as u64;
+            eprintln!("PF_ENCODER_OUTPUT stream={stream} interval_ms={} frames={} keys={} bytes={} bps={bps} target_bps={target} max_frame_bytes={}",
+                elapsed.as_millis(), self.frames, self.keys, self.bytes, self.largest);
+            *self = Self::new();
+        }
+    }
+}
+
 /// System H.264 encoders only; no external binaries or codec downloads.
 /// GPU scenes prefer texture-capable hardware; memory-only scenes retain the
 /// software default. Explicit software mode always disables hardware selection.
@@ -75,6 +107,8 @@ pub struct Encoder {
     pub hardware: bool,
     // Retain the manager until the transform has been flushed/shut down.
     manager: Option<IMFDXGIDeviceManager>,
+    target_bitrate: u32,
+    output_rate: Option<OutputRate>,
     #[cfg(test)]
     pub fail_next_texture: bool,
 }
@@ -209,19 +243,17 @@ impl Encoder {
                 .context("low-latency setting")?;
             // Average bitrate alone permits multi-megabyte I-frame bursts.
             // Use a short HRD budget for steady-state pacing. It is a bitrate
-            // reservoir, not a hard per-frame byte limit: quality takes priority
-            // during startup/recovery or a complex scene change.
+            // reservoir, not a hard per-frame byte limit.
             api.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(0u32))
                 .context("CBR rate control")?;
             let reservoir = (desktop_bitrate(width, height, fps) / 8 / fps.max(1) * 2).max(1);
             api.SetValue(&CODECAPI_AVEncCommonBufferSize, &VARIANT::from(reservoir))
                 .context("low-latency HRD buffer")?;
             eprintln!("PF_ENCODER rate=cbr hrd_bytes={reservoir}");
-            // A two-frame CBR budget with the default QP ceiling (51) visibly
-            // corrupts full-chroma atlas samples on each automatic I-frame.
-            // Bound quantization for both color modes, like the Linux publisher.
-            api.SetValue(&CODECAPI_AVEncVideoMaxQP, &VARIANT::from(28u32))
-                .context("maximum video QP")?;
+            // Keep the codec's full quantization range for rate control. A hard
+            // QP ceiling of 28 makes complex atlas frames exceed even a reduced
+            // target bitrate, defeating feedback and filling transport queues.
+            // Avoid periodic quality pumping with on-demand IDRs below instead.
             // Media is reliable and ordered; the receiver requests a fresh IDR
             // explicitly after resync. Avoid the driver's default one-second
             // GOP, which alternates large bursts with severe quality pumping.
@@ -229,7 +261,7 @@ impl Encoder {
             // maximum interval; startup, restart and resize still produce IDRs.
             api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(u32::MAX))
                 .context("on-demand keyframe interval")?;
-            eprintln!("PF_ENCODER max_qp=28 gop=on_demand");
+            eprintln!("PF_ENCODER qp=rate_control gop=on_demand");
             let baseline = if let Err(error) =
                 api.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32))
             {
@@ -292,6 +324,8 @@ impl Encoder {
                 output_sample: None,
                 hardware,
                 manager,
+                target_bitrate: desktop_bitrate(width, height, fps),
+                output_rate: crate::metrics::enabled().then(OutputRate::new),
                 #[cfg(test)]
                 fail_next_texture: false,
             })
@@ -377,6 +411,7 @@ impl Encoder {
                 .cast::<ICodecAPI>()?
                 .SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))?;
         }
+        self.target_bitrate = bitrate;
         Ok(())
     }
     pub fn restart(&mut self, stream: u64) -> Result<()> {
@@ -575,6 +610,9 @@ impl Encoder {
                     "first frame must include SPS and PPS"
                 );
                 ensure!(data.len() <= 12 * 1024 * 1024, "H264 packet too large");
+                if let Some(rate) = &mut self.output_rate {
+                    rate.record(data.len(), key, self.target_bitrate, self.stream);
+                }
                 frames.push((data, key));
                 self.first = false;
                 ensure!(frames.len() <= 4, "encoder backlog");
@@ -660,6 +698,75 @@ fn hardware_encoders(device: Option<&ID3D11Device>) -> Result<Vec<IMFActivate>> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "installed encoder; synthetic high-detail atlas bitrate adaptation"]
+    fn bitrate_adaptation_probe() -> Result<()> {
+        let _runtime = crate::CaptureRuntime::new()?;
+        let (width, height, fps) = (2560u32, 1440u32, 60u32);
+        let mode = crate::color::ColorMode::Full;
+        let (ew, eh) = mode.dimensions(width, height)?;
+        let mut pixels = vec![255u8; (width * height * 4) as usize];
+        for y in 0..height {
+            for x in 0..width {
+                let value = if x % 40 < 20 && y % 24 < 12 { 16 } else { 235 };
+                let offset = ((y * width + x) * 4) as usize;
+                pixels[offset..offset + 3].fill(value);
+            }
+        }
+        let mut encoder = Encoder::new(ew, eh, fps, 1)?;
+        let mut input = Vec::new();
+        let mut high_bytes = 0u64;
+        let mut low_bytes = 0u64;
+        let mut keys = 0;
+        let mut stream = Vec::new();
+        for index in 0..360 {
+            if index == 180 {
+                encoder.set_quality(250, fps)?;
+            }
+            // A changing detailed region makes the low-rate stage genuinely
+            // bitrate-limited; a translating flat grid is almost free to code.
+            for y in height * 15 / 16..height {
+                for x in 0..width {
+                    let hash = (x / 32 + (y / 32) * 65537 + index * 104729).wrapping_mul(0x45d9f3b);
+                    let hash = (hash ^ (hash >> 16)).wrapping_mul(0x45d9f3b);
+                    let offset = ((y * width + x) * 4) as usize;
+                    pixels[offset] = hash as u8;
+                    pixels[offset + 1] = (hash >> 8) as u8;
+                    pixels[offset + 2] = (hash >> 16) as u8;
+                }
+            }
+            crate::color::atlas_into(&pixels, width, height, &mut input)?;
+            let packets = encoder.encode(&input)?;
+            ensure!(packets.len() == 1, "one output required");
+            let (data, key) = &packets[0];
+            keys += usize::from(*key);
+            if (60..180).contains(&index) {
+                high_bytes += data.len() as u64;
+            } else if index >= 240 {
+                low_bytes += data.len() as u64;
+            }
+            stream.extend_from_slice(data);
+        }
+        let high_bps = high_bytes * 8 / 2;
+        let low_bps = low_bytes * 8 / 2;
+        let low_target = desktop_bitrate(ew, eh, fps) / 4;
+        eprintln!("RATE_ADAPT hardware={} high_bps={high_bps} low_bps={low_bps} low_target={low_target} keys={keys}", encoder.hardware);
+        if let Some(path) = std::env::var_os("PANEFERRY_VIDEO_PROBE_DIR") {
+            let path = std::path::PathBuf::from(path);
+            std::fs::create_dir_all(&path)?;
+            std::fs::write(path.join("adaptation.h264"), stream)?;
+        }
+        ensure!(keys == 1, "rate changes must not reintroduce periodic IDRs");
+        ensure!(
+            low_bps < high_bps * 3 / 5,
+            "congestion feedback did not reduce actual output"
+        );
+        ensure!(
+            low_bps < low_target as u64 * 3 / 2,
+            "encoder exceeded reduced rate budget"
+        );
+        Ok(())
+    }
     #[test]
     #[ignore = "requires a local D3D11 hardware encoder; synthetic pixels only"]
     fn direct_texture_encoder_probe() -> Result<()> {
