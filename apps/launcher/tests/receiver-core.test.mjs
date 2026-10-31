@@ -23,6 +23,13 @@ test('original picture follows source dimensions and density without local DPI',
   assert.deepEqual(sourceSize(window),{width:640,height:480});
   assert.deepEqual(sourceSize(metadata({...window,width:1600,height:1200,scale_factor:2})),{width:800,height:600});
 });
+test('desktop metadata retains fixed-screen mode and accepts portrait monitors',()=>{
+  const screen=metadata({window_id:1,width:1440,height:2560,geometry_revision:1,surface_type:'desktop'});
+  assert.equal(screen.desktop,true);
+  assert.equal(window.desktop,false);
+  assert.deepEqual(pointer(360,640,720,1280,screen.width,screen.height),{x:720,y:1280});
+  assert.throws(()=>metadata({window_id:1,width:4096,height:4096,geometry_revision:1,surface_type:'desktop'}));
+});
 test('real Annex B fixture begins with validated SPS, PPS and IDR',()=>{
   const info=spsInfo(annexB(Uint8Array.from(Buffer.from(fixture.frames[0],'base64'))).find(n=>(n[0]&31)===7));
   assert.deepEqual(info,{width:640,height:480,codec:'avc1.42c01e'});

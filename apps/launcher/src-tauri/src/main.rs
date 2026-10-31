@@ -555,7 +555,7 @@ async fn start_desktop(
     transport::validate_id(&monitor_id)?;
     transport::validate_id(&request_id)?;
     let name = format!(
-        "Ubuntu 桌面 · {}",
+        "远端桌面 · {}",
         monitor_name.chars().take(80).collect::<String>()
     );
     let path = named_native_host(

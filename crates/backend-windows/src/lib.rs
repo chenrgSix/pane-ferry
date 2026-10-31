@@ -27,6 +27,8 @@ pub struct Application {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
+    /// Explicit full-monitor authorization; never inferred from a window ID.
+    pub monitor: Option<String>,
     pub id: String,
     pub handle: usize,
     pub pid: u32,
@@ -36,6 +38,15 @@ pub struct Target {
     /// Preference identity only; never used to authorize a window attachment.
     pub application_key: String,
     pub auto_connectable: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Monitor {
+    pub id: String,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
 }
 
 #[cfg(any(windows, test))]
@@ -104,6 +115,12 @@ pub enum Input {
 /// Each instance stays on its creating thread. Capture implementations may own
 /// additional workers and expose owned frame tasks without moving COM objects.
 pub trait WindowSystem {
+    fn monitors(&mut self) -> Result<Vec<Monitor>> {
+        Ok(Vec::new())
+    }
+    fn monitor_target(&mut self, _id: &str) -> Result<Target> {
+        anyhow::bail!("desktop_monitor_unavailable")
+    }
     fn applications(&mut self) -> Result<Vec<Application>> {
         Ok(Vec::new())
     }

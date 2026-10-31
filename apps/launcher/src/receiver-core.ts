@@ -1,13 +1,13 @@
 // Coordinates are source pixels. The viewport uses logical CSS pixels, just as
 // the AppKit host uses points; display DPI must not multiply remote input.
-export type RemoteWindow = {window_id:number; width:number; height:number; geometry_revision:number; title:string; visible:boolean; parent_id:number|null;scale_factor:1|2};
+export type RemoteWindow = {window_id:number; width:number; height:number; geometry_revision:number; title:string; visible:boolean; parent_id:number|null;scale_factor:1|2;desktop:boolean};
 export function dimensions(width:unknown, height:unknown): boolean {
-  return Number.isSafeInteger(width) && Number.isSafeInteger(height) && Number(width)>0 && Number(height)>0 && Number(width)<=4096 && Number(height)<=2160 && Number(width)*Number(height)<=8_000_000;
+  return Number.isSafeInteger(width) && Number.isSafeInteger(height) && Number(width)>0 && Number(height)>0 && Number(width)<=4096 && Number(height)<=4096 && Number(width)*Number(height)<=8_000_000;
 }
 export function metadata(value: Record<string, unknown>): RemoteWindow {
   if (!Number.isSafeInteger(value.window_id) || Number(value.window_id)<=0 || !dimensions(value.width,value.height) || !Number.isSafeInteger(value.geometry_revision) || Number(value.geometry_revision)<1) throw Error('invalid_metadata');
   if(value.scale_factor!==undefined&&value.scale_factor!==1&&value.scale_factor!==2)throw Error('invalid_scale');
-  return {window_id:Number(value.window_id),width:Number(value.width),height:Number(value.height),geometry_revision:Number(value.geometry_revision),title:typeof value.title==='string'?value.title.slice(0,256):'远程应用',visible:value.visible!==false,parent_id:typeof value.parent_id==='number'?value.parent_id:null,scale_factor:value.scale_factor===2?2:1};
+  return {window_id:Number(value.window_id),width:Number(value.width),height:Number(value.height),geometry_revision:Number(value.geometry_revision),title:typeof value.title==='string'?value.title.slice(0,256):'远程应用',visible:value.visible!==false,parent_id:typeof value.parent_id==='number'?value.parent_id:null,scale_factor:value.scale_factor===2?2:1,desktop:value.surface_type==='desktop'};
 }
 // Source pixels use source density; the local monitor's DPI is irrelevant.
 export function sourceSize(window:RemoteWindow) {
@@ -80,7 +80,7 @@ export function spsInfo(nal:Uint8Array) {
   if(!progressive)throw Error('interlaced_video');bits(1);
   let left=0,right=0,top=0,bottom=0;if(bits(1)){left=ue();right=ue();top=ue();bottom=ue();}
   const width=w-(left+right)*2,height=h-(top+bottom)*2;
-  if(!dimensions(width,height)||w>4096||h>2176||references>16||w*h*1.5*(references+1)>128*1024*1024)throw Error('invalid_sps');
+  if(!dimensions(width,height)||w>4096||h>4096||references>16||w*h*1.5*(references+1)>128*1024*1024)throw Error('invalid_sps');
   return {width,height,codec:`avc1.${[profile,constraint,level].map(v=>v.toString(16).padStart(2,'0')).join('')}`};
 }
 export function inspectFrame(event:Record<string,unknown>,window:RemoteWindow,needsKey:boolean) {

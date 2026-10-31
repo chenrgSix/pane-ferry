@@ -54,6 +54,7 @@ function refreshMembers() {
   if(!catalog.has(selected))selected=[...catalog.values()].find(w=>w.parent_id===null)?.window_id??catalog.keys().next().value??0;
   members.value=String(selected);
   const current=catalog.get(selected);if(current)void local.setTitle(`${current.title} — 窗渡 PaneFerry`);
+  size.disabled=current?.desktop===true;
   void followSourceSize();
 }
 function release() {
@@ -79,7 +80,7 @@ async function followSourceSize() {
   } catch { sourceGeometry='';message('无法调整本机窗口尺寸，当前仍接收源端原画面。'); }
 }
 function resize() {
-  const window=catalog.get(selected);if(!ready||!window||size.value==='source')return;
+  const window=catalog.get(selected);if(!ready||!window||window.desktop||size.value==='source')return;
   const requested=size.value==='auto'?resizePixels(view.clientWidth,view.clientHeight,window.scale_factor):{width:Number(size.value.split('x')[0]),height:Number(size.value.split('x')[1])};
   const key=`${selected}:${requested.width}:${requested.height}`;
   if(key===sentResize)return;sentResize=key;

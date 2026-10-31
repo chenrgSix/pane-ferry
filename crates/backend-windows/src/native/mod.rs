@@ -2,6 +2,7 @@ mod applications;
 mod blend;
 mod capture;
 mod gpu;
+mod monitor;
 mod scene;
 mod video;
 mod worker;
@@ -189,6 +190,10 @@ fn desktop_ready() -> Result<()> {
 }
 fn validate(target: &Target) -> Result<()> {
     desktop_ready().map_err(|_| anyhow::anyhow!("desktop_locked"))?;
+    if target.monitor.is_some() {
+        monitor::bounds(target)?;
+        return Ok(());
+    }
     unsafe {
         ensure!(IsWindow(Some(hwnd(target))).as_bool(), "session_exited");
         ensure!(
@@ -225,6 +230,9 @@ fn validate(target: &Target) -> Result<()> {
     }
 }
 fn bounds(target: &Target) -> Result<RECT> {
+    if target.monitor.is_some() {
+        return monitor::bounds(target);
+    }
     unsafe {
         let mut rect = RECT::default();
         DwmGetWindowAttribute(
@@ -253,6 +261,16 @@ fn title(window: HWND) -> String {
 fn window_geometry(target: &Target) -> Result<Geometry> {
     validate(target)?;
     let rect = bounds(target)?;
+    if target.monitor.is_some() {
+        let (width, height) = monitor::canvas(rect);
+        return Ok(Geometry {
+            content_revision: 0,
+            title: target.name.clone(),
+            width,
+            height,
+            visible: true,
+        });
+    }
     let (width, height) = (
         (rect.right - rect.left) as u32,
         (rect.bottom - rect.top) as u32,
@@ -276,6 +294,9 @@ fn window_geometry(target: &Target) -> Result<Geometry> {
 
 impl Desktop {
     fn input_foreground(&self, target: &Target) -> bool {
+        if target.monitor.is_some() {
+            return true;
+        }
         if let Some(scene) = &self.input_scene {
             return scene.foreground_for(target);
         }
@@ -328,6 +349,9 @@ impl Desktop {
     }
     fn prepare_focus(&self, target: &Target) -> Result<()> {
         validate(target)?;
+        if target.monitor.is_some() {
+            return Ok(());
+        }
         unsafe {
             // A modal dialog may have disabled its owner. Do not repeatedly
             // activate that owner or deliver input to an unseen owned surface.
@@ -392,6 +416,17 @@ impl Desktop {
         Ok(())
     }
     fn pointer_motion(&mut self, target: &Target, x: i32, y: i32) -> Result<()> {
+        if target.monitor.is_some() {
+            let r = bounds(target)?;
+            ensure!(
+                x >= 0 && y >= 0 && x < r.right - r.left && y < r.bottom - r.top,
+                "invalid_request"
+            );
+            unsafe {
+                SetCursorPos(r.left + x, r.top + y)?;
+            }
+            return Ok(());
+        }
         unsafe {
             // Hover is not a focus request. Receivers send it at pointer rate;
             // ignoring a background/covered window avoids focus fights and an
@@ -539,6 +574,7 @@ unsafe fn describe_window(window: HWND, name: String) -> Option<Target> {
         Sha256::digest(format!("{}:{pid}:{start}:{generation}", window.0 as usize).as_bytes())
     );
     let target = Target {
+        monitor: None,
         id,
         handle: window.0 as usize,
         pid,
@@ -560,6 +596,16 @@ unsafe fn describe_window(window: HWND, name: String) -> Option<Target> {
 }
 
 impl WindowSystem for Desktop {
+    fn monitors(&mut self) -> Result<Vec<crate::Monitor>> {
+        Ok(monitor::list()?.into_iter().map(|v| v.0).collect())
+    }
+    fn monitor_target(&mut self, id: &str) -> Result<Target> {
+        monitor::list()?
+            .into_iter()
+            .find(|v| v.0.id == id)
+            .map(|v| v.1)
+            .context("desktop_monitor_unavailable")
+    }
     fn applications(&mut self) -> Result<Vec<crate::Application>> {
         desktop_ready()?;
         applications::list()
@@ -896,6 +942,13 @@ fn mouse_button(button: u8, pressed: bool) -> Result<()> {
 impl Desktop {
     fn input_one(&mut self, target: &Target, input: Input) -> Result<()> {
         validate(target)?;
+        if target.monitor.is_some() {
+            ensure!(!matches!(input, Input::Close), "desktop_close_unavailable");
+            ensure!(
+                !matches!(input, Input::Resize { .. }),
+                "desktop_geometry_fixed"
+            );
+        }
         if let Input::Pointer {
             x, y, button: 0, ..
         } = input
@@ -1004,36 +1057,38 @@ impl Desktop {
                     "invalid_request"
                 );
                 unsafe {
-                    ensure!(
-                        IsWindowEnabled(hwnd(target)).as_bool(),
-                        "input_focus_required"
-                    );
-                    let point = POINT {
-                        x: rect.left + x,
-                        y: rect.top + y,
-                    };
-                    // Foreground ownership may change before the other UI
-                    // thread finishes raising its window. Wait for the actual
-                    // hit-test result, not just a WM_NULL acknowledgement.
-                    let deadline =
-                        std::time::Instant::now() + std::time::Duration::from_millis(250);
-                    let mut under = WindowFromPoint(point);
-                    while GetAncestor(under, GA_ROOT) != hwnd(target)
-                        && self.input_foreground(target)
-                        && std::time::Instant::now() < deadline
-                    {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                        under = WindowFromPoint(point);
-                    }
-                    validate(target)?;
-                    ensure!(bounds(target)? == rect, "window_unavailable");
-                    if GetAncestor(under, GA_ROOT) != hwnd(target) {
-                        let hit = GetAncestor(under, GA_ROOT);
-                        return Err(anyhow::anyhow!("input_focus_required").context(format!(
+                    if target.monitor.is_none() {
+                        ensure!(
+                            IsWindowEnabled(hwnd(target)).as_bool(),
+                            "input_focus_required"
+                        );
+                        let point = POINT {
+                            x: rect.left + x,
+                            y: rect.top + y,
+                        };
+                        // Foreground ownership may change before the other UI
+                        // thread finishes raising its window. Wait for the actual
+                        // hit-test result, not just a WM_NULL acknowledgement.
+                        let deadline =
+                            std::time::Instant::now() + std::time::Duration::from_millis(250);
+                        let mut under = WindowFromPoint(point);
+                        while GetAncestor(under, GA_ROOT) != hwnd(target)
+                            && self.input_foreground(target)
+                            && std::time::Instant::now() < deadline
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            under = WindowFromPoint(point);
+                        }
+                        validate(target)?;
+                        ensure!(bounds(target)? == rect, "window_unavailable");
+                        if GetAncestor(under, GA_ROOT) != hwnd(target) {
+                            let hit = GetAncestor(under, GA_ROOT);
+                            return Err(anyhow::anyhow!("input_focus_required").context(format!(
                             "pointer target occluded: target={:?} foreground={:?} hit={hit:?} hit_topmost={}",
                             hwnd(target), GetForegroundWindow(),
                             GetWindowLongPtrW(hit, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0
                         )));
+                        }
                     }
                     SetCursorPos(rect.left + x, rect.top + y)?;
                 }

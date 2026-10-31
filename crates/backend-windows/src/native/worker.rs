@@ -140,6 +140,12 @@ impl PublishingDesktop {
     }
 }
 impl WindowSystem for PublishingDesktop {
+    fn monitors(&mut self) -> Result<Vec<crate::Monitor>> {
+        self.control.monitors()
+    }
+    fn monitor_target(&mut self, id: &str) -> Result<Target> {
+        self.control.monitor_target(id)
+    }
     fn applications(&mut self) -> Result<Vec<crate::Application>> {
         self.control.applications()
     }

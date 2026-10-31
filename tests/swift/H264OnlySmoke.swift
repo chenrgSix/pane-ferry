@@ -166,6 +166,29 @@ struct H264OnlySmoke {
         precondition(host.window.subtitle.contains("近 2 秒未收到新画面"), "an idle source must not retain an old fps")
         adaptive.windows.removeValue(forKey: host.id)
         host.closeLocally()
+        let desktopApp = AppDelegate(options: options, clipboard: board)
+        var desktopSent: [[String: Any]] = []
+        desktopApp.wireSink = { desktopSent.append($0) }
+        desktopApp.updateWindow(["window_id": UInt64(1), "width": 800, "height": 600,
+            "geometry_revision": UInt64(1), "scale_factor": 1, "role": "desktop",
+            "surface_type": "desktop", "title": "Windows display", "visible": true], create: true)
+        let screen = desktopApp.windows[1]!
+        precondition(screen.desktopMode && screen.fixedCanvas)
+        screen.window.setContentSize(NSSize(width: 640, height: 480))
+        screen.windowDidResize(Notification(name: NSWindow.didResizeNotification))
+        screen.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        precondition(!desktopSent.contains { $0["type"] as? String == "window.configure" }, "desktop resize stays local")
+        screen.closeLocally(); desktopApp.windows.removeAll(); desktopApp.stopping = true
+        var detachCount = 0
+        var closeSent: [[String: Any]] = []
+        let detachOnly = HostedWindow(id: 2, width: 800, height: 600, revision: 1, scale: 1, popup: false,
+            disconnect: { detachCount += 1 }, transmit: { closeSent.append($0) })
+        detachOnly.desktopMode = true
+        precondition(!detachOnly.windowShouldClose(detachOnly.window) && detachCount == 1)
+        precondition(!closeSent.contains { $0["type"] as? String == "window.close.request" })
+        detachOnly.closeLocally()
+        print("PASS: Windows desktop metadata, fixed source geometry and detach-only close")
         print("PASS: H.264 negotiation, 30/60 selection, live configure, publisher limits, idle feedback and current receive-rate display")
     }
 }

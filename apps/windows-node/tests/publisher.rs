@@ -40,6 +40,7 @@ struct Fixture {
 }
 fn target() -> Target {
     Target {
+        monitor: None,
         id: "win-fixture".into(),
         handle: 1,
         pid: 123,
@@ -51,6 +52,23 @@ fn target() -> Target {
     }
 }
 impl WindowSystem for Fixture {
+    fn monitors(&mut self) -> Result<Vec<paneferry_backend_windows::Monitor>> {
+        Ok(vec![paneferry_backend_windows::Monitor {
+            id: "monitor-fixture".into(),
+            name: "Fixture display".into(),
+            width: 640,
+            height: 480,
+            primary: true,
+        }])
+    }
+    fn monitor_target(&mut self, id: &str) -> Result<Target> {
+        ensure!(id == "monitor-fixture", "desktop_monitor_unavailable");
+        let mut t = target();
+        t.id = id.into();
+        t.monitor = Some(id.into());
+        t.auto_connectable = false;
+        Ok(t)
+    }
     fn applications(&mut self) -> Result<Vec<Application>> {
         Ok(vec![Application {
             id: "exe-fixture".into(),
@@ -134,6 +152,13 @@ impl WindowSystem for Fixture {
     }
     fn input(&mut self, t: &Target, input: Input) -> Result<()> {
         self.geometry(t)?;
+        if t.monitor.is_some() {
+            ensure!(!matches!(input, Input::Close), "desktop_close_unavailable");
+            ensure!(
+                !matches!(input, Input::Resize { .. }),
+                "desktop_geometry_fixed"
+            );
+        }
         observed().lock().unwrap().input.push(input);
         Ok(())
     }
@@ -480,6 +505,81 @@ async fn paired_receivers_single_window_input_disconnect_and_same_session_resume
     );
     assert_eq!(read(&mut second_read, "frame").await["key_frame"], true);
     assert_eq!(observed().lock().unwrap().input.len(), 4); // No replay after reconnect.
+    let endpoint = paneferry_transport::Target {
+        socket: route.clone(),
+    };
+    let monitors = paneferry_transport::desktop_monitors(&endpoint)
+        .await
+        .unwrap();
+    assert_eq!(monitors.monitors[0].id, "monitor-fixture");
+    let desktop =
+        paneferry_transport::start_desktop(&endpoint, "monitor-fixture", "desktop-request")
+            .await
+            .unwrap();
+    let retry = paneferry_transport::start_desktop(&endpoint, "monitor-fixture", "desktop-request")
+        .await
+        .unwrap();
+    assert_eq!(desktop.session_id, retry.session_id);
+    assert!(
+        paneferry_transport::start_desktop(&endpoint, "win-fixture", "bad-monitor")
+            .await
+            .is_err()
+    );
+    let (mut desktop_read, mut desktop_write) = handshake(connect(&route).await).await;
+    send(&mut desktop_write, json!({"type":"app.launch","app_id":"win-fixture","request_id":"desktop-request","backend":"native","attach":false})).await;
+    assert_eq!(
+        read(&mut desktop_read, "error").await["code"],
+        "request_id_conflict"
+    );
+    send(
+        &mut desktop_write,
+        json!({"type":"video.enable","codec":"h264"}),
+    )
+    .await;
+    read(&mut desktop_read, "video.ready").await;
+    send(
+        &mut desktop_write,
+        json!({"type":"session.resume","session_id":desktop.session_id}),
+    )
+    .await;
+    let snapshot = read(&mut desktop_read, "session.snapshot").await;
+    assert_eq!(snapshot["windows"][0]["surface_type"], "desktop");
+    assert_eq!(snapshot["windows"][0]["role"], "desktop");
+    send(
+        &mut desktop_write,
+        json!({"type":"window.close.request","window_id":1}),
+    )
+    .await;
+    assert_eq!(
+        read(&mut desktop_read, "error").await["code"],
+        "desktop_close_unavailable"
+    );
+    send(
+        &mut desktop_write,
+        json!({"type":"window.configure","window_id":1,"width":800,"height":600}),
+    )
+    .await;
+    assert_eq!(
+        read(&mut desktop_read, "error").await["code"],
+        "desktop_geometry_fixed"
+    );
+    send(&mut desktop_write, json!({"type":"session.list"})).await;
+    let sessions = read(&mut desktop_read, "session.list").await;
+    let screen = sessions["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["session_id"] == desktop.session_id)
+        .unwrap();
+    assert_eq!(screen["mode"], "desktop");
+    assert_eq!(screen["monitor_id"], "monitor-fixture");
+    send(&mut desktop_write, json!({"type":"session.detach"})).await;
+    drop((desktop_read, desktop_write));
+    let resumed =
+        paneferry_transport::start_desktop(&endpoint, "monitor-fixture", "desktop-request-next")
+            .await
+            .unwrap();
+    assert_eq!(desktop.session_id, resumed.session_id);
     observed().lock().unwrap().dead = true;
     assert_eq!(
         read(&mut second_read, "session.exited").await["session_id"],

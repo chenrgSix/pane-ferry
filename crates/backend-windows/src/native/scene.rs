@@ -1,4 +1,4 @@
-//! Compose only validated application surfaces, never a desktop screenshot.
+//! Compose validated application surfaces or an explicitly authorized monitor.
 use super::*;
 use std::{
     collections::HashMap,
@@ -115,7 +115,7 @@ fn visible(window: HWND) -> bool {
             && cloaked == 0
     }
 }
-fn sized(rect: RECT) -> (u32, u32) {
+pub(super) fn sized(rect: RECT) -> (u32, u32) {
     let width = (rect.right - rect.left).max(1) as f64;
     let height = (rect.bottom - rect.top).max(1) as f64;
     // Keep the application scene bounded even with windows on several monitors.
@@ -160,16 +160,18 @@ impl Scene {
             force_frame: true,
             signal: std::sync::Arc::default(),
         };
-        for window in all_windows()? {
-            let mut pid = 0;
-            unsafe {
-                GetWindowThreadProcessId(window, Some(&mut pid));
-            }
-            if pid != anchor.pid {
-                continue;
-            }
-            if let Some(target) = unsafe { describe_window(window, title(window)) } {
-                scene.baseline.insert(target.id);
+        if anchor.monitor.is_none() {
+            for window in all_windows()? {
+                let mut pid = 0;
+                unsafe {
+                    GetWindowThreadProcessId(window, Some(&mut pid));
+                }
+                if pid != anchor.pid {
+                    continue;
+                }
+                if let Some(target) = unsafe { describe_window(window, title(window)) } {
+                    scene.baseline.insert(target.id);
+                }
             }
         }
         scene.refresh()?;
@@ -177,6 +179,23 @@ impl Scene {
     }
     pub fn refresh(&mut self) -> Result<()> {
         validate(&self.anchor)?;
+        if self.anchor.monitor.is_some() {
+            let rect = bounds(&self.anchor)?;
+            let (width, height) = monitor::canvas(rect);
+            if rect != self.layout.rect {
+                self.revision += 1;
+            }
+            self.layout = Layout {
+                rect,
+                width,
+                height,
+                surfaces: vec![Surface {
+                    target: self.anchor.clone(),
+                    rect,
+                }],
+            };
+            return Ok(());
+        }
         let windows = all_windows()?;
         let mut roots = HashSet::from([self.anchor.handle]);
         // New independent windows from this exact process join the scene. Other
@@ -271,7 +290,11 @@ impl Scene {
     pub fn current_geometry(&self) -> Geometry {
         Geometry {
             content_revision: self.revision,
-            title: title(hwnd(&self.anchor)),
+            title: if self.anchor.monitor.is_some() {
+                self.anchor.name.clone()
+            } else {
+                title(hwnd(&self.anchor))
+            },
             width: self.layout.width,
             height: self.layout.height,
             visible: !self.layout.surfaces.is_empty(),
@@ -373,15 +396,11 @@ impl Scene {
                 return Ok(None); // A closing popup does not end its parent session.
             }
             if !self.layers.contains_key(&surface.target.id) {
-                let capture = match if let Some(gpu) = &self.gpu {
-                    capture::Capture::with_device(
-                        hwnd(&surface.target),
-                        self.signal.clone(),
-                        &gpu.device,
-                    )
-                } else {
-                    capture::Capture::new(hwnd(&surface.target), self.signal.clone())
-                } {
+                let capture = match capture::Capture::for_target(
+                    &surface.target,
+                    self.signal.clone(),
+                    self.gpu.as_ref().map(|g| &g.device),
+                ) {
                     Ok(capture) => capture,
                     Err(error) if surface.target.id == self.anchor.id => return Err(error),
                     Err(_) => return Ok(None),
@@ -520,6 +539,9 @@ pub(super) struct InputScene {
 }
 impl InputScene {
     pub fn foreground_for(&self, target: &Target) -> bool {
+        if target.monitor.is_some() {
+            return true;
+        }
         let foreground = unsafe { GetForegroundWindow() };
         foreground == hwnd(target)
             || transient(hwnd(target))
@@ -575,6 +597,7 @@ impl InputScene {
                 ))
             }
             Input::Resize { .. } | Input::Close => Ok((self.anchor.clone(), input)),
+            _ if self.anchor.monitor.is_some() => Ok((self.anchor.clone(), input)),
             _ => {
                 let foreground = unsafe { GetForegroundWindow() };
                 let target = layout

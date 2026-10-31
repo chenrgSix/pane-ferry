@@ -150,7 +150,8 @@ impl Client {
     }
     fn metadata(&self) -> Value {
         let g = self.geometry.as_ref().unwrap();
-        json!({"window_id":1,"parent_id":null,"title":g.title,"role":"toplevel","x":0,"y":0,"width":g.width,"height":g.height,"visible":g.visible,"scale_factor":1,"geometry_revision":self.revision})
+        let desktop = self.session.as_ref().is_some_and(|s| s.1.monitor.is_some());
+        json!({"window_id":1,"parent_id":null,"title":g.title,"role":if desktop {"desktop"} else {"toplevel"},"surface_type":if desktop {"desktop"} else {"window"},"x":0,"y":0,"width":g.width,"height":g.height,"visible":g.visible,"scale_factor":1,"geometry_revision":self.revision})
     }
     async fn send<W: AsyncWrite + Unpin>(&mut self, write: &mut W, mut value: Value) -> Result<()> {
         self.sequence = self
@@ -246,7 +247,72 @@ impl Client {
             }
             Request::Desktops => {
                 self.shared()?;
-                self.send(write,json!({"type":"desktop.list","monitors":[],"unavailable_reason":"desktop_mode_unsupported"})).await?;
+                let monitors = self.system.monitors()?;
+                self.send(
+                    write,
+                    json!({"type":"desktop.list","monitors":monitors,"unavailable_reason":null}),
+                )
+                .await?;
+            }
+            Request::StartDesktop {
+                monitor_id,
+                request_id,
+            } => {
+                self.shared()?;
+                self.retire_exited();
+                ensure!(
+                    paneferry_protocol::identifier(&monitor_id)
+                        && paneferry_protocol::identifier(&request_id),
+                    "invalid_request"
+                );
+                // Resolve only an enumerated monitor. Never accept a remote HWND,
+                // shell window, executable path or app.launch alias as a desktop.
+                let target = self.system.monitor_target(&monitor_id)?;
+                ensure!(
+                    target.monitor.as_deref() == Some(monitor_id.as_str()),
+                    "desktop_monitor_unavailable"
+                );
+                self.system.geometry(&target)?;
+                let app_id = format!("desktop-{monitor_id}");
+                let id = {
+                    let mut state = self.state.lock().unwrap();
+                    ensure!(state.sharing, "sharing_disabled");
+                    ensure!(
+                        !state.launch_attempts.contains_key(&request_id),
+                        "request_id_conflict"
+                    );
+                    if let Some(id) = prior_request(&state, &request_id, &app_id)? {
+                        ensure!(state.sessions.contains_key(id), "session_exited");
+                        id.to_owned()
+                    } else {
+                        ensure!(
+                            state.requests.len() + state.launch_attempts.len() < 1024,
+                            "request_history_limit"
+                        );
+                        let id = if let Some((id, _)) = state
+                            .sessions
+                            .iter()
+                            .find(|(_, s)| s.target.id == target.id)
+                        {
+                            id.clone()
+                        } else {
+                            ensure!(state.sessions.len() < 16, "session_limit");
+                            let id = uuid::Uuid::new_v4().to_string();
+                            state.sessions.insert(
+                                id.clone(),
+                                Session {
+                                    app_id: app_id.clone(),
+                                    target,
+                                    controller: None,
+                                },
+                            );
+                            id
+                        };
+                        state.requests.insert(request_id, (app_id, id.clone()));
+                        id
+                    }
+                };
+                self.send(write,json!({"type":"session.started","session_id":id,"backend":"native","display":0,"scale_factor":1,"mode":"desktop","monitor_id":monitor_id})).await?;
             }
             Request::Windows => {
                 self.shared()?;
@@ -296,7 +362,7 @@ impl Client {
                 let mut values = Vec::new();
                 for (id, app_id, target, controlled) in sessions {
                     if let Ok(g) = self.system.geometry(&target) {
-                        values.push(json!({"session_id":id,"app_id":app_id,"backend":"native","display":0,"controlled":controlled,"window_count":if g.visible{1}else{0}}));
+                        values.push(json!({"session_id":id,"app_id":app_id,"backend":"native","display":0,"controlled":controlled,"window_count":if g.visible{1}else{0},"mode":if target.monitor.is_some(){"desktop"}else{"app"},"monitor_id":target.monitor}));
                     }
                 }
                 self.send(write, json!({"type":"session.list","sessions":values}))
@@ -615,6 +681,10 @@ fn public_error(error: &anyhow::Error) -> &'static str {
         "input_unsupported" => "input_unsupported",
         "input_unavailable" => "input_unavailable",
         "input_focus_required" => "input_focus_required",
+        "desktop_monitor_unavailable" => "desktop_monitor_unavailable",
+        "desktop_capture_unavailable" => "desktop_capture_unavailable",
+        "desktop_geometry_fixed" => "desktop_geometry_fixed",
+        "desktop_close_unavailable" => "desktop_close_unavailable",
         _ => "capture_failed",
     }
 }
@@ -655,7 +725,7 @@ pub async fn client(
         revision: 0,
         video_epoch: 0,
     };
-    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.color.444-atlas-v2","video.keyframe","video.qos","video.feedback.timing.v1","platform.windows","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
+    client.send(&mut write,json!({"type":"hello","capabilities":["native.h264","video.color.444-atlas-v1","video.color.444-atlas-v2","video.keyframe","video.qos","video.feedback.timing.v1","platform.windows","desktop.list","desktop.start","node.info","input.key.logical","input.text.commit","clipboard.remote-only","window.list","session.list","session.resume"],"video_max_fps":paneferry_protocol::MAX_VIDEO_FPS})).await?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     // Dedicated reader preserves partially read JSON when a capture timer fires.
     let _reader = Reader(tokio::spawn(async move {
@@ -783,6 +853,7 @@ mod race_tests {
             Session {
                 app_id: "window".into(),
                 target: Target {
+                    monitor: None,
                     id: "window".into(),
                     handle: 1,
                     pid: 1,
@@ -958,6 +1029,7 @@ mod geometry_tests {
     async fn verify_geometry_race(layout_only: bool, stale_frame: bool) {
         let keyframes = Arc::new(AtomicUsize::new(0));
         let target = Target {
+            monitor: None,
             id: "resize".into(),
             handle: 1,
             pid: 1,

@@ -16,6 +16,11 @@ pub enum Request {
     Windows,
     #[serde(rename = "desktop.list")]
     Desktops,
+    #[serde(rename = "desktop.start")]
+    StartDesktop {
+        monitor_id: String,
+        request_id: String,
+    },
     #[serde(rename = "session.list")]
     Sessions,
     #[serde(rename = "video.enable")]

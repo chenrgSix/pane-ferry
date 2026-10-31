@@ -517,7 +517,7 @@ async function openDesktop(monitor: DesktopMonitor) {
   if (busy.value || !valid.value) return;
   const previous = desktopSession(monitor);
   if (previous) {
-    if (!previous.controlled) await resume(previous.session_id, `Ubuntu 桌面 · ${monitor.name}`);
+    if (!previous.controlled) await resume(previous.session_id, `远端桌面 · ${monitor.name}`);
     return;
   }
   busy.value = true;
@@ -531,7 +531,7 @@ async function openDesktop(monitor: DesktopMonitor) {
       videoFps: videoFPS.value,
     });
     attempts.resolve(key);
-    if (signature() === endpointKey(sent)) record(`Ubuntu 桌面 · ${monitor.name}`, result);
+    if (signature() === endpointKey(sent)) record(`远端桌面 · ${monitor.name}`, result);
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
@@ -660,7 +660,7 @@ onUnmounted(() => {
         <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
         <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
           <div class="section-title"><h2>整桌面</h2><button :disabled="busy" @click="refresh">刷新显示器</button></div>
-          <p class="hint">连接 Ubuntu 当前已登录的显示器。画面等比显示；关闭本机窗口只会断开，Ubuntu 桌面和应用继续运行。</p>
+          <p class="hint">连接远端当前已登录的显示器，查看完整桌面和系统弹窗。关闭本机窗口只会断开，远端应用继续运行。锁屏、安全桌面或权限限制仍需在远端处理。</p>
           <p v-if="monitorWarning" class="hint" role="status">{{ monitorWarning }}</p>
           <p v-if="!desktopMonitors.length && !monitorWarning" class="hint">当前没有可连接的显示器。</p>
           <div v-for="monitor in desktopMonitors" :key="monitor.id" class="desktop-window-row">
@@ -836,7 +836,7 @@ onUnmounted(() => {
         </section>
         <section v-if="localNode?.platform === 'windows'" class="panel">
           <div class="section-title"><h2>Windows 当前桌面</h2></div>
-          <p class="hint">共享当前用户已打开的普通权限应用窗口。请保持桌面登录并解锁；管理员程序和 UAC 安全桌面暂不支持。本机和远端共用鼠标、键盘与焦点。</p>
+          <p class="hint">共享当前用户的应用窗口或所选显示器。请保持桌面登录并解锁；管理员程序和 UAC 安全桌面的操作暂不支持。本机和远端共用鼠标、键盘与焦点。</p>
         </section>
         <section v-else-if="localNode?.permissions" class="panel">
           <div class="section-title"><h2>系统权限</h2></div>

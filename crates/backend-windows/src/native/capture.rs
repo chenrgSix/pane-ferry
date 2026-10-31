@@ -54,13 +54,41 @@ pub struct Capture {
     latest: Option<ID3D11Texture2D>,
     signal: Arc<FrameSignal>,
     frame_event: i64,
+    monitor: bool,
 }
 impl Capture {
-    pub fn new(hwnd: HWND, signal: Arc<FrameSignal>) -> Result<Self> {
-        Self::with_device(hwnd, signal, &super::gpu::Device::new()?)
+    pub fn for_target(
+        target: &crate::Target,
+        signal: Arc<FrameSignal>,
+        shared: Option<&super::gpu::Device>,
+    ) -> Result<Self> {
+        let owned;
+        let shared = if let Some(device) = shared {
+            device
+        } else {
+            owned = super::gpu::Device::new()?;
+            &owned
+        };
+        Self::create(target.handle, target.monitor.is_some(), signal, shared)
     }
-    pub fn with_device(
-        hwnd: HWND,
+    fn check_size(width: u32, height: u32, monitor: bool) -> Result<()> {
+        if monitor {
+            ensure!(
+                width > 0
+                    && height > 0
+                    && width <= 8192
+                    && height <= 8192
+                    && width as u64 * height as u64 <= 32_000_000,
+                "desktop_capture_unavailable"
+            );
+            Ok(())
+        } else {
+            paneferry_protocol::dimensions(width, height)
+        }
+    }
+    fn create(
+        handle: usize,
+        monitor: bool,
         signal: Arc<FrameSignal>,
         shared: &super::gpu::Device,
     ) -> Result<Self> {
@@ -74,9 +102,14 @@ impl Capture {
             let runtime_device = shared.runtime.clone();
             let interop: IGraphicsCaptureItemInterop =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
-            let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd)?;
+            let item: GraphicsCaptureItem = if monitor {
+                interop
+                    .CreateForMonitor(windows::Win32::Graphics::Gdi::HMONITOR(handle as *mut _))?
+            } else {
+                interop.CreateForWindow(HWND(handle as *mut _))?
+            };
             let size = item.Size()?;
-            paneferry_protocol::dimensions(size.Width as u32, size.Height as u32)?;
+            Self::check_size(size.Width as u32, size.Height as u32, monitor)?;
             let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
                 &runtime_device,
                 DirectXPixelFormat::B8G8R8A8UIntNormalized,
@@ -85,7 +118,7 @@ impl Capture {
             )?;
             let frame_event = watch(&pool, signal.clone())?;
             let session = pool.CreateCaptureSession(&item)?;
-            session.SetIsCursorCaptureEnabled(false)?;
+            session.SetIsCursorCaptureEnabled(monitor)?;
             // Optional on newer Windows. Avoid a second OS-side cadence gate;
             // the publisher owns the negotiated frame rate and drains stale raw frames.
             let _ =
@@ -103,6 +136,7 @@ impl Capture {
                 latest: None,
                 signal,
                 frame_event,
+                monitor,
             })
         }
     }
@@ -132,7 +166,7 @@ impl Capture {
             frame.Close()?;
             return Ok(None);
         }
-        paneferry_protocol::dimensions(size.Width as u32, size.Height as u32)?;
+        Self::check_size(size.Width as u32, size.Height as u32, self.monitor)?;
         if size != self.size {
             frame.Close()?;
             drop(frame);
@@ -147,7 +181,7 @@ impl Capture {
             )?;
             let frame_event = watch(&pool, self.signal.clone())?;
             let session = pool.CreateCaptureSession(&self.item)?;
-            session.SetIsCursorCaptureEnabled(false)?;
+            session.SetIsCursorCaptureEnabled(self.monitor)?;
             // Optional on newer Windows. Avoid a second OS-side cadence gate;
             // the publisher owns the negotiated frame rate and drains stale raw frames.
             let _ =
