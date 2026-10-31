@@ -127,6 +127,17 @@ impl Identity {
 }
 fn transport() -> Arc<quinn::TransportConfig> {
     let mut config = quinn::TransportConfig::default();
+    // Opt-in field trial for lossy tunnels. Quinn's BBR is experimental, so
+    // preserve Cubic as the default and make rollback a process-local setting.
+    // This changes only our sender; no peer protocol or GPU support is needed.
+    match std::env::var("PANEFERRY_QUIC_CONGESTION").as_deref() {
+        Ok("bbr") => {
+            config.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+            eprintln!("PF_QUIC congestion=bbr");
+        }
+        Ok("cubic") | Err(_) => {}
+        Ok(_) => eprintln!("PF_QUIC unsupported congestion setting; using cubic"),
+    }
     config
         .max_concurrent_bidi_streams(128u32.into())
         .max_concurrent_uni_streams(0u32.into())
