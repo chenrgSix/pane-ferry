@@ -1,5 +1,6 @@
 //! Read only the synthetic fixture through local IPC, without a network or decoder.
 use anyhow::{ensure, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use paneferry_network::framing;
 use paneferry_platform::ipc::LocalStream;
 use serde_json::{json, Value};
@@ -29,6 +30,19 @@ async fn read<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Result<(Val
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Optional diagnostic export is restricted to the named synthetic fixture.
+    // Keep encoded data in memory so file writes do not perturb frame timing.
+    let export = std::env::var_os("PANEFERRY_CADENCE_EXPORT").map(PathBuf::from);
+    let frame_limit: usize = std::env::var("PANEFERRY_CADENCE_FRAMES")
+        .ok()
+        .map(|v| v.parse())
+        .transpose()?
+        .unwrap_or(1800);
+    ensure!(
+        (2..=1800).contains(&frame_limit),
+        "frame limit must be 2..1800"
+    );
+    let mut encoded = Vec::new();
     let root = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
@@ -63,12 +77,20 @@ async fn main() -> Result<()> {
     let mut keyframes = 0;
     let mut total_bytes = 0u64;
     let mut sizes = Vec::new();
-    while frames < 1800 {
+    while frames < frame_limit {
         let (v, received, parse_us) = read(&mut input).await?;
         if v["type"] != "frame" {
             continue;
         }
         let bytes = v["data"].as_str().unwrap().len() * 3 / 4;
+        if export.is_some() {
+            let data = STANDARD.decode(v["data"].as_str().unwrap())?;
+            ensure!(
+                encoded.len() + data.len() <= 256 * 1024 * 1024,
+                "export limit exceeded"
+            );
+            encoded.extend_from_slice(&data);
+        }
         let key = v["key_frame"] == true;
         if frames == 0 {
             println!(
@@ -106,6 +128,9 @@ async fn main() -> Result<()> {
         .await?;
     }
     framing::json(&mut output, &json!({"version":1,"type":"session.detach"})).await?;
+    if let Some(path) = export {
+        std::fs::write(path, encoded)?;
+    }
     for (stage, values) in [
         ("frame_gap_us", &mut gaps),
         ("parse_us", &mut parsing),

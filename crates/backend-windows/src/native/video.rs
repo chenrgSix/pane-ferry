@@ -208,14 +208,28 @@ impl Encoder {
             api.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true))
                 .context("low-latency setting")?;
             // Average bitrate alone permits multi-megabyte I-frame bursts.
-            // Bound the H.264 HRD reservoir to two frames of the target rate.
-            // These standard controls apply to hardware and software encoders.
+            // Use a short HRD budget for steady-state pacing. It is a bitrate
+            // reservoir, not a hard per-frame byte limit: quality takes priority
+            // during startup/recovery or a complex scene change.
             api.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(0u32))
                 .context("CBR rate control")?;
             let reservoir = (desktop_bitrate(width, height, fps) / 8 / fps.max(1) * 2).max(1);
             api.SetValue(&CODECAPI_AVEncCommonBufferSize, &VARIANT::from(reservoir))
                 .context("low-latency HRD buffer")?;
             eprintln!("PF_ENCODER rate=cbr hrd_bytes={reservoir}");
+            // A two-frame CBR budget with the default QP ceiling (51) visibly
+            // corrupts full-chroma atlas samples on each automatic I-frame.
+            // Bound quantization for both color modes, like the Linux publisher.
+            api.SetValue(&CODECAPI_AVEncVideoMaxQP, &VARIANT::from(28u32))
+                .context("maximum video QP")?;
+            // Media is reliable and ordered; the receiver requests a fresh IDR
+            // explicitly after resync. Avoid the driver's default one-second
+            // GOP, which alternates large bursts with severe quality pumping.
+            // Zero means driver-selected, NOT infinite. Use the documented
+            // maximum interval; startup, restart and resize still produce IDRs.
+            api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(u32::MAX))
+                .context("on-demand keyframe interval")?;
+            eprintln!("PF_ENCODER max_qp=28 gop=on_demand");
             let baseline = if let Err(error) =
                 api.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32))
             {
@@ -710,18 +724,18 @@ mod tests {
                 let mut restarted_bytes = Vec::new();
                 let transform = encoder.transform.as_raw();
                 let start = std::time::Instant::now();
-                for index in 0..120 {
-                    let restart = index > 0 && index % 30 == 0;
+                for index in 0..180 {
+                    let restart = index == 120;
                     let frame_start = std::time::Instant::now();
                     if restart {
-                        encoder.restart(1 + index / 30)?;
+                        encoder.restart(2)?;
                         ensure!(encoder.transform.as_raw() == transform, "MFT was recreated");
                     }
                     let frame = gpu.convert_texture(mode)?;
                     let packets = encoder.encode_texture(frame)?;
                     ensure!(
-                        packets.len() == 1 && (!(index == 0 || restart) || packets[0].1),
-                        "one low-latency output per input required"
+                        packets.len() == 1 && packets[0].1 == (index == 0 || restart),
+                        "one output per input, IDRs only at startup/explicit recovery required"
                     );
                     if restart {
                         ensure!(has_nal(&packets[0].0, 5), "restart must be an IDR");
@@ -733,13 +747,13 @@ mod tests {
                     }
                     // Decode this suffix independently to prove no earlier
                     // reference frame or parameter set is needed after resync.
-                    if index >= 90 {
+                    if index >= 120 {
                         restarted_bytes.extend_from_slice(&packets[0].0);
                     }
                     bytes.extend_from_slice(&packets[0].0);
                 }
                 eprintln!(
-                    "DIRECT_TEXTURE {width}x{height} {mode:?} frames=120 elapsed_ms={:.2} bytes={}",
+                    "DIRECT_TEXTURE {width}x{height} {mode:?} frames=180 elapsed_ms={:.2} bytes={}",
                     start.elapsed().as_secs_f64() * 1000.0,
                     bytes.len()
                 );
@@ -782,6 +796,15 @@ mod tests {
                 packets.len() == 1 && packets[0].1,
                 "missing full-chroma keyframe"
             );
+            if width == 64 {
+                for _ in 1..125 {
+                    let next = encoder.encode(&input)?;
+                    ensure!(
+                        next.len() == 1 && !next[0].1,
+                        "unexpected periodic software IDR"
+                    );
+                }
+            }
             eprintln!(
                 "FULL_CHROMA source={width}x{height} carrier={ew}x{eh} bytes={} encode_ms={:.2}",
                 packets[0].0.len(),
