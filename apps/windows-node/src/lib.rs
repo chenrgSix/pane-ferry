@@ -303,6 +303,7 @@ impl Client {
                     .await?;
             }
             Request::KeyFrame { window_id } => {
+                eprintln!("PF_VIDEO keyframe_reason=request");
                 self.video_epoch = self.video_epoch.wrapping_add(1);
                 self.shared()?;
                 ensure!(window_id == 1, "window_unavailable");
@@ -532,7 +533,10 @@ impl Client {
         // Encoded P-frames must never be dropped independently of their references.
         match self.flow.ready(std::time::Instant::now()) {
             video_flow::Ready::Wait => return Ok(None),
-            video_flow::Ready::Restart => self.system.keyframe(&target)?,
+            video_flow::Ready::Restart => {
+                eprintln!("PF_VIDEO keyframe_reason=feedback_timeout");
+                self.system.keyframe(&target)?;
+            }
             video_flow::Ready::Send => {}
         }
         Ok(Some(self.system.begin_frame(&target)?))
@@ -556,6 +560,7 @@ impl Client {
                 // before capture. Do not disconnect or label this frame with an
                 // obsolete revision. Dropping an encoded access unit also drops
                 // a decoder reference, so restart the stream before trying again.
+                eprintln!("PF_VIDEO keyframe_reason=geometry_race");
                 self.system.keyframe(&target)?;
                 return Ok(());
             }

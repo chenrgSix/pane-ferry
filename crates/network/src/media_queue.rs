@@ -42,13 +42,20 @@ impl MediaQueue {
             return;
         }
         if !packet.try_reserve(budget) {
+            eprintln!("PF_MEDIA dropped=budget");
             self.waiting_keyframe = true;
             return;
         }
         match self.sender.as_ref().map(|sender| sender.try_send(packet)) {
             Some(Ok(())) => self.waiting_keyframe = false,
-            Some(Err(mpsc::error::TrySendError::Closed(_))) | None => self.failed(),
-            Some(Err(mpsc::error::TrySendError::Full(_))) => self.waiting_keyframe = true,
+            Some(Err(mpsc::error::TrySendError::Closed(_))) | None => {
+                eprintln!("PF_MEDIA dropped=closed");
+                self.failed();
+            }
+            Some(Err(mpsc::error::TrySendError::Full(_))) => {
+                eprintln!("PF_MEDIA dropped=queue_full");
+                self.waiting_keyframe = true;
+            }
         }
     }
 }

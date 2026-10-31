@@ -1338,11 +1338,10 @@ mod tests {
         (root, service)
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn stalled_video_keeps_ordered_input_resize_and_control_live_then_recovers() {
         use base64::engine::general_purpose::STANDARD;
-        let (_root, service) = test_service();
+        let (root, service) = test_service();
         let (_remote_root, remote) = test_service();
         let mut client_config = remote
             .identity
@@ -1378,7 +1377,12 @@ mod tests {
             .await
             .unwrap();
         let (send, recv) = server.accept_bi().await.unwrap();
-        let (publisher, fixture) = UnixStream::pair().unwrap();
+        let fixture_path = root.path().join("fixture.sock");
+        let listener = bind(&fixture_path).unwrap();
+        let (fixture, publisher) =
+            tokio::join!(UnixStream::connect(&fixture_path), listener.accept());
+        let fixture = fixture.unwrap();
+        let (publisher, _) = publisher.unwrap();
         let quota = Arc::new(DeviceQuota::default());
         let publishing = {
             let service = service.clone();

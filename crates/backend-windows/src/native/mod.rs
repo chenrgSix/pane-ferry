@@ -679,6 +679,7 @@ impl WindowSystem for Desktop {
                 return Ok(Some(frame));
             }
             self.pending.clear();
+            eprintln!("PF_VIDEO keyframe_reason=pending_geometry");
             self.keyframe(target)?;
         }
         let (w, h) = self.color.dimensions(geometry.width, geometry.height)?;
@@ -727,6 +728,7 @@ impl WindowSystem for Desktop {
             || height != geometry.height
             || content_revision != geometry.content_revision
         {
+            eprintln!("PF_VIDEO keyframe_reason=capture_geometry");
             self.keyframe(target)?;
             return Ok(None);
         }
