@@ -207,6 +207,15 @@ impl Encoder {
             let api: ICodecAPI = transform.cast()?;
             api.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true))
                 .context("low-latency setting")?;
+            // Average bitrate alone permits multi-megabyte I-frame bursts.
+            // Bound the H.264 HRD reservoir to two frames of the target rate.
+            // These standard controls apply to hardware and software encoders.
+            api.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(0u32))
+                .context("CBR rate control")?;
+            let reservoir = (desktop_bitrate(width, height, fps) / 8 / fps.max(1) * 2).max(1);
+            api.SetValue(&CODECAPI_AVEncCommonBufferSize, &VARIANT::from(reservoir))
+                .context("low-latency HRD buffer")?;
+            eprintln!("PF_ENCODER rate=cbr hrd_bytes={reservoir}");
             let baseline = if let Err(error) =
                 api.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32))
             {
