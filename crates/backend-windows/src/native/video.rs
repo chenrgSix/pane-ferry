@@ -262,16 +262,17 @@ impl Encoder {
             api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(u32::MAX))
                 .context("on-demand keyframe interval")?;
             eprintln!("PF_ENCODER qp=rate_control gop=on_demand");
-            let baseline = if let Err(error) =
+            if let Err(error) =
                 api.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32))
             {
                 if !hardware {
                     return Err(error.into());
                 }
-                true // Baseline forbids B frames even when the optional control is absent.
-            } else {
-                false
-            };
+                // Optional on hardware MFTs. Unsupported does not mean that the
+                // encoder needs Baseline: enforce one input/one matching output
+                // at runtime, and retire hardware which buffers/reorders frames.
+                eprintln!("PF_ENCODER b_frame_control=unavailable latency_guard=one_in_one_out");
+            }
             let media = MFCreateMediaType()?;
             media.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
             media.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
@@ -282,18 +283,32 @@ impl Encoder {
             media.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT601.0 as u32)?;
             media.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
             // High profile improves desktop detail at a bounded bitrate; retain
-            // zero B-frames and low latency so quality does not add reorder delay.
-            media.SetUINT32(&MF_MT_MPEG2_PROFILE, if baseline { 66 } else { 100 })?;
+            // low latency so quality does not add reorder delay.
+            media.SetUINT32(&MF_MT_MPEG2_PROFILE, 100)?;
             media.SetUINT32(&MF_MT_AVG_BITRATE, desktop_bitrate(width, height, fps))?;
-            transform
-                .SetOutputType(0, &media, 0)
-                .context("H264 output type")?;
+            let baseline = if transform.SetOutputType(0, &media, 0).is_err() {
+                media.SetUINT32(&MF_MT_MPEG2_PROFILE, 66)?;
+                transform
+                    .SetOutputType(0, &media, 0)
+                    .context("H264 Baseline output type")?;
+                true
+            } else {
+                false
+            };
             let input = MFCreateMediaType()?;
             media.CopyAllItems(&input)?;
             input.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)?;
             transform
                 .SetInputType(0, &input, 0)
                 .context("NV12 input type")?;
+            let cabac = !baseline
+                && api
+                    .SetValue(&CODECAPI_AVEncH264CABACEnable, &VARIANT::from(true))
+                    .is_ok();
+            eprintln!(
+                "PF_ENCODER requested_profile={} cabac_setting={cabac}",
+                if baseline { 66 } else { 100 }
+            );
             // Some hardware MFTs ignore MF_MT_AVG_BITRATE during negotiation.
             api.SetValue(
                 &CODECAPI_AVEncCommonMeanBitRate,
@@ -618,6 +633,10 @@ impl Encoder {
                 ensure!(frames.len() <= 4, "encoder backlog");
             }
             self.restart_ready = frames.len() == 1 && matched_input;
+            ensure!(
+                !self.hardware || self.restart_ready,
+                "hardware encoder buffered or reordered output"
+            );
             Ok(frames)
         }
     }
