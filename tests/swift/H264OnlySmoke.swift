@@ -141,9 +141,10 @@ struct H264OnlySmoke {
         }
         precondition(host.window.subtitle.contains("fps"), "active frames should show a receive rate")
         adaptive.windows[host.id] = host
+        adaptive.session = "retained"
         adaptive.lastVideoFeedback = 0
         let received = DispatchTime.now().uptimeNanoseconds - 3_000_000
-        adaptive.receive(Incoming(object: ["type": "frame", "window_id": host.id,
+        adaptive.receive(Incoming(object: ["type": "frame", "session_id": "retained", "seq": UInt64(1), "window_id": host.id,
             "geometry_revision": host.revision, "frame_id": UInt64(171),
             "received_ns": received, "decode_started_ns": received + 1_000_000,
             "decode_completed_ns": received + 2_000_000], image: image))

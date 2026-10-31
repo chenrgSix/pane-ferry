@@ -571,6 +571,12 @@ impl Service {
             Some(&connection.remote_address().to_string()),
         );
         let mut tasks = JoinSet::new();
+        let timing_enabled = std::env::var("PANEFERRY_VIDEO_TIMING").as_deref() == Ok("1");
+        let mut sampled_at = Instant::now();
+        let mut previous_stats = connection.stats();
+        let mut sample_timer =
+            tokio::time::interval_at(sampled_at + Duration::from_secs(2), Duration::from_secs(2));
+        sample_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let reason = loop {
             tokio::select! {
                 result = connection.accept_bi() => {
@@ -586,6 +592,13 @@ impl Service {
                     });
                 }
                 _ = tasks.join_next(), if !tasks.is_empty() => {}
+                _ = sample_timer.tick(), if timing_enabled => {
+                    let now = Instant::now();
+                    let current = connection.stats();
+                    self.diagnostics.quic_sample(&id, &previous_stats, &current, now - sampled_at);
+                    previous_stats = current;
+                    sampled_at = now;
+                }
             }
         };
         self.diagnostics
