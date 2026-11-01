@@ -15,7 +15,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib, Gio, GdkPixbuf
+from gi.repository import Gtk, GLib, Gio, Gdk, GdkPixbuf
 from wire import STATE, Wire, peers, private, request, save, message
 from windowhost import Viewer
 import network
@@ -51,7 +51,19 @@ class Manager(Gtk.Application):
         self.connect('command-line', self.command_line)
         self.connect('activate', self.activate)
         self.window = None; self.selected = None; self.catalogs = {}; self.viewers = []; self.revision = 0
-        self.pending_launches = {}; self.peer_keys = []; self.peer_timer = None
+        self.pending_launches = {}; self.peer_keys = []; self.peer_timer = None; self.launching=set(); self.updating_options=False
+        self.preferences_path = STATE / 'linux-preferences.json'
+        self.preferences = {}; self.takeover_seen = {}; self.takeover_busy = set(); self.catalog_windows = {}
+        try:
+            if not self.preferences_path.is_symlink() and self.preferences_path.stat().st_size<=64*1024:
+                value=json.loads(self.preferences_path.read_text())
+                if isinstance(value,dict): self.preferences=value
+        except (OSError,ValueError): pass
+        self.video_color = '444-atlas-v2' if self.preferences.get('full_color') is True else '420'
+        self.source_size = self.preferences.get('source_size') is True
+        self.application_scene = self.preferences.get('application_scene') is True
+        values=self.preferences.get('takeover',[])
+        self.takeover = {p for p in values[:32] if isinstance(p,str) and p.startswith('quic:')} if isinstance(values,list) else set()
         self.store = STATE / 'catalog-cache.json'
         try:
             if self.store.stat().st_size <= 8 * 1024 * 1024 and not self.store.is_symlink():
@@ -75,7 +87,7 @@ class Manager(Gtk.Application):
                     return 1
                 if not session or len(session)>100 or not all(c.isalnum() or c in '-_' for c in session):
                     return 1
-                name = next((p['name'] for p in peers() if p['connection_id']==peer), 'Mac')
+                name = next((p['name'] for p in peers() if p['connection_id']==peer), '远端设备')
                 self.open_viewer(peer, name, session_id=session)
             except (ValueError, IndexError):
                 return 1
@@ -113,6 +125,20 @@ class Manager(Gtk.Application):
         revoke = Gtk.Button(label='撤销所选配对'); revoke.connect('clicked', self.revoke_device); controls.pack_start(revoke, False, False, 0)
         update = Gtk.Button(label='更新设备地址'); update.connect('clicked', self.update_address); controls.pack_start(update, False, False, 0)
         root.pack_start(controls, False, False, 0)
+        options=Gtk.Box(spacing=12)
+        self.full_color=Gtk.CheckButton(label='完整色彩（下次连接生效）'); self.full_color.set_active(self.video_color!='420')
+        self.source_option=Gtk.CheckButton(label='保持远端原尺寸'); self.source_option.set_active(self.source_size)
+        self.scene_option=Gtk.CheckButton(label='合并应用菜单和弹窗'); self.scene_option.set_active(self.application_scene)
+        for option in (self.full_color,self.source_option,self.scene_option):
+            option.connect('toggled',self.display_preferences); options.pack_start(option,False,False,0)
+        root.pack_start(options,False,False,0)
+        device_options=Gtk.Box(spacing=12)
+        self.takeover_option=Gtk.CheckButton(label='自动接入所选设备的应用窗口')
+        self.takeover_option.connect('toggled',self.takeover_changed)
+        device_options.pack_start(self.takeover_option,False,False,0)
+        disconnect=Gtk.Button(label='断开所选设备全部画面'); disconnect.connect('clicked',self.disconnect_device)
+        device_options.pack_start(disconnect,False,False,0)
+        root.pack_start(device_options,False,False,0)
         self.notice = Gtk.Label(label='使用设备邀请建立双向连接，可同时使用多台已配对设备的应用。', xalign=0)
         self.notice.set_line_wrap(True);root.pack_start(self.notice, False, False, 0)
         scroll = Gtk.ScrolledWindow(); self.rows = Gtk.ListBox(); self.rows.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -134,7 +160,60 @@ class Manager(Gtk.Application):
             self.peer_timer = None
             return False
         self.refresh_peers()
+        for peer in self.takeover:
+            if peer in self.takeover_busy or not any(p['connection_id']==peer for p in peers()): continue
+            self.takeover_busy.add(peer)
+            def fetch(peer=peer):
+                try: GLib.idle_add(self.takeover_windows,peer,request(peer,'window.list')['windows'])
+                except (OSError,ValueError,EOFError,KeyError): GLib.idle_add(self.takeover_finished,peer)
+            threading.Thread(target=fetch,daemon=True).start()
         return True
+
+    def save_preferences(self):
+        self.preferences.update(full_color=self.video_color!='420',source_size=self.source_size,
+            application_scene=self.application_scene,takeover=sorted(self.takeover))
+        save(self.preferences_path,self.preferences)
+
+    def display_preferences(self,*_):
+        self.video_color='444-atlas-v2' if self.full_color.get_active() else '420'
+        self.source_size=self.source_option.get_active(); self.application_scene=self.scene_option.get_active()
+        self.scene_option.set_sensitive(not self.source_size)
+        self.save_preferences()
+
+    def takeover_changed(self,*_):
+        if not self.selected or self.updating_options: return
+        if self.takeover_option.get_active():
+            self.takeover.add(self.selected); self.takeover_seen[self.selected]=set()
+        else: self.takeover.discard(self.selected)
+        self.save_preferences()
+
+    def takeover_finished(self,peer):
+        self.takeover_busy.discard(peer); return False
+
+    def takeover_windows(self,peer,windows):
+        self.takeover_finished(peer)
+        if peer not in self.takeover or any(key.startswith(peer+':') for key in self.launching): return False
+        self.catalog_windows[peer]=windows
+        seen=self.takeover_seen.setdefault(peer,set())
+        for window in windows[:128]:
+            identity=window.get('id')
+            if (not identity or identity in seen or window.get('controlled')
+                    or not window.get('auto_connectable',False) or window.get('unavailable_reason')): continue
+            if len([v for v in self.viewers if not v.closed.is_set()])>=8: break
+            seen.add(identity)
+            self.connect_window(peer,window)
+            # Launch at most one window per observation; the next catalog marks
+            # associated windows controlled before another takeover is planned.
+            break
+        if len(seen)>8192: self.takeover_seen[peer]={w.get('id') for w in windows}
+        return False
+
+    def disconnect_device(self,*_):
+        if not self.selected: return
+        self.takeover.discard(self.selected); self.save_preferences()
+        self.takeover_option.set_active(False)
+        for viewer in self.viewers:
+            if viewer.peer_id==self.selected: viewer.close()
 
     def initialize(self):
         try:
@@ -222,13 +301,16 @@ class Manager(Gtk.Application):
                 self.selector.set_active(0)
             else:
                 self.selected = None; self.clear_rows()
-                self.set_notice('等待 Mac 返回连接；网络恢复后会自动重新出现。')
+                self.set_notice('等待远端设备返回连接；网络恢复后会自动重新出现。')
         # Used by idle_add after management operations: True would reschedule
         # this file read forever and consume a CPU core. Only poll_peers repeats.
         return False
 
     def selected_device(self, selector):
         self.selected = selector.get_active_id(); self.revision += 1
+        self.updating_options=True
+        self.takeover_option.set_active(self.selected in self.takeover)
+        self.updating_options=False
         if self.selected:
             self.load(False)
 
@@ -251,7 +333,13 @@ class Manager(Gtk.Application):
                     save(self.store, self.catalogs)
                 windows = request(peer, 'window.list')['windows']
                 sessions = request(peer, 'session.list')['sessions']
-                GLib.idle_add(self.loaded, peer, revision, catalog, windows, sessions)
+                wire=Wire(peer)
+                try:
+                    monitors=[]
+                    if 'desktop.monitor' in wire.capabilities:
+                        wire.send(type='desktop.list'); monitors=wire.until('desktop.list').get('monitors',[])
+                finally: wire.close()
+                GLib.idle_add(self.loaded, peer, revision, catalog, windows, sessions, monitors)
             except (OSError, ValueError, EOFError, KeyError) as error:
                 GLib.idle_add(self.failed, peer, revision, message(error))
         threading.Thread(target=fetch, daemon=True).start()
@@ -261,9 +349,10 @@ class Manager(Gtk.Application):
             self.notice.set_text(error)
         return False
 
-    def loaded(self, peer, revision, catalog, windows, sessions):
+    def loaded(self, peer, revision, catalog, windows, sessions, monitors=None):
         if self.window and self.selected == peer and self.revision == revision:
-            self.render(peer, catalog['apps'], windows, sessions)
+            self.catalog_windows[peer]=windows
+            self.render(peer, catalog['apps'], windows, sessions, monitors)
             self.notice.set_text('已安装应用已缓存 · ' + time.strftime('%Y/%m/%d %H:%M', time.localtime(catalog['saved_at'])))
         return False
 
@@ -287,8 +376,11 @@ class Manager(Gtk.Application):
         button = Gtk.Button(label=action);button.set_sensitive(enabled);button.connect('clicked', callback)
         box.pack_start(button, False, False, 0);self.rows.add(box)
 
-    def render(self, peer, apps, windows, sessions):
+    def render(self, peer, apps, windows, sessions, monitors=None):
         self.clear_rows(); known = set()
+        for monitor in (monitors or [])[:16]:
+            self.row(monitor.get('name','远端桌面'),f"完整桌面 · {monitor['width']} × {monitor['height']}",None,'连接桌面',
+                lambda _,m=monitor:self.launch_desktop(peer,m))
         for window in windows[:128]:
             sid = window.get('session_id'); known.add(sid)
             self.row(window['name'], window.get('title', ''), window.get('icon_png'), '已连接' if window.get('controlled') else '连接',
@@ -296,10 +388,10 @@ class Manager(Gtk.Application):
         for session in sessions[:16]:
             if session['session_id'] in known: continue
             app = next((a for a in apps if a['id']==session['app_id']), {})
-            self.row(app.get('name','Mac 应用'), '已有会话', app.get('icon_png'), '连接',
-                lambda _, s=session, a=app: self.open_viewer(peer, a.get('name','Mac'), session_id=s['session_id']), not session.get('controlled'))
+            self.row(app.get('name','远端应用'), '已有会话', app.get('icon_png'), '连接',
+                lambda _, s=session, a=app: self.open_viewer(peer, a.get('name','远端设备'), session_id=s['session_id']), not session.get('controlled'))
         for app in apps[:512]:
-            self.row(app['name'], 'Mac 已安装应用', app.get('icon_png'), '打开', lambda _, a=app: self.launch(peer, a), not app.get('unavailable_reason'))
+            self.row(app['name'], '远端已安装应用', app.get('icon_png'), '打开', lambda _, a=app: self.launch(peer, a), not app.get('unavailable_reason'))
         self.rows.show_all()
 
     def connect_window(self, peer, window):
@@ -310,18 +402,49 @@ class Manager(Gtk.Application):
 
     def launch(self, peer, app):
         key = peer + ':' + app['id']
+        if key in self.launching: return
+        self.launching.add(key)
         request_id = self.pending_launches.setdefault(key, uuid.uuid4().hex)
         save(self.launch_store, self.pending_launches)
+        extra={}
+        source=next((w for w in self.catalog_windows.get(peer,[]) if w.get('id')==app['id']),app)
+        if self.application_scene and not self.source_size and source.get('application_scene'):
+            monitor=Gdk.Display.get_default().get_monitor_at_window(self.window.get_window())
+            geometry=monitor.get_workarea(); scale=monitor.get_scale_factor()
+            width,height=max(640,geometry.width*scale),max(480,geometry.height*scale)
+            ratio=min(1,4096/width,4096/height,(8_000_000/(width*height))**.5)
+            extra['scene']=dict(width=max(640,int(width*ratio)//2*2),height=max(480,int(height*ratio)//2*2))
         def start():
             try:
-                response = request(peer, 'app.launch', 'session.started', app_id=app['id'], request_id=request_id, backend='native', attach=False)
+                response = request(peer, 'app.launch', 'session.started', app_id=app['id'], request_id=request_id, backend='native', attach=False,**extra)
                 GLib.idle_add(self.clear_pending_launch, key, request_id)
                 GLib.idle_add(self.open_viewer, peer, app['name'], response['session_id'])
             except (OSError, ValueError, EOFError) as error:
                 if str(error) in TERMINAL_LAUNCH_ERRORS:
                     GLib.idle_add(self.clear_pending_launch, key, request_id)
                 GLib.idle_add(self.set_notice, message(error))
+            finally: GLib.idle_add(self.launch_finished,key)
         threading.Thread(target=start, daemon=True).start()
+
+    def launch_finished(self,key):
+        self.launching.discard(key); return False
+
+    def launch_desktop(self,peer,monitor):
+        key=peer+':screen-'+monitor['id']
+        if key in self.launching: return
+        self.launching.add(key)
+        request_id=self.pending_launches.setdefault(key,uuid.uuid4().hex)
+        save(self.launch_store,self.pending_launches)
+        def start():
+            try:
+                response=request(peer,'desktop.start','session.started',monitor_id=monitor['id'],request_id=request_id)
+                GLib.idle_add(self.clear_pending_launch,key,request_id)
+                GLib.idle_add(self.open_viewer,peer,monitor.get('name','远端桌面'),response['session_id'])
+            except (OSError,ValueError,EOFError) as error:
+                if str(error) in TERMINAL_LAUNCH_ERRORS: GLib.idle_add(self.clear_pending_launch,key,request_id)
+                GLib.idle_add(self.set_notice,message(error))
+            finally: GLib.idle_add(self.launch_finished,key)
+        threading.Thread(target=start,daemon=True).start()
 
     def clear_pending_launch(self, key, request_id):
         if self.pending_launches.get(key) == request_id:

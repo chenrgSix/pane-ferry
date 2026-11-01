@@ -141,6 +141,11 @@ try:
     until(lambda:any(e['type']=='input.text.commit' and e['text']=='中文🙂' for e in events))
     viewer.send(type='input.key.logical',key='Return',pressed=True)
     viewer.send(type='input.key.logical',key='Return',pressed=False)
+    viewer.logical_keys=False
+    viewer.send_key('Return',True); viewer.send_key('Return',False)
+    until(lambda:len([e for e in events if e['type']=='input.key'])==2)
+    assert all(e['keysym']==Gdk.KEY_Return for e in events if e['type']=='input.key')
+    viewer.logical_keys=True
     viewer.send(type='input.pointer',x=120,y=150,button=1,pressed=True)
     viewer.send(type='input.pointer',x=120,y=150,button=1,pressed=False)
     until(lambda:len([e for e in events if e['type']=='input.pointer'])==2)
@@ -179,6 +184,28 @@ try:
     until(lambda:len([e for e in other.events if e['type']=='input.key.logical'])==4)
     assert not any(e['type'].startswith('clipboard.') for e in other.events), 'Windows remote-only copy must not access the controller clipboard'
     assert not other_viewer.pressed and other_viewer.copy_request is None
+    # A desktop/scene is a fixed canvas: letterbox locally, never resize source.
+    metadata=dict(other.members[42],surface_type='desktop',role='desktop')
+    other_viewer.metadata(metadata,other_viewer.epoch)
+    other_viewer.window.resize(1100,600)
+    until(lambda:other_viewer.view.get_allocation().width>1000)
+    before=len([e for e in other.events if e['type']=='window.configure'])
+    deadline_for_resize=time.monotonic()+.2
+    until(lambda:time.monotonic()>deadline_for_resize)
+    assert len([e for e in other.events if e['type']=='window.configure'])==before
+    x,y,w,h=other_viewer.content_rect()
+    assert x>0 and abs(w/h-640/480)<.001
+    pointer_count=lambda:len([e for e in other.events if e['type']=='input.pointer'])
+    before=pointer_count()
+    other_viewer.pointer(SimpleNamespace(x=0,y=20),1,True)
+    other_viewer.pointer(SimpleNamespace(x=0,y=20),1,False)
+    other_viewer.pointer(SimpleNamespace(x=x+w/2,y=y+h/2),1,True)
+    other_viewer.pointer(SimpleNamespace(x=0,y=20),1,False)
+    until(lambda:pointer_count()==before+2)
+    sent=[e for e in other.events if e['type']=='input.pointer'][-2:]
+    assert abs(sent[0]['x']-320)<=1 and abs(sent[0]['y']-240)<=1
+    assert not sent[1]['pressed'] and not other_viewer.buttons
+    other_viewer.metadata(other.members[42],other_viewer.epoch)
 
     assert viewer.members is not other_viewer.members and viewer.window_id==other_viewer.window_id==42
     viewer.send(type='input.key.logical',key='F2',pressed=True)

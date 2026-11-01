@@ -279,6 +279,7 @@ pub struct Backend {
     scene_node: Option<u32>,
     scene_members: std::collections::HashSet<u32>,
     scale: u8,
+    color: paneferry_protocol::ColorMode,
 }
 impl Backend {
     pub fn connect(
@@ -338,6 +339,7 @@ impl Backend {
             scene_node: None,
             scene_members: Default::default(),
             scale,
+            color: Default::default(),
         })
     }
     fn call(&self, op: &str, id: u32) -> Result<Value> {
@@ -435,7 +437,7 @@ impl Backend {
             self.scene_node = Some(node);
         }
         if !self.streams.borrow().contains_key(&id) {
-            let capture = PipeWireCapture::new(node, self.frame_wake.clone())?;
+            let capture = PipeWireCapture::new_colored(node, self.frame_wake.clone(), self.color)?;
             self.streams.borrow_mut().insert(
                 id,
                 Stream {
@@ -501,6 +503,20 @@ impl Backend {
     }
 }
 impl WindowBackend for Backend {
+    fn set_video_color(&mut self, color: paneferry_protocol::ColorMode) -> Result<()> {
+        if self.color != color {
+            if self.scene.is_none() {
+                for id in self.streams.borrow().keys() {
+                    self.call("stop_capture", *id)?;
+                }
+            }
+            self.streams.get_mut().clear();
+            self.scene_node = None;
+            self.color = color;
+            self.rpc.get_mut().invalidate_snapshot();
+        }
+        Ok(())
+    }
     fn windows(&self) -> &HashMap<u32, Window> {
         &self.windows
     }
@@ -766,11 +782,12 @@ impl WindowBackend for Backend {
                         .as_u64()
                         .context("wayland_capture_unavailable")?,
                 )?;
-                let capture = match PipeWireCapture::new(node, self.frame_wake.clone()) {
-                    Ok(capture) => capture,
-                    Err(_) if id != self.target.info.window_id => continue,
-                    Err(error) => return Err(error),
-                };
+                let capture =
+                    match PipeWireCapture::new_colored(node, self.frame_wake.clone(), self.color) {
+                        Ok(capture) => capture,
+                        Err(_) if id != self.target.info.window_id => continue,
+                        Err(error) => return Err(error),
+                    };
                 entry.insert(Stream {
                     capture,
                     image: None,

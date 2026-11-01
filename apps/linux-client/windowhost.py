@@ -14,6 +14,7 @@ gi.require_version('GstApp', '1.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gst
 import clipboard
 from wire import Wire, message
+from video_color import carrier_size, negotiate, unpack_nv12
 
 Gst.init(None)
 
@@ -24,8 +25,8 @@ def automatic_video_fps(refresh_millihz, publisher_max=90):
     return min(max(1, round(refresh / 1000)), limit)
 
 
-def bounds(width, height):
-    return type(width) is int and type(height) is int and 0 < width <= 4096 and 0 < height <= 4096 and width * height <= 8_000_000
+def bounds(width, height, max_pixels=8_000_000):
+    return type(width) is int and type(height) is int and 0 < width <= 4096 and 0 < height <= 4096 and width * height <= max_pixels
 
 
 def presentation(value):
@@ -42,7 +43,7 @@ def presentation(value):
     return source
 
 
-def check_sps(data, width, height):
+def check_sps(data, width, height, max_pixels=8_000_000):
     """Validate SPS before permitting a decoder to allocate picture buffers."""
     units = data.replace(b'\0\0\0\1', b'\0\0\1').split(b'\0\0\1')
     found = False
@@ -68,7 +69,24 @@ def check_sps(data, width, height):
             return (1 << count) - 1 + read(count)
         profile = read(8); read(16)
         if ue() > 31: raise ValueError('invalid_video')
-        if profile not in (66, 77, 88):
+        if profile == 100:
+            # High profile adds chroma/depth/scaling fields before frame_num.
+            # Windows uses 8-bit 4:2:0 High + CABAC even for atlas carriers.
+            if ue() != 1 or ue() != 0 or ue() != 0:
+                raise ValueError('invalid_video')
+            read(1)
+            if read(1):
+                for index in range(8):
+                    if not read(1): continue
+                    last = next_scale = 8
+                    for _ in range(16 if index < 6 else 64):
+                        if next_scale:
+                            code = ue()
+                            delta = (code + 1) // 2 if code % 2 else -(code // 2)
+                            if not -128 <= delta <= 127: raise ValueError('invalid_video')
+                            next_scale = (last + delta + 256) % 256
+                        last = next_scale or last
+        elif profile not in (66, 77, 88):
             raise ValueError('invalid_video')
         if ue() > 12: raise ValueError('invalid_video')
         order = ue()
@@ -89,14 +107,14 @@ def check_sps(data, width, height):
         if not frame:
             read(1); h *= 2
         # Cropping cannot justify allocating an enormous coded picture/DPB.
-        if w > ((width + 15) // 16) * 16 or h > ((height + 31) // 32) * 32 or w > 4096 or h > 4096 or w*h > 8_200_000 or w*h*max(1,references) > 32_000_000:
+        if w > ((width + 15) // 16) * 16 or h > ((height + 31) // 32) * 32 or w > 4096 or h > 4096 or w*h > max_pixels + 200_000 or w*h*max(1,references) > max_pixels * 4:
             raise ValueError('invalid_video')
         read(1)
         if read(1):
             left, right, top, bottom = ue(), ue(), ue(), ue()
             w -= (left + right) * 2
             h -= (top + bottom) * 2 * (2 - frame)
-        if (w, h) != (width, height) or not bounds(w, h):
+        if (w, h) != (width, height) or not bounds(w, h, max_pixels):
             raise ValueError('invalid_video')
 
     return found
@@ -106,32 +124,42 @@ def parameter_sets(data):
 
 
 class Video:
-    def __init__(self, receive):
+    def __init__(self, receive, color='420'):
         decoder = 'avdec_h264' if Gst.ElementFactory.find('avdec_h264') else 'openh264dec'
         if not Gst.ElementFactory.find(decoder):
             raise ValueError('video_decoder_unavailable')
         self.receive = receive
+        if color not in ('420','444-atlas-v1','444-atlas-v2'): raise ValueError('invalid_video')
+        self.color = color
+        self.color_pipeline = None
         self.stream = None; self.size = None; self.parameters = ()
         self.frame_ids = {}; self.frame_ids_lock = threading.Lock(); self.next_pts = 0
+        output = 'NV12' if color != '420' else 'RGB'
         self.pipeline = Gst.parse_launch('appsrc name=source is-live=true format=time block=true max-buffers=4 '
             'caps=video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! ' + decoder +
-            ' ! videoconvert ! video/x-raw,format=RGB ! appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true')
+            ' ! videoconvert ! video/x-raw,format=' + output + ' ! appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true')
         self.source = self.pipeline.get_by_name('source')
         self.pipeline.get_by_name('sink').connect('new-sample', self.sample)
+        if color != '420':
+            self.color_pipeline = Gst.parse_launch('appsrc name=source is-live=true format=time block=true max-buffers=1 ! videoconvert ! video/x-raw,format=RGB ! appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true enable-last-sample=false')
+            self.color_source = self.color_pipeline.get_by_name('source')
+            self.color_pipeline.get_by_name('sink').connect('new-sample', self.color_sample)
         self.pipeline.set_state(Gst.State.PLAYING)
 
     def push(self, event):
         width, height = event.get('width'), event.get('height')
-        if not bounds(width, height) or (event.get('encoded_width'), event.get('encoded_height')) != (width + width % 2, height + height % 2):
+        encoded = carrier_size(width,height,self.color)
+        if event.get('color','420') != self.color or (event.get('encoded_width'), event.get('encoded_height')) != encoded:
             raise ValueError('invalid_video')
         data = base64.b64decode(event['data'], validate=True)
         if len(data) > 12 * 1024 * 1024 or not data.startswith((b'\0\0\1', b'\0\0\0\1')):
             raise ValueError('invalid_video')
         params = parameter_sets(data)
-        sps = check_sps(data, width + width % 2, height + height % 2)
+        sps = check_sps(data, *encoded, max_pixels=8_000_000 if self.color=='420' else 16_000_000)
         units = data.replace(b'\0\0\0\1', b'\0\0\1').split(b'\0\0\1')
         idr = any(unit and unit[0] & 31 == 5 for unit in units)
         new_stream = event['stream_id'] != self.stream
+        if not new_stream and self.size != (width,height): raise ValueError('invalid_video')
         if new_stream or (params and params != self.parameters):
             if not event.get('key_frame') or not idr or not sps or not any(unit[0] & 31 == 8 for unit in params):
                 raise ValueError('invalid_video')
@@ -139,6 +167,10 @@ class Video:
             raise ValueError('invalid_video')
         if new_stream:
             self.pipeline.set_state(Gst.State.READY)
+            if self.color_pipeline:
+                self.color_pipeline.set_state(Gst.State.READY)
+                self.color_source.set_property('caps',Gst.Caps.from_string(f'video/x-raw,format=Y444,colorimetry=bt601,width={width+width%2},height={height+height%2},framerate=90/1'))
+                self.color_pipeline.set_state(Gst.State.PLAYING)
             self.pipeline.set_state(Gst.State.PLAYING)
             with self.frame_ids_lock: self.frame_ids.clear(); self.next_pts = 0
             self.stream = event['stream_id']
@@ -165,9 +197,30 @@ class Video:
         caps = sample.get_caps().get_structure(0)
         width, height = caps.get_value('width'), caps.get_value('height')
         w, h = self.size
-        if (width, height) != (w + w % 2, h + h % 2):
+        if (width, height) != carrier_size(w,h,self.color):
             return Gst.FlowReturn.ERROR
-        buffer = sample.get_buffer(); raw = buffer.extract_dup(0, buffer.get_size())
+        buffer = sample.get_buffer()
+        if self.color_pipeline:
+            raw = buffer.extract_dup(0, buffer.get_size())
+            try:
+                unpacked = unpack_nv12(raw,(width+3)&~3,w,h,self.color)
+            except ValueError:
+                return Gst.FlowReturn.ERROR
+            packed = Gst.Buffer.new_wrapped(unpacked)
+            packed.pts, packed.duration = buffer.pts, buffer.duration
+            return self.color_source.emit('push-buffer',packed)
+        return self.deliver_rgb(sample)
+
+    def color_sample(self,sink):
+        sample=sink.emit('pull-sample')
+        return self.deliver_rgb(sample) if sample and self.size else Gst.FlowReturn.OK
+
+    def deliver_rgb(self,sample):
+        caps=sample.get_caps().get_structure(0)
+        width,height=caps.get_value('width'),caps.get_value('height')
+        w,h=self.size
+        if (width,height)!=(w+w%2,h+h%2): return Gst.FlowReturn.ERROR
+        buffer=sample.get_buffer();raw=buffer.extract_dup(0,buffer.get_size())
         stride = ((width * 3 + 3) // 4) * 4
         if len(raw) < stride * height:
             return Gst.FlowReturn.ERROR
@@ -180,6 +233,7 @@ class Video:
 
     def close(self):
         self.pipeline.set_state(Gst.State.NULL)
+        if self.color_pipeline: self.color_pipeline.set_state(Gst.State.NULL)
 
 
 class Viewer:
@@ -196,11 +250,15 @@ class Viewer:
         self.outbound = queue.Queue(maxsize=128) if owner is None else owner.outbound
         self.window_id = None; self.revision = 0; self.width = 0; self.height = 0
         self.pressed = set(); self.videos = {}; self.wire = None
+        self.buttons = set(); self.fixed_canvas = False; self.source_size=getattr(application,'source_size',False)
         self.display_lock = threading.Lock(); self.pending_image = None; self.display_scheduled = False
         self.presented_frame_id = None
         if owner is None:
+            self.video_color_requested = getattr(application,'video_color','420')
+            self.video_color = '420'
             self.max_fps = 60; self.configured_fps = None; self.qos_supported = False
             self.remote_clipboard_shortcuts = False
+            self.logical_keys = True; self.text_clipboard = False
             self.publisher_max_fps = 90; self.refresh_millihz = 0; self.monitor_timer = None
             self.pending_feedback = None; self.feedback_timer = None; self.last_feedback_at = 0
             self.last_feedback_id = 0
@@ -264,7 +322,8 @@ class Viewer:
         allocation = widget.get_allocation()
         context.set_source_rgb(0.1, 0.11, 0.12); context.paint()
         if self.pixels:
-            context.save(); context.scale(allocation.width / self.pixels.get_width(), allocation.height / self.pixels.get_height())
+            x,y,w,h = self.content_rect()
+            context.save(); context.translate(x,y); context.scale(w / self.pixels.get_width(), h / self.pixels.get_height())
             Gdk.cairo_set_source_pixbuf(context, self.pixels, 0, 0); context.paint(); context.restore()
             if self.presented_frame_id is not None:
                 self.owner.feedback(self.presented_frame_id); self.presented_frame_id = None
@@ -273,6 +332,15 @@ class Viewer:
             context.set_source_rgb(1, 1, 1); context.rectangle(x, y, min(300, len(self.preedit)*20+20), 28); context.fill()
             context.set_source_rgb(0, 0, 0); context.move_to(x+5, y+20); context.set_font_size(18); context.show_text(self.preedit)
         return False
+
+    def content_rect(self):
+        allocation = self.view.get_allocation()
+        w,h = max(1,allocation.width),max(1,allocation.height)
+        if (self.fixed_canvas or self.source_size) and self.width and self.height:
+            scale = min(w/self.width,h/self.height)
+            cw,ch = self.width*scale,self.height*scale
+            return (w-cw)/2,(h-ch)/2,cw,ch
+        return 0,0,w,h
 
     def image(self, pixels, epoch, revision, token, frame_id=None):
         if epoch != self.owner.epoch or revision != self.revision or token is not self.frame_token or self.closed.is_set():
@@ -355,6 +423,7 @@ class Viewer:
         if epoch != self.owner.epoch or self.closed.is_set():
             return False
         self.presentation = presentation(value)
+        self.fixed_canvas = value.get('surface_type') in ('desktop','session') or value.get('role') in ('desktop','session')
         self.window_id = value['window_id']; self.width = value['width']; self.height = value['height']; self.revision = value['geometry_revision']
         self.window.set_title(str(value.get('title', self.name))[:512] + ' · ' + self.name)
         self.ready = True
@@ -454,22 +523,22 @@ class Viewer:
         for viewer in list(self.members.values()) or [self]:
             viewer.ready = False; viewer.frame_token = None; viewer.last_requested = None
             viewer.presented_frame_id = None
-            viewer.pressed.clear(); viewer.cancel_copy(); viewer.status(text)
+            viewer.pressed.clear(); viewer.buttons.clear(); viewer.cancel_copy(); viewer.status(text)
             with viewer.display_lock: viewer.pending_image = None
         return False
 
     def allocated(self, widget, allocation):
         self.owner.layout_overlays()
-        if self.overlay: return
         if self.resize_timer:
-            GLib.source_remove(self.resize_timer)
+            GLib.source_remove(self.resize_timer); self.resize_timer = None
+        if self.overlay or self.fixed_canvas or self.source_size: return
         def resize():
             self.resize_timer = None
             scale = widget.get_scale_factor()
             width, height = allocation.width*scale, allocation.height*scale
             ratio = min(1, 4096/max(1,width), 4096/max(1,height), (8_000_000/max(1,width*height))**0.5)
             target = max(1,int(width*ratio)), max(1,int(height*ratio))
-            if self.ready and target != self.last_requested:
+            if self.ready and not self.fixed_canvas and not self.source_size and target != self.last_requested:
                 self.last_requested = target
                 self.send(type='window.configure', width=target[0], height=target[1])
             return False
@@ -478,13 +547,19 @@ class Viewer:
     def pointer(self, event, button, pressed):
         if self.passive or not self.ready or not self.width:
             return True
+        left,top,cw,ch = self.content_rect()
+        inside = left <= event.x < left+cw and top <= event.y < top+ch
+        if not inside and not self.buttons: return True
+        if pressed and not inside: return True
         if pressed:
             self.view.grab_focus(); self.anchor = (int(event.x), int(event.y))
             rect = Gdk.Rectangle(); rect.x, rect.y, rect.width, rect.height = int(event.x), int(event.y), 1, 24
             self.im.set_cursor_location(rect)
-        allocation = self.view.get_allocation()
-        x = max(0, min(self.width-1, int(event.x*self.width/max(1,allocation.width))))
-        y = max(0, min(self.height-1, int(event.y*self.height/max(1,allocation.height))))
+        x = max(0, min(self.width-1, int((event.x-left)*self.width/cw)))
+        y = max(0, min(self.height-1, int((event.y-top)*self.height/ch)))
+        if button in (1,2,3):
+            if pressed: self.buttons.add(button)
+            else: self.buttons.discard(button)
         self.send(type='input.pointer', x=x, y=y, button=button, pressed=pressed)
         return True
 
@@ -498,8 +573,17 @@ class Viewer:
 
     def release_keys(self):
         for key in self.pressed.copy():
-            self.send(type='input.key.logical', key=key, pressed=False)
+            self.send_key(key,False)
         self.pressed.clear()
+        for button in self.buttons.copy():
+            self.send(type='input.pointer',x=0,y=0,button=button,pressed=False)
+        self.buttons.clear()
+
+    def send_key(self,name,pressed):
+        if self.owner.logical_keys:
+            self.send(type='input.key.logical',key=name,pressed=pressed)
+        else:
+            self.send(type='input.key',keysym=Gdk.keyval_from_name(name),pressed=pressed)
 
     def focus_out(self, *args):
         self.im.focus_out(); self.im.reset(); self.release_keys()
@@ -518,7 +602,10 @@ class Viewer:
             else:
                 request_id = uuid.uuid4().hex
                 self.copy_request = (request_id, clipboard.begin_copy())
-                self.send(type='clipboard.inline.copy', request_id=request_id, cut=name.lower() == 'x')
+                if self.owner.text_clipboard:
+                    self.send(type='clipboard.cut' if name.lower()=='x' else 'clipboard.copy',request_id=request_id)
+                else:
+                    self.send(type='clipboard.inline.copy', request_id=request_id, cut=name.lower() == 'x')
             return True
         if not control and self.im.filter_keypress(event):
             return True
@@ -529,13 +616,17 @@ class Viewer:
                 if name not in self.pressed:
                     return True
                 self.pressed.remove(name)
-            self.send(type='input.key.logical', key=name, pressed=pressed)
+            self.send_key(name,pressed)
         return True
 
     def paste(self):
         try:
             bundle = clipboard.read(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
-            self.send(type='clipboard.inline.paste', bundle=bundle)
+            if self.owner.text_clipboard:
+                if bundle['kind'] != 'text': raise ValueError('clipboard_invalid')
+                self.send(type='clipboard.paste',text=bundle['text'])
+            else:
+                self.send(type='clipboard.inline.paste', bundle=bundle)
         except (ValueError, OSError, GLib.Error):
             self.status(message('clipboard_invalid'))
 
@@ -561,19 +652,24 @@ class Viewer:
             catalog = {}; failure = message('connection_lost')
             try:
                 wire = Wire(self.peer_id); self.wire = wire
-                if 'input.key.logical' not in wire.capabilities or 'native.h264' not in wire.capabilities:
+                if not {'input.key.logical','input.key'}.intersection(wire.capabilities) or 'native.h264' not in wire.capabilities:
                     raise ValueError('protocol_error')
+                self.logical_keys = 'input.key.logical' in wire.capabilities
+                self.text_clipboard = 'clipboard.copy' in wire.capabilities and 'clipboard.inline' not in wire.capabilities
                 self.qos_supported = 'video.qos' in wire.capabilities
                 self.remote_clipboard_shortcuts = 'clipboard.remote-only' in wire.capabilities
                 self.publisher_max_fps = wire.video_max_fps
                 self.max_fps = automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
+                self.video_color = negotiate(self.video_color_requested,wire.capabilities)
+                color_fields = {'color':self.video_color} if self.video_color != '420' else {}
                 if self.qos_supported:
-                    wire.send(type='video.enable', codec='h264', max_fps=self.max_fps, feedback=True)
+                    wire.send(type='video.enable', codec='h264', max_fps=self.max_fps, feedback=True, **color_fields)
                     self.configured_fps = self.max_fps
                 else:
-                    wire.send(type='video.enable', codec='h264')
+                    wire.send(type='video.enable', codec='h264', **color_fields)
                     self.configured_fps = None
-                wire.until('video.ready')
+                ready=wire.until('video.ready')
+                if ready.get('color','420') != self.video_color: raise ValueError('invalid_video')
                 if not self.session_id:
                     wire.send(type='app.launch', app_id=self.app_id, request_id=self.request_id, backend='native', attach=False)
                     self.session_id = wire.until('session.started')['session_id']
@@ -616,7 +712,7 @@ class Viewer:
                             if video: video.close()
                             viewer = self.members[wid]; token = object()
                             self.on_ui(setattr, viewer, 'frame_token', token)
-                            video = self.videos[wid] = Video(lambda pixels, frame_id, viewer=viewer, epoch=epoch, revision=revision, token=token: viewer.image(pixels, epoch, revision, token, frame_id))
+                            video = self.videos[wid] = Video(lambda pixels, frame_id, viewer=viewer, epoch=epoch, revision=revision, token=token: viewer.image(pixels, epoch, revision, token, frame_id),self.video_color)
                             video.stamp = stamp
                         video.push(event)
                     elif kind in ('window.created', 'window.metadata'):
@@ -642,6 +738,10 @@ class Viewer:
                         raise ValueError('session_exited')
                     elif kind == 'clipboard.inline.data':
                         if wid in catalog: self.on_ui(self.members[wid].copied, event)
+                    elif kind == 'clipboard.data':
+                        if wid in catalog:
+                            event['bundle'] = dict(kind='text',text=event.get('text'))
+                            self.on_ui(self.members[wid].copied,event)
                     elif kind == 'error':
                         code = event.get('code', '')
                         viewer = self.members.get(wid, self)

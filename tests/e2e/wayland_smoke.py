@@ -37,6 +37,7 @@ p.add_argument('--window-lifecycle-only', action='store_true', help='test close/
 p.add_argument('--application-scene-only', action='store_true', help='test one scoped compositor stream')
 p.add_argument('--scene-backend', choices=('wayland', 'x11'), default='wayland',
                help='source protocol for --application-scene-only')
+p.add_argument('--video-color', choices=('420','444-atlas-v1','444-atlas-v2'), default='420')
 p.add_argument('--desktop-only', action='store_true', help='test a complete private desktop, cursor, popups and reconnect')
 p.add_argument('--desktop-size', choices=('1600x900', '3840x2160', '2160x3840'), default='1600x900',
                help='private monitor dimensions for --desktop-only')
@@ -90,6 +91,7 @@ if not a.private_bus:
             *(['--read-only-discovery-only'] if a.read_only_discovery_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
             '--scene-backend', a.scene_backend,
+            '--video-color', a.video_color,
             *(['--desktop-only', '--desktop-size', a.desktop_size] if a.desktop_only else []),
             *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
             *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
@@ -131,7 +133,9 @@ class Peer:
         self.frame_count = 0
         self.sock = socket.socket(socket.AF_UNIX); self.sock.settimeout(20); self.sock.connect(str(path)); self.file = self.sock.makefile('rwb')
         self.send(type='hello'); self.until('hello')
-        self.send(type='video.enable', codec='h264'); self.until('video.ready')
+        self.color = a.video_color
+        self.send(type='video.enable', codec='h264', color=self.color)
+        assert self.until('video.ready').get('color','420') == self.color
     def send(self, **kw):
         self.file.write(json.dumps(dict(kw, version=1)).encode()+b'\n');self.file.flush()
     def until(self, kind):

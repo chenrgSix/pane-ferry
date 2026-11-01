@@ -7,6 +7,9 @@ mod logical_x11;
 pub use logical_x11::LogicalX11;
 
 pub trait WindowBackend: Send {
+    fn set_video_color(&mut self, _color: paneferry_protocol::ColorMode) -> Result<()> {
+        Ok(())
+    }
     fn windows(&self) -> &HashMap<u32, Window>;
     fn prepare_input(&self);
     fn input_status(&self) -> Option<&'static str>;

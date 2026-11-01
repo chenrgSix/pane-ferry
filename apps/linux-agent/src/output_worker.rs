@@ -22,6 +22,7 @@ pub(super) struct Job {
     pub session: String,
     pub generation: u64,
     pub fps: u8,
+    pub color: paneferry_protocol::ColorMode,
 }
 pub(super) struct Encoded {
     pub window: u32,
@@ -64,6 +65,7 @@ impl Codec for RuntimeCodec {
                 || old.encoder.width != job.image.width
                 || old.encoder.height != job.image.height
                 || old.encoder.format != job.image.format()
+                || old.encoder.color != job.color
         }) {
             self.windows.remove(&id);
         }
@@ -73,6 +75,7 @@ impl Codec for RuntimeCodec {
             }
             let choice = choice::Choice::new(
                 job.image.is_gpu()
+                    && !job.color.is_full()
                     && !self.gpu_failed
                     && std::env::var("PANEFERRY_VIDEO_GPU").as_deref() != Ok("1"),
             );
@@ -82,15 +85,16 @@ impl Codec for RuntimeCodec {
                 Cached {
                     generation: job.generation,
                     encoder: (if software {
-                        crate::video::Encoder::software
+                        crate::video::Encoder::software_colored
                     } else {
-                        crate::video::Encoder::for_format
+                        crate::video::Encoder::for_color
                     })(
                         job.image.width,
                         job.image.height,
                         self.streams.fetch_add(1, Ordering::Relaxed),
                         job.fps,
                         job.image.format(),
+                        job.color,
                     )?,
                     image: None,
                     choice,
@@ -147,8 +151,10 @@ impl Codec for RuntimeCodec {
             Err(error) => return Err(error),
         };
         let packet_stream = state.encoder.stream;
-        self.gpu_failed |=
-            job.image.is_gpu() && state.choice.attempted_gpu() && !state.encoder.uses_gpu();
+        self.gpu_failed |= !job.color.is_full()
+            && job.image.is_gpu()
+            && state.choice.attempted_gpu()
+            && !state.encoder.uses_gpu();
         if let Some(gpu) = job.image.capture_elapsed_ms().and_then(|ms| {
             state.choice.observe(
                 ms,
@@ -172,17 +178,18 @@ impl Codec for RuntimeCodec {
                 job.image.format(),
             )?;
         }
-        if self.gpu_failed || state.choice.software_selected() {
+        if job.color.is_full() || self.gpu_failed || state.choice.software_selected() {
             job.image.prefer_software();
         }
         // Software snapshots retain owned CPU bytes, never a target BO. GPU
         // encoding stays damage-gated without forcing a CPU comparison.
         state.image = dedup;
+        let encoded = job.color.dimensions(job.image.width, job.image.height)?;
         Ok(Some(
             json!({"type":"frame", "window_id":id, "geometry_revision":job.window.geometry_revision,
             "width":job.window.width, "height":job.window.height, "codec":"h264", "data":STANDARD.encode(packet.bytes),
             "stream_id":packet_stream, "key_frame":packet.keyframe,
-            "encoded_width":job.image.width + job.image.width % 2, "encoded_height":job.image.height + job.image.height % 2}),
+            "color":job.color,"encoded_width":encoded.0,"encoded_height":encoded.1}),
         ))
     }
     fn forget(&mut self, id: u32) {
@@ -413,6 +420,7 @@ mod tests {
             session: "test".into(),
             generation: 1,
             fps: 60,
+            color: Default::default(),
         }
     }
 

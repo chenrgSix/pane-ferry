@@ -2,6 +2,9 @@
 import base64
 import json
 import time
+import sys
+import threading
+from pathlib import Path
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
@@ -12,6 +15,14 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
     pipeline = Gst.parse_launch('appsrc name=input format=time is-live=true caps=video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=RGB ! appsink name=output sync=false max-buffers=1 drop=true')
     source, sink = pipeline.get_by_name('input'), pipeline.get_by_name('output')
     pipeline.set_state(Gst.State.PLAYING)
+    full = peer.color != '420'
+    decoded = []; received = threading.Event(); decoder = None
+    if full:
+        sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'apps/linux-client'))
+        from windowhost import Video
+        def image(pixels, frame_id):
+            decoded.append(pixels); received.set()
+        decoder = Video(image,peer.color)
     bridge = Bridge(env)
     baseline = monitor_layout()
     command = state.with_suffix('.command')
@@ -41,15 +52,22 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
                 assert event['surface_type'] == 'session' and event['parent_id'] is None
             if kind != 'frame': continue
             assert event['window_id'] == root_id and (event['width'], event['height']) == (canvas['width'], canvas['height']), event.keys()
-            data = base64.b64decode(event['data'])
-            buffer = Gst.Buffer.new_allocate(None, len(data), None); buffer.fill(0, data)
-            assert source.emit('push-buffer', buffer) == Gst.FlowReturn.OK
-            sample = sink.emit('try-pull-sample', Gst.SECOND)
-            if sample is None: continue
-            buffer = sample.get_buffer(); ok, mapping = buffer.map(Gst.MapFlags.READ)
-            assert ok
-            try:
+            if full:
+                received.clear(); decoder.push(event)
+                if not received.wait(1): continue
+                pixbuf = decoded[-1]; decoded.clear()
+                assert pixbuf.get_width()==canvas['width'] and pixbuf.get_height()==canvas['height']
+                pixels = pixbuf.get_pixels()
+            else:
+                data = base64.b64decode(event['data'])
+                buffer = Gst.Buffer.new_allocate(None, len(data), None); buffer.fill(0, data)
+                assert source.emit('push-buffer', buffer) == Gst.FlowReturn.OK
+                sample = sink.emit('try-pull-sample', Gst.SECOND)
+                if sample is None: continue
+                buffer = sample.get_buffer(); ok, mapping = buffer.map(Gst.MapFlags.READ)
+                assert ok
                 pixels = bytes(mapping.data)
+            try:
                 colors = {'green': 0, 'blue': 0, 'red': 0, 'light': 0}
                 # Sparse samples are sufficient for large, solid fixture areas.
                 for i in range(0, len(pixels)-2, 3*17):
@@ -58,7 +76,8 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
                     if b > 150 and r < 80 and g < 100: colors['blue'] += 1
                     if r > 200 and g < 50 and b < 50: colors['red'] += 1
                     if min(r, g, b) > 180: colors['light'] += 1
-            finally: buffer.unmap(mapping)
+            finally:
+                if not full: buffer.unmap(mapping)
             assert colors['red'] == 0, ('unrelated window leaked', colors)
             if predicate(colors): return colors
         raise AssertionError(('scene did not change', metadata))
@@ -106,7 +125,10 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
             snapshot = resumed.request('session.resume', 'session.snapshot', session_id=started['session_id'])
             window = snapshot['windows'][0] if snapshot['windows'] else resumed.until('window.created')
             assert window['surface_type'] == 'session' and window['window_id'] == root_id
-            resumed.until('frame')
+            first_frame=resumed.until('frame')
+            if full:
+                decoder.close(); decoder=Video(image,resumed.color)
+                decoder.push(first_frame)
             previous = peer
             peer = resumed
             try:
@@ -144,3 +166,4 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
         print(f'PASS: one {"XWayland" if x11 else "Wayland"} scene/stream for root, dialog and nested menus; unrelated same-PID window excluded; popup churn and fresh animated frames after retired-output reconnect; output cleanup preserves app', flush=True)
     finally:
         action('close'); bridge.close(); pipeline.set_state(Gst.State.NULL)
+        if decoder: decoder.close()

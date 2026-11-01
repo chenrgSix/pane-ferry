@@ -15,7 +15,7 @@ use std::{
 mod dmabuf;
 #[path = "video_frame.rs"]
 mod frame;
-use frame::{CropConverter, CropSpec, Sample};
+use frame::{AtlasConverter, CropConverter, CropSpec, Sample};
 pub use frame::{Format, Frame};
 
 type Object = *mut c_void;
@@ -244,6 +244,7 @@ pub struct PipeWireCapture {
     converter_window: Cell<Option<WindowCrop>>,
     pending_geometry: RefCell<Option<Sample>>,
     wake: Arc<FrameWake>,
+    full_chroma: bool,
 }
 /// All streams in one session share a single pollable wake. The appsink
 /// callbacks only mark readiness; conversion runs on a GStreamer thread.
@@ -315,8 +316,17 @@ fn connect_wake(api: &'static Api, sink: Object, wake: Arc<FrameWake>) -> Result
 unsafe impl Send for PipeWireCapture {}
 impl PipeWireCapture {
     pub fn new(node: u32, wake: Arc<FrameWake>) -> Result<Self> {
+        Self::new_colored(node, wake, paneferry_protocol::ColorMode::Compatible)
+    }
+    pub fn new_colored(
+        node: u32,
+        wake: Arc<FrameWake>,
+        color: paneferry_protocol::ColorMode,
+    ) -> Result<Self> {
         let description = CString::new(format!("pipewiresrc path={node} do-timestamp=true ! video/x-raw,format=BGRx ! appsink name=frames max-buffers=1 drop=true sync=false emit-signals=true enable-last-sample=false"))?;
-        Self::from_description(&description, wake)
+        let mut capture = Self::from_description(&description, wake)?;
+        capture.full_chroma = color.is_full();
+        Ok(capture)
     }
     fn from_description(description: &CStr, wake: Arc<FrameWake>) -> Result<Self> {
         let api = api().context("wayland_capture_unavailable")?;
@@ -350,6 +360,7 @@ impl PipeWireCapture {
             converter_window: Cell::new(None),
             pending_geometry: RefCell::new(None),
             wake: wake.clone(),
+            full_chroma: false,
         };
         if sink.is_null() {
             bail!("wayland_capture_unavailable")
@@ -508,7 +519,9 @@ impl PipeWireCapture {
             };
             let mut converter = self.converter.borrow_mut();
             if converter.as_ref().is_none_or(|c| c.spec != spec) {
-                let mut next = if window.is_none() {
+                let mut next = if self.full_chroma {
+                    CropConverter::full_chroma(self.api, spec, destination)?
+                } else if window.is_none() {
                     CropConverter::scaled(self.api, spec, destination)?
                 } else {
                     CropConverter::new(self.api, spec)?
@@ -592,6 +605,8 @@ pub struct Encoder {
     first_frame_fallback: Option<u8>,
     kind: EncoderKind,
     fps: u8,
+    pub color: paneferry_protocol::ColorMode,
+    atlas: AtlasConverter,
 }
 pub struct Packet {
     pub bytes: Vec<u8>,
@@ -695,6 +710,7 @@ fn pipeline_for_format(
             ! videoscale method=1 add-borders=false ! video/x-raw,width={width},height={height} \
             {padding}! videoconvert n-threads={conversion_threads} ! video/x-raw,format=I420"),
         Format::I420 => format!("caps=video/x-raw,format=I420,width={even_width},height={even_height},framerate={fps}/1"),
+        Format::Y444 => format!("caps=video/x-raw,format=Y444,colorimetry=bt601,width={even_width},height={even_height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=I420"),
     };
     let timestamps = if kind == EncoderKind::Va {
         String::new()
@@ -709,6 +725,25 @@ fn pipeline_for_format(
         ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au \
         ! appsink name=sink sync=false max-buffers=1 drop=false"
     )
+}
+fn full_color_pipeline(
+    width: u32,
+    height: u32,
+    fps: u8,
+    kind: EncoderKind,
+    color: paneferry_protocol::ColorMode,
+) -> Result<String> {
+    let (w, h) = color.dimensions(width, height)?;
+    let rate = u64::from(w.next_multiple_of(4)) * u64::from(h) * 3 / 2 * u64::from(fps);
+    anyhow::ensure!(rate <= i32::MAX as u64, "color_mode_unavailable");
+    let bitrate = (u64::from(width) * u64::from(height) * 12 * u64::from(fps) / 60)
+        .clamp(4_000_000, 80_000_000);
+    let encoder = match kind {
+        EncoderKind::X264 => format!("x264enc name=encoder speed-preset=ultrafast tune=zerolatency threads=4 sliced-threads=true bframes=0 rc-lookahead=0 sync-lookahead=0 cabac=true bitrate={} key-int-max={fps} qp-max=28 byte-stream=true ! video/x-h264,profile=high", bitrate.div_ceil(1000)),
+        EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28",bitrate*2),
+        EncoderKind::Va => bail!("full chroma GPU input unavailable"),
+    };
+    Ok(format!("appsrc name=source is-live=true format=time block=true max-buffers=1 caps=video/x-raw,format=NV12,colorimetry=bt601,width={w},height={h},framerate={fps}/1 ! identity datarate={rate} signal-handoffs=false ! {encoder} ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=sink sync=false max-buffers=1 drop=false"))
 }
 impl Encoder {
     #[allow(dead_code)] // Used by the standalone quality_sample example.
@@ -743,22 +778,60 @@ impl Encoder {
         cap_fps: u8,
         format: Format,
     ) -> Result<Self> {
+        Self::software_colored(
+            width,
+            height,
+            stream,
+            cap_fps,
+            format,
+            paneferry_protocol::ColorMode::Compatible,
+        )
+    }
+    pub fn for_color(
+        width: u32,
+        height: u32,
+        stream: u64,
+        fps: u8,
+        format: Format,
+        color: paneferry_protocol::ColorMode,
+    ) -> Result<Self> {
+        if color.is_full() {
+            Self::software_colored(width, height, stream, fps, format, color)
+        } else {
+            Self::for_format(width, height, stream, fps, format)
+        }
+    }
+    pub fn software_colored(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        format: Format,
+        color: paneferry_protocol::ColorMode,
+    ) -> Result<Self> {
         let api = api().context("H.264 components unavailable")?;
         if api.has_factory(c"x264enc") {
-            if let Ok(mut encoder) =
-                Self::with_kind_format(width, height, stream, cap_fps, EncoderKind::X264, format)
-            {
+            if let Ok(mut encoder) = Self::with_kind_color(
+                width,
+                height,
+                stream,
+                cap_fps,
+                EncoderKind::X264,
+                format,
+                color,
+            ) {
                 encoder.first_frame_fallback = Some(cap_fps);
                 return Ok(encoder);
             }
         }
-        Self::with_kind_format(
+        Self::with_kind_color(
             width,
             height,
             stream,
             cap_fps,
             EncoderKind::OpenH264,
             format,
+            color,
         )
     }
     #[cfg(test)]
@@ -779,6 +852,25 @@ impl Encoder {
         kind: EncoderKind,
         format: Format,
     ) -> Result<Self> {
+        Self::with_kind_color(
+            width,
+            height,
+            stream,
+            cap_fps,
+            kind,
+            format,
+            paneferry_protocol::ColorMode::Compatible,
+        )
+    }
+    fn with_kind_color(
+        width: u32,
+        height: u32,
+        stream: u64,
+        cap_fps: u8,
+        kind: EncoderKind,
+        format: Format,
+        color: paneferry_protocol::ColorMode,
+    ) -> Result<Self> {
         paneferry_protocol::dimensions(width, height)?;
         anyhow::ensure!((1..=90).contains(&cap_fps), "invalid video fps");
         let api = api().context("H.264 components unavailable")?;
@@ -792,7 +884,11 @@ impl Encoder {
                 "GPU timestamp rate unsupported"
             );
         }
-        let description = CString::new(pipeline_for_format(width, height, cap_fps, kind, format))?;
+        let description = CString::new(if color.is_full() {
+            full_color_pipeline(width, height, cap_fps, kind, color)?
+        } else {
+            pipeline_for_format(width, height, cap_fps, kind, format)
+        })?;
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         let mut encoder = Self {
@@ -807,6 +903,8 @@ impl Encoder {
             first_frame_fallback: None,
             kind,
             fps: cap_fps,
+            color,
+            atlas: Default::default(),
         };
         if !error.is_null() {
             unsafe { (api.free_error)(error) };
@@ -847,13 +945,14 @@ impl Encoder {
                             Self::software(self.width, self.height, self.stream, fps, self.format)?;
                         return self.encode_frame(image);
                     }
-                    *self = Self::with_kind_format(
+                    *self = Self::with_kind_color(
                         self.width,
                         self.height,
                         self.stream,
                         fps,
                         EncoderKind::OpenH264,
                         self.format,
+                        self.color,
                     )?;
                     self.encode_inner(image)
                 } else {
@@ -867,7 +966,9 @@ impl Encoder {
         {
             bail!("video geometry changed")
         }
-        let buffer = if self.uses_gpu() {
+        let buffer = if self.color.is_full() {
+            self.atlas.input(image, self.color, self.api)?
+        } else if self.uses_gpu() {
             image.gpu_buffer(self.api)?
         } else {
             image.input_buffer(self.api)?

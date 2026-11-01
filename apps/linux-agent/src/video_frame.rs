@@ -7,6 +7,7 @@ pub enum Format {
     Bgrx,
     ScaledBgrx { width: u32, height: u32 },
     I420,
+    Y444,
     DmaBuf { stride: u32 },
 }
 
@@ -18,6 +19,7 @@ pub struct Frame {
 enum Storage {
     Image(Arc<CapturedImage>),
     I420(Sample),
+    Y444(Sample),
     DmaBuf(Arc<paneferry_backend_x11::DmaBufFrame>),
 }
 pub(super) struct Sample(pub(super) Object, pub(super) &'static Api);
@@ -102,7 +104,9 @@ impl Frame {
     pub fn pixels(&self) -> usize {
         match &self.storage {
             Storage::Image(image) => image.pixels(),
-            Storage::I420(_) | Storage::DmaBuf(_) => self.width as usize * self.height as usize,
+            Storage::I420(_) | Storage::Y444(_) | Storage::DmaBuf(_) => {
+                self.width as usize * self.height as usize
+            }
         }
     }
     #[cfg(test)]
@@ -134,6 +138,7 @@ impl Frame {
             }
             Storage::Image(_) => Format::Bgrx,
             Storage::I420(_) => Format::I420,
+            Storage::Y444(_) => Format::Y444,
             Storage::DmaBuf(ref frame) => Format::DmaBuf {
                 stride: frame.stride(),
             },
@@ -146,7 +151,7 @@ impl Frame {
         match (&self.storage, &other.storage) {
             (Storage::DmaBuf(a), Storage::DmaBuf(b)) => Arc::ptr_eq(a, b),
             (Storage::Image(a), Storage::Image(b)) => a == b,
-            (Storage::I420(a), Storage::I420(b)) => {
+            (Storage::I420(a), Storage::I420(b)) | (Storage::Y444(a), Storage::Y444(b)) => {
                 let compare = || -> Result<bool> {
                     let a = ReadMap::new(a.1, unsafe { (a.1.sample_buffer)(a.0) })?;
                     let b = ReadMap::new(b.1, unsafe { (b.1.sample_buffer)(b.0) })?;
@@ -155,7 +160,12 @@ impl Frame {
                     let mut offset = 0;
                     let w = (self.width + self.width % 2) as usize;
                     let h = (self.height + self.height % 2) as usize;
-                    for (width, height) in [(w, h), (w / 2, h / 2), (w / 2, h / 2)] {
+                    let planes = if matches!(self.storage, Storage::Y444(_)) {
+                        [(w, h); 3]
+                    } else {
+                        [(w, h), (w / 2, h / 2), (w / 2, h / 2)]
+                    };
+                    for (width, height) in planes {
                         let stride = width.next_multiple_of(4);
                         for row in 0..height {
                             let start = offset + row * stride;
@@ -178,7 +188,9 @@ impl Frame {
     pub(super) fn input_buffer(&self, api: &'static Api) -> Result<Object> {
         match &self.storage {
             Storage::DmaBuf(frame) => Frame::from_image(frame.cpu_image()?).input_buffer(api),
-            Storage::I420(sample) => Ok(unsafe { (api.mini_ref)((api.sample_buffer)(sample.0)) }),
+            Storage::I420(sample) | Storage::Y444(sample) => {
+                Ok(unsafe { (api.mini_ref)((api.sample_buffer)(sample.0)) })
+            }
             Storage::Image(image) => {
                 let pixels = Box::new(match image.bgrx()? {
                     Cow::Borrowed(_) => Pixels::Capture(image.clone()),
@@ -218,6 +230,7 @@ pub(super) struct CropSpec {
 pub(super) struct CropConverter {
     pub spec: CropSpec,
     destination: (u32, u32),
+    full_chroma: bool,
     api: &'static Api,
     pipeline: Object,
     source: Object,
@@ -229,6 +242,17 @@ impl CropConverter {
         Self::scaled(api, spec, (spec.region[2], spec.region[3]))
     }
     pub fn scaled(api: &'static Api, spec: CropSpec, destination: (u32, u32)) -> Result<Self> {
+        Self::with_chroma(api, spec, destination, false)
+    }
+    pub fn full_chroma(api: &'static Api, spec: CropSpec, destination: (u32, u32)) -> Result<Self> {
+        Self::with_chroma(api, spec, destination, true)
+    }
+    fn with_chroma(
+        api: &'static Api,
+        spec: CropSpec,
+        destination: (u32, u32),
+        full: bool,
+    ) -> Result<Self> {
         let [x, y, source_width, source_height] = spec.region;
         let (width, height) = destination;
         paneferry_protocol::dimensions(width, height)?;
@@ -244,6 +268,11 @@ impl CropConverter {
         // 1.28.2 does not consume CropMeta itself. Explicit converter regions
         // work there too. Only oversized desktops request scaling; window crops
         // retain their pixels. Odd edges use black padding in the I420 allocation.
+        let format = if full {
+            "Y444,colorimetry=bt601"
+        } else {
+            "I420"
+        };
         let description = CString::new(format!(
             "appsrc name=source is-live=true format=time block=false max-buffers=1 leaky-type=downstream \
              caps=video/x-raw,format=BGRx,width={},height={},framerate=60/1 \
@@ -251,11 +280,12 @@ impl CropConverter {
              GstVideoConverter.src-x=(int){x}, GstVideoConverter.src-y=(int){y}, \
              GstVideoConverter.src-width=(int){source_width}, GstVideoConverter.src-height=(int){source_height}, \
              GstVideoConverter.dest-width=(int){width}, GstVideoConverter.dest-height=(int){height}\" \
-             ! video/x-raw,format=I420,width={},height={} \
+             ! video/x-raw,format={format},width={},height={} \
              ! appsink name=sink sync=false max-buffers=1 drop=true enable-last-sample=false emit-signals=true",
             spec.source_width, spec.source_height, width + width % 2, height + height % 2))?;
         let mut converter = Self::from_description(api, spec, description)?;
         converter.destination = destination;
+        converter.full_chroma = full;
         Ok(converter)
     }
     fn from_description(api: &'static Api, spec: CropSpec, description: CString) -> Result<Self> {
@@ -264,6 +294,7 @@ impl CropConverter {
         let mut converter = Self {
             spec,
             destination: (spec.region[2], spec.region[3]),
+            full_chroma: false,
             api,
             pipeline,
             source: ptr::null_mut(),
@@ -338,14 +369,22 @@ impl CropConverter {
         }
         let w = (width + width % 2) as usize;
         let h = (height + height % 2) as usize;
-        let expected = w.next_multiple_of(4) * h + (w / 2).next_multiple_of(4) * h;
+        let expected = if self.full_chroma {
+            w.next_multiple_of(4) * h * 3
+        } else {
+            w.next_multiple_of(4) * h + (w / 2).next_multiple_of(4) * h
+        };
         if unsafe { (self.api.size)(output) } != expected {
             bail!("invalid converted frame layout")
         }
         Ok(Some(Frame {
             width,
             height,
-            storage: Storage::I420(sample),
+            storage: if self.full_chroma {
+                Storage::Y444(sample)
+            } else {
+                Storage::I420(sample)
+            },
         }))
     }
 }
@@ -371,10 +410,214 @@ impl Drop for CropConverter {
     }
 }
 
+/// Full chroma is prepared before any 4:2:0 conversion. Native Y444 samples
+/// can be packed directly; raw X11 frames use a reusable Y444 converter.
+#[derive(Default)]
+pub(super) struct AtlasConverter {
+    converter: Option<CropConverter>,
+}
+impl AtlasConverter {
+    pub fn input(
+        &mut self,
+        frame: &Frame,
+        color: paneferry_protocol::ColorMode,
+        api: &'static Api,
+    ) -> Result<Object> {
+        let converted = match &frame.storage {
+            Storage::Y444(_) => None,
+            Storage::I420(_) => bail!("full chroma capture not ready"),
+            storage => {
+                let image = match storage {
+                    Storage::Image(image) => image.clone(),
+                    Storage::DmaBuf(image) => image.cpu_image()?,
+                    _ => unreachable!(),
+                };
+                let spec = CropSpec {
+                    source_width: image.width,
+                    source_height: image.height,
+                    region: [0, 0, image.width, image.height],
+                };
+                let size = (frame.width, frame.height);
+                if self
+                    .converter
+                    .as_ref()
+                    .is_none_or(|c| c.spec != spec || c.destination != size)
+                {
+                    self.converter = Some(CropConverter::full_chroma(api, spec, size)?);
+                }
+                let raw = Frame::from_image(image).input_buffer(api)?;
+                let submitted = self.converter.as_ref().unwrap().submit(raw);
+                unsafe { (api.mini_unref)(raw) };
+                submitted?;
+                Some(
+                    self.converter
+                        .as_ref()
+                        .unwrap()
+                        .pull(2_000_000_000)?
+                        .context("full chroma conversion timeout")?,
+                )
+            }
+        };
+        let image = converted.as_ref().unwrap_or(frame);
+        let Storage::Y444(sample) = &image.storage else {
+            bail!("invalid full chroma sample")
+        };
+        let mapping = ReadMap::new(api, unsafe { (api.sample_buffer)(sample.0) })?;
+        let raw = mapping.bytes()?;
+        let stride = (frame.width + frame.width % 2).next_multiple_of(4) as usize;
+        let plane = stride * (frame.height + frame.height % 2) as usize;
+        anyhow::ensure!(raw.len() == plane * 3, "invalid Y444 layout");
+        let mut bytes = Vec::new();
+        paneferry_protocol::video_color::atlas_from_y444_into(
+            color,
+            [&raw[..plane], &raw[plane..plane * 2], &raw[plane * 2..]],
+            stride,
+            frame.width,
+            frame.height,
+            &mut bytes,
+        )?;
+        let (w, h) = color.dimensions(frame.width, frame.height)?;
+        // NV12's default GstVideoInfo aligns rows to four bytes. The canonical
+        // atlas stays tightly packed on the wire; only raw input rows need pad.
+        if !w.is_multiple_of(4) {
+            let row = w.next_multiple_of(4) as usize;
+            let mut padded = vec![128u8; row * h as usize * 3 / 2];
+            for (source, target) in bytes
+                .chunks_exact(w as usize)
+                .zip(padded.chunks_exact_mut(row))
+            {
+                target[..w as usize].copy_from_slice(source);
+            }
+            bytes = padded;
+        }
+        let pixels = Box::new(Pixels::Converted(bytes));
+        let raw = pixels.bytes();
+        let (length, data) = (raw.len(), raw.as_ptr().cast_mut().cast());
+        let owner = Box::into_raw(pixels).cast();
+        let buffer = unsafe {
+            (api.wrap)(
+                MEMORY_READONLY,
+                data,
+                length,
+                0,
+                length,
+                owner,
+                Some(release_pixels),
+            )
+        };
+        if buffer.is_null() {
+            unsafe { release_pixels(owner) };
+            bail!("cannot wrap chroma atlas")
+        }
+        Ok(buffer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    #[ignore = "requires GStreamer encoders; only synthetic red/blue input is exported"]
+    fn full_chroma_raw_and_native_planes_keep_adjacent_color_and_encode() {
+        use base64::Engine;
+        use paneferry_protocol::ColorMode;
+        let api = api().unwrap();
+        for (width, height) in [(64, 48), (641, 483), (1602, 932), (2560, 1440)] {
+            let mut pixels = Vec::new();
+            for _y in 0..height {
+                for x in 0..width {
+                    pixels.extend_from_slice(if x % 2 == 0 {
+                        &[0, 0, 255, 0]
+                    } else {
+                        &[255, 0, 0, 0]
+                    });
+                }
+            }
+            let image = Arc::new(CapturedImage {
+                width,
+                height,
+                data: pixels,
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            });
+            let raw = buffer(&image);
+            let converter = CropConverter::full_chroma(
+                api,
+                CropSpec {
+                    source_width: width,
+                    source_height: height,
+                    region: [0, 0, width, height],
+                },
+                (width, height),
+            )
+            .unwrap();
+            for mode in [ColorMode::Full, ColorMode::FullAligned] {
+                let (ew, eh) = mode.dimensions(width, height).unwrap();
+                for (kind, native) in [("bgrx", false), ("y444", true)] {
+                    let frame = if native {
+                        converter.convert(raw.0).unwrap()
+                    } else {
+                        Frame::from_image(image.clone())
+                    };
+                    if native {
+                        assert_eq!(frame.format(), Format::Y444);
+                    }
+                    let mut atlas = AtlasConverter::default();
+                    let raw = atlas.input(&frame, mode, api).unwrap();
+                    let stride = ew.next_multiple_of(4) as usize;
+                    let n = ((width + width % 2) * (height + height % 2)) as usize;
+                    let area = (ew * eh) as usize;
+                    let mut values = Vec::new();
+                    for offset in [0, 1, n, n + 1, area, area + 1] {
+                        let mut value = 0u8;
+                        assert_eq!(
+                            unsafe {
+                                (api.extract)(
+                                    raw,
+                                    (offset / ew as usize) * stride + offset % ew as usize,
+                                    (&mut value as *mut u8).cast(),
+                                    1,
+                                )
+                            },
+                            1
+                        );
+                        values.push(value);
+                    }
+                    unsafe { (api.mini_unref)(raw) };
+                    for (a, b) in values.iter().zip([82u8, 41, 90, 240, 240, 110]) {
+                        assert!(
+                            a.abs_diff(b) <= 2,
+                            "{kind} {mode:?} {width}x{height}: {values:?}"
+                        );
+                    }
+                    let mut encoder =
+                        Encoder::for_color(width, height, 1, 60, frame.format(), mode).unwrap();
+                    let mut bytes = Vec::new();
+                    let mut first = Vec::new();
+                    for seq in 0..3 {
+                        let packet = encoder.encode_frame(&frame).unwrap();
+                        assert_eq!(packet.keyframe, seq == 0);
+                        if seq == 0 {
+                            first = packet.bytes.clone();
+                        }
+                        bytes.extend(packet.bytes);
+                    }
+                    if let Ok(folder) = std::env::var("PANEFERRY_COLOR_PROBE_DIR") {
+                        let folder = std::path::Path::new(&folder);
+                        std::fs::create_dir_all(folder).unwrap();
+                        let mode = if mode == ColorMode::Full { "v1" } else { "v2" };
+                        let base = format!("linux-{kind}-{mode}-{width}x{height}");
+                        std::fs::write(folder.join(format!("{base}.h264")), bytes).unwrap();
+                        std::fs::write(folder.join(format!("{base}.json")),serde_json::to_vec(&serde_json::json!({"width":width,"height":height,"encoded_width":ew,"encoded_height":eh,"color":encoder.color,"data":base64::engine::general_purpose::STANDARD.encode(first)})).unwrap()).unwrap();
+                    }
+                }
+            }
+        }
+    }
 
     struct Buffer(Object);
     impl Drop for Buffer {

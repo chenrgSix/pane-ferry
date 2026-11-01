@@ -8,7 +8,7 @@ from threading import Event
 root = Path(__file__).resolve().parents[2]
 source = ast.parse((root / 'apps/linux-client/main.py').read_text())
 manager = next(node for node in source.body if isinstance(node, ast.ClassDef) and node.name == 'Manager')
-methods = {'manager_destroyed', 'poll_peers', 'refresh_peers', 'open_viewer'}
+methods = {'manager_destroyed', 'poll_peers', 'refresh_peers', 'open_viewer','takeover_windows','takeover_finished'}
 manager.body = [node for node in manager.body if isinstance(node, ast.FunctionDef) and node.name in methods]
 manager.bases = []
 peer = dict(connection_id='quic:one', name='First device', generation='one')
@@ -30,6 +30,7 @@ state.window = object()
 state.selected = peer['connection_id']
 state.peer_keys = []
 state.peer_timer = 42
+state.takeover=set(); state.takeover_busy=set(); state.launching=set(); state.catalog_windows={}; state.takeover_seen={}
 rows = []
 state.selector = SimpleNamespace(remove_all=rows.clear, append=lambda *item: rows.append(item),
                                  set_active_id=lambda _: None, set_active=lambda _: None)
@@ -70,4 +71,18 @@ assert len(state.viewers) == 2 and len(created) == 3, 'closed sessions may recon
 state.viewers += [viewer(state, 'quic:other', str(i), session_id=str(i)) for i in range(6)]
 state.open_viewer('quic:one', 'First device', session_id='shared-id')
 assert len(state.viewers) == 8 and state.viewers[1].presented == 1
+state.viewers=[]; state.takeover={'quic:one'}; connected=[]
+state.connect_window=lambda peer,window: connected.append((peer,window['id']))
+windows=[dict(id='popup',auto_connectable=False),dict(id='owned',auto_connectable=True,controlled=True),
+         dict(id='app-one',auto_connectable=True),dict(id='app-two',auto_connectable=True)]
+state.takeover_windows('quic:one',windows)
+assert connected==[('quic:one','app-one')]
+state.launching={'quic:one:app-one'}
+state.takeover_windows('quic:one',windows)
+assert len(connected)==1, 'automatic launches must not overlap on one device'
+state.launching.clear(); state.takeover_windows('quic:one',windows)
+assert connected[-1]==('quic:one','app-two')
+state.takeover_windows('quic:one',windows)
+state.takeover_windows('quic:two',windows)
+assert len(connected)==2, 'closed receivers must stay dismissed; takeover is device-scoped'
 print('PASS GTK one-shot refresh, poll cleanup, reopen inventory and device-scoped receiver deduplication')

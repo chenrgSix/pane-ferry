@@ -2,6 +2,8 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 pub mod clipboard;
+pub mod video_color;
+pub use video_color::ColorMode;
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 8_000_000;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
@@ -63,6 +65,8 @@ pub enum Request {
         max_fps: u8,
         #[serde(default)]
         feedback: bool,
+        #[serde(default)]
+        color: ColorMode,
     },
     #[serde(rename = "video.configure")]
     ConfigureVideo { max_fps: u8 },
@@ -355,6 +359,7 @@ mod tests {
                 codec: VideoCodec::H264,
                 max_fps: DEFAULT_VIDEO_FPS,
                 feedback: false,
+                color: ColorMode::Compatible,
             }
         ));
         assert!(matches!(

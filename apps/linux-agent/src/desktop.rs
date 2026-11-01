@@ -155,6 +155,7 @@ pub struct Backend {
     active: Cell<bool>,
     last_monitor_check: Instant,
     copied: Option<(String, Instant)>,
+    color: paneferry_protocol::ColorMode,
 }
 impl Backend {
     pub fn connect(
@@ -196,6 +197,7 @@ impl Backend {
             active: Cell::new(false),
             last_monitor_check: Instant::now(),
             copied: None,
+            color: Default::default(),
         })
     }
     fn known(&self, id: u32) -> Result<()> {
@@ -250,6 +252,14 @@ impl Backend {
     }
 }
 impl WindowBackend for Backend {
+    fn set_video_color(&mut self, color: paneferry_protocol::ColorMode) -> Result<()> {
+        if self.color != color {
+            self.stream.get_mut().take();
+            self.rpc.get_mut().call(json!({"op":"stop"}))?;
+            self.color = color;
+        }
+        Ok(())
+    }
     fn windows(&self) -> &HashMap<u32, Window> {
         &self.windows
     }
@@ -300,7 +310,7 @@ impl WindowBackend for Backend {
                     .context("desktop_capture_unavailable")?,
             )?;
             self.stream.replace(Some(Stream {
-                capture: PipeWireCapture::new(node, self.frame_wake.clone())?,
+                capture: PipeWireCapture::new_colored(node, self.frame_wake.clone(), self.color)?,
                 image: None,
                 dirty: true,
                 started: Instant::now(),

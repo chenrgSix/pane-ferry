@@ -20,7 +20,7 @@ mod worker;
 const PIXEL_BUDGET: usize = 16_000_000;
 const EVENT_LIMIT: usize = 256;
 enum Pending {
-    EnableVideo(u8, bool),
+    EnableVideo(u8, bool, paneferry_protocol::ColorMode),
     ConfigureVideo(u8),
     Activity(VideoActivity),
     KeyFrame(u32),
@@ -166,7 +166,15 @@ impl Output {
         self.queue.0.lock().unwrap().refresh.drain().collect()
     }
     pub fn enable_video(&self, max_fps: u8, feedback: bool) -> Result<()> {
-        self.push(Pending::EnableVideo(max_fps, feedback))
+        self.enable_video_color(max_fps, feedback, Default::default())
+    }
+    pub fn enable_video_color(
+        &self,
+        max_fps: u8,
+        feedback: bool,
+        color: paneferry_protocol::ColorMode,
+    ) -> Result<()> {
+        self.push(Pending::EnableVideo(max_fps, feedback, color))
     }
     pub fn configure_video(&self, max_fps: u8) -> Result<()> {
         self.push(Pending::ConfigureVideo(max_fps))
@@ -211,6 +219,7 @@ fn write_loop(
     let mut geometry: HashMap<u32, Value> = HashMap::new();
     let mut video = false;
     let mut suspended = false;
+    let mut color = paneferry_protocol::ColorMode::Compatible;
     loop {
         let event = {
             let mut queue = shared.0.lock().unwrap();
@@ -225,7 +234,8 @@ fn write_loop(
             }
         };
         let (mut value, session) = match event {
-            Pending::EnableVideo(max_fps, feedback) => {
+            Pending::EnableVideo(max_fps, feedback, selected_color) => {
+                color = selected_color;
                 video = true;
                 generations.clear();
                 geometry.clear();
@@ -325,6 +335,7 @@ fn write_loop(
                     session,
                     generation,
                     fps: qos.lock().unwrap().cap(),
+                    color,
                 })?;
                 continue;
             }

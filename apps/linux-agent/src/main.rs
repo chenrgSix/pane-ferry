@@ -1351,7 +1351,7 @@ impl Drop for Lease {
         }
     }
 }
-fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
+fn acquire(session: Arc<Mutex<Session>>, color: paneferry_protocol::ColorMode) -> Result<Lease> {
     let mut s = session.lock().unwrap();
     if s.has_exited()? {
         bail!("session exited")
@@ -1359,12 +1359,13 @@ fn acquire(session: Arc<Mutex<Session>>) -> Result<Lease> {
     if s.controller {
         bail!("session already controlled")
     };
-    s.controller = true;
     if let Some(backend) = &mut s.backend {
+        backend.set_video_color(color)?;
         backend.retry_window_adjustments();
         backend.prepare_input();
         backend.resume_capture();
     }
+    s.controller = true;
     drop(s);
     Ok(Lease(session))
 }
@@ -1484,6 +1485,8 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         capabilities.push("video.qos");
         capabilities.push("video.activity");
         capabilities.push("video.keyframe");
+        capabilities.push("video.color.444-atlas-v1");
+        capabilities.push("video.color.444-atlas-v2");
     }
     send(
         &mut out,
@@ -1501,6 +1504,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut retry_windows = HashSet::new();
     let mut pending_request = None;
     let mut video_activity = VideoActivity::Foreground;
+    let mut video_color = paneferry_protocol::ColorMode::Compatible;
     while !STOP.load(Ordering::SeqCst) {
         if lease.is_some() && !state.lock().unwrap().sharing {
             send(
@@ -1681,6 +1685,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         codec: _,
                         max_fps,
                         feedback,
+                        color,
                     } => {
                         if lease.is_some() {
                             bail!("configure video before attaching")
@@ -1689,10 +1694,11 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             bail!("video encoder unavailable")
                         }
                         let max_fps = max_fps.min(video_fps_limit);
-                        out.enable_video(max_fps, feedback)?;
+                        out.enable_video_color(max_fps, feedback, color)?;
+                        video_color = color;
                         send(
                             &mut out,
-                            json!({"type":"video.ready", "codec":"h264", "max_fps":max_fps}),
+                            json!({"type":"video.ready", "codec":"h264", "max_fps":max_fps,"color":color}),
                             "",
                         )?;
                     }
@@ -1920,7 +1926,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         // A launcher only prepares a session. It must not race the
                         // WindowHost for the exclusive controller lease.
                         let new = if attach {
-                            Some(acquire(session.clone())?)
+                            Some(acquire(session.clone(), video_color)?)
                         } else {
                             None
                         };
@@ -1969,7 +1975,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .get(&session_id)
                             .cloned()
                             .context("unknown session")?;
-                        let new = acquire(session)?;
+                        let new = acquire(session, video_color)?;
                         {
                             let mut s = new.0.lock().unwrap();
                             let windows = s.scan_windows()?;
