@@ -84,6 +84,9 @@ runtime_api! {
     crop_type: unsafe extern "C" fn() -> usize => (video, c"gst_video_crop_meta_api_get_type"),
     meta: unsafe extern "C" fn(Object, usize) -> *const VideoCropMeta => (core, c"gst_buffer_get_meta"),
     flags: unsafe extern "C" fn(Object) -> c_uint => (core, c"gst_buffer_get_flags"),
+    force_key_event: unsafe extern "C" fn(u64,u64,u64,c_int,c_uint) -> Object => (video,c"gst_video_event_new_downstream_force_key_unit"),
+    send_event: unsafe extern "C" fn(Object,Object) -> c_int => (core,c"gst_element_send_event"),
+    set_arg: unsafe extern "C" fn(Object,*const c_char,*const c_char) -> () => (core,c"gst_util_set_object_arg"),
     signal_connect: unsafe extern "C" fn(Object, *const c_char, unsafe extern "C" fn(), Object, Option<unsafe extern "C" fn(Object, Object)>, c_uint) -> libc::c_ulong => (gobject, c"g_signal_connect_data"),
     signal_disconnect: unsafe extern "C" fn(Object, libc::c_ulong) -> () => (gobject, c"g_signal_handler_disconnect"),
 }
@@ -607,6 +610,8 @@ pub struct Encoder {
     fps: u8,
     pub color: paneferry_protocol::ColorMode,
     atlas: AtlasConverter,
+    bitrate_percent: u8,
+    first_packet: bool,
 }
 pub struct Packet {
     pub bytes: Vec<u8>,
@@ -683,13 +688,14 @@ fn pipeline_for_format(
     let conversion_threads = conversion_threads(width, height + height % 2);
     let encoder = match kind {
         // Slice threads finish one frame at a time: no frame-thread/lookahead
-        // buffering. Keep the same resolution, bitrate and maximum quantizer.
+        // buffering. Long GOPs avoid a periodic bandwidth/quality spike;
+        // recovery requests force an IDR explicitly.
         EncoderKind::X264 => format!("x264enc name=encoder speed-preset=ultrafast tune=zerolatency \
             threads=4 sliced-threads=true bframes=0 rc-lookahead=0 sync-lookahead=0 \
-            bitrate={} key-int-max={fps} qp-max=28 byte-stream=true", bitrate.div_ceil(1000)),
+            cabac=true bitrate={} vbv-buf-capacity=600 key-int-max=2147483647 option-string=scenecut=0:chroma-qp-offset=-2 byte-stream=true ! video/x-h264,profile=high", bitrate.div_ceil(1000)),
         EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate \
-            bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28", bitrate * 2),
-        EncoderKind::Va => format!("vah264lpenc name=encoder rate-control=cbr bitrate={} max-qp=28 key-int-max={fps} b-frames=0 ref-frames=1 target-usage=4", bitrate.div_ceil(1000)),
+            bitrate={bitrate} max-bitrate={} gop-size=2147483647 scene-change-detection=false multi-thread=4 enable-frame-skip=false", bitrate * 2),
+        EncoderKind::Va => format!("vah264lpenc name=encoder rate-control=cbr bitrate={} key-int-max=1024 cabac=true b-frames=0 ref-frames=1 target-usage=4 ! video/x-h264,profile=high", bitrate.div_ceil(1000)),
     };
     let padding = if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         format!("! videobox right=-{} bottom=-{} ", width % 2, height % 2)
@@ -739,13 +745,86 @@ fn full_color_pipeline(
     let bitrate = (u64::from(width) * u64::from(height) * 12 * u64::from(fps) / 60)
         .clamp(4_000_000, 80_000_000);
     let encoder = match kind {
-        EncoderKind::X264 => format!("x264enc name=encoder speed-preset=ultrafast tune=zerolatency threads=4 sliced-threads=true bframes=0 rc-lookahead=0 sync-lookahead=0 cabac=true bitrate={} key-int-max={fps} qp-max=28 byte-stream=true ! video/x-h264,profile=high", bitrate.div_ceil(1000)),
-        EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate bitrate={bitrate} max-bitrate={} gop-size={fps} multi-thread=4 enable-frame-skip=false qp-max=28",bitrate*2),
+        EncoderKind::X264 => format!("x264enc name=encoder speed-preset=ultrafast tune=zerolatency threads=4 sliced-threads=true bframes=0 rc-lookahead=0 sync-lookahead=0 cabac=true bitrate={} vbv-buf-capacity=600 key-int-max=2147483647 option-string=scenecut=0:chroma-qp-offset=-2 byte-stream=true ! video/x-h264,profile=high", bitrate.div_ceil(1000)),
+        EncoderKind::OpenH264 => format!("openh264enc name=encoder usage-type=screen complexity=low rate-control=bitrate bitrate={bitrate} max-bitrate={} gop-size=2147483647 scene-change-detection=false multi-thread=4 enable-frame-skip=false",bitrate*2),
         EncoderKind::Va => bail!("full chroma GPU input unavailable"),
     };
-    Ok(format!("appsrc name=source is-live=true format=time block=true max-buffers=1 caps=video/x-raw,format=NV12,colorimetry=bt601,width={w},height={h},framerate={fps}/1 ! identity datarate={rate} signal-handoffs=false ! {encoder} ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=sink sync=false max-buffers=1 drop=false"))
+    // OpenH264 accepts planar I420 only. Reorder the carrier's existing 420
+    // samples; do not resample the original full-chroma source again.
+    let layout = if kind == EncoderKind::OpenH264 {
+        "! videoconvert ! video/x-raw,format=I420,colorimetry=bt601"
+    } else {
+        ""
+    };
+    Ok(format!("appsrc name=source is-live=true format=time block=true max-buffers=1 caps=video/x-raw,format=NV12,colorimetry=bt601,width={w},height={h},framerate={fps}/1 ! identity datarate={rate} signal-handoffs=false {layout} ! {encoder} ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! appsink name=sink sync=false max-buffers=1 drop=false"))
 }
 impl Encoder {
+    pub fn request_keyframe(&mut self) -> bool {
+        unsafe {
+            let encoder = (self.api.get)(self.pipeline, c"encoder".as_ptr());
+            if encoder.is_null() {
+                return false;
+            }
+            let event = (self.api.force_key_event)(u64::MAX, u64::MAX, u64::MAX, 1, 0);
+            let accepted = (self.api.send_event)(encoder, event) != 0;
+            (self.api.unref)(encoder);
+            accepted
+        }
+    }
+    pub fn set_bitrate_percent(&mut self, percent: u8) {
+        let percent = percent.clamp(25, 100);
+        if percent == self.bitrate_percent {
+            return;
+        }
+        let base = if self.color.is_full() {
+            (u64::from(self.width) * u64::from(self.height) * 12 * u64::from(self.fps) / 60)
+                .clamp(4_000_000, 80_000_000) as u32
+        } else {
+            bitrate(self.width, self.height, self.fps)
+        };
+        let bits = base / 100 * u32::from(percent);
+        let rate = if self.kind == EncoderKind::OpenH264 {
+            bits
+        } else {
+            bits.div_ceil(1000)
+        };
+        let set = |object, name: &CStr, value: u32| {
+            let value = CString::new(value.to_string()).unwrap();
+            unsafe {
+                (self.api.set_arg)(object, name.as_ptr(), value.as_ptr());
+            }
+        };
+        unsafe {
+            let encoder = (self.api.get)(self.pipeline, c"encoder".as_ptr());
+            if encoder.is_null() {
+                return;
+            }
+            set(encoder, c"bitrate", rate);
+            if self.kind == EncoderKind::OpenH264 {
+                set(encoder, c"max-bitrate", bits * 2);
+            }
+            if self.kind == EncoderKind::X264 {
+                set(
+                    encoder,
+                    c"vbv-buf-capacity",
+                    if percent < 75 { 100 } else { 600 },
+                );
+            }
+            if self.kind == EncoderKind::Va {
+                set(
+                    encoder,
+                    c"cpb-size",
+                    if percent < 75 {
+                        bits.div_ceil(10000)
+                    } else {
+                        0
+                    },
+                );
+            }
+            (self.api.unref)(encoder);
+        }
+        self.bitrate_percent = percent;
+    }
     #[allow(dead_code)] // Used by the standalone quality_sample example.
     pub fn new(width: u32, height: u32, stream: u64) -> Result<Self> {
         Self::with_cap(width, height, stream, 60)
@@ -905,6 +984,8 @@ impl Encoder {
             fps: cap_fps,
             color,
             atlas: Default::default(),
+            bitrate_percent: 100,
+            first_packet: true,
         };
         if !error.is_null() {
             unsafe { (api.free_error)(error) };
@@ -1001,6 +1082,20 @@ impl Encoder {
             bail!("incomplete H.264 buffer")
         }
         let keyframe = unsafe { (self.api.flags)(encoded) } & BUFFER_DELTA_UNIT == 0;
+        if self.first_packet {
+            self.first_packet = false;
+            if std::env::var("PANEFERRY_VIDEO_TRACE").as_deref() == Ok("1") {
+                let kind = match self.kind {
+                    EncoderKind::X264 => "x264",
+                    EncoderKind::OpenH264 => "openh264",
+                    EncoderKind::Va => "va",
+                };
+                eprintln!(
+                    "PF_VIDEO_ENCODER kind={kind} stream={} size={}x{} fps={} color={:?}",
+                    self.stream, self.width, self.height, self.fps, self.color
+                );
+            }
+        }
         Ok(Packet { bytes, keyframe })
     }
     pub fn uses_gpu(&self) -> bool {
@@ -1037,6 +1132,179 @@ impl Drop for Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires GStreamer x264/OpenH264; synthetic full-chroma fallback only"]
+    fn full_chroma_first_frame_fallback_preserves_the_negotiated_atlas() {
+        for color in [
+            paneferry_protocol::ColorMode::Full,
+            paneferry_protocol::ColorMode::FullAligned,
+        ] {
+            let mut data = Vec::new();
+            for _ in 0..48 {
+                for x in 0..64 {
+                    data.extend_from_slice(if x % 2 == 0 {
+                        &[0, 0, 255, 255]
+                    } else {
+                        &[255, 0, 0, 255]
+                    });
+                }
+            }
+            let image = Arc::new(CapturedImage {
+                width: 64,
+                height: 48,
+                data,
+                bpp: 32,
+                pad: 32,
+                little: true,
+                masks: (0xff0000, 0xff00, 0xff),
+            });
+            let mut encoder =
+                Encoder::with_kind_color(64, 48, 7, 60, EncoderKind::X264, Format::Bgrx, color)
+                    .unwrap();
+            encoder.first_frame_fallback = Some(60);
+            unsafe {
+                (encoder.api.state)(encoder.pipeline, STATE_NULL);
+            }
+            let first = encoder.encode(&image).unwrap();
+            assert!(encoder.kind == EncoderKind::OpenH264 && first.keyframe);
+            assert_eq!(encoder.color, color);
+            assert_eq!(encoder.stream, 7);
+            assert!(!encoder.encode(&image).unwrap().keyframe);
+            if let Ok(directory) = std::env::var("PANEFERRY_COLOR_PROBE_DIR") {
+                let (w, h) = color.dimensions(64, 48).unwrap();
+                std::fs::create_dir_all(&directory).unwrap();
+                let name = if color == paneferry_protocol::ColorMode::Full {
+                    "linux-openh264-v1-64x48.json"
+                } else {
+                    "linux-openh264-v2-64x48.json"
+                };
+                use base64::Engine;
+                std::fs::write(std::path::Path::new(&directory).join(name),serde_json::to_vec(&serde_json::json!({"width":64,"height":48,"encoded_width":w,"encoded_height":h,"color":color,"data":base64::engine::general_purpose::STANDARD.encode(first.bytes)})).unwrap()).unwrap();
+            }
+        }
+    }
+    #[test]
+    #[ignore = "requires Linux software encoders; exports only synthetic noise when requested"]
+    fn continuous_stream_force_idr_and_live_bitrate() {
+        for kind in [EncoderKind::X264, EncoderKind::OpenH264] {
+            for color in [
+                paneferry_protocol::ColorMode::Compatible,
+                paneferry_protocol::ColorMode::FullAligned,
+            ] {
+                let mut encoder =
+                    Encoder::with_kind_color(384, 216, 77, 60, kind, Format::Bgrx, color).unwrap();
+                let mut random = 17u32;
+                let mut all = Vec::new();
+                let (mut high, mut low, mut restored) = (0usize, 0usize, 0usize);
+                for index in 0..146 {
+                    if index == 50 {
+                        encoder.set_bitrate_percent(25);
+                    }
+                    if index == 100 {
+                        encoder.set_bitrate_percent(100);
+                    }
+                    if index == 90 {
+                        assert!(encoder.request_keyframe());
+                    }
+                    let mut data = vec![0; 384 * 216 * 4];
+                    for pixel in data.chunks_exact_mut(4) {
+                        random ^= random << 13;
+                        random ^= random >> 17;
+                        random ^= random << 5;
+                        pixel.copy_from_slice(&random.to_le_bytes());
+                        pixel[3] = 255;
+                    }
+                    let image = Arc::new(CapturedImage {
+                        width: 384,
+                        height: 216,
+                        data,
+                        bpp: 32,
+                        pad: 32,
+                        little: true,
+                        masks: (0xff0000, 0xff00, 0xff),
+                    });
+                    let packet = encoder.encode(&image).unwrap();
+                    if kind == EncoderKind::X264 {
+                        assert_eq!(packet.keyframe, index == 0 || index == 90, "frame {index}");
+                    } else if index == 0 || index == 90 {
+                        assert!(packet.keyframe);
+                    }
+                    assert_eq!(
+                        encoder.stream, 77,
+                        "bitrate/keyframe changes must preserve stream identity"
+                    );
+                    if (10..50).contains(&index) {
+                        high += packet.bytes.len();
+                    }
+                    if (60..90).contains(&index) {
+                        low += packet.bytes.len();
+                    }
+                    if (110..146).contains(&index) {
+                        restored += packet.bytes.len();
+                    }
+                    all.extend_from_slice(&packet.bytes);
+                }
+                let name = if kind == EncoderKind::X264 {
+                    "x264"
+                } else {
+                    "openh264"
+                };
+                eprintln!(
+                    "{name} {color:?}: high={} low={} restored={} bytes/frame",
+                    high / 40,
+                    low / 30,
+                    restored / 36
+                );
+                if kind == EncoderKind::X264 {
+                    assert!(
+                        low / 30 < high / 40 * 8 / 10,
+                        "live bitrate must reduce actual transmitted bytes"
+                    );
+                    assert!(
+                        restored / 36 > low / 30 * 12 / 10,
+                        "bitrate must recover without a new stream"
+                    );
+                }
+                // Screen-mode OpenH264 may exceed a bitrate target for wholly
+                // uncorrelated noise with frame skipping disabled. The transport
+                // gate and FPS backoff remain active for that fallback.
+                if let Ok(directory) = std::env::var("PANEFERRY_VIDEO_PROBE_DIR") {
+                    std::fs::create_dir_all(&directory).unwrap();
+                    std::fs::write(
+                        std::path::Path::new(&directory).join(format!("{name}-{color:?}.h264")),
+                        all,
+                    )
+                    .unwrap();
+                }
+                if kind == EncoderKind::OpenH264 {
+                    // OpenH264 screen mode can choose intra frames for wholly
+                    // uncorrelated noise. Check periodic policy on a static app.
+                    let mut encoder =
+                        Encoder::with_kind_color(384, 216, 88, 60, kind, Format::Bgrx, color)
+                            .unwrap();
+                    let image = Arc::new(CapturedImage {
+                        width: 384,
+                        height: 216,
+                        data: vec![96; 384 * 216 * 4],
+                        bpp: 32,
+                        pad: 32,
+                        little: true,
+                        masks: (0xff0000, 0xff00, 0xff),
+                    });
+                    for index in 0..146 {
+                        if index == 90 {
+                            assert!(encoder.request_keyframe());
+                        }
+                        assert_eq!(
+                            encoder.encode(&image).unwrap().keyframe,
+                            index == 0 || index == 90,
+                            "static frame {index}"
+                        );
+                    }
+                }
+            }
+        }
+    }
     use std::{
         io::{Read, Write},
         os::{fd::OwnedFd, unix::net::UnixStream},

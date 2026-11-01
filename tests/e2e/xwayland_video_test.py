@@ -3,6 +3,7 @@ import base64
 import json
 import subprocess
 import time
+from pathlib import Path
 
 
 def verify(sock,env,fixture,scratch,log,start,wait,Peer,Bridge,root):
@@ -35,6 +36,13 @@ def verify(sock,env,fixture,scratch,log,start,wait,Peer,Bridge,root):
             if decoded.returncode:
                 raise AssertionError((width,height,decoded.stderr.decode(errors='replace')))
             assert len(decoded.stdout)==(width+width%2)*(height+height%2)*3
+            if (width,height)==(2800,1500):
+                stream=frame['stream_id'];remote.send(type='video.keyframe',window_id=xid)
+                while True:
+                    recovered=remote.until('frame')
+                    if recovered['window_id']==xid and recovered['key_frame']:break
+                assert recovered['stream_id']==stream,'an explicit IDR should not rebuild a healthy encoder'
+                print('PASS: requested Xwayland IDR preserves encoder/stream identity',flush=True)
             print('PASS: decoded Xwayland H264 resize',width,height,flush=True)
         remote.close()
         remote=Peer(sock)
@@ -70,6 +78,10 @@ Gtk.main()
             frame=remote.until('frame');seen.add(frame['window_id'])
             assert time.monotonic()<deadline,'GPU input leases starved the target pool'
         assert seen==set(ids) and family.poll() is None
+        if expected:=env.get('PANEFERRY_EXPECT_VIDEO_ENCODER'):
+            log.flush()
+            assert 'PF_VIDEO_ENCODER kind='+expected+' ' in Path(log.name).read_text(errors='replace'),'requested encoder did not publish a packet'
+            print('PASS: first-packet trace confirms actual '+expected+' encoding',flush=True)
         print('PASS: six static Xwayland windows publish through a four-target GPU lease pool',flush=True)
     finally:
         remote.close();bridge.close()

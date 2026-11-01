@@ -212,7 +212,7 @@ fn write_loop(
     qos: &Arc<Mutex<VideoQos>>,
     factory: worker::Factory,
 ) -> Result<()> {
-    let workers = worker::Pool::new(shared.clone(), factory);
+    let workers = worker::Pool::new(shared.clone(), factory, qos.clone());
     let mut sequence = 0u64;
     let mut next_generation = 0u64;
     let mut generations: HashMap<u32, u64> = HashMap::new();
@@ -276,9 +276,7 @@ fn write_loop(
                 )
             }
             Pending::KeyFrame(id) => {
-                next_generation += 1;
-                generations.insert(id, next_generation);
-                workers.forget(id)?;
+                workers.keyframe(id)?;
                 continue;
             }
             Pending::Message(value, session) => {
@@ -321,6 +319,10 @@ fn write_loop(
                 if !video {
                     bail!("H.264 must be enabled before attaching")
                 }
+                if !qos.lock().unwrap().can_encode() {
+                    shared.0.lock().unwrap().request_refresh(window.window_id)?;
+                    continue;
+                }
                 if !generations.contains_key(&window.window_id) {
                     next_generation += 1;
                     generations.insert(window.window_id, next_generation);
@@ -329,13 +331,18 @@ fn write_loop(
                     bail!("video window limit")
                 }
                 let generation = generations[&window.window_id];
+                let (fps, bitrate_percent) = {
+                    let state = qos.lock().unwrap();
+                    (state.cap(), state.bitrate_percent())
+                };
                 workers.frame(worker::Job {
                     window,
                     image,
                     session,
                     generation,
-                    fps: qos.lock().unwrap().cap(),
+                    fps,
                     color,
+                    bitrate_percent,
                 })?;
                 continue;
             }
@@ -373,6 +380,55 @@ fn write_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn feedback_pressure_drops_raw_work_keeps_control_and_recaptures_after_ack() {
+        use std::io::{BufRead, BufReader};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Count(Arc<AtomicUsize>);
+        impl worker::Codec for Count {
+            fn encode(&mut self, _: &worker::Job) -> Result<Option<Value>> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(Some(json!({"type":"frame","data":"AA=="})))
+            }
+            fn forget(&mut self, _: u32) {}
+            fn reset(&mut self) {}
+        }
+        let count = Arc::new(AtomicUsize::new(0));
+        let captured = count.clone();
+        let factory: worker::Factory = Arc::new(move || Box::new(Count(captured.clone())));
+        let (writer, socket) = UnixStream::pair().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let output = Output::with_factory(writer, factory).unwrap();
+        let mut reader = BufReader::new(socket);
+        let mut read = || {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        };
+        output.enable_video(60, true).unwrap();
+        output.message(json!({"type":"barrier"}), "").unwrap();
+        read();
+        for _ in 0..6 {
+            output.qos.lock().unwrap().sent(Instant::now());
+        }
+        output.push(frame(1)).unwrap();
+        output
+            .message(json!({"type":"input.still-live"}), "")
+            .unwrap();
+        assert_eq!(read()["type"], "input.still-live");
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            output.take_refreshes(),
+            vec![7],
+            "an already damage-acknowledged static source needs recapture"
+        );
+        output.video_feedback(6);
+        output.push(frame(1)).unwrap();
+        assert_eq!(read()["type"], "frame");
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
     fn frame(revision: u64) -> Pending {
         let window = Window {
             window_id: 7,

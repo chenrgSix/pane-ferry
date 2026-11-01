@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='paneferry-audio-') as directory, tempfi
         directories=[STATE/'network',scratch/'publisher-network']
         for index,path in enumerate(directories):
             start([str(root/'target/debug/paneferry-network'),'serve','--state',str(path),
-                '--publisher',str(STATE/'agent.sock'),'--listen','127.0.0.1:0'],'network-'+str(index))
+                '--publisher',str(STATE/'agent.sock'),'--bulk-agent',str(root/'target/debug/paneferry-agent'),'--listen','127.0.0.1:0'],'network-'+str(index))
             wait(lambda:(path/'control.sock').exists())
         def manage(path,**value):
             with socket.socket(socket.AF_UNIX) as client:
@@ -77,6 +77,17 @@ with tempfile.TemporaryDirectory(prefix='paneferry-audio-') as directory, tempfi
         manage(directories[0],op='pair',invitation=manage(directories[1],op='invite')['invitation'],address=remote['listen'])
         peer='quic:'+remote['device_id']
         wait(lambda:(directories[0]/('r-'+remote['device_id']+'.sock')).exists())
+        import clipboard_transfer
+        clipboard_transfer.helper_binary=lambda _:root/'target/debug/paneferry-network'
+        import base64,struct,zlib
+        def chunk(name,data):return struct.pack('>I',len(data))+name+data+struct.pack('>I',zlib.crc32(name+data))
+        png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\x00\xff'))+chunk(b'IEND',b'')
+        bundles=[dict(kind='image',entries=[dict(path='image.png',size=len(png),directory=False,data=base64.b64encode(png).decode())]),
+            dict(kind='files',entries=[dict(path='folder',size=0,directory=True),dict(path='folder/中文.txt',size=3,directory=False,data=base64.b64encode(b'abc').decode())])]
+        for bundle in bundles:
+            identity=clipboard_transfer.upload(peer,bundle)
+            assert clipboard_transfer.download(peer,identity)==bundle
+        print('PASS: production GTK binary clipboard image/directory/unicode-file upload and download through paired QUIC')
         wire=Wire(peer); assert audio.CAPABILITY in wire.capabilities
         wire.send(type='audio.subscribe');wire.until('audio.format'); frames=0
         try:

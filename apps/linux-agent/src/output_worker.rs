@@ -23,6 +23,7 @@ pub(super) struct Job {
     pub generation: u64,
     pub fps: u8,
     pub color: paneferry_protocol::ColorMode,
+    pub bitrate_percent: u8,
 }
 pub(super) struct Encoded {
     pub window: u32,
@@ -34,6 +35,9 @@ pub(super) trait Codec {
     fn encode(&mut self, job: &Job) -> Result<Option<Value>>;
     fn forget(&mut self, id: u32);
     fn reset(&mut self);
+    fn keyframe(&mut self, id: u32) {
+        self.forget(id);
+    }
 }
 pub(super) type Factory = Arc<dyn Fn() -> Box<dyn Codec> + Send + Sync>;
 struct Cached {
@@ -134,6 +138,7 @@ impl Codec for RuntimeCodec {
             }
         }
         let state = self.windows.get_mut(&id).unwrap();
+        state.encoder.set_bitrate_percent(job.bitrate_percent);
         let packet = match state.encoder.encode_frame(&job.image) {
             Ok(packet) => packet,
             Err(_) if state.encoder.uses_gpu() => {
@@ -198,11 +203,20 @@ impl Codec for RuntimeCodec {
     fn reset(&mut self) {
         self.windows.clear();
     }
+    fn keyframe(&mut self, id: u32) {
+        if let Some(state) = self.windows.get_mut(&id) {
+            state.image = None;
+            if !state.encoder.request_keyframe() {
+                self.windows.remove(&id);
+            }
+        }
+    }
 }
 enum Work {
     Frame(Job),
     Forget(u32),
     Reset,
+    KeyFrame(u32),
 }
 impl Work {
     fn pixels(&self) -> usize {
@@ -255,7 +269,11 @@ pub(super) struct Pool {
     output: Shared,
 }
 impl Pool {
-    pub fn new(output: Shared, factory: Factory) -> Self {
+    pub fn new(
+        output: Shared,
+        factory: Factory,
+        qos: Arc<Mutex<crate::video_qos::VideoQos>>,
+    ) -> Self {
         let queues: Vec<WorkerQueue> = (0..2)
             .map(|_| Arc::new((Mutex::new(Queue::default()), Condvar::new())))
             .collect();
@@ -263,6 +281,7 @@ impl Pool {
             let shared = shared.clone();
             let output = output.clone();
             let factory = factory.clone();
+            let qos = qos.clone();
             thread::spawn(move || {
                 // Native GStreamer pointers never cross threads: create, use
                 // and destroy every encoder exclusively inside this worker.
@@ -281,7 +300,17 @@ impl Pool {
                     match work {
                         Work::Reset => codec.reset(),
                         Work::Forget(id) => codec.forget(id),
-                        Work::Frame(job) => {
+                        Work::KeyFrame(id) => codec.keyframe(id),
+                        Work::Frame(mut job) => {
+                            if !qos.lock().unwrap().can_encode() {
+                                let _ = output
+                                    .0
+                                    .lock()
+                                    .unwrap()
+                                    .request_refresh(job.window.window_id);
+                                continue;
+                            }
+                            job.bitrate_percent = qos.lock().unwrap().bitrate_percent();
                             let result = codec.encode(&job);
                             let event = match result {
                                 Ok(Some(value)) => Pending::Encoded(Encoded {
@@ -335,6 +364,9 @@ impl Pool {
     }
     pub fn forget(&self, id: u32) -> Result<()> {
         self.push(id as usize % self.queues.len(), Work::Forget(id))
+    }
+    pub fn keyframe(&self, id: u32) -> Result<()> {
+        self.push(id as usize % self.queues.len(), Work::KeyFrame(id))
     }
     pub fn reset(&self) -> Result<()> {
         for index in 0..self.queues.len() {
@@ -421,6 +453,7 @@ mod tests {
             generation: 1,
             fps: 60,
             color: Default::default(),
+            bitrate_percent: 100,
         }
     }
 

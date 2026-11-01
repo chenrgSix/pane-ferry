@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from wire import TERMINAL_LAUNCH_ERRORS
 """Single 窗渡 PaneFerry entry: local publishing and remote native windows."""
 import atexit
 import hashlib
@@ -16,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gio, Gdk, GdkPixbuf
-from wire import STATE, Wire, peers, private, request, save, message
+from wire import STATE, Wire, peers, private, request, save, message, TERMINAL_LAUNCH_ERRORS
 from windowhost import Viewer
 import network
 import audio
@@ -63,6 +62,7 @@ class Manager(Gtk.Application):
         self.video_color = '444-atlas-v2' if self.preferences.get('full_color') is True else '420'
         self.source_size = self.preferences.get('source_size') is True
         self.application_scene = self.preferences.get('application_scene') is True
+        self.render_scale=2 if self.preferences.get('render_scale')==2 else 1
         values=self.preferences.get('takeover',[])
         self.takeover = {p for p in values[:32] if isinstance(p,str) and p.startswith('quic:')} if isinstance(values,list) else set()
         values=self.preferences.get('audio',[])
@@ -137,6 +137,10 @@ class Manager(Gtk.Application):
         self.scene_option.set_sensitive(not self.source_size)
         for option in (self.full_color,self.source_option,self.scene_option):
             option.connect('toggled',self.display_preferences); options.pack_start(option,False,False,0)
+        self.scale_option=Gtk.ComboBoxText()
+        for scale in (1,2):self.scale_option.append(str(scale),f'应用渲染 {scale}×')
+        self.scale_option.set_active_id(str(self.render_scale));self.scale_option.connect('changed',self.display_preferences)
+        options.pack_start(self.scale_option,False,False,0)
         root.pack_start(options,False,False,0)
         device_options=Gtk.Box(spacing=12)
         self.takeover_option=Gtk.CheckButton(label='自动接入所选设备的应用窗口')
@@ -184,7 +188,7 @@ class Manager(Gtk.Application):
 
     def save_preferences(self):
         self.preferences.update(full_color=self.video_color!='420',source_size=self.source_size,
-            application_scene=self.application_scene,takeover=sorted(self.takeover),audio=sorted(self.audio_enabled))
+            application_scene=self.application_scene,render_scale=self.render_scale,takeover=sorted(self.takeover),audio=sorted(self.audio_enabled))
         save(self.preferences_path,self.preferences)
 
     def audio_toggled(self,*_):
@@ -202,6 +206,7 @@ class Manager(Gtk.Application):
     def display_preferences(self,*_):
         self.video_color='444-atlas-v2' if self.full_color.get_active() else '420'
         self.source_size=self.source_option.get_active(); self.application_scene=self.scene_option.get_active()
+        self.render_scale=int(self.scale_option.get_active_id() or '1')
         self.scene_option.set_sensitive(not self.source_size)
         self.save_preferences()
 
@@ -436,7 +441,7 @@ class Manager(Gtk.Application):
         self.launching.add(key)
         request_id = self.pending_launches.setdefault(key, uuid.uuid4().hex)
         save(self.launch_store, self.pending_launches)
-        extra={}
+        extra={'scale_factor':self.render_scale} if self.render_scale!=1 else {}
         source=next((w for w in self.catalog_windows.get(peer,[]) if w.get('id')==app['id']),app)
         if self.application_scene and not self.source_size and source.get('application_scene'):
             monitor=Gdk.Display.get_default().get_monitor_at_window(self.window.get_window())

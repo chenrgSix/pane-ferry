@@ -13,7 +13,6 @@ python3 tests/e2e/wayland_capture_unit.py
 python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/linux_wire_unit.py
 python3 tests/e2e/linux_receiver_boundaries.py
-python3 tests/e2e/linux_chroma_smoke.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then
   node tests/unit/application_scene.mjs
@@ -47,8 +46,10 @@ if [[ $(uname -s) == Darwin ]]; then
   if [[ $mac_failed != 0 ]]; then exit 1; fi
 else
   cargo build -p paneferry-agent -p paneferry-network
+  python3 tests/e2e/linux_chroma_smoke.py
   if command -v xvfb-run >/dev/null; then
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
+    xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_manager_ui_smoke.py
   fi
   echo 'SKIP: Swift/AppKit 需要 macOS SDK，当前平台未编译。'
 fi

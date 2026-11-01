@@ -4,6 +4,7 @@ import json
 import math
 import cairo
 import queue
+import subprocess
 import threading
 import time
 import uuid
@@ -13,6 +14,7 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GstApp', '1.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Gst
 import clipboard
+import clipboard_transfer
 from wire import Wire, message
 from video_color import carrier_size, negotiate, unpack_nv12
 
@@ -251,6 +253,7 @@ class Viewer:
         self.window_id = None; self.revision = 0; self.width = 0; self.height = 0
         self.pressed = set(); self.videos = {}; self.wire = None
         self.buttons = set(); self.fixed_canvas = False; self.source_size=getattr(application,'source_size',False)
+        self.scroll_remainder=[0.0,0.0]
         self.display_lock = threading.Lock(); self.pending_image = None; self.display_scheduled = False
         self.presented_frame_id = None
         if owner is None:
@@ -259,6 +262,10 @@ class Viewer:
             self.max_fps = 60; self.configured_fps = None; self.qos_supported = False
             self.remote_clipboard_shortcuts = False
             self.logical_keys = True; self.text_clipboard = False
+            self.bundle_clipboard=False
+            self.clipboard_jobs=queue.Queue(maxsize=4)
+            threading.Thread(target=self.clipboard_worker,daemon=True).start()
+            self.activity_supported=False; self.current_activity=None
             self.publisher_max_fps = 90; self.refresh_millihz = 0; self.monitor_timer = None
             self.pending_feedback = None; self.feedback_timer = None; self.last_feedback_at = 0
             self.last_feedback_id = 0
@@ -284,9 +291,21 @@ class Viewer:
         self.box.pack_start(self.notice, False, False, 0)
         if self.overlay: self.notice.set_no_show_all(True); self.notice.hide()
         self.rate_label = None
+        self.page_box=None; self.updating_page=False; self.fullscreen=False;self.restore_button=None
         if owner is None:
             self.rate_label = Gtk.Label(label='帧率：自动协商中')
-            self.box.pack_start(self.rate_label, False, False, 0)
+            toolbar=Gtk.Box(spacing=10);toolbar.pack_start(self.rate_label,True,True,0)
+            self.restore_button=Gtk.Button(label='恢复源窗口');self.restore_button.set_no_show_all(True)
+            self.restore_button.connect('clicked',lambda *_:self.send(type='window.focus'))
+            toolbar.pack_start(self.restore_button,False,False,0)
+            self.page_box=Gtk.Box(spacing=5);self.page_box.set_no_show_all(True)
+            self.page_box.pack_start(Gtk.Label(label='页面缩放'),False,False,0)
+            self.page_scale=Gtk.ComboBoxText()
+            for factor in (1,2):self.page_scale.append(str(factor),f'{factor*100}%')
+            self.page_scale.set_active_id('1');self.page_scale.connect('changed',self.page_changed)
+            self.page_box.pack_start(self.page_scale,False,False,0);toolbar.pack_start(self.page_box,False,False,0)
+            fullscreen=Gtk.Button(label='全屏');fullscreen.connect('clicked',self.toggle_fullscreen)
+            toolbar.pack_start(fullscreen,False,False,0);self.box.pack_start(toolbar,False,False,0)
         self.box.pack_start(self.view, True, True, 0)
         self.window.add(self.box)
         self.pixels = None; self.preedit = ''; self.anchor = (30, 30)
@@ -307,6 +326,8 @@ class Viewer:
         self.view.connect('focus-in-event', lambda *args: self.im.focus_in() or self.send(type='window.focus'))
         self.view.connect('focus-out-event', self.focus_out)
         self.window.connect('delete-event', self.close)
+        self.window.connect('window-state-event',lambda *_:self.owner.refresh_activity())
+        self.window.connect('notify::is-active',lambda *_:self.owner.refresh_activity())
         if owner is None:
             self.window.connect('configure-event', lambda *_: (self.layout_overlays(), self.refresh_video_rate(), False)[2])
         if not self.overlay: self.window.show_all(); self.view.grab_focus()
@@ -317,6 +338,26 @@ class Viewer:
 
     def preedit_changed(self, context):
         self.preedit = context.get_preedit_string()[0]; self.view.queue_draw()
+
+    def toggle_fullscreen(self,*_):
+        self.fullscreen=not self.fullscreen
+        if self.fullscreen:self.window.fullscreen()
+        else:self.window.unfullscreen()
+
+    def page_changed(self,*_):
+        if not self.updating_page and self.page_scale.get_active_id():
+            self.send(type='window.page-scale',scale=int(self.page_scale.get_active_id()))
+
+    def refresh_activity(self):
+        if not self.ready or not self.activity_supported or self.closed.is_set():return False
+        native=self.window.get_window()
+        minimized=native and native.get_state() & Gdk.WindowState.ICONIFIED
+        activity='suspended' if minimized else ('foreground' if any(v.window.is_active() for v in self.members.values()) else 'background')
+        if activity!=self.current_activity:
+            try:self.outbound.put_nowait((self.epoch,dict(type='video.activity',state=activity)))
+            except queue.Full:return False
+            self.current_activity=activity
+        return False
 
     def draw(self, widget, context):
         allocation = widget.get_allocation()
@@ -425,10 +466,20 @@ class Viewer:
         self.presentation = presentation(value)
         self.fixed_canvas = value.get('surface_type') in ('desktop','session') or value.get('role') in ('desktop','session')
         self.window_id = value['window_id']; self.width = value['width']; self.height = value['height']; self.revision = value['geometry_revision']
+        if self.page_box:
+            if value.get('page_scale_supported'):
+                self.page_box.show();self.page_scale.show();self.page_box.get_children()[0].show()
+                self.updating_page=True;self.page_scale.set_active_id(str(value.get('page_scale_factor',1)));self.updating_page=False
+            else:self.page_box.hide()
         self.window.set_title(str(value.get('title', self.name))[:512] + ' · ' + self.name)
         self.ready = True
         self.status('已连接 · H.264 · ' + ('关闭此窗口仅断开连接' if self is self.owner else '关闭此窗口将关闭远程预览'))
-        if value.get('visible', True) and not self.overlay: self.window.show_all()
+        if self is self.owner:
+            self.window.show_all()
+            if not value.get('visible',True):
+                self.restore_button.show();self.status('源窗口已隐藏或最小化，点击“恢复源窗口”继续操作')
+            else:self.restore_button.hide()
+        elif value.get('visible', True) and not self.overlay: self.window.show_all()
         else: self.window.hide()
         self.allocated(self.view, self.view.get_allocation())
         return False
@@ -493,6 +544,7 @@ class Viewer:
             self.members[wid].window.set_transient_for(parent.window if parent else None)
         self.catalog = catalog
         self.layout_overlays()
+        self.refresh_activity()
 
     def layout_overlays(self):
         catalog=getattr(self,'catalog',{})
@@ -516,6 +568,7 @@ class Viewer:
     def invalidate(self, text):
         self.qos_supported = False
         if self is self.owner: self.configured_fps = None
+        self.current_activity=None
         if self.rate_label: self.rate_label.set_text('帧率：重新协商中')
         if self.feedback_timer is not None:
             GLib.source_remove(self.feedback_timer); self.feedback_timer = None
@@ -565,10 +618,17 @@ class Viewer:
 
     def scroll(self, widget, event):
         button = {Gdk.ScrollDirection.UP:4, Gdk.ScrollDirection.DOWN:5, Gdk.ScrollDirection.LEFT:6, Gdk.ScrollDirection.RIGHT:7}.get(event.direction)
-        if button is None:
-            _, dx, dy = event.get_scroll_deltas()
-            button = (4 if dy<0 else 5) if abs(dy)>=abs(dx) else (6 if dx<0 else 7)
-        self.pointer(event, button, True); self.pointer(event, button, False)
+        if button is not None:
+            self.pointer(event,button,True);self.pointer(event,button,False)
+        else:
+            valid,dx,dy=event.get_scroll_deltas()
+            if not valid or not math.isfinite(dx) or not math.isfinite(dy):return True
+            for axis,delta in enumerate((dx,dy)):
+                total=self.scroll_remainder[axis]+max(-12.0,min(12.0,delta))
+                steps=math.trunc(total);self.scroll_remainder[axis]=total-steps
+                button=((6 if steps<0 else 7) if axis==0 else (4 if steps<0 else 5))
+                for _ in range(abs(steps)):
+                    self.pointer(event,button,True);self.pointer(event,button,False)
         return True
 
     def release_keys(self):
@@ -585,8 +645,31 @@ class Viewer:
         else:
             self.send(type='input.key',keysym=Gdk.keyval_from_name(name),pressed=pressed)
 
+    def clipboard_worker(self):
+        while not self.closed.is_set():
+            try:viewer,epoch,operation,complete=self.clipboard_jobs.get(timeout=.2)
+            except queue.Empty:continue
+            if viewer.closed.is_set() or epoch!=self.epoch:continue
+            try:result=operation();error=None
+            except (OSError,ValueError,EOFError,KeyError,TypeError,AttributeError,subprocess.SubprocessError) as failure:
+                result=None;error=failure
+            def apply(viewer=viewer,epoch=epoch,complete=complete,result=result,error=error):
+                if not viewer.closed.is_set() and epoch==self.epoch:
+                    if error:viewer.cancel_copy();viewer.status(message('clipboard_invalid'))
+                    else:complete(result)
+                return False
+            GLib.idle_add(apply)
+
+    def clipboard_job(self,operation,complete):
+        try:self.owner.clipboard_jobs.put_nowait((self,self.owner.epoch,operation,complete))
+        except queue.Full:self.cancel_copy();self.status(message('clipboard_invalid'))
+
+    def clipboard_command(self,**fields):
+        self.clipboard_job(lambda:fields,lambda value:self.send(**value))
+
     def focus_out(self, *args):
         self.im.focus_out(); self.im.reset(); self.release_keys()
+        self.scroll_remainder=[0.0,0.0]
         return False
 
     def key(self, event, pressed):
@@ -603,9 +686,11 @@ class Viewer:
                 request_id = uuid.uuid4().hex
                 self.copy_request = (request_id, clipboard.begin_copy())
                 if self.owner.text_clipboard:
-                    self.send(type='clipboard.cut' if name.lower()=='x' else 'clipboard.copy',request_id=request_id)
+                    if self.owner.bundle_clipboard:
+                        self.clipboard_command(type='clipboard.copy.bundle',request_id=request_id,cut=name.lower()=='x')
+                    else:self.clipboard_command(type='clipboard.cut' if name.lower()=='x' else 'clipboard.copy',request_id=request_id)
                 else:
-                    self.send(type='clipboard.inline.copy', request_id=request_id, cut=name.lower() == 'x')
+                    self.clipboard_command(type='clipboard.inline.copy', request_id=request_id, cut=name.lower() == 'x')
             return True
         if not control and self.im.filter_keypress(event):
             return True
@@ -623,10 +708,12 @@ class Viewer:
         try:
             bundle = clipboard.read(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
             if self.owner.text_clipboard:
-                if bundle['kind'] != 'text': raise ValueError('clipboard_invalid')
-                self.send(type='clipboard.paste',text=bundle['text'])
+                if bundle['kind']=='text':self.clipboard_command(type='clipboard.paste',text=bundle['text'])
+                elif self.owner.bundle_clipboard:
+                    self.clipboard_job(lambda:clipboard_transfer.upload(self.peer_id,bundle),lambda identity:self.send(type='clipboard.paste.bundle',transfer_id=identity))
+                else:raise ValueError('clipboard_invalid')
             else:
-                self.send(type='clipboard.inline.paste', bundle=bundle)
+                self.clipboard_command(type='clipboard.inline.paste', bundle=bundle)
         except (ValueError, OSError, GLib.Error):
             self.status(message('clipboard_invalid'))
 
@@ -656,7 +743,9 @@ class Viewer:
                     raise ValueError('protocol_error')
                 self.logical_keys = 'input.key.logical' in wire.capabilities
                 self.text_clipboard = 'clipboard.copy' in wire.capabilities and 'clipboard.inline' not in wire.capabilities
+                self.bundle_clipboard='clipboard.bundle' in wire.capabilities
                 self.qos_supported = 'video.qos' in wire.capabilities
+                self.activity_supported='video.activity' in wire.capabilities
                 self.remote_clipboard_shortcuts = 'clipboard.remote-only' in wire.capabilities
                 self.publisher_max_fps = wire.video_max_fps
                 self.max_fps = automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
@@ -686,7 +775,7 @@ class Viewer:
                         try: queued_epoch, value = self.outbound.get(timeout=.2)
                         except queue.Empty: continue
                         if queued_epoch != epoch: continue
-                        if value['type'] not in ('video.configure', 'video.feedback') and value.get('window_id') not in catalog: continue
+                        if value['type'] not in ('video.configure', 'video.feedback','video.activity') and value.get('window_id') not in catalog: continue
                         try: wire.send(**value)
                         except (OSError, ValueError):
                             try: wire.socket.shutdown(2)
@@ -695,8 +784,11 @@ class Viewer:
                 sender = threading.Thread(target=send_loop, daemon=True); sender.start()
                 while not self.closed.is_set():
                     event = wire.read(); kind = event.get('type'); wid = event.get('window_id')
-                    if event.get('session_id') not in ('', self.session_id) or (kind != 'error' and event.get('session_id') != self.session_id):
+                    if event.get('session_id') not in ('', self.session_id) or (kind not in ('error','video.activity.changed') and event.get('session_id') != self.session_id):
                         raise ValueError('wrong_session')
+                    if kind=='video.activity.changed':
+                        if event.get('state') not in ('foreground','background','suspended'):raise ValueError('protocol_error')
+                        continue
                     if kind == 'frame':
                         metadata = catalog.get(wid)
                         if metadata is None or event.get('geometry_revision') != metadata['geometry_revision']:
@@ -736,12 +828,21 @@ class Viewer:
                         self.on_ui(self.apply_members, catalog, epoch)
                     elif kind == 'session.exited':
                         raise ValueError('session_exited')
+                    elif kind == 'input.authorization':
+                        status={'pending':'请在远端桌面确认输入授权','denied':'远端输入授权被拒绝，请在远端重新授权','paused':'远端输入已暂停','ready':'已连接 · 输入已授权'}.get(event.get('state'))
+                        if status:self.on_ui(self.status,status)
                     elif kind == 'clipboard.inline.data':
                         if wid in catalog: self.on_ui(self.members[wid].copied, event)
                     elif kind == 'clipboard.data':
                         if wid in catalog:
                             event['bundle'] = dict(kind='text',text=event.get('text'))
                             self.on_ui(self.members[wid].copied,event)
+                    elif kind == 'clipboard.bundle':
+                        if wid in catalog:
+                            viewer=self.members[wid]
+                            def download(event=dict(event),peer=self.peer_id):
+                                event['bundle']=clipboard_transfer.download(peer,event.get('transfer_id'));return event
+                            self.on_ui(viewer.clipboard_job,download,viewer.copied)
                     elif kind == 'error':
                         code = event.get('code', '')
                         viewer = self.members.get(wid, self)

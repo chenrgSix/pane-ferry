@@ -8,7 +8,7 @@ HexHub 等显式采用桌面密钥服务兼容策略的入口另需 `xdg-dbus-pr
 
 ## 手工安装
 
-1. 编译：`cargo build --release -p paneferry-agent`。
+1. 安装 Rust、C/C++ 编译工具和 CMake 后编译：`cargo build --release -p paneferry-agent`（共享 Opus 音频依赖需 CMake）。
 2. 将二进制安装到 `~/.local/bin/paneferry-agent`（完整产品安装还包括 paneferry-network 和 GTK 管理界面）。
 3. 默认发现当前用户已安装的桌面应用。可选的 `~/.config/lan-remoteapp/apps.json` 用于自定义入口，格式参考 `deploy/apps.example.json`；审核其中的绝对路径及 argv。没有此文件也能运行。应用仍具有当前用户权限，目录不是 OS 沙箱。
 4. 前台运行 `~/.local/bin/paneferry-agent serve`。或将 service 文件放入 `~/.config/systemd/user/`，由用户自行执行 `systemctl --user daemon-reload` 和 `systemctl --user enable --now remoteapp-agent.service`。
@@ -33,6 +33,7 @@ GPU 总耗时至少快 8%，且采集/编码瓶颈服务时间不恶化超过 3%
 
 缺少组件、目标不适用、初始化或首帧失败时使用软件编码；已发布 GPU 流发生错误时，以新 stream ID / IDR 重新启动软编，并停止该编码 worker 的后续硬编尝试。
 软编优先使用 `x264enc` ultrafast / zerolatency，关闭 B 帧和 lookahead，使用 4 个 slice 线程；失败后仍可使用 OpenH264 屏幕模式。
+当前连续视频、全色度、动态码率、系统声音和 GTK 接收器的功能及限制见 [Linux 与 Windows 功能对齐](linux-windows-parity.md)。`PANEFERRY_VIDEO_TRACE=1` 仅在实际首次出帧时记录编码器、尺寸和流编号，可确认用了 VA、x264 或 OpenH264；默认关闭，不记录像素。
 PipeWire 原生窗口继续使用下述 I420 路径。无需新增 Python 编码进程，不会自动安装驱动或插件；VA 驱动需由部署环境提供，Intel 本机验证使用 `intel-media-va-driver`。
 大图 90 FPS 若超过输入 identity 的有符号字节率范围，也会使用软编。x264 通常由 `gstreamer1.0-plugins-ugly` 提供。
 

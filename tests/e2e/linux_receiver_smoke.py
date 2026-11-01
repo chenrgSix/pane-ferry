@@ -18,6 +18,8 @@ os.environ['HOME']=temporary.name
 sys.path.insert(0,str(root/'apps/linux-client'))
 from wire import STATE,private,save
 import clipboard
+import clipboard_transfer
+clipboard_transfer.helper_binary=lambda _:root/'target/debug/paneferry-network'
 from windowhost import Gtk,Gdk,GLib,Gst,GdkPixbuf,Video,Viewer,check_sps,automatic_video_fps
 
 path=Path(temporary.name)/'publisher.sock'
@@ -28,7 +30,7 @@ assert sample,'video fixture encoder unavailable'
 buffer=sample.get_buffer();raw=buffer.extract_dup(0,buffer.get_size());pipeline.set_state(Gst.State.NULL)
 class PublisherFixture:
     def __init__(self, path, qos=False, remote_only=False):
-        self.qos=qos; self.remote_only=remote_only
+        self.qos=qos; self.remote_only=remote_only; self.legacy=False;self.transfer_id=None
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(path));self.listener.listen()
         self.events=[];self.connections=[];self.members={42:dict(window_id=42,title='fixture',width=640,height=480,geometry_revision=1,scale_factor=1)}
         threading.Thread(target=self.serve,daemon=True).start()
@@ -42,7 +44,8 @@ class PublisherFixture:
         wire=sock.makefile('rb');seq=0;frame_number=0
         def send(kind,**fields):
             nonlocal seq
-            seq+=1;sock.sendall((json.dumps(dict(type=kind,version=1,session_id='fixture',seq=seq,**fields))+'\n').encode())
+            seq+=1;body=dict(type=kind,version=1,session_id='fixture',seq=seq);body.update(fields)
+            sock.sendall((json.dumps(body)+'\n').encode())
         def frame(wid):
             nonlocal frame_number
             frame_number+=1
@@ -51,14 +54,18 @@ class PublisherFixture:
         try:
             for line in wire:
                 event=json.loads(line);kind=event['type'];self.events.append(event)
-                if kind=='hello':send('hello',capabilities=['native.h264','input.key.logical']+(['video.qos'] if self.qos else [])+(['clipboard.remote-only'] if self.remote_only else []),**({'video_max_fps':75} if self.qos else {}))
+                if kind=='hello':send('hello',capabilities=['native.h264']+(['input.key','clipboard.copy','clipboard.bundle'] if self.legacy else ['input.key.logical'])+(['video.qos','video.activity'] if self.qos else [])+(['clipboard.remote-only'] if self.remote_only else []),**({'video_max_fps':75} if self.qos else {}))
+                elif kind=='node.info':send('node.info',sharing_enabled=True)
                 elif kind=='video.enable':send('video.ready',codec='h264')
+                elif kind=='video.activity':send('video.activity.changed',state=event['state'],session_id='')
                 elif kind=='session.resume':
+                    self.controller_socket=sock
                     send('session.snapshot',windows=list(self.members.values()))
                     for wid in self.members:frame(wid)
                 elif kind=='clipboard.inline.copy' and event['request_id']=='copy-error-child':send('error',code='clipboard_copy_failed',window_id=event['window_id'])
                 elif kind=='clipboard.inline.copy' and event['request_id']=='copy-error-legacy':send('error',code='clipboard_copy_failed')
                 elif kind=='clipboard.inline.copy':send('clipboard.inline.data',window_id=event['window_id'],request_id=event['request_id'],bundle=dict(kind='text',text='中文剪贴板 fixture'))
+                elif kind=='clipboard.copy.bundle':send('clipboard.bundle',window_id=event['window_id'],request_id=event['request_id'],transfer_id=self.transfer_id)
                 elif kind=='input.key.logical' and event['key']=='F2' and event['pressed'] and 43 not in self.members:
                     self.members[43]=dict(window_id=43,parent_id=42,title='preview',role='popup',width=640,height=480,geometry_revision=1,scale_factor=1,presentation=dict(x=200,y=100,width=320,height=240,kind='menu',order=1))
                     send('window.created',**self.members[43]);frame(43)
@@ -85,7 +92,7 @@ def manage(directory,**body):
         return result
 directories=[STATE/'network',Path(temporary.name)/'publisher-network',Path(temporary.name)/'other-network']
 for index,directory in enumerate(directories):
-    network_processes.append(subprocess.Popen([str(binary),'serve','--state',str(directory),'--publisher',str(other_path if index==2 else path),'--listen','127.0.0.1:0'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+    network_processes.append(subprocess.Popen([str(binary),'serve','--state',str(directory),'--publisher',str(other_path if index==2 else path),'--bulk-agent',str(root/'target/debug/paneferry-agent'),'--listen','127.0.0.1:0'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
 for directory in directories:
     deadline=time.monotonic()+10
     while not (directory/'control.sock').exists():
@@ -132,6 +139,22 @@ try:
     assert viewer.qos_supported and viewer.max_fps==automatic_video_fps(viewer.refresh_millihz,75)
     until(lambda:any(e['type']=='video.feedback' and e['frame_id']==1 for e in events))
     assert any(e['type']=='video.enable' and e['max_fps']==viewer.max_fps and e['feedback'] is True for e in events)
+    viewer.metadata(dict(fixture.members[42],visible=False),viewer.epoch)
+    assert viewer.window.get_visible() and viewer.restore_button.get_visible(),'a hidden source must keep a usable receiver'
+    viewer.restore_button.clicked()
+    until(lambda:any(e['type']=='window.focus' and e['window_id']==42 for e in events))
+    viewer.metadata(fixture.members[42],viewer.epoch)
+    assert not viewer.restore_button.get_visible()
+    native=viewer.window.get_window
+    viewer.window.get_window=lambda:SimpleNamespace(get_state=lambda:Gdk.WindowState.ICONIFIED)
+    viewer.refresh_activity();viewer.window.get_window=native
+    until(lambda:any(e['type']=='video.activity' and e['state']=='suspended' for e in events))
+    assert all('window_id' not in e for e in events if e['type']=='video.activity')
+    viewer.refresh_activity()
+    until(lambda:[e for e in events if e['type']=='video.activity'][-1]['state']!='suspended')
+    viewer.metadata(dict(fixture.members[42],page_scale_supported=True,page_scale_factor=1),viewer.epoch)
+    viewer.page_scale.set_active_id('2')
+    until(lambda:any(e['type']=='window.page-scale' and e['scale']==2 for e in events))
     assert automatic_video_fps(0)==60 and automatic_video_fps(120_000)==90
     viewer.refresh_video_rate(120_000)
     until(lambda:any(e['type']=='video.configure' and e['max_fps']==75 for e in events))
@@ -149,6 +172,11 @@ try:
     viewer.send(type='input.pointer',x=120,y=150,button=1,pressed=True)
     viewer.send(type='input.pointer',x=120,y=150,button=1,pressed=False)
     until(lambda:len([e for e in events if e['type']=='input.pointer'])==2)
+    before=len([e for e in events if e['type']=='input.pointer'])
+    scroll=SimpleNamespace(direction=Gdk.ScrollDirection.SMOOTH,x=120,y=150,get_scroll_deltas=lambda:(True,0.0,.25))
+    for _ in range(4):viewer.scroll(viewer.view,scroll)
+    until(lambda:len([e for e in events if e['type']=='input.pointer'])==before+2)
+    assert [e for e in events if e['type']=='input.pointer'][-2]['button']==5,'smooth scrolling must accumulate fractional deltas'
     viewer.copy_request=('copy-test',clipboard.begin_copy())
     viewer.send(type='clipboard.inline.copy',request_id='copy-test',cut=False)
     until(lambda:viewer.copy_request is None)
@@ -255,11 +283,33 @@ try:
         until(lambda:43 in viewer.members and viewer.members[43].pixels is not None)
         viewer.members[43].close()
         until(lambda:43 not in viewer.members)
+    # Renegotiate the Linux numeric-key/binary-clipboard contract on reconnect.
+    fixture.transfer_id=clipboard_transfer.upload(peer,file_bundle);fixture.legacy=True
+    fixture.controller_socket.shutdown(socket.SHUT_RDWR)
+    until(lambda:viewer.ready and not viewer.logical_keys and viewer.bundle_clipboard,timeout=12)
+    viewer.send_key('Return',True);viewer.send_key('Return',False)
+    until(lambda:len([e for e in events if e['type']=='input.key'])>=4)
+    viewer.key(SimpleNamespace(keyval=Gdk.KEY_c,state=Gdk.ModifierType.CONTROL_MASK),True)
+    until(lambda:any(e['type']=='clipboard.copy.bundle' for e in events) and viewer.copy_request is None)
+    assert board.wait_for_uris(), 'Linux file copy did not update the local clipboard'
+    viewer.paste();until(lambda:any(e['type']=='clipboard.paste.bundle' for e in events))
+    pasted=[e for e in events if e['type']=='clipboard.paste.bundle'][-1]
+    assert clipboard_transfer.download(peer,pasted['transfer_id'])==file_bundle
+    fixture.transfer_id=clipboard_transfer.upload(peer,image_bundle)
+    viewer.key(SimpleNamespace(keyval=Gdk.KEY_c,state=Gdk.ModifierType.CONTROL_MASK),True)
+    until(lambda:len([e for e in events if e['type']=='clipboard.copy.bundle'])==2 and viewer.copy_request is None)
+    assert board.wait_for_image().get_width()==32
+    viewer.paste();until(lambda:len([e for e in events if e['type']=='clipboard.paste.bundle'])==2)
+    pasted=[e for e in events if e['type']=='clipboard.paste.bundle'][-1]
+    assert clipboard_transfer.download(peer,pasted['transfer_id'])==image_bundle
+    board.set_text('Linux 文字',-1);viewer.paste()
+    until(lambda:any(e['type']=='clipboard.paste' and e['text']=='Linux 文字' for e in events))
     other_viewer.close();viewer.close();until(lambda:viewer.closed.is_set())
     assert [e['window_id'] for e in events if e['type']=='window.close.request']==[43]*131
     assert not any(e['type']=='window.close.request' for e in other.events), 'main close unexpectedly closed a remote window'
     print('Native QUIC: PASS: real GTK image, H.264/SPS bounds, IM/keys/pointer, text/image/file clipboard and reconnect without replay')
     print('Native QUIC: PASS: associated windows, per-window input and child close, native-window retention on reconnect, late-frame rejection, three paired devices with identical session/window IDs')
+    print('Native QUIC: PASS: Linux keysym negotiation; text, image and unicode directory/file clipboard over an independent binary QUIC stream')
 finally:
     viewer.close()
     if other_viewer:other_viewer.close()

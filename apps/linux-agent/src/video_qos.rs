@@ -13,6 +13,7 @@ const MAX_PENDING: usize = 128;
 pub struct VideoQos {
     cap: u8,
     target: u8,
+    bitrate_percent: u8,
     feedback: bool,
     next_id: u64,
     pending: VecDeque<(u64, Instant)>,
@@ -29,6 +30,7 @@ impl VideoQos {
         Self {
             cap: DEFAULT_VIDEO_FPS,
             target: DEFAULT_VIDEO_FPS,
+            bitrate_percent: 100,
             feedback: false,
             next_id: 1,
             pending: VecDeque::new(),
@@ -44,6 +46,7 @@ impl VideoQos {
     pub fn configure(&mut self, cap: u8, feedback: bool, now: Instant) {
         self.cap = cap;
         self.target = cap;
+        self.bitrate_percent = 100;
         self.feedback = feedback;
         self.pending.clear();
         self.delays.clear();
@@ -61,6 +64,12 @@ impl VideoQos {
     }
     pub fn target(&self) -> u8 {
         self.target
+    }
+    pub fn bitrate_percent(&self) -> u8 {
+        self.bitrate_percent
+    }
+    pub fn can_encode(&self) -> bool {
+        !self.feedback || self.pending.len() < 6
     }
     pub fn set_activity(&mut self, activity: VideoActivity, now: Instant) {
         // A deliberately paused/slow receiver is not a congested connection.
@@ -119,8 +128,13 @@ impl VideoQos {
             if self.bad >= 2
                 && now.saturating_duration_since(self.last_change) >= Duration::from_millis(500)
             {
-                self.target =
-                    ((u16::from(self.target) * 3) / 4).max(u16::from(MIN_FPS.min(self.cap))) as u8;
+                if self.bitrate_percent > 25 {
+                    self.bitrate_percent = (u16::from(self.bitrate_percent) * 3 / 4).max(25) as u8;
+                } else {
+                    self.target = ((u16::from(self.target) * 3) / 4)
+                        .max(u16::from(MIN_FPS.min(self.cap)))
+                        as u8;
+                }
                 self.last_change = now;
                 self.bad = 0;
             }
@@ -130,7 +144,11 @@ impl VideoQos {
             if self.good >= 4
                 && now.saturating_duration_since(self.last_change) >= Duration::from_millis(500)
             {
-                self.target = self.target.saturating_add(5).min(self.cap);
+                if self.target < self.cap {
+                    self.target = self.target.saturating_add(5).min(self.cap);
+                } else {
+                    self.bitrate_percent = self.bitrate_percent.saturating_add(10).min(100);
+                }
                 self.last_change = now;
                 self.good = 0;
             }
@@ -151,6 +169,7 @@ impl VideoQos {
             return;
         }
         self.target = (self.target / 2).max(MIN_FPS.min(self.cap));
+        self.bitrate_percent = (self.bitrate_percent / 2).max(25);
         self.last_change = now;
         self.good = 0;
         self.bad = 0;
@@ -200,13 +219,15 @@ mod tests {
         let sent = start + Duration::from_millis(1800);
         let id = qos.sent(sent).unwrap();
         qos.acknowledge(id, sent + Duration::from_millis(180));
-        assert!(qos.target() < 90);
+        assert!(qos.bitrate_percent() < 100);
+        assert_eq!(qos.target(), 90, "reduce bitrate before frame rate");
         for i in 0..32 {
             let sent = start + Duration::from_millis(2500 + i * 300);
             let id = qos.sent(sent).unwrap();
             qos.acknowledge(id, sent + Duration::from_millis(20));
         }
         assert_eq!(qos.target(), 90);
+        assert_eq!(qos.bitrate_percent(), 100);
         qos.configure(60, true, start + Duration::from_secs(20));
         assert_eq!(qos.target(), 60);
     }
