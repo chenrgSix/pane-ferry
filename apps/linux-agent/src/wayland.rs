@@ -36,6 +36,8 @@ pub struct Info {
     pub name: String,
     pub title: String,
     pub native: bool,
+    #[serde(default)]
+    pub xwindow: Option<u32>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -193,13 +195,19 @@ impl Drop for Rpc {
     }
 }
 pub fn inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
+    Ok(compositor_inventory(apps)?
+        .into_iter()
+        .filter(|target| target.info.native)
+        .collect())
+}
+pub fn compositor_inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
     let value = Rpc::new()?.call(json!({"op":"list"}))?;
     let windows: Vec<Info> = serde_json::from_value(value)?;
     if windows.len() > 128 {
         bail!("wayland_bridge_failed")
     }
     let mut result = Vec::new();
-    for info in windows.into_iter().filter(|w| w.native) {
+    for info in windows {
         if info.validate().is_err() {
             continue;
         }
@@ -218,6 +226,32 @@ pub fn inventory(apps: &[crate::discovery::DesktopApp]) -> Result<Vec<Target>> {
         });
     }
     Ok(result)
+}
+/// A compositor XID alone is insufficient: pair it with the OS-pinned X11
+/// process and the current graphical display before granting scene capture.
+pub fn x11_scene_target(
+    source: &crate::discovery::RunningWindow,
+    desktop: &crate::discovery::Desktop,
+    apps: &[crate::discovery::DesktopApp],
+) -> Result<Target> {
+    if &source.desktop != desktop
+        || process_identity(source.identity.pid).ok().as_ref() != Some(&source.identity)
+    {
+        bail!("approved existing process unavailable")
+    }
+    let x11 = X11::connect_existing(desktop.display, &desktop.authority, source.identity.pid)?;
+    if !x11.is_xwayland()? {
+        bail!("application_scene_unavailable")
+    }
+    compositor_inventory(apps)?
+        .into_iter()
+        .find(|target| {
+            !target.info.native
+                && target.info.bridge_version >= 7
+                && target.info.xwindow == Some(source.window_id)
+                && target.identity == source.identity
+        })
+        .context("application_scene_unavailable")
 }
 #[path = "wayland_rpc.rs"]
 mod metadata_rpc;
@@ -243,6 +277,7 @@ pub struct Backend {
     copied: Option<(u32, String, Instant)>,
     scene: Option<paneferry_protocol::SceneSize>,
     scene_node: Option<u32>,
+    scene_members: std::collections::HashSet<u32>,
     scale: u8,
 }
 impl Backend {
@@ -255,7 +290,17 @@ impl Backend {
     ) -> Result<Self> {
         // GNOME caches loaded extension modules until the next login. An
         // upgraded Agent must not silently use the old text/capture contract.
-        if target.info.bridge_version < if scene.is_some() { 4 } else { 2 } {
+        if !target.info.native && scene.is_none() {
+            bail!("application_scene_unavailable")
+        }
+        let minimum = if !target.info.native {
+            7
+        } else if scene.is_some() {
+            4
+        } else {
+            2
+        };
+        if target.info.bridge_version < minimum {
             bail!("wayland_bridge_outdated")
         }
         if process_identity(target.identity.pid).ok().as_ref() != Some(&target.identity) {
@@ -291,6 +336,7 @@ impl Backend {
             copied: None,
             scene,
             scene_node: None,
+            scene_members: Default::default(),
             scale,
         })
     }
@@ -355,6 +401,14 @@ impl Backend {
     }
     fn scan_scene(&mut self, discovered: Vec<Info>, scene: Value) -> Result<Vec<Window>> {
         let id = self.target.info.window_id;
+        if discovered.len() > 16 {
+            bail!("wayland_bridge_failed")
+        }
+        self.scene_members = discovered
+            .iter()
+            .filter(|info| info.validate().is_ok() && process_identity(info.pid).is_ok())
+            .map(|info| info.window_id)
+            .collect();
         let visible = discovered.iter().any(|info| !info.minimized);
         let info = discovered
             .into_iter()
@@ -503,7 +557,7 @@ impl WindowBackend for Backend {
         id == self.target.info.window_id && self.root_alive
     }
     fn includes_window(&self, id: u32) -> bool {
-        self.windows.contains_key(&id)
+        self.windows.contains_key(&id) || self.scene.is_some() && self.scene_members.contains(&id)
     }
     fn inspect_windows(&self) -> Result<Vec<Window>> {
         // `scope` belongs to the live capture path: older bridges prepare a

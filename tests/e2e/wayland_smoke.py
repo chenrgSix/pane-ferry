@@ -35,6 +35,8 @@ p.add_argument('--app-artifact-dir', type=Path,
                help='write only isolated-app frames to this existing directory')
 p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
 p.add_argument('--application-scene-only', action='store_true', help='test one scoped compositor stream')
+p.add_argument('--scene-backend', choices=('wayland', 'x11'), default='wayland',
+               help='source protocol for --application-scene-only')
 p.add_argument('--desktop-only', action='store_true', help='test a complete private desktop, cursor, popups and reconnect')
 p.add_argument('--desktop-size', choices=('1600x900', '3840x2160', '2160x3840'), default='1600x900',
                help='private monitor dimensions for --desktop-only')
@@ -60,6 +62,8 @@ if a.xwayland_resize_only and not a.with_xwayland:
     p.error('--xwayland-resize-only requires --with-xwayland')
 if a.xwayland_video_only and not a.with_xwayland:
     p.error('--xwayland-video-only requires --with-xwayland')
+if a.scene_backend == 'x11' and not (a.application_scene_only and a.with_xwayland):
+    p.error('--scene-backend x11 requires --application-scene-only --with-xwayland')
 if a.x11_scroll_benchmark_output and not a.with_xwayland:
     p.error('--x11-scroll-benchmark-output requires --with-xwayland')
 if a.x11_scroll_benchmark_output and a.scroll_benchmark_output:
@@ -85,6 +89,7 @@ if not a.private_bus:
             *(['--video-activity-only'] if a.video_activity_only else []),
             *(['--read-only-discovery-only'] if a.read_only_discovery_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
+            '--scene-backend', a.scene_backend,
             *(['--desktop-only', '--desktop-size', a.desktop_size] if a.desktop_only else []),
             *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
             *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
@@ -279,6 +284,11 @@ try:
                 display_info=wait(lambda:re.search(r'Using public X11 display (:\d+)',(t/'fixture.log').read_text()))
                 private_authority=wait(lambda:next(iter(runtime.glob('.mutter-Xwaylandauth.*')),None))
                 env.update(DISPLAY=display_info[1],XAUTHORITY=str(private_authority))
+                if a.application_scene_only and a.scene_backend == 'x11':
+                    app.terminate(); app.wait(timeout=5)
+                    state.unlink()
+                    app=start(['/usr/bin/python3',str(fixture),str(state),'--x11','--window-tree'],dict(env,GDK_BACKEND='x11'),log)
+                    wait(state.exists)
             publisher=start([str(a.agent.resolve()),'serve'],env,log)
             sock=home/'.local/state/lan-remoteapp/agent.sock';wait(sock.exists)
             try:
@@ -308,7 +318,8 @@ try:
                 if a.application_scene_only:
                     from application_scene_test import verify
                     try:
-                        verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, a.logical_wayland_scale)
+                        verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, a.logical_wayland_scale,
+                               x11=a.scene_backend == 'x11')
                     except Exception:
                         print((t/'fixture.log').read_text(errors='replace')[-10000:], file=sys.stderr)
                         raise

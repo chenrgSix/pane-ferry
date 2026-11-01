@@ -25,7 +25,7 @@ export default class PaneFerry extends Extension {
                 // focused window's monitor. Keep private outputs scoped to their
                 // root/transients, returning such arrivals to the source monitor.
                 if (lease.output?.connector && !lease.opening) {
-                    const allowed = this.scope(lease.root);
+                    const allowed = this.scope(lease.root, !!lease.canvas);
                     for (const window of this.windows()) {
                         if (lease.output.contains(window) && !allowed.includes(window)) lease.output.rehome(window);
                     }
@@ -72,13 +72,13 @@ export default class PaneFerry extends Extension {
         // Awaiting even an already-resolved Promise yields to the shell's main
         // loop. Input and geometry queries need no such turn when this lease
         // has no Wayland output to provision, or its output is already ready.
-        if (lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND ||
+        if ((!lease.canvas && lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND) ||
             (lease.output && !lease.opening && !lease.suspending)) return null;
         return this.ensureOutput(lease);
     }
     async ensureOutput(lease) {
         lease.lastUse = GLib.get_monotonic_time();
-        if (lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND) return;
+        if (!lease.canvas && lease.root.get_client_type() !== Meta.WindowClientType.WAYLAND) return;
         if (lease.suspending) { await lease.suspending; lease.suspending = null; }
         if (lease.cancelled) throw new Error('window_unavailable');
         if (lease.opening) { await lease.opening; return; }
@@ -95,7 +95,7 @@ export default class PaneFerry extends Extension {
             await lease.output.open(lease.scale);
             if (lease.cancelled) throw new Error('window_unavailable');
             if (lease.canvas) {
-                lease.scene = new ApplicationScene(lease.output, () => this.scope(lease.root));
+                lease.scene = new ApplicationScene(lease.output, () => this.scope(lease.root, true));
                 lease.scene.starting = lease.scene.start();
                 await lease.scene.starting;
             }
@@ -119,7 +119,7 @@ export default class PaneFerry extends Extension {
         const monitor = global.display.get_monitor_geometry(w.get_monitor());
         const parent = w.get_transient_for();
         const app = Shell.WindowTracker.get_default().get_window_app(w);
-        return {bridge_version: 6, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
+        return {bridge_version: 7, id: String(w.get_id()), window_id: w.get_stable_sequence(), pid: w.get_pid(),
             window_kind: windowKind(w, Meta.WindowType), stack_order: order,
             app_id: app?.get_id() ?? '', name: app?.get_name() ?? w.get_wm_class() ?? '',
             title: Array.from(w.get_title() ?? '').slice(0, 256).join(''), native: w.get_client_type() === Meta.WindowClientType.WAYLAND,
@@ -131,12 +131,14 @@ export default class PaneFerry extends Extension {
             parent_id: parent?.get_stable_sequence() ?? null, minimized: w.minimized,
             scale: w.get_compositor_private()?.get_resource_scale() ?? 1};
     }
-    scope(root) {
+    scope(root, composed = false) {
         // X11 geometry leases serve the XComposite backend, which cannot
         // capture native Wayland transients (for example portal dialogs).
         // Stop at that boundary, including any descendants owned by the native
         // dialog. Its independent PipeWire lease can capture the whole subtree.
-        const x11Only = root?.get_client_type() === Meta.WindowClientType.X11;
+        // Composed scenes clone compositor actors and can include native portal
+        // dialogs. Ordinary XComposite leases must retain their X11 boundary.
+        const x11Only = !composed && root?.get_client_type() === Meta.WindowClientType.X11;
         return this.windows().filter(w => {
             const seen = new Set();
             for (let at = w; at && !seen.has(at); at = at.get_transient_for()) {
@@ -176,12 +178,11 @@ export default class PaneFerry extends Extension {
             else if (r.op === 'acquire') {
                 const root = this.windows().find(w => String(w.get_id()) === r.id && w.get_pid() === r.pid);
                 if (!root) throw new Error('window_unavailable');
-                const selected = this.scope(root);
-                if ([...this.leases.values()].some(l => this.scope(l.root).some(w => selected.includes(w)))) throw new Error('session_controlled');
+                const selected = this.scope(root, !!r.scene);
+                if ([...this.leases.values()].some(l => this.scope(l.root, !!l.canvas).some(w => selected.includes(w)))) throw new Error('session_controlled');
                 if (this.leases.size >= 16) throw new Error('session_limit');
                 const token = GLib.uuid_string_random();
-                if (r.scene && (root.get_client_type() !== Meta.WindowClientType.WAYLAND ||
-                    ![r.scene.width, r.scene.height].every(Number.isInteger) ||
+                if (r.scene && (![r.scene.width, r.scene.height].every(Number.isInteger) ||
                     r.scene.width < 640 || r.scene.height < 480 || r.scene.width > 4096 || r.scene.height > 4096 ||
                     r.scene.width * r.scene.height > 8000000 || r.scene.width % (r.scale ?? 2) || r.scene.height % (r.scale ?? 2)))
                     throw new Error('invalid_dimensions');
@@ -218,7 +219,7 @@ export default class PaneFerry extends Extension {
                     const ready = this.prepareOutput(lease);
                     if (ready) await ready;
                     if (this.leases.get(r.token) !== lease) throw new Error('window_unavailable');
-                    const scope = this.scope(lease.root);
+                    const scope = this.scope(lease.root, !!lease.canvas);
                     let w = r.xwindow ? scope.find(window => window.get_client_type() === Meta.WindowClientType.X11 && window.xwindow === r.xwindow)
                         : scope.find(window => window.get_stable_sequence() === r.window_id);
                     if (lease.scene && r.op === 'commit_text') w = lease.scene.focus();
@@ -304,7 +305,7 @@ export default class PaneFerry extends Extension {
                         else if (r.op === 'commit_text') {
                             if (typeof r.text !== 'string' || !r.text || new TextEncoder().encode(r.text).length > 8192 || r.text.includes('\0')) throw new Error('invalid_text');
                             const method = await this.textInput.commit(w, r.text, () => this.leases.get(r.token) === lease &&
-                                !Main.sessionMode.isLocked && this.scope(lease.root).includes(w));
+                                !Main.sessionMode.isLocked && this.scope(lease.root, !!lease.canvas).includes(w));
                             result = {method};
                         } else if (r.op === 'set_text') {
                             result = this.setClipboardText(r.text);

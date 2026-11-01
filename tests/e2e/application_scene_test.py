@@ -7,7 +7,7 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 
-def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scale=1):
+def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scale=1, x11=False):
     Gst.init(None)
     pipeline = Gst.parse_launch('appsrc name=input format=time is-live=true caps=video/x-h264,stream-format=byte-stream,alignment=au ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=RGB ! appsink name=output sync=false max-buffers=1 drop=true')
     source, sink = pipeline.get_by_name('input'), pipeline.get_by_name('output')
@@ -24,7 +24,8 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
     def inventory():
         return [w for w in bridge.call(op='list')['result'] if w['pid'] == app.pid]
     root = next(w for w in inventory() if w['parent_id'] is None)
-    target = next(w for w in peer.request('window.list')['windows'] if w['window_id'] == root['window_id'])
+    target = next(w for w in peer.request('window.list')['windows'] if w['window_id'] == (root['xwindow'] if x11 else root['window_id']))
+    assert target['application_scene'], target
     root_id = root['window_id']; canvas = {'width': 1600 * scale, 'height': 900 * scale}
     metadata = {}
     def collect(predicate):
@@ -65,6 +66,14 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
         started = peer.request('app.launch', 'session.started', app_id=target['id'], request_id='application-scene',
                                backend='native', scale_factor=scale, scene=canvas)
         assert collect(lambda c: c['light'] > 100)['light'] > 100
+        listed = next(w for w in peer.request('window.list')['windows'] if w['id'] == target['id'])
+        assert listed['controlled'] and listed['session_id'] == started['session_id'], listed
+        rival = Peer(sock)
+        try:
+            rival.send(type='app.launch', app_id=target['id'], request_id='scene-rival', backend='native')
+            assert rival.until('error')['code'] == 'session_controlled'
+        finally:
+            rival.close()
         point = wait(lambda: bridge.call(op='test_scene_point', x=800*scale, y=450*scale).get('result'))
         assert 'x' in point and 'y' in point, point
         action('open')
@@ -114,11 +123,24 @@ def verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, scal
         try:
             switched.request('app.launch', 'session.started', app_id=target['id'], request_id='scene-to-windows', backend='native', scale_factor=scale)
             window = switched.until('window.created')
-            assert window.get('surface_type') != 'session' and window['window_id'] == root_id
+            assert window.get('surface_type') != 'session' and window['window_id'] == (root['xwindow'] if x11 else root_id)
             switched.until('frame')
         finally: switched.close()
         wait(lambda: monitor_layout() == baseline)
+        if x11:
+            # An already-created raw-X11 session must also be switchable back
+            # to the compositor path without claiming or closing another app.
+            switched_back = Peer(sock)
+            try:
+                switched_back.request('app.launch', 'session.started', app_id=target['id'],
+                                      request_id='windows-to-scene', backend='native', scale_factor=scale, scene=canvas)
+                restored = switched_back.until('window.created')
+                assert restored['surface_type'] == 'session'
+                assert switched_back.until('frame')['key_frame']
+            finally:
+                switched_back.close()
+            wait(lambda: monitor_layout() == baseline)
         assert app.poll() is None
-        print('PASS: one native scene/stream for root, dialog and nested menus; unrelated same-PID window excluded; popup churn and fresh animated frames after retired-output reconnect; output cleanup preserves app', flush=True)
+        print(f'PASS: one {"XWayland" if x11 else "Wayland"} scene/stream for root, dialog and nested menus; unrelated same-PID window excluded; popup churn and fresh animated frames after retired-output reconnect; output cleanup preserves app', flush=True)
     finally:
         action('close'); bridge.close(); pipeline.set_state(Gst.State.NULL)

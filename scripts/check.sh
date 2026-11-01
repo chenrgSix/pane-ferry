@@ -16,6 +16,7 @@ python3 tests/e2e/linux_receiver_boundaries.py
 python3 tests/e2e/native_routes_smoke.py
 if command -v node >/dev/null; then
   node tests/unit/application_scene.mjs
+  node tests/unit/compositor_scope.mjs
   node tests/unit/virtual_output_lifecycle.mjs
   node tests/unit/window_presentation.mjs
   node tests/unit/bridge_scheduling.mjs

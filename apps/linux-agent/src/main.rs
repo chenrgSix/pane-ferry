@@ -803,8 +803,21 @@ fn launch(
             drop(s);
             return Ok(session);
         }
-        if !s.wayland || s.existing.is_none() {
+        if s.existing.is_none() || s.root_window.is_none() {
             bail!("session_mode_conflict")
+        }
+        if !s.wayland {
+            // Do not retire a detached raw-X11 session until the requested
+            // compositor presentation has passed its read-only capability check.
+            let source = st
+                .running
+                .get(app_id)
+                .context("application_scene_unavailable")?;
+            let desktop = discovery::desktops(&st.desktop, &[])
+                .into_iter()
+                .next()
+                .context("desktop_input_unavailable")?;
+            wayland::x11_scene_target(source, &desktop, &st.desktop_apps)?;
         }
         let old_id = s.id.clone();
         s.exited = true; // Concurrent resume must not acquire the retiring lease.
@@ -871,15 +884,47 @@ fn launch(
     } else {
         Some(app_id.to_owned())
     };
-    if let Some(target) = target_id
+    let native_target = target_id
         .as_ref()
         .and_then(|id| st.wayland_running.get(id))
-        .cloned()
-    {
+        .cloned();
+    let scene_source = if scene.is_some() && native_target.is_none() {
+        target_id
+            .as_ref()
+            .and_then(|id| st.running.get(id))
+            .cloned()
+    } else {
+        None
+    };
+    let scene_target = if let Some(source) = &scene_source {
+        let desktop = discovery::desktops(&st.desktop, &[])
+            .into_iter()
+            .next()
+            .context("desktop_input_unavailable")?;
+        Some(wayland::x11_scene_target(
+            source,
+            &desktop,
+            &st.desktop_apps,
+        )?)
+    } else {
+        None
+    };
+    if let Some(target) = native_target.or(scene_target) {
         for session in st.sessions.values().cloned().collect::<Vec<_>>() {
             let mut s = session.lock().unwrap();
             if s.desktop_monitor.is_some() {
                 continue;
+            }
+            if scene_source.as_ref().is_some_and(|source| {
+                !s.wayland
+                    && s.display == source.desktop.display
+                    && (s
+                        .backend
+                        .as_ref()
+                        .is_some_and(|backend| backend.includes_window(source.window_id))
+                        || s.existing.as_ref() == Some(&source.identity) && s.root_window.is_none())
+            }) {
+                bail!("session already controlled")
             }
             if s.wayland
                 && s.existing.as_ref() == Some(&target.identity)
@@ -1763,35 +1808,60 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                             .collect();
                         let (running, connected) =
                             discovery::running(&sources, &st.desktop_apps, &excluded)?;
-                        let native = wayland::inventory(&st.desktop_apps);
+                        let native = wayland::compositor_inventory(&st.desktop_apps);
                         let native_connected = native.is_ok();
-                        st.wayland_running = native
-                            .unwrap_or_default()
-                            .into_iter()
+                        let all_compositor = native.unwrap_or_default();
+                        let graphical = discovery::desktops(&st.desktop, &[]).into_iter().next();
+                        let x11_scenes: HashMap<_, _> = all_compositor
+                            .iter()
+                            .filter(|t| !t.info.native)
+                            .filter_map(|t| t.info.xwindow.map(|xid| (xid, t)))
+                            .collect();
+                        st.wayland_running = all_compositor
+                            .iter()
+                            .filter(|t| t.info.native)
+                            .cloned()
                             .map(|t| (t.id(), t))
                             .collect();
                         let mut windows: Vec<_> = running
                             .values()
                             .map(|target| {
+                                let compositor = x11_scenes.get(&target.window_id).filter(|t| {
+                                    t.identity == target.identity
+                                        && graphical.as_ref() == Some(&target.desktop)
+                                });
                                 let existing_session = st.sessions.values().find_map(|session| {
                                     let session = session.lock().unwrap();
                                     (session.desktop_monitor.is_none()
-                                        && !session.wayland
-                                        && session.display == target.desktop.display
-                                        && (session.backend.as_ref().is_some_and(|backend| {
-                                            backend.includes_window(target.window_id)
-                                        }) || session.existing.as_ref()
-                                            == Some(&target.identity)
-                                            && (session.root_window.is_none()
-                                                || session.root_window == Some(target.window_id))))
+                                        && (if session.wayland {
+                                            compositor.is_some_and(|t| {
+                                                session.backend.as_ref().is_some_and(|b| {
+                                                    b.includes_window(t.info.window_id)
+                                                })
+                                            })
+                                        } else {
+                                            session.display == target.desktop.display
+                                                && (session.backend.as_ref().is_some_and(
+                                                    |backend| {
+                                                        backend.includes_window(target.window_id)
+                                                    },
+                                                ) || session.existing.as_ref()
+                                                    == Some(&target.identity)
+                                                    && (session.root_window.is_none()
+                                                        || session.root_window
+                                                            == Some(target.window_id)))
+                                        }))
                                     .then_some((session.id.clone(), session.controller))
                                 });
-                                target.public(
+                                let mut value = target.public(
                                     existing_session
                                         .as_ref()
                                         .is_some_and(|(_, controlled)| *controlled),
                                     existing_session.map(|(id, _)| id),
-                                )
+                                );
+                                value["application_scene"] =
+                                    json!(compositor.is_some_and(|t| t.info.bridge_version >= 7));
+                                value
                             })
                             .collect();
                         windows.extend(st.wayland_running.values().map(|target| {
