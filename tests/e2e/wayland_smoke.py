@@ -35,6 +35,9 @@ p.add_argument('--app-artifact-dir', type=Path,
                help='write only isolated-app frames to this existing directory')
 p.add_argument('--window-lifecycle-only', action='store_true', help='test close/acquire/release in the private compositor only')
 p.add_argument('--application-scene-only', action='store_true', help='test one scoped compositor stream')
+p.add_argument('--desktop-only', action='store_true', help='test a complete private desktop, cursor, popups and reconnect')
+p.add_argument('--desktop-size', choices=('1600x900', '3840x2160', '2160x3840'), default='1600x900',
+               help='private monitor dimensions for --desktop-only')
 p.add_argument('--scroll-benchmark-output', type=Path, help='measure a synthetic 2940x1618 native scrolling scene instead of functional checks')
 p.add_argument('--x11-scroll-benchmark-output', type=Path, help='measure a test-owned XWayland scrolling window in this private compositor')
 p.add_argument('--window-tree-only', action='store_true', help='test generic dialogs, nested popups and short-lived capture in the private compositor')
@@ -82,6 +85,7 @@ if not a.private_bus:
             *(['--video-activity-only'] if a.video_activity_only else []),
             *(['--read-only-discovery-only'] if a.read_only_discovery_only else []),
             *(['--application-scene-only'] if a.application_scene_only else []),
+            *(['--desktop-only', '--desktop-size', a.desktop_size] if a.desktop_only else []),
             *(['--scroll-benchmark-output', str(a.scroll_benchmark_output.resolve())] if a.scroll_benchmark_output else []),
             *(['--x11-scroll-benchmark-output', str(a.x11_scroll_benchmark_output.resolve())] if a.x11_scroll_benchmark_output else []),
             *(['--extension-dir', str(a.extension_dir.resolve())] if a.extension_dir else [])], env=isolated_env))
@@ -161,6 +165,33 @@ try:
         (runtime/'pipewire-0').symlink_to(Path(os.environ['XDG_RUNTIME_DIR'])/'pipewire-0')
         ext=data/'gnome-shell/extensions/paneferry@local';ext.parent.mkdir(parents=True)
         shutil.copytree(a.extension_dir or root/'apps/linux-agent/gnome-extension',ext)
+        if a.desktop_only:
+            # Private compositor only: move a virtual pointer over a known flat
+            # background so decoded H264 can prove the cursor is embedded.
+            extension = ext/'extension.js'
+            source = extension.read_text().replace("import Gio from 'gi://Gio';",
+                "import Gio from 'gi://Gio';\nimport Clutter from 'gi://Clutter';\nimport Cogl from 'gi://Cogl';")
+            source = source.replace('const r = JSON.parse(encoded);', '''const r = JSON.parse(encoded);
+            if (r.op === 'test_desktop_setup') {
+                Main.overview.hide();
+                const w = this.windows().find(w => w.get_pid() === r.pid);
+                if (!w) throw new Error('window_unavailable');
+                Main.activateWindow(w);
+                const area = global.display.get_monitor_geometry(w.get_monitor());
+                this.testBackground ??= new Clutter.Actor({reactive: false,
+                    background_color: new Cogl.Color({red: 128, green: 128, blue: 128, alpha: 255})});
+                if (!this.testBackground.get_parent()) global.stage.add_child(this.testBackground);
+                this.testBackground.set_position(area.x + area.width - 500, area.y + area.height - 250);
+                this.testBackground.set_size(440, 160);
+                this.testPointer ??= Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+                this.testPointer.notify_absolute_motion(GLib.get_monotonic_time(), 20, 100);
+                invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result: {x: area.x, y: area.y, width: area.width, height: area.height}})])); return;
+            }
+            if (r.op === 'test_desktop_pointer') {
+                this.testPointer.notify_absolute_motion(GLib.get_monotonic_time(), r.x, r.y);
+                invocation.return_value(new GLib.Variant('(s)', [JSON.stringify({result: {}})])); return;
+            }''')
+            extension.write_text(source)
         if a.x11_scroll_benchmark_output:
             # Private compositor only: startup overview otherwise obscures the
             # X11 fixture and suppresses its Present/GTK redraw callbacks.
@@ -236,9 +267,9 @@ try:
         with (t/'fixture.log').open('w') as log:
             start(['Xvfb',f':{display}','-screen','0','1600x900x24','-nolisten','tcp','-auth',str(authority)],env,log)
             wait(lambda:Path(f'/tmp/.X11-unix/X{display}').exists())
-            shell=start(['gnome-shell','--headless','--wayland',*(['--no-x11'] if not a.with_xwayland else []),'--wayland-display',wayland,'--virtual-monitor','1600x900'],env,log)
+            shell=start(['gnome-shell','--headless','--wayland',*(['--no-x11'] if not a.with_xwayland else []),'--wayland-display',wayland,'--virtual-monitor',a.desktop_size if a.desktop_only else '1600x900'],env,log)
             wait(lambda:(runtime/wayland).exists())
-            app=start(['/usr/bin/python3',str(fixture),str(state),'--delayed-paste', *(['--window-tree'] if a.window_tree_only or a.application_scene_only else [])],dict(env,GDK_BACKEND='wayland'),log)
+            app=start(['/usr/bin/python3',str(fixture),str(state),'--delayed-paste', *(['--window-tree'] if a.window_tree_only or a.application_scene_only or a.desktop_only else [])],dict(env,GDK_BACKEND='wayland'),log)
             try:
                 wait(state.exists, seconds=60)
             except Exception:
@@ -278,6 +309,15 @@ try:
                     from application_scene_test import verify
                     try:
                         verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout, a.logical_wayland_scale)
+                    except Exception:
+                        print((t/'fixture.log').read_text(errors='replace')[-10000:], file=sys.stderr)
+                        raise
+                    raise SystemExit(0)
+                if a.desktop_only:
+                    from desktop_monitor_test import verify
+                    try:
+                        verify(peer, sock, env, state, app, wait, Peer, Bridge, monitor_layout,
+                               tuple(map(int, a.desktop_size.split('x'))))
                     except Exception:
                         print((t/'fixture.log').read_text(errors='replace')[-10000:], file=sys.stderr)
                         raise

@@ -370,8 +370,8 @@ impl PipeWireCapture {
     ) -> Result<Option<Frame>> {
         self.pull_inner(Some((frame, expected_buffer, display_scale)))
     }
-    /// A monitor stream has no window crop. Preserve its actual captured pixels;
-    /// the caller updates geometry before publishing a frame after a mode change.
+    /// A monitor stream has no window crop. Oversized screens fit the encoded
+    /// canvas; the caller publishes its geometry before the matching pixels.
     pub fn pull_monitor(&self) -> Result<Option<Frame>> {
         self.pull_inner(None)
     }
@@ -486,7 +486,12 @@ impl PipeWireCapture {
                 }
                 None => [0, 0, crop_width, crop_height],
             };
-            paneferry_protocol::dimensions(frame_width, frame_height)?;
+            let destination = if window.is_none() {
+                monitor_canvas(frame_width, frame_height)?
+            } else {
+                paneferry_protocol::dimensions(frame_width, frame_height)?;
+                (frame_width, frame_height)
+            };
             if crop_x > width as u32
                 || crop_y > height as u32
                 || left.saturating_add(frame_width) > crop_width
@@ -503,7 +508,11 @@ impl PipeWireCapture {
             };
             let mut converter = self.converter.borrow_mut();
             if converter.as_ref().is_none_or(|c| c.spec != spec) {
-                let mut next = CropConverter::new(self.api, spec)?;
+                let mut next = if window.is_none() {
+                    CropConverter::scaled(self.api, spec, destination)?
+                } else {
+                    CropConverter::new(self.api, spec)?
+                };
                 next.wake(self.wake.clone())?;
                 *converter = Some(next);
             }
@@ -592,6 +601,30 @@ pub struct Packet {
 fn bitrate(width: u32, height: u32, fps: u8) -> u32 {
     (u64::from(width) * u64::from(height) * 6 * u64::from(fps) / 60).clamp(4_000_000, 48_000_000)
         as u32
+}
+
+/// Bound the encoded desktop independently of physical capture. Ordinary
+/// screens retain their pixels; larger screens fit without changing display mode.
+pub(crate) fn monitor_canvas(width: u32, height: u32) -> Result<(u32, u32)> {
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || u64::from(width) * u64::from(height) > 32_000_000
+    {
+        bail!("desktop_monitor_unavailable")
+    }
+    if paneferry_protocol::dimensions(width, height).is_ok() {
+        return Ok((width, height));
+    }
+    let scale = (4096.0 / f64::from(width))
+        .min(4096.0 / f64::from(height))
+        .min((8_000_000.0 / (f64::from(width) * f64::from(height))).sqrt())
+        .min(1.0);
+    let edge = |value: u32| ((f64::from(value) * scale) as u32 & !1).max(1);
+    let result = (edge(width), edge(height));
+    paneferry_protocol::dimensions(result.0, result.1)?;
+    Ok(result)
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EncoderKind {

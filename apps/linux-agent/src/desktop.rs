@@ -3,7 +3,7 @@
 use crate::{
     backend::WindowBackend,
     discovery,
-    video::{FrameWake, PipeWireCapture},
+    video::{monitor_canvas, FrameWake, PipeWireCapture},
 };
 use anyhow::{bail, Context, Result};
 use paneferry_backend_x11::{Backend as X11, CopiedText, DesktopInput};
@@ -62,8 +62,7 @@ impl Monitor {
         {
             bail!("desktop_monitor_unavailable")
         }
-        paneferry_protocol::dimensions(self.width, self.height)
-            .map_err(|_| anyhow::anyhow!("desktop_monitor_unavailable"))
+        monitor_canvas(self.width, self.height).map(|_| ())
     }
     pub fn public(&self) -> Value {
         json!({"id":self.id,"name":self.name,"width":self.width,
@@ -167,6 +166,7 @@ impl Backend {
         let keymap =
             X11::connect_existing(desktop.display, &desktop.authority, std::process::id())?;
         let title = format!("Ubuntu 桌面 · {}", monitor.name);
+        let (width, height) = monitor_canvas(monitor.width, monitor.height)?;
         let windows = HashMap::from([(
             WINDOW_ID,
             Window {
@@ -177,8 +177,8 @@ impl Backend {
                 role: "desktop".into(),
                 x: 0,
                 y: 0,
-                width: monitor.width,
-                height: monitor.height,
+                width,
+                height,
                 scale_factor: 1,
                 geometry_revision: 1,
                 visible: true,
@@ -477,6 +477,60 @@ impl WindowBackend for Backend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_desktop_canvases_fit_without_cropping_and_route_scaled_edges() {
+        for (width, height) in [(3840, 2160), (2160, 3840), (5120, 1440), (7680, 2160)] {
+            let (w, h) = monitor_canvas(width, height).unwrap();
+            assert!(w <= 4096 && h <= 4096 && w * h <= 8_000_000);
+            assert!(w <= width && h <= height);
+            assert!(
+                (f64::from(w) / f64::from(width) - f64::from(h) / f64::from(height)).abs()
+                    <= 2.0 / f64::from(width.min(height))
+            );
+            let monitor = Monitor {
+                id: "DP-4".into(),
+                name: "Large panel".into(),
+                width,
+                height,
+                logical_width: width / 2,
+                logical_height: height / 2,
+                x: -(width as i32) / 2,
+                y: -50,
+                primary: true,
+            };
+            monitor.validate().unwrap();
+            let window = Window {
+                window_id: WINDOW_ID,
+                parent_id: None,
+                title: String::new(),
+                presentation: None,
+                role: "desktop".into(),
+                x: 0,
+                y: 0,
+                width: w,
+                height: h,
+                scale_factor: 1,
+                geometry_revision: 1,
+                visible: true,
+            };
+            assert_eq!(
+                pointer_on_monitor(&monitor, &window, 0, 0).unwrap(),
+                (monitor.x, -50)
+            );
+            let (x, y) = pointer_on_monitor(&monitor, &window, w as i32 - 1, h as i32 - 1).unwrap();
+            assert!((-2..0).contains(&x));
+            assert!(
+                (monitor.logical_height as i32 - 52..monitor.logical_height as i32 - 50)
+                    .contains(&y)
+            );
+            assert!(pointer_on_monitor(&monitor, &window, w as i32, 0).is_err());
+        }
+        for (w, h) in [(0, 1080), (8193, 1080), (8192, 4096), (7680, 4320)] {
+            assert!(monitor_canvas(w, h).is_err());
+        }
+        assert_eq!(monitor_canvas(1470, 809).unwrap(), (1470, 809));
+    }
 
     #[test]
     fn retina_monitor_and_negative_origin_map_only_inside_the_selected_screen() {

@@ -217,6 +217,7 @@ pub(super) struct CropSpec {
 }
 pub(super) struct CropConverter {
     pub spec: CropSpec,
+    destination: (u32, u32),
     api: &'static Api,
     pipeline: Object,
     source: Object,
@@ -225,33 +226,44 @@ pub(super) struct CropConverter {
 }
 impl CropConverter {
     pub fn new(api: &'static Api, spec: CropSpec) -> Result<Self> {
-        let [x, y, width, height] = spec.region;
+        Self::scaled(api, spec, (spec.region[2], spec.region[3]))
+    }
+    pub fn scaled(api: &'static Api, spec: CropSpec, destination: (u32, u32)) -> Result<Self> {
+        let [x, y, source_width, source_height] = spec.region;
+        let (width, height) = destination;
         paneferry_protocol::dimensions(width, height)?;
-        if x.checked_add(width).is_none_or(|n| n > spec.source_width)
-            || y.checked_add(height).is_none_or(|n| n > spec.source_height)
+        if width > source_width
+            || height > source_height
+            || x.checked_add(source_width)
+                .is_none_or(|n| n > spec.source_width)
+            || y.checked_add(source_height)
+                .is_none_or(|n| n > spec.source_height)
         {
             bail!("invalid PipeWire crop")
         }
         // 1.28.2 does not consume CropMeta itself. Explicit converter regions
-        // work there too. Destination pixels are never scaled; odd dimensions
-        // use the converter's black border in the even-sized I420 allocation.
+        // work there too. Only oversized desktops request scaling; window crops
+        // retain their pixels. Odd edges use black padding in the I420 allocation.
         let description = CString::new(format!(
             "appsrc name=source is-live=true format=time block=false max-buffers=1 leaky-type=downstream \
              caps=video/x-raw,format=BGRx,width={},height={},framerate=60/1 \
              ! videoconvertscale converter-config=\"GstVideoConverter, \
              GstVideoConverter.src-x=(int){x}, GstVideoConverter.src-y=(int){y}, \
-             GstVideoConverter.src-width=(int){width}, GstVideoConverter.src-height=(int){height}, \
+             GstVideoConverter.src-width=(int){source_width}, GstVideoConverter.src-height=(int){source_height}, \
              GstVideoConverter.dest-width=(int){width}, GstVideoConverter.dest-height=(int){height}\" \
              ! video/x-raw,format=I420,width={},height={} \
              ! appsink name=sink sync=false max-buffers=1 drop=true enable-last-sample=false emit-signals=true",
             spec.source_width, spec.source_height, width + width % 2, height + height % 2))?;
-        Self::from_description(api, spec, description)
+        let mut converter = Self::from_description(api, spec, description)?;
+        converter.destination = destination;
+        Ok(converter)
     }
     fn from_description(api: &'static Api, spec: CropSpec, description: CString) -> Result<Self> {
         let mut error = ptr::null_mut();
         let pipeline = unsafe { (api.parse)(description.as_ptr(), &mut error) };
         let mut converter = Self {
             spec,
+            destination: (spec.region[2], spec.region[3]),
             api,
             pipeline,
             source: ptr::null_mut(),
@@ -320,7 +332,7 @@ impl CropConverter {
         }
         let sample = Sample(sample, self.api);
         let output = unsafe { (self.api.sample_buffer)(sample.0) };
-        let [_, _, width, height] = self.spec.region;
+        let (width, height) = self.destination;
         if output.is_null() {
             bail!("missing converted frame")
         }

@@ -57,11 +57,23 @@ class MonitorListTests(unittest.TestCase):
         ])
 
     def test_invalid_or_oversized_monitors_are_not_advertised(self):
-        state = (1, [physical('../bad', 1920, 1080), physical('DP-2', 4096, 3000)],
+        state = (1, [physical('../bad', 1920, 1080), physical('DP-2', 8192, 4096)],
                  [(0, 0, 1.0, 0, True, [('../bad', '', '', '')], {}),
                   (0, 0, 1.0, 0, False, [('DP-2', '', '', '')], {})],
                  {'layout-mode': 1})
         self.assertEqual(module.monitor_list(state), [])
+
+    def test_large_desktops_keep_their_native_identity_and_geometry(self):
+        for width, height in [(3840, 2160), (2160, 3840), (5120, 1440), (7680, 2160)]:
+            with self.subTest(size=(width, height)):
+                state = (1, [physical('DP-4', width, height)],
+                         [(-width // 2, 0, 2.0, 0, True,
+                           [('DP-4', 'Vendor', 'Panel', 'Serial')], {})], {'layout-mode': 1})
+                result = module.monitor_list(state)
+                self.assertEqual(len(result), 1)
+                self.assertEqual((result[0]['width'], result[0]['height']), (width, height))
+                self.assertEqual(result[0]['logical_width'], width // 2)
+                self.assertEqual(result[0]['x'], -width // 2)
 
 
 if __name__ == '__main__':

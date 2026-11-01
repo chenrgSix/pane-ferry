@@ -43,8 +43,8 @@ def monitor_list(state):
         logical_height = round(height / scale) if layout == 1 else height
         if (not connector or not connector.isascii()
                 or not connector.replace('-', '').replace('_', '').isalnum()
-                or len(connector) > 90 or not 0 < width <= 4096 or not 0 < height <= 4096
-                or width * height > 8_000_000
+                or len(connector) > 90 or not 0 < width <= 8192 or not 0 < height <= 8192
+                or width * height > 32_000_000
                 or not 0 < logical_width <= 8192 or not 0 < logical_height <= 8192):
             continue
         name = value(properties.get('display-name', product or connector))
@@ -103,7 +103,9 @@ def main():
                        GLib.Variant('(a{sv})', ({},)))[0]
         try:
             stream = call(cast, session, cast + '.Session', 'RecordMonitor',
-                          GLib.Variant('(sa{sv})', (connector, {'cursor-mode': GLib.Variant('u', 0)})))[0]
+                          # A desktop includes its pointer. Application-only
+                          # streams keep their existing independent cursor policy.
+                          GLib.Variant('(sa{sv})', (connector, {'cursor-mode': GLib.Variant('u', 1)})))[0]
             nodes = []
             signal = bus.signal_subscribe(cast, cast + '.Stream', 'PipeWireStreamAdded',
                                           stream, None, Gio.DBusSignalFlags.NONE,
