@@ -76,7 +76,7 @@ jobs:
             codesign --verify --deep --strict "$part"
             test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$part/Contents/Info.plist")" = "$version"
           done
-          lipo -verify_arch arm64 "$app/Contents/MacOS/paneferry-launcher"
+          lipo "$app/Contents/MacOS/paneferry-launcher" -verify_arch arm64
           python3 scripts/release-manifest.py macos 'dist/*-macos-arm64.zip'
       - uses: actions/upload-artifact@v4
         with:
