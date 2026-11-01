@@ -506,9 +506,9 @@ class Viewer:
             viewer = self.members.get(wid); parent = self.members.get(metadata.get('parent_id'))
             if not viewer or not viewer.overlay or not parent or not parent.view.get_window(): continue
             origin = parent.view.get_window().get_origin()[-2:]
-            allocation = parent.view.get_allocation(); source=parent.presentation; target=viewer.presentation
-            sx,sy = allocation.width/source['width'],allocation.height/source['height']
-            viewer.window.move(round(origin[0]+(target['x']-source['x'])*sx),round(origin[1]+(target['y']-source['y'])*sy))
+            left,top,width,height=parent.content_rect(); source=parent.presentation; target=viewer.presentation
+            sx,sy = width/source['width'],height/source['height']
+            viewer.window.move(round(origin[0]+left+(target['x']-source['x'])*sx),round(origin[1]+top+(target['y']-source['y'])*sy))
             viewer.window.resize(max(1,round(target['width']*sx)),max(1,round(target['height']*sy)))
             if metadata.get('visible',True) and parent.window.get_visible(): viewer.window.show_all()
             else: viewer.window.hide()

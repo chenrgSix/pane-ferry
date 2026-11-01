@@ -19,6 +19,7 @@ from gi.repository import Gtk, GLib, Gio, Gdk, GdkPixbuf
 from wire import STATE, Wire, peers, private, request, save, message
 from windowhost import Viewer
 import network
+import audio
 from runtime import start_agent
 
 
@@ -53,7 +54,7 @@ class Manager(Gtk.Application):
         self.window = None; self.selected = None; self.catalogs = {}; self.viewers = []; self.revision = 0
         self.pending_launches = {}; self.peer_keys = []; self.peer_timer = None; self.launching=set(); self.updating_options=False
         self.preferences_path = STATE / 'linux-preferences.json'
-        self.preferences = {}; self.takeover_seen = {}; self.takeover_busy = set(); self.catalog_windows = {}
+        self.preferences = {}; self.takeover_seen = {}; self.takeover_busy = set(); self.takeover_retry={}; self.catalog_windows = {}
         try:
             if not self.preferences_path.is_symlink() and self.preferences_path.stat().st_size<=64*1024:
                 value=json.loads(self.preferences_path.read_text())
@@ -64,6 +65,10 @@ class Manager(Gtk.Application):
         self.application_scene = self.preferences.get('application_scene') is True
         values=self.preferences.get('takeover',[])
         self.takeover = {p for p in values[:32] if isinstance(p,str) and p.startswith('quic:')} if isinstance(values,list) else set()
+        values=self.preferences.get('audio',[])
+        self.audio_enabled={p for p in values[:32] if isinstance(p,str) and p.startswith('quic:')} if isinstance(values,list) else set()
+        self.audio_states={}; self.audio=audio.Service(lambda *args:GLib.idle_add(self.audio_changed,*args))
+        self.connect('shutdown',lambda *_:self.audio.stop())
         self.store = STATE / 'catalog-cache.json'
         try:
             if self.store.stat().st_size <= 8 * 1024 * 1024 and not self.store.is_symlink():
@@ -129,6 +134,7 @@ class Manager(Gtk.Application):
         self.full_color=Gtk.CheckButton(label='完整色彩（下次连接生效）'); self.full_color.set_active(self.video_color!='420')
         self.source_option=Gtk.CheckButton(label='保持远端原尺寸'); self.source_option.set_active(self.source_size)
         self.scene_option=Gtk.CheckButton(label='合并应用菜单和弹窗'); self.scene_option.set_active(self.application_scene)
+        self.scene_option.set_sensitive(not self.source_size)
         for option in (self.full_color,self.source_option,self.scene_option):
             option.connect('toggled',self.display_preferences); options.pack_start(option,False,False,0)
         root.pack_start(options,False,False,0)
@@ -138,7 +144,11 @@ class Manager(Gtk.Application):
         device_options.pack_start(self.takeover_option,False,False,0)
         disconnect=Gtk.Button(label='断开所选设备全部画面'); disconnect.connect('clicked',self.disconnect_device)
         device_options.pack_start(disconnect,False,False,0)
+        self.audio_option=Gtk.CheckButton(label='接收所选设备系统声音'); self.audio_option.connect('toggled',self.audio_toggled)
+        device_options.pack_start(self.audio_option,False,False,0)
         root.pack_start(device_options,False,False,0)
+        self.audio_status=Gtk.Label(label='系统声音默认关闭，按设备单独设置',xalign=0)
+        root.pack_start(self.audio_status,False,False,0)
         self.notice = Gtk.Label(label='使用设备邀请建立双向连接，可同时使用多台已配对设备的应用。', xalign=0)
         self.notice.set_line_wrap(True);root.pack_start(self.notice, False, False, 0)
         scroll = Gtk.ScrolledWindow(); self.rows = Gtk.ListBox(); self.rows.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -160,6 +170,9 @@ class Manager(Gtk.Application):
             self.peer_timer = None
             return False
         self.refresh_peers()
+        known={p['connection_id'] for p in peers()}
+        for peer in self.audio_enabled | set(self.audio.subscriptions):
+            self.audio.set(peer,peer in self.audio_enabled and peer in known)
         for peer in self.takeover:
             if peer in self.takeover_busy or not any(p['connection_id']==peer for p in peers()): continue
             self.takeover_busy.add(peer)
@@ -171,8 +184,20 @@ class Manager(Gtk.Application):
 
     def save_preferences(self):
         self.preferences.update(full_color=self.video_color!='420',source_size=self.source_size,
-            application_scene=self.application_scene,takeover=sorted(self.takeover))
+            application_scene=self.application_scene,takeover=sorted(self.takeover),audio=sorted(self.audio_enabled))
         save(self.preferences_path,self.preferences)
+
+    def audio_toggled(self,*_):
+        if not self.selected or self.updating_options: return
+        if self.audio_option.get_active(): self.audio_enabled.add(self.selected)
+        else: self.audio_enabled.discard(self.selected)
+        self.save_preferences(); self.audio.set(self.selected,self.selected in self.audio_enabled)
+
+    def audio_changed(self,peer,state,text):
+        self.audio_states[peer]=(state,text)
+        if self.window and peer==self.selected:
+            self.audio_status.set_text(text if peer in self.audio_enabled else '系统声音已关闭')
+        return False
 
     def display_preferences(self,*_):
         self.video_color='444-atlas-v2' if self.full_color.get_active() else '420'
@@ -198,6 +223,7 @@ class Manager(Gtk.Application):
         for window in windows[:128]:
             identity=window.get('id')
             if (not identity or identity in seen or window.get('controlled')
+                    or self.takeover_retry.get((peer,identity),0)>time.monotonic()
                     or not window.get('auto_connectable',False) or window.get('unavailable_reason')): continue
             if len([v for v in self.viewers if not v.closed.is_set()])>=8: break
             seen.add(identity)
@@ -258,6 +284,8 @@ class Manager(Gtk.Application):
 
     def revoke_device(self, *_):
         if self.selected and self.selected.startswith('quic:'):
+            self.takeover.discard(self.selected); self.audio_enabled.discard(self.selected)
+            self.audio.set(self.selected,False); self.save_preferences()
             self.network_job('revoke', device_id=self.selected[5:])
 
     def update_address(self, *_):
@@ -310,6 +338,8 @@ class Manager(Gtk.Application):
         self.selected = selector.get_active_id(); self.revision += 1
         self.updating_options=True
         self.takeover_option.set_active(self.selected in self.takeover)
+        self.audio_option.set_active(self.selected in self.audio_enabled)
+        self.audio_status.set_text(self.audio_states.get(self.selected,('off','系统声音默认关闭'))[1])
         self.updating_options=False
         if self.selected:
             self.load(False)
@@ -423,11 +453,18 @@ class Manager(Gtk.Application):
                 if str(error) in TERMINAL_LAUNCH_ERRORS:
                     GLib.idle_add(self.clear_pending_launch, key, request_id)
                 GLib.idle_add(self.set_notice, message(error))
+                GLib.idle_add(self.launch_failed,peer,app['id'],str(error))
             finally: GLib.idle_add(self.launch_finished,key)
         threading.Thread(target=start, daemon=True).start()
 
     def launch_finished(self,key):
         self.launching.discard(key); return False
+
+    def launch_failed(self,peer,identity,error):
+        if peer in self.takeover and error not in TERMINAL_LAUNCH_ERRORS:
+            self.takeover_seen.setdefault(peer,set()).discard(identity)
+            self.takeover_retry[peer,identity]=time.monotonic()+5
+        return False
 
     def launch_desktop(self,peer,monitor):
         key=peer+':screen-'+monitor['id']

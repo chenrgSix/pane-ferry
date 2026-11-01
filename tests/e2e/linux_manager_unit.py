@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 from threading import Event
+import time
 
 root = Path(__file__).resolve().parents[2]
 source = ast.parse((root / 'apps/linux-client/main.py').read_text())
@@ -22,7 +23,7 @@ def viewer(application, identity, name, session_id=None, app_id=None):
     created.append(value)
     return value
 
-namespace = dict(peers=lambda: [peer], GLib=SimpleNamespace(source_remove=removed.append), Viewer=viewer)
+namespace = dict(peers=lambda: [peer], GLib=SimpleNamespace(source_remove=removed.append), Viewer=viewer,time=time)
 exec(compile(ast.Module(body=[manager], type_ignores=[]), '<production manager>', 'exec'), namespace)
 Manager = namespace['Manager']
 state = Manager()
@@ -30,7 +31,8 @@ state.window = object()
 state.selected = peer['connection_id']
 state.peer_keys = []
 state.peer_timer = 42
-state.takeover=set(); state.takeover_busy=set(); state.launching=set(); state.catalog_windows={}; state.takeover_seen={}
+state.takeover=set(); state.takeover_busy=set(); state.launching=set(); state.catalog_windows={}; state.takeover_seen={}; state.takeover_retry={}
+state.audio_enabled=set(); state.audio=SimpleNamespace(subscriptions={})
 rows = []
 state.selector = SimpleNamespace(remove_all=rows.clear, append=lambda *item: rows.append(item),
                                  set_active_id=lambda _: None, set_active=lambda _: None)

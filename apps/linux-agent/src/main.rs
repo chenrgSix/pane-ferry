@@ -101,6 +101,7 @@ fn visible_capture_pending(backend: &dyn backend::WindowBackend) -> bool {
             .values()
             .any(|window| window.visible && backend.capture_needed(window.window_id))
 }
+mod audio;
 mod backend;
 mod desktop;
 mod desktop_input;
@@ -490,6 +491,7 @@ fn main() {
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("audio-play") => audio::play(),
         Some("clipboard-upload") => {
             let store = paneferry_backend_x11::clipboard_store::ClipboardStore::open()?;
             let id = store.receive(&mut std::io::BufReader::new(std::io::stdin().lock()))?;
@@ -1488,6 +1490,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         capabilities.push("video.color.444-atlas-v1");
         capabilities.push("video.color.444-atlas-v2");
     }
+    if paneferry_audio::available() {
+        capabilities.push(paneferry_audio::CAPABILITY);
+    }
     send(
         &mut out,
         json!({"type":"hello","capabilities":capabilities,
@@ -1505,6 +1510,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     let mut pending_request = None;
     let mut video_activity = VideoActivity::Foreground;
     let mut video_color = paneferry_protocol::ColorMode::Compatible;
+    let mut video_enabled = false;
     while !STOP.load(Ordering::SeqCst) {
         if lease.is_some() && !state.lock().unwrap().sharing {
             send(
@@ -1645,6 +1651,9 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             }
         };
         if let Some(req) = req {
+            if matches!(req, Request::AudioSubscribe {}) && lease.is_none() && !video_enabled {
+                return audio::serve(&state, &rx, &mut out);
+            }
             let req = input_queue::coalesce(req, &rx, &mut pending_request);
             if triggers_fast_scan(&req) {
                 last_window_action = Instant::now();
@@ -1658,6 +1667,10 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
             };
             let result: Result<()> = (|| {
                 match req {
+                    Request::AudioSubscribe {} => {
+                        bail!("audio requires a dedicated stream");
+                    }
+                    Request::AudioAck { .. } => bail!("no audio subscription"),
                     Request::NodeInfo {} => {
                         let st = state.lock().unwrap();
                         send(
@@ -1687,6 +1700,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                         feedback,
                         color,
                     } => {
+                        video_enabled = true;
                         if lease.is_some() {
                             bail!("configure video before attaching")
                         }

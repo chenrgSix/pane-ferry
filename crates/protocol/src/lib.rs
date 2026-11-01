@@ -54,6 +54,14 @@ pub enum VideoCodec {
 pub enum Request {
     #[serde(rename = "node.info")]
     NodeInfo {},
+    #[serde(rename = "audio.subscribe")]
+    AudioSubscribe {},
+    #[serde(rename = "audio.ack")]
+    AudioAck {
+        sequence: u64,
+        #[serde(default)]
+        playback: Option<serde_json::Value>,
+    },
     #[serde(rename = "sharing.set")]
     Sharing { enabled: bool },
     #[serde(rename = "hello")]

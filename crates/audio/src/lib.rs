@@ -6,7 +6,7 @@ pub const RATE: u32 = 48_000;
 pub const SAMPLES: usize = 480;
 pub const MAX_PACKET: usize = 1275;
 pub const CAPABILITY: &str = "audio.system.opus.v1";
-#[cfg(any(windows, target_os = "macos", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod playback;
 
 #[derive(Clone, Debug)]
@@ -67,6 +67,11 @@ mod native;
 pub use native::Player;
 #[cfg(windows)]
 pub use native::{subscribe, Subscription};
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{available, subscribe, Player, Subscription};
 
 #[cfg(test)]
 mod tests {

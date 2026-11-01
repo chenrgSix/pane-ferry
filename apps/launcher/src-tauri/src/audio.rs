@@ -134,8 +134,7 @@ impl Service {
                             let message = result
                                 .err()
                                 .unwrap_or_else(|| "声音连接已结束，将自动重试。".into());
-                            let unsupported =
-                                message == "发布端尚不支持系统声音，请更新 Windows 发布端。";
+                            let unsupported = message == "发布端尚不支持系统声音，请更新发布端。";
                             state.statuses.insert(
                                 peer,
                                 Status {
@@ -192,7 +191,7 @@ pub async fn set_device_audio(
     app.state::<Service>().set(endpoint.peer_id, enabled)
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 async fn receive(
     _: &tauri::AppHandle,
     _: &str,
@@ -202,7 +201,7 @@ async fn receive(
     Err("本机暂不支持接收系统声音。".into())
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 async fn receive(
     app: &tauri::AppHandle,
     peer: &str,
@@ -277,7 +276,7 @@ async fn receive(
         .as_array()
         .is_some_and(|v| v.iter().any(|c| c == paneferry_audio::CAPABILITY))
     {
-        return Err("发布端尚不支持系统声音，请更新 Windows 发布端。".into());
+        return Err("发布端尚不支持系统声音，请更新发布端。".into());
     }
     let player = tauri::async_runtime::spawn_blocking(paneferry_audio::Player::start)
         .await
@@ -291,7 +290,7 @@ async fn receive(
         || format["channels"] != 2
         || format["frame_samples"] != 480
     {
-        return Err("远端系统声音暂不可用，请检查 Windows 默认播放设备和共享开关。".into());
+        return Err("远端系统声音暂不可用，请检查默认播放设备和共享开关。".into());
     }
     {
         let mut inner = shared.lock().unwrap();

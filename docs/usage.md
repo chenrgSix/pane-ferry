@@ -57,6 +57,7 @@ sudo apt install python3-gi python3-gi-cairo python3-websocket \
   gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-pipewire \
+  gstreamer1.0-tools pulseaudio-utils \
   xvfb openbox xauth dbus-x11 xdg-dbus-proxy libei1 libx11-6 \
   xdg-desktop-portal xdg-desktop-portal-gnome
 ```

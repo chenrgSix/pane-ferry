@@ -1,8 +1,20 @@
-# Windows 系统声音（第一版）
+# 系统输出声音
 
 在控制端「设备」页，打开某台设备下的「接收这台设备的系统声音」。默认关闭，按配对设备保存；开关即时生效，无需重连画面。接收所有应用播放的声音，不采集麦克风。音频属于设备，而不是某个应用窗口：多个接收窗口只播放一份；关闭画面后仍可收听，关闭声音开关、撤销配对或退出启动器可停止。
 
-发布端目前为 Windows，播放端支持 Mac 和 Windows。Mac 更新后需完整运行 `apps/launcher/scripts/build-macos.sh`，并退出旧启动器后启动新包。新增的 Opus 原生依赖需要 CMake；Mac 缺少时先运行 `brew install cmake`，Windows 构建环境也需提供 CMake 和 C/C++ 编译器。无需独立显卡。
+发布端支持 Windows 和 Linux，播放端支持 Mac、Windows 和 Linux。Linux GTK 工作台中，先选择设备，再开启「接收所选设备系统声音」。关闭设备全部画面不会关闭声音；撤销配对和退出程序会停止声音。
+
+Mac 更新后需完整运行 `apps/launcher/scripts/build-macos.sh`，并退出旧启动器后启动新包。Opus 原生依赖在各平台源码构建时需要 CMake 和 C/C++ 编译器；Mac 可使用 `brew install cmake`。Linux 运行时需要 `gstreamer1.0-tools`、Pulse GStreamer 插件（Ubuntu 的 `gstreamer1.0-plugins-good`）及 `pulseaudio-utils`，并有 PulseAudio 或 PipeWire Pulse 服务；`.deb` 会声明这些依赖。无需独立显卡。
+
+## Linux 实现与验证
+
+通过 Pulse 服务获取默认输出设备及其明确的 `monitor_source`，只采集这个输出 monitor，不回退到默认输入设备。PipeWire 桌面通过其 Pulse 兼容服务使用相同路径。缺少输出 monitor 时返回不可用；默认输出切换后重新订阅新 monitor。
+
+采集和播放各使用一个私有 GStreamer 子进程处理 Pulse/PCM，Opus 编解码、丢包补偿及 40–80 ms 自适应预缓冲复用 Rust 音频库。多个订阅共享一份采集/编码；最后一个订阅结束时关闭子进程并回收。PCM 管道缩小到 4096 字节，采集使用最多两个缓冲的丢旧队列；接收端保留最新 16 包和最多 120 ms PCM。这里没有添加 PCM 文件或写入声音内容的日志。
+
+`tests/e2e/linux_audio_smoke.py` 在单独 D-Bus、PipeWire、禁用硬件枚举的 WirePlumber 和两个 null sink 中验证，不录制登录会话声音、不播放到真实扬声器。测试默认输入故意指向另一个无声 monitor，440 Hz 测试输出仍能采集到约 0.072 的峰值 RMS；确认共享采集、Opus 发送与播放、最后订阅关闭及无残留流。
+
+同一测试进一步运行生产 Linux Agent、两个配对 QUIC 节点和生产 GTK 声音管理器：默认关闭、重复启用只建一份播放器、没有视频会话也可收听、未确认包上限 16、关闭共享、默认输出变化后的重连及撤销配对的资源清理均通过。这不是跨物理设备时延或长时间弱网验收；Mac/Windows 实际跨平台收听仍需相应设备验证。
 
 ## 设计和边界
 

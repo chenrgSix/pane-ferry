@@ -838,6 +838,7 @@ dependencies = [
  "anyhow",
  "base64",
  "libc",
+ "paneferry-audio",
  "paneferry-backend-x11",
  "paneferry-core",
  "paneferry-protocol",
@@ -845,6 +846,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "signal-hook",
+ "tokio",
  "x11rb",
 ]
 
@@ -855,7 +857,9 @@ dependencies = [
  "anyhow",
  "cpal",
  "crossbeam-queue",
+ "libc",
  "opus",
+ "serde_json",
  "tokio",
 ]
 

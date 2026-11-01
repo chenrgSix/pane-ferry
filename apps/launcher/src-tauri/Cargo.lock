@@ -2274,7 +2274,9 @@ dependencies = [
  "anyhow",
  "cpal",
  "crossbeam-queue",
+ "libc",
  "opus",
+ "serde_json",
  "tokio",
 ]
 
