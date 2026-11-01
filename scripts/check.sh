@@ -47,6 +47,7 @@ if [[ $(uname -s) == Darwin ]]; then
 else
   cargo build -p paneferry-agent -p paneferry-network
   python3 tests/e2e/linux_chroma_smoke.py
+  python3 tests/e2e/linux_audio_unit.py
   if command -v xvfb-run >/dev/null; then
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
     xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_manager_ui_smoke.py

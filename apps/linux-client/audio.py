@@ -17,7 +17,8 @@ class Subscription:
 
     def close(self):
         self.stop.set()
-        if self.wire: self.wire.close()
+        wire=self.wire
+        if wire: wire.close()
 
     def player_read(self,player):
         # Pipes are unbuffered, so select observes every pending JSON reply.
