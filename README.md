@@ -1,10 +1,10 @@
 # 窗渡 PaneFerry
 
-在 Mac 和 Ubuntu 之间双向使用对方的图形应用。每台设备同时可以发布和接收，应用和文件仍留在原设备。
+在 Mac、Windows 和 Ubuntu 之间使用远端图形应用。设备可同时发布和接收，应用和文件仍留在原设备；各平台支持范围见使用教程。
 
-Ubuntu 现提供可双击安装的 `.deb` 包（`paneferry_0.1.2-1_amd64.deb`），也保留原脚本安装包。
+Ubuntu 现提供可双击安装的 `.deb` 包（`paneferry_0.1.3-1_amd64.deb`），也保留原脚本安装包。
 
-**开始使用：[下载 v0.1.2 预览版](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.2) · [使用教程](docs/usage.md) · [版本记录](CHANGELOG.md)**
+**开始使用：[下载 v0.1.3 预览版](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.3) · [使用教程](docs/usage.md) · [版本记录](CHANGELOG.md)**
 
 许可证：[PolyForm Noncommercial 1.0.0](LICENSE)。商业用途须符合许可证的明确授权范围或另行取得授权，详见下方[许可证与商业授权](#许可证与商业授权)。
 
@@ -30,7 +30,7 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 
 默认在独立虚拟桌面启动应用。也可通过服务端白名单显式接入当前桌面中指定进程的 X11/XWayland 窗口，保留原进程与登录状态。原生连接默认监听 UDP 42424，面向局域网；不自动配置公网映射。
 
-**Windows 两端（源码开发预览，待跨设备实机验收）：** 已有当前登录桌面的单窗口发布器，并加入复用 macOS 工作台的 Windows 管理界面、H.264 接收窗口和 NSIS 打包入口。复用设备配对与 QUIC，支持键鼠、中文提交和同会话重连；见 [Windows 发布指南](docs/windows-publishing.md) 和 [Windows 控制端](docs/windows-receiving.md)。
+**Windows 两端（v0.1.3 开发者预览）：** 提供 Windows 安装包，支持应用窗口、源端弹窗与菜单合成、按显示器整桌面接管，以及默认关闭的设备系统声音。Mac → Windows 的窗口、整桌面及音频已获实机反馈；其他跨平台组合仍需验证。见 [Windows 发布指南](docs/windows-publishing.md)、[Windows 控制端](docs/windows-receiving.md)和[系统声音](docs/system-audio.md)。
 
 ## 仓库
 

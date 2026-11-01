@@ -1,15 +1,16 @@
 # 窗渡 PaneFerry 使用教程
 
-适用于 **v0.1.2 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
+适用于 **v0.1.3 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
 
 ## 1. 下载与安装
 
-从 [v0.1.2 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.2) 下载对应安装包和 `SHA256SUMS`：
+从 [v0.1.3 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.3) 下载对应安装包和 `SHA256SUMS`：
 
 | 设备 | 安装包 | 支持范围 |
 | --- | --- | --- |
-| Apple Silicon Mac | `paneferry-v0.1.2-macos-arm64.zip` | 要求 macOS 13 或更高；本次构建与门禁在 macOS 27.0.1 完成 |
-| Ubuntu x86_64（推荐） | `paneferry_0.1.2-1_amd64.deb` | 本次在 Ubuntu 26.04.1 / GNOME 50 构建；其他发行版、旧版 glibc 与桌面环境未验收 |
+| Apple Silicon Mac | `paneferry-v0.1.3-macos-arm64.zip` | macOS 13+；在 macOS 15 arm64 构建，使用临时签名、未公证 |
+| Windows x86_64 | `paneferry-v0.1.3-windows-x86_64-setup.exe` | 开发者预览；已在 Windows 11 实测发布，安装包未做 Authenticode 签名 |
+| Ubuntu x86_64（推荐） | `paneferry_0.1.3-1_amd64.deb` | Ubuntu 24.04 构建；GNOME 原桌面接管仍需要 GNOME 50，其他桌面组合未验收 |
 
 Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文件名`，将输出与 `SHA256SUMS` 中对应文件的值核对。不要将源码 ZIP 当作可直接运行的安装包。
 
@@ -21,9 +22,17 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 
 升级时先断开接收窗口并退出旧版本，再替换应用。原有设备身份和配对保留；临时签名可能导致共享组件权限需要重新授予。
 
+### Windows
+
+退出旧启动器、接收窗口和后台 `paneferry-windows.exe` 后，运行安装包，按当前用户安装。原设备身份和配对保留。安装包未签名，如系统提示，请先核对下载来源及 SHA-256。
+
+在「本机共享」开启发布，对方配对后可连接应用窗口，或在「整桌面」中选择显示器。锁屏、安全桌面及受权限保护的弹窗不在普通桌面控制范围。
+
+在 Mac 或 Windows 控制端的「设备」页，可为这台 Windows 开启「接收这台设备的系统声音」。默认关闭，不采集麦克风；关闭画面后仍可收听，关闭声音开关停止。详见[系统声音](system-audio.md)。
+
 ### Ubuntu：双击安装（推荐）
 
-1. 下载 `paneferry_0.1.2-1_amd64.deb`，在“文件”中双击它。
+1. 下载 `paneferry_0.1.3-1_amd64.deb`，在“文件”中双击它。
 2. 使用“应用中心 / 软件安装”打开，点击“安装”，按系统提示输入本机管理员密码。包管理器会下载所需依赖，因此首次安装需要可用的软件源和网络。
 3. 安装完成后，在应用菜单搜索并打开 **窗渡 PaneFerry**。后台组件以当前登录用户身份启动，无需手动运行安装脚本或以 root 身份打开程序。
 4. 要接管原桌面 Wayland 窗口，在“扩展”中启用“窗渡 PaneFerry”。首次安装可能需要保存工作后注销、重新登录，让 GNOME 识别扩展；独立 X11 应用不需要这一步。
@@ -31,7 +40,7 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 如果双击没有进入安装器，右键选择“打开方式 → 应用中心 / 软件安装”，也可使用 GDebi。测试中的隔离 Ubuntu 26.04 桌面使用 GDebi 完成了文件管理器双击安装；这不代表所有应用中心版本都已实测。可选命令行安装方式是：
 
 ```sh
-sudo apt install ./paneferry_0.1.2-1_amd64.deb
+sudo apt install ./paneferry_0.1.3-1_amd64.deb
 ```
 
 `.deb` 安装到系统目录，程序入口为 `/usr/bin/paneferry`，许可证在 `/usr/share/doc/paneferry/LICENSE`。安装、重装和升级不会主动停止正在运行的 Agent 或应用；保存工作并退出旧会话后，再重启用户服务或重新登录使用更新。卸载前也应保存并关闭应用，随后从软件管理器移除，或运行 `sudo apt remove paneferry`。卸载不会删除用户的配对、配置和数据。
@@ -40,7 +49,7 @@ sudo apt install ./paneferry_0.1.2-1_amd64.deb
 
 ### Ubuntu：脚本安装包（保留兼容）
 
-`paneferry-v0.1.2-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
+`paneferry-v0.1.3-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
 
 ```sh
 sudo apt update
@@ -55,8 +64,8 @@ sudo apt install python3-gi python3-gi-cairo python3-websocket \
 在下载目录解压并安装：
 
 ```sh
-tar -xzf paneferry-v0.1.2-linux-x86_64.tar.gz
-cd paneferry-v0.1.2-linux-x86_64
+tar -xzf paneferry-v0.1.3-linux-x86_64.tar.gz
+cd paneferry-v0.1.3-linux-x86_64
 bash install.sh
 ```
 
@@ -107,7 +116,7 @@ Agent 重启会结束其独立会话中的应用，之后需要重新打开，�
 
 首次接管 Ubuntu 原桌面窗口时，请在 **Ubuntu 本机** 的“窗渡 PaneFerry Agent”系统控制授权弹窗点击允许，并按需保留“记住”选项。这个系统弹窗不会出现在 Mac 的目标应用画面内。未授权时可能有画面但不能操作；授权取消后可主动重新连接。独立虚拟桌面应用不需要原桌面输入授权。
 
-### 新窗口自动接入（开发中版本，未包含在 v0.1.2 安装包）
+### 新窗口自动接入（v0.1.3 开发者预览）
 
 “刷新应用”只重读已安装应用目录；会话、窗口和显示器列表查询也只读取元数据，不创建采集、不移动或调整源窗口。采集和窗口控制由明确的连接、接管或控制操作触发。
 

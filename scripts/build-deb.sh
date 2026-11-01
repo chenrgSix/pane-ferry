@@ -88,7 +88,7 @@ Description: PaneFerry graphical application sharing between Mac and Ubuntu
  Pair devices and use remote applications in native windows over QUIC.
  Includes the GTK manager, receiver, user agent and GNOME window bridge.
  Applications remain on the publishing device. GNOME desktop integration
- requires GNOME 50; this preview is built for Ubuntu 26.04.
+ requires GNOME 50; see the release BUILD-INFO.json for the build platform.
  .
  Source-available under PolyForm Noncommercial 1.0.0; commercial uses outside
  the license's permissions require separate authorization.
