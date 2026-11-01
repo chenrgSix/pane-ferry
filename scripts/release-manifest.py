@@ -15,7 +15,8 @@ os.chdir(root)
 name = sys.argv[1]
 assert name in {"windows", "macos", "linux"}
 version = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
-assert os.environ.get("GITHUB_REF_NAME", "v" + version) == "v" + version
+if os.environ.get("GITHUB_REF_TYPE") == "tag":
+    assert os.environ["GITHUB_REF_NAME"] == "v" + version
 packages = []
 for pattern in sys.argv[2:]:
     matches = sorted(root.glob(pattern))
