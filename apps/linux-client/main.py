@@ -19,6 +19,7 @@ from wire import STATE, Wire, peers, private, request, save, message, TERMINAL_L
 from windowhost import Viewer
 import network
 import audio
+from saved_connections import SavedConnections
 from runtime import start_agent
 
 
@@ -53,6 +54,8 @@ class Manager(Gtk.Application):
         self.window = None; self.selected = None; self.catalogs = {}; self.viewers = []; self.revision = 0
         self.pending_launches = {}; self.peer_keys = []; self.peer_timer = None; self.launching=set(); self.updating_options=False
         self.preferences_path = STATE / 'linux-preferences.json'
+        self.saved_connections = SavedConnections(STATE / 'saved-connections-v1.json', save)
+        self.connection_switch = None
         self.preferences = {}; self.takeover_seen = {}; self.takeover_busy = set(); self.takeover_retry={}; self.catalog_windows = {}
         try:
             if not self.preferences_path.is_symlink() and self.preferences_path.stat().st_size<=64*1024:
@@ -130,6 +133,22 @@ class Manager(Gtk.Application):
         revoke = Gtk.Button(label='撤销所选配对'); revoke.connect('clicked', self.revoke_device); controls.pack_start(revoke, False, False, 0)
         update = Gtk.Button(label='更新设备地址'); update.connect('clicked', self.update_address); controls.pack_start(update, False, False, 0)
         root.pack_start(controls, False, False, 0)
+        saved_controls = Gtk.Box(spacing=10)
+        saved_controls.pack_start(Gtk.Label(label='已保存连接'), False, False, 0)
+        self.saved_selector = Gtk.ComboBoxText()
+        saved_controls.pack_start(self.saved_selector, True, True, 0)
+        connect_saved = Gtk.Button(label='切换连接'); connect_saved.connect('clicked', self.connect_saved)
+        remove_saved = Gtk.Button(label='移除保存项'); remove_saved.connect('clicked', self.remove_saved)
+        saved_controls.pack_start(connect_saved, False, False, 0); saved_controls.pack_start(remove_saved, False, False, 0)
+        root.pack_start(saved_controls, False, False, 0)
+        editor = Gtk.Box(spacing=10)
+        self.connection_name = Gtk.Entry(); self.connection_name.set_placeholder_text('所选设备的连接名称'); self.connection_name.set_max_length(80)
+        self.connection_address = Gtk.Entry(); self.connection_address.set_placeholder_text('所选设备的 IP:端口')
+        editor.pack_start(self.connection_name, True, True, 0); editor.pack_start(self.connection_address, True, True, 0)
+        save_connection = Gtk.Button(label='保存所选设备'); save_connection.connect('clicked', self.save_connection)
+        editor.pack_start(save_connection, False, False, 0); root.pack_start(editor, False, False, 0)
+        self.connection_controls = [controls, saved_controls, editor, pairing]
+        self.refresh_saved_connections()
         options=Gtk.Box(spacing=12)
         self.full_color=Gtk.CheckButton(label='完整色彩（下次连接生效）'); self.full_color.set_active(self.video_color!='420')
         self.source_option=Gtk.CheckButton(label='保持远端原尺寸'); self.source_option.set_active(self.source_size)
@@ -165,6 +184,7 @@ class Manager(Gtk.Application):
 
     def manager_destroyed(self, *_):
         self.window = None
+        self.connection_switch = None
         if self.peer_timer is not None:
             GLib.source_remove(self.peer_timer)
             self.peer_timer = None
@@ -295,7 +315,88 @@ class Manager(Gtk.Application):
 
     def update_address(self, *_):
         if self.selected and self.selected.startswith('quic:'):
-            self.network_job('address', device_id=self.selected[5:], address=self.pair_address.get_text().strip())
+            self.network_job('address', device_id=self.selected[5:], address=self.connection_address.get_text().strip())
+
+    def refresh_saved_connections(self):
+        selected = self.saved_selector.get_active_id()
+        self.saved_selector.remove_all()
+        for row in self.saved_connections.entries:
+            self.saved_selector.append(row['peerId'], f"{row['name']} · {row['address']}")
+        if selected and any(row['peerId'] == selected for row in self.saved_connections.entries):
+            self.saved_selector.set_active_id(selected)
+        elif self.saved_connections.entries:
+            self.saved_selector.set_active(0)
+
+    def fill_connection_editor(self):
+        peer = next((p for p in peers() if p['connection_id'] == self.selected), None)
+        saved = next((r for r in self.saved_connections.entries if 'quic:' + r['peerId'] == self.selected), None)
+        self.connection_name.set_text((saved or peer or {}).get('name', ''))
+        self.connection_address.set_text((saved or peer or {}).get('address', ''))
+
+    def save_connection(self, *_):
+        if self.connection_switch is not None:
+            return
+        peer = next((p for p in peers() if p['connection_id'] == self.selected), None)
+        if not peer:
+            self.set_notice('请先选择一台已配对设备。'); return
+        try:
+            self.saved_connections.save(dict(peerId=peer['device_id'], name=self.connection_name.get_text(), address=self.connection_address.get_text()))
+            self.refresh_saved_connections(); self.saved_selector.set_active_id(peer['device_id'])
+            self.set_notice('连接已保存，重启后仍可切换。再次保存会更新此设备的名称和地址。')
+        except ValueError as error:
+            self.set_notice(str(error))
+
+    def remove_saved(self, *_):
+        if self.connection_switch is not None:
+            return
+        identity = self.saved_selector.get_active_id()
+        if not identity:
+            return
+        try:
+            self.saved_connections.remove(identity); self.refresh_saved_connections()
+            self.set_notice('已移除保存项，设备配对和已打开窗口仍保留。')
+        except ValueError as error:
+            self.set_notice(str(error))
+
+    def connect_saved(self, *_):
+        if self.connection_switch is not None:
+            return
+        row = next((r for r in self.saved_connections.entries if r['peerId'] == self.saved_selector.get_active_id()), None)
+        if not row:
+            self.set_notice('请先保存并选择设备连接。'); return
+        token = object(); self.connection_switch = token
+        for widget in self.connection_controls: widget.set_sensitive(False)
+        self.set_notice('正在切换连接…')
+        def run():
+            try:
+                network.ensure()
+                peer = next((p for p in network.action('status')['peers'] if p['device_id'] == row['peerId']), None)
+                if not peer:
+                    raise ValueError('这台设备尚未配对或配对已撤销，请先重新配对。')
+                if peer['address'] != row['address']:
+                    network.action('address', device_id=row['peerId'], address=row['address'])
+                GLib.idle_add(self.saved_connected, token, row['peerId'], None)
+            except (OSError, ValueError, EOFError, KeyError) as error:
+                GLib.idle_add(self.saved_connected, token, row['peerId'], str(error))
+        threading.Thread(target=run, daemon=True).start()
+
+    def saved_connected(self, token, identity, error):
+        if token is not self.connection_switch or not self.window:
+            return False
+        self.connection_switch = None
+        for widget in self.connection_controls: widget.set_sensitive(True)
+        if error:
+            self.set_notice('切换失败：' + error); return False
+        self.refresh_peers()
+        target = 'quic:' + identity
+        if not any(p['connection_id'] == target for p in peers()):
+            self.set_notice('设备配对已失效，请重新配对。'); return False
+        if self.selected == target:
+            self.fill_connection_editor(); self.load(False)
+        else:
+            self.selector.set_active_id(target)
+        self.set_notice('已选择保存的设备，正在读取应用和窗口；已有接收窗口继续保留。')
+        return False
 
     def initialized(self, info):
         if self.window:
@@ -320,7 +421,7 @@ class Manager(Gtk.Application):
         return False
 
     def refresh_peers(self):
-        if not self.window:
+        if not self.window or self.connection_switch is not None:
             return False
         available = peers(); keys = [(p['connection_id'], p['name'], p['generation']) for p in available]
         if keys != self.peer_keys:
@@ -347,6 +448,7 @@ class Manager(Gtk.Application):
         self.audio_status.set_text(self.audio_states.get(self.selected,('off','系统声音默认关闭'))[1])
         self.updating_options=False
         if self.selected:
+            self.fill_connection_editor()
             self.load(False)
 
     def clear_rows(self):

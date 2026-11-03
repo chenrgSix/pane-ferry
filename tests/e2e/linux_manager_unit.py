@@ -30,6 +30,7 @@ state = Manager()
 state.window = object()
 state.selected = peer['connection_id']
 state.peer_keys = []
+state.connection_switch = None
 state.peer_timer = 42
 state.takeover=set(); state.takeover_busy=set(); state.launching=set(); state.catalog_windows={}; state.takeover_seen={}; state.takeover_retry={}
 state.audio_enabled=set(); state.audio=SimpleNamespace(subscriptions={})
