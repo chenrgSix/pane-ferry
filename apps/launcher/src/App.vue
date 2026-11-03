@@ -11,6 +11,8 @@ import type { Connection } from "./connections";
 import type { AppCatalog, AppInfo, DesktopMonitor, DesktopMonitors, DesktopWindow, DesktopWindows, Endpoint, LaunchTarget, SessionInfo } from "./launcher-types";
 import AppIcon from "./AppIcon.vue";
 import { retireLegacyPreferences } from "./connection-preferences";
+import { SavedConnections } from "./saved-connections";
+import type { SavedConnection } from "./saved-connections";
 import { automaticApplications, emptyAutomaticStatus } from "./automatic-windows";
 import type { AutomaticMode, AutomaticRule, AutomaticStatus } from "./automatic-windows";
 type Result = {
@@ -86,6 +88,11 @@ try {
 } catch {}
 retireLegacyPreferences(storage);
 const attempts = new PendingLaunches(storage);
+const savedConnectionStore = new SavedConnections(storage);
+const savedConnections = ref(savedConnectionStore.list());
+const connectionNames = ref<Record<string, string>>({});
+const savedConnectionError = ref(""), savedConnectionNotice = ref("");
+const switchingConnection = ref("");
 type StartingApp = { endpoint: string; appId: string; name: string; requestKey: string; missingReads: number };
 const startingApps = ref<StartingApp[]>([]), launchingAppId = ref<string | null>(null);
 type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}};
@@ -94,6 +101,8 @@ type NativePeer = {device_id:string; name:string; address:string; fingerprint:st
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
 const pairNotice = ref("");
 const selectedPeer = computed(() => nativePeers.value.find(peer => peer.device_id === endpoint.value.peerId));
+const networkReady = ref(false);
+let networkRevision = 0;
 const automaticStatus = ref<AutomaticStatus>(emptyAutomaticStatus());
 const automaticApp = ref("");
 const automaticSaving = ref(false);
@@ -191,10 +200,18 @@ let inviteTimer:ReturnType<typeof setTimeout>|undefined;
 async function networkAction(body:Record<string,unknown>) { return invoke<any>("network_action",{body}); }
 async function readNetwork() {
   void readAudio();
-  try { const status=await networkAction({op:"status"}); nativePeers.value=status.peers;
-    for(const peer of nativePeers.value) addressEdits.value[peer.device_id] ??= peer.address;
+  if (switchingConnection.value) return;
+  const revision = ++networkRevision;
+  try { const status=await networkAction({op:"status"});
+    if (disposed || revision !== networkRevision) return;
+    nativePeers.value=status.peers; networkReady.value = true;
+    for(const peer of nativePeers.value) {
+      const saved = savedConnections.value.find(row => row.peerId === peer.device_id);
+      addressEdits.value[peer.device_id] ??= saved?.address || peer.address;
+      connectionNames.value[peer.device_id] ??= saved?.name || peer.name;
+    }
     nativeWarning.value=""; }
-  catch { nativeWarning.value="直接连接组件尚未就绪。"; }
+  catch { if (!disposed && revision === networkRevision) nativeWarning.value="直接连接组件尚未就绪。"; }
 }
 async function inviteDevice() {
   pairing.value=true;
@@ -210,10 +227,54 @@ async function pairDevice() {
   finally {pairing.value=false;}
 }
 async function selectPeer(peer:NativePeer) {
-  if (busy.value) return;
+  if (busy.value || pairing.value || switchingConnection.value) return;
   activePage.value="apps";
   endpoint.value={peerId:peer.device_id};
   await nextTick(); await load();
+}
+function savePeerConnection(peer: NativePeer) {
+  savedConnectionError.value = ""; savedConnectionNotice.value = "";
+  try {
+    savedConnectionStore.save({ peerId: peer.device_id,
+      name: connectionNames.value[peer.device_id] ?? peer.name,
+      address: addressEdits.value[peer.device_id] ?? peer.address });
+    savedConnections.value = savedConnectionStore.list();
+    savedConnectionNotice.value = "连接已保存，重启后仍可在“已保存连接”中一键切换。";
+  } catch (error) { savedConnectionError.value = (error as Error).message; }
+}
+function removeSavedConnection(row: SavedConnection) {
+  savedConnectionError.value = ""; savedConnectionNotice.value = "";
+  try {
+    savedConnectionStore.remove(row.peerId);
+    savedConnections.value = savedConnectionStore.list();
+    savedConnectionNotice.value = "已移除保存项，设备配对和已打开窗口仍保留。";
+  } catch (error) { savedConnectionError.value = (error as Error).message; }
+}
+async function connectSaved(row: SavedConnection) {
+  if (busy.value || pairing.value || switchingConnection.value) return;
+  savedConnectionError.value = ""; savedConnectionNotice.value = "";
+  const peer = nativePeers.value.find(peer => peer.device_id === row.peerId);
+  if (!peer) {
+    savedConnectionError.value = "这台设备尚未配对或配对已撤销，请在设备管理中重新配对。";
+    return;
+  }
+  switchingConnection.value = row.peerId; busy.value = true; pairing.value = true;
+  ++networkRevision;
+  try {
+    if (peer.address !== row.address) {
+      await networkAction({ op: "address", device_id: row.peerId, address: row.address });
+      peer.address = row.address;
+      addressEdits.value[row.peerId] = row.address;
+    }
+    const sameDevice = endpoint.value.peerId === row.peerId;
+    endpoint.value = { peerId: row.peerId };
+    activePage.value = "apps";
+    await nextTick();
+    if (sameDevice) restoreCatalog();
+    busy.value = false;
+    await load();
+  } catch { savedConnectionError.value = "连接切换失败，请检查保存的地址和设备共享状态后重试。"; }
+  finally { busy.value = false; pairing.value = false; switchingConnection.value = ""; }
 }
 async function changePeer(event: Event) {
   const peer = nativePeers.value.find(item => item.device_id === (event.target as HTMLSelectElement).value);
@@ -670,11 +731,28 @@ onUnmounted(() => {
         <span class="badge">双向应用共享</span>
       </header>
 
+      <section v-if="activePage === 'apps' || activePage === 'devices'" class="panel saved-connections" aria-labelledby="saved-connections-title">
+        <div class="section-title"><h2 id="saved-connections-title">已保存连接 <span class="count">{{ savedConnections.length }}</span></h2><button v-if="activePage === 'apps'" class="text-action" @click="activePage = 'devices'">保存／编辑连接 ↗</button></div>
+        <p v-if="!savedConnections.length" class="hint">在设备管理中为已配对设备填写名称和地址，点击“保存连接”，下次即可一键切换。</p>
+        <div v-else class="saved-connection-list">
+          <article v-for="row in savedConnections" :key="row.peerId" class="saved-connection-row">
+            <div class="window-label"><strong>{{ row.name }}</strong><p>{{ row.address }}</p></div>
+            <span v-if="!nativePeers.some(peer => peer.device_id === row.peerId)" class="window-state">{{ networkReady ? "需重新配对" : "正在读取设备" }}</span>
+            <span v-else-if="endpoint.peerId === row.peerId && selectedPeer?.address === row.address" class="window-state">当前设备</span>
+            <button class="primary-action" :disabled="busy || pairing || !!switchingConnection || !nativePeers.some(peer => peer.device_id === row.peerId)" @click="connectSaved(row)">{{ switchingConnection === row.peerId ? "切换中…" : "切换连接" }}</button>
+            <button :disabled="!!switchingConnection" :aria-label="'移除保存的连接：' + row.name" @click="removeSavedConnection(row)">移除</button>
+          </article>
+        </div>
+        <p v-if="savedConnectionError" class="alert error" role="alert">{{ savedConnectionError }}</p>
+        <p v-if="activePage === 'apps' && nativeWarning" class="alert error" role="alert">{{ nativeWarning }}</p>
+        <p v-if="savedConnectionNotice" class="hint" role="status">{{ savedConnectionNotice }}</p>
+      </section>
+
       <div v-if="activePage === 'apps'" class="page-content">
         <div class="workspace-toolbar">
           <div class="device-picker">
             <label for="workspace-device">应用来源</label>
-            <select id="workspace-device" :value="endpoint.peerId" :disabled="busy || !nativePeers.length" @change="changePeer">
+            <select id="workspace-device" :value="endpoint.peerId" :disabled="busy || pairing || !!switchingConnection || !nativePeers.length" @change="changePeer">
               <option value="" disabled>选择已配对设备</option>
               <option v-if="endpoint.peerId && !selectedPeer" :value="endpoint.peerId">上次使用的设备</option>
               <option v-for="peer in nativePeers" :key="peer.device_id" :value="peer.device_id">{{ peer.name }} · {{ peer.address }}</option>
@@ -827,10 +905,13 @@ onUnmounted(() => {
               <button class="primary-action" :disabled="busy || pairing" @click="selectPeer(peer)">查看应用 ↗</button>
             </div>
             <div class="peer-address">
+              <label :for="'connection-name-' + peer.device_id">连接名称<input :id="'connection-name-' + peer.device_id" v-model="connectionNames[peer.device_id]" maxlength="80" :disabled="pairing" placeholder="例如：家里的 Windows" /></label>
               <label :for="'address-' + peer.device_id">连接地址<input :id="'address-' + peer.device_id" v-model="addressEdits[peer.device_id]" :disabled="pairing" spellcheck="false" /></label>
+              <button :disabled="pairing" @click="savePeerConnection(peer)">保存连接</button>
               <button :disabled="pairing" @click="updatePeerAddress(peer)">更新地址</button>
               <button class="danger-action" :disabled="pairing" @click="revokePeer(peer)">撤销配对</button>
             </div>
+            <p class="hint">每台设备保存一项；再次保存会更新名称和地址。点击“切换连接”时使用保存的地址，已打开的远端窗口继续保留。</p>
             <p class="fingerprint" :title="peer.fingerprint">设备指纹 <code>{{ peer.fingerprint }}</code></p>
             <div v-if="localNode?.platform === 'macos' || localNode?.platform === 'windows'" class="setting-row">
               <div><label :for="'audio-' + peer.device_id">接收这台设备的系统声音</label><p class="hint">默认关闭。需要新版 Windows 发布端；接收所有应用播放的声音，不采集麦克风。多个窗口只播放一份；关闭画面后仍可收听，关闭此开关停止。</p><p class="hint" role="status">{{ audioLabel(peer.device_id) }}</p></div>

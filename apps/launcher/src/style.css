@@ -124,6 +124,10 @@ main { margin-left: 210px; width: calc(100% - 210px); max-width: 1450px; min-hei
 .window-label p { margin: 4px 0 0; color: #7c8872; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .window-state { color: #78866e; font-size: 10px; white-space: nowrap; }
 .peer-card + .peer-card { border-top: 1px solid #e7ecdf; padding-top: 20px; margin-top: 20px; }
+.saved-connection-list { display: grid; gap: 10px; }
+.saved-connection-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; background: #f5f7ef; border-radius: 9px; }
+.saved-connection-row .window-label { min-width: 150px; }
+.saved-connection-row strong { display: block; overflow-wrap: anywhere; }
 .peer-heading, .peer-identity { display: flex; align-items: center; gap: 12px; }
 .peer-identity { flex: 1; min-width: 0; }
 .peer-identity h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

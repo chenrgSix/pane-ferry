@@ -73,6 +73,85 @@ async function waitUntil(predicate, timeoutMs = 5000) {
 }
 const actions = mounted => mounted.calls.filter(c => c.command === "launch_app" || c.command === "resume_session");
 
+test("saved device selection restores after restart and applies its address before reading its apps", async () => {
+  const disk = storage();
+  const peer = { device_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Windows", address: "192.168.8.20:42424", connected: false, fingerprint: "public" };
+  const network_action = ({ body }) => {
+    if (body.op === "status") return { peers: [structuredClone(peer)] };
+    if (body.op === "address") { peer.address = body.address; return { ok: true }; }
+    throw new Error("unexpected network action");
+  };
+  let mounted = mount(disk, { network_action });
+  try {
+    await settled(mounted.state);
+    mounted.state.connectionNames[peer.device_id] = "办公电脑";
+    mounted.state.addressEdits[peer.device_id] = "10.0.0.20:42424";
+    mounted.state.savePeerConnection(peer);
+    assert.equal(mounted.state.savedConnections[0].name, "办公电脑");
+  } finally { mounted.unmount(); }
+  mounted = mount(disk, { network_action });
+  try {
+    await settled(mounted.state);
+    assert.equal(mounted.state.addressEdits[peer.device_id], "10.0.0.20:42424");
+    await mounted.state.connectSaved(mounted.state.savedConnections[0]);
+    assert.equal(mounted.state.endpoint.peerId, peer.device_id);
+    const update = mounted.calls.findIndex(c => c.command === "network_action" && c.args.body.op === "address");
+    const read = mounted.calls.findIndex(c => c.command === "list_apps" && c.args.endpoint.peerId === peer.device_id);
+    assert.ok(update >= 0 && read > update);
+    assert.equal(peer.address, "10.0.0.20:42424");
+    assert.equal(JSON.parse(disk.getItem("lan-remoteapp.connection")).endpoint.peerId, peer.device_id);
+    mounted.state.removeSavedConnection(mounted.state.savedConnections[0]);
+    assert.ok(!mounted.calls.some(c => c.args?.body?.op === "revoke" || c.command === "disconnect_device_windows"));
+  } finally { mounted.unmount(); }
+});
+
+test("failed saved-address changes preserve selection and bookmarks; unpaired bookmarks cannot connect", async () => {
+  const peer = { device_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Windows", address: "192.168.8.20:42424" };
+  const mounted = mount(storage(), { network_action: ({ body }) => {
+    if (body.op === "status") return { peers: [peer] };
+    throw new Error("save failed");
+  }});
+  try {
+    await settled(mounted.state);
+    mounted.state.addressEdits[peer.device_id] = "10.0.0.20:42424";
+    mounted.state.savePeerConnection(peer);
+    const bookmark = mounted.state.savedConnections[0];
+    await mounted.state.connectSaved(bookmark);
+    assert.deepEqual(mounted.state.endpoint, endpoint);
+    assert.match(mounted.state.savedConnectionError, /切换失败/);
+    assert.equal(mounted.state.busy, false);
+    assert.equal(mounted.state.pairing, false);
+    assert.equal(mounted.state.savedConnections.length, 1);
+    mounted.state.nativePeers = [];
+    const previousCalls = mounted.calls.length;
+    await mounted.state.connectSaved(bookmark);
+    assert.equal(mounted.calls.length, previousCalls);
+    assert.match(mounted.state.savedConnectionError, /重新配对/);
+  } finally { mounted.unmount(); }
+});
+
+test("saved connection switching rejects overlapping selections and stale network status", async () => {
+  const peer = { device_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Windows", address: "192.168.8.20:42424" };
+  let holdStatus = false, finishStatus, finishAddress;
+  const mounted = mount(storage(), { network_action: ({ body }) => {
+    if (body.op === "status") return holdStatus ? new Promise(resolve => { finishStatus = () => resolve({ peers: [structuredClone(peer)] }); }) : { peers: [structuredClone(peer)] };
+    if (body.op === "address") return new Promise(resolve => { finishAddress = () => resolve({ ok: true }); });
+    throw new Error("unexpected action");
+  }});
+  try {
+    await settled(mounted.state);
+    holdStatus = true;
+    const stale = mounted.state.readNetwork();
+    const switching = mounted.state.connectSaved({ peerId: peer.device_id, name: "Windows", address: "10.0.0.20:42424" });
+    await mounted.state.selectPeer({ ...peer, device_id: endpoint.peerId });
+    finishAddress(); await switching;
+    finishStatus(); await stale;
+    assert.equal(mounted.state.endpoint.peerId, peer.device_id);
+    assert.equal(mounted.state.nativePeers[0].address, "10.0.0.20:42424");
+    assert.equal(mounted.state.switchingConnection, "");
+  } finally { mounted.unmount(); }
+});
+
 test("actual launcher restores cached apps at mount and only refreshes live metadata on focus", async () => {
   const saved = storage();
   let mounted = mount(saved);
