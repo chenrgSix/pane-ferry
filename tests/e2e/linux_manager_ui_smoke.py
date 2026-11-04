@@ -14,7 +14,8 @@ if '--private' not in sys.argv:
         raise SystemExit(subprocess.call(['dbus-run-session','--config-file='+str(conf),'--',sys.executable,__file__,'--private'],env=env))
 root=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(root/'apps/linux-client'))
-import main
+sys.path.insert(0,str(root/'tests/fixtures'))
+import legacy_linux_manager as main
 from gi.repository import Gtk
 class Audio:
     def __init__(self,changed):self.subscriptions={};self.changed=changed

@@ -423,6 +423,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     #[ignore = "requires a packaged Mac host and private bridge fixture; run application_group_packaged.py"]
     fn packaged_owner_reuses_application_and_detaches_sessions_independently() {
         let source = PathBuf::from(std::env::var_os("PF_GROUP_HOST").unwrap());

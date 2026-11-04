@@ -1,3 +1,5 @@
+# Historical GTK manager retained only for compatibility regression fixtures.
+# Product entry points use apps/launcher and receiver_main.py.
 #!/usr/bin/env python3
 """Single 窗渡 PaneFerry entry: local publishing and remote native windows."""
 import atexit

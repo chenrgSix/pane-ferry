@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run actual GTK manager lifecycle methods with deterministic widget fixtures."""
+"""Run retired GTK manager compatibility methods with deterministic widget fixtures."""
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +7,7 @@ from threading import Event
 import time
 
 root = Path(__file__).resolve().parents[2]
-source = ast.parse((root / 'apps/linux-client/main.py').read_text())
+source = ast.parse((root / 'tests/fixtures/legacy_linux_manager.py').read_text())
 manager = next(node for node in source.body if isinstance(node, ast.ClassDef) and node.name == 'Manager')
 methods = {'manager_destroyed', 'poll_peers', 'refresh_peers', 'open_viewer','takeover_windows','takeover_finished'}
 manager.body = [node for node in manager.body if isinstance(node, ast.FunctionDef) and node.name in methods]
@@ -49,7 +49,7 @@ assert state.window is None and state.peer_timer is None and removed == [42]
 assert state.poll_peers() is False
 # activate() resets peer_keys before constructing the new selector. Keep this
 # wiring covered because identical inventory must still populate new widgets.
-original = (root / 'apps/linux-client/main.py').read_text()
+original = (root / 'tests/fixtures/legacy_linux_manager.py').read_text()
 activate = ast.parse(original).body
 klass = next(n for n in activate if isinstance(n, ast.ClassDef) and n.name == 'Manager')
 activate = next(n for n in klass.body if isinstance(n, ast.FunctionDef) and n.name == 'activate')

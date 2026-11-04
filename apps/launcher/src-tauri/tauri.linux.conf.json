@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "resources": {
+      "resources/linux-client/": "linux-client/",
+      "resources/paneferry-agent": "paneferry-agent",
+      "resources/paneferry-network": "paneferry-network"
+    }
+  }
+}

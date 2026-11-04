@@ -35,13 +35,13 @@ Linux Agent 在独立 Xvfb + Openbox 会话中运行服务端发现或配置的�
 ## 仓库
 
 - `apps/linux-agent`：用户级发布器、私有本机接口、持久图形会话。
-- `apps/launcher`：Tauri 2 + Vue/TypeScript 设备与应用启动器。
+- `apps/launcher`：Mac、Windows、Linux 共用的 Tauri 2 + Vue/TypeScript 管理界面和平台适配。
 - `apps/mac-windowhost`：Swift/AppKit 原生窗口宿主。
 - `apps/mac-node`：Mac 本机窗口发布、H.264 编码和输入执行辅助组件。
 - `apps/windows-node`：Windows 当前桌面单窗口发布入口（开发预览）。
 - `crates/backend-windows`：Windows 窗口身份、WGC 采集、Media Foundation 编码与输入。
 - `crates/platform`：Unix / Windows 本机 IPC 与私有文件存储。
-- `apps/linux-client`：同一个 Ubuntu 产品中的 GTK 管理界面、输入法和窗口接收组件。
+- `apps/linux-client`：Linux GTK/GStreamer 原生接收、输入法与剪贴板组件；当前源码安装包使用公共管理界面。
 - `crates/network`：两端共用的 QUIC、配对、设备路由和二进制流组件。
 - `crates/`：协议、传输和 Linux 后端等 Rust 组件。
 - `deploy/`：人工审核并安装的 Linux 用户服务、白名单示例。

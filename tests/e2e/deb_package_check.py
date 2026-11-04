@@ -11,7 +11,7 @@ root = Path(__file__).resolve().parents[2]
 deb = Path(sys.argv[1]).resolve()
 fields = subprocess.check_output(['dpkg-deb', '--field', str(deb)], text=True)
 assert 'Package: paneferry\n' in fields
-for dependency in ('libc6 (>= ', 'libei1', 'python3-websocket', 'gstreamer1.0-plugins-bad', 'xdg-desktop-portal'):
+for dependency in ('libc6 (>= ', 'libwebkit2gtk-4.1-0', 'libei1', 'python3-websocket', 'gstreamer1.0-plugins-bad', 'xdg-desktop-portal'):
     assert dependency in fields, dependency
 with tempfile.TemporaryDirectory(prefix='paneferry-deb-check-') as temporary:
     extracted = Path(temporary)/'package'
@@ -23,7 +23,10 @@ with tempfile.TemporaryDirectory(prefix='paneferry-deb-check-') as temporary:
     entry = extracted/'usr/share/applications/io.lanremoteapp.launcher.desktop'
     subprocess.run(['desktop-file-validate', str(entry)], check=True)
     assert 'Exec=/usr/bin/paneferry\n' in entry.read_text()
-    assert '/usr/lib/paneferry/main.py' in (extracted/'usr/bin/paneferry').read_text()
+    assert '/usr/lib/paneferry/paneferry-launcher' in (extracted/'usr/bin/paneferry').read_text()
+    assert (extracted/'usr/lib/paneferry/paneferry-launcher').read_bytes().startswith(b'\x7fELF')
+    assert (extracted/'usr/lib/paneferry/receiver_main.py').is_file()
+    assert not (extracted/'usr/lib/paneferry/main.py').exists(), 'retired manager must not be packaged'
     unit = (extracted/'usr/lib/systemd/user/remoteapp-agent.service').read_text()
     assert 'ExecStart=/usr/lib/paneferry/paneferry-agent serve' in unit
     for name in ('paneferry-agent', 'paneferry-network'):

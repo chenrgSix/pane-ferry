@@ -101,7 +101,8 @@ const savedConnectionError = ref(""), savedConnectionNotice = ref("");
 const switchingConnection = ref("");
 type StartingApp = { endpoint: string; appId: string; name: string; requestKey: string; missingReads: number };
 const startingApps = ref<StartingApp[]>([]), launchingAppId = ref<string | null>(null);
-type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}};
+type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}; launcher_defaults?:{applicationScene:boolean}};
+let platformDefaultsApplied = false;
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
@@ -312,6 +313,15 @@ async function readLocal() {
     const info = await invoke<LocalNode>("local_node_info");
     if (disposed || revision !== localRevision) return;
     localNode.value = info; localWarning.value = "";
+    if (info.platform === "linux" && !platformDefaultsApplied) {
+      platformDefaultsApplied = true;
+      let hasSavedPreferences = true;
+      try { hasSavedPreferences = Boolean(storage?.getItem("lan-remoteapp.connection")); } catch {}
+      if (!hasSavedPreferences && info.launcher_defaults) {
+        applicationScene.value = info.launcher_defaults.applicationScene === true;
+        save();
+      }
+    }
   } catch {
     if (!disposed && revision === localRevision) localWarning.value = "本机共享组件尚未就绪。";
   }
@@ -953,8 +963,8 @@ onUnmounted(() => {
             </div>
             <p class="hint">每台设备保存一项；再次保存会更新名称和地址。点击“切换连接”时使用保存的地址，已打开的远端窗口继续保留。</p>
             <p class="fingerprint" :title="peer.fingerprint">设备指纹 <code>{{ peer.fingerprint }}</code></p>
-            <div v-if="localNode?.platform === 'macos' || localNode?.platform === 'windows'" class="setting-row">
-              <div><label :for="'audio-' + peer.device_id">接收这台设备的系统声音</label><p class="hint">默认关闭。需要新版 Windows 发布端；接收所有应用播放的声音，不采集麦克风。多个窗口只播放一份；关闭画面后仍可收听，关闭此开关停止。</p><p class="hint" role="status">{{ audioLabel(peer.device_id) }}</p></div>
+            <div v-if="localNode?.platform === 'macos' || localNode?.platform === 'windows' || localNode?.platform === 'linux'" class="setting-row">
+              <div><label :for="'audio-' + peer.device_id">接收这台设备的系统声音</label><p class="hint">默认关闭，需要支持系统声音的发布端。接收设备播放的声音，不采集麦克风。多个窗口只播放一份；关闭画面后仍可收听，关闭此开关停止。</p><p class="hint" role="status">{{ audioLabel(peer.device_id) }}</p></div>
               <input :id="'audio-' + peer.device_id" type="checkbox" :checked="deviceAudio[peer.device_id]?.enabled ?? false" :disabled="audioSaving[peer.device_id] || pairing" @change="setAudio(peer.device_id, $event)" />
             </div>
             <p v-if="audioErrors[peer.device_id] || deviceAudio[peer.device_id]?.message" class="hint" role="status">{{ audioErrors[peer.device_id] || deviceAudio[peer.device_id]?.message }}</p>
@@ -991,6 +1001,7 @@ onUnmounted(() => {
           <div class="section-title"><h2>Windows 当前桌面</h2></div>
           <p class="hint">共享当前用户的应用窗口或所选显示器。请保持桌面登录并解锁；管理员程序和 UAC 安全桌面的操作暂不支持。本机和远端共用鼠标、键盘与焦点。</p>
         </section>
+        <section v-else-if="localNode?.platform === 'linux'" class="panel"><div class="section-title"><h2>Linux 当前桌面</h2></div><p class="hint">应用继续在本机运行。GNOME／Wayland 的窗口共享需要启用窗渡扩展；系统声音需要可用的 PipeWire 或 PulseAudio。共享状态与原有 Agent 保持一致。</p></section>
         <section v-else-if="localNode?.permissions" class="panel">
           <div class="section-title"><h2>系统权限</h2></div>
           <div class="setting-row"><div><h3>屏幕录制</h3><p class="hint">用于传输本机应用窗口的画面。</p></div><span class="permission-state" :class="{ granted: localNode.permissions.screen_recording }">{{ localNode.permissions.screen_recording ? "已允许" : "待允许" }}</span></div>
@@ -1011,7 +1022,7 @@ onUnmounted(() => {
           <p v-if="pictureModeError" role="alert">{{ pictureModeError }}</p>
         </section>
         <details class="panel advanced-settings"><summary class="settings-summary"><span>高级显示设置</span><span class="subtle-label">{{ videoColor === "444-atlas-v1" ? "清晰色彩" : "兼容色彩" }} · 会话画面{{ applicationScene && pictureMode !== "source" ? "开启" : "关闭" }}</span></summary>
-          <div v-if="localNode?.platform === 'macos'" class="setting-row"><div><label for="video-color">接收色彩</label><p class="hint">清晰色彩保留彩色文字和细线的细节，需要支持此功能的发布端，带宽及编解码负担更高。不支持时使用兼容模式；两种模式均为有损视频。</p><span class="setting-effect">关闭接收窗口并重新接管后生效</span></div><select id="video-color" :value="videoColor" :disabled="!videoColorReady || videoColorSaving || busy" @change="saveVideoColor"><option value="420">兼容 · 4:2:0</option><option value="444-atlas-v1">清晰色彩 · 4:4:4（试用）</option></select></div>
+          <div v-if="localNode?.platform === 'macos' || localNode?.platform === 'linux'" class="setting-row"><div><label for="video-color">接收色彩</label><p class="hint">清晰色彩保留彩色文字和细线的细节，需要支持此功能的发布端，带宽及编解码负担更高。不支持时使用兼容模式；两种模式均为有损视频。</p><span class="setting-effect">关闭接收窗口并重新接管后生效</span></div><select id="video-color" :value="videoColor" :disabled="!videoColorReady || videoColorSaving || busy" @change="saveVideoColor"><option value="420">兼容 · 4:2:0</option><option value="444-atlas-v1">清晰色彩 · 4:4:4（试用）</option></select></div>
           <p v-if="videoColorError" role="alert">{{ videoColorError }}</p>
           <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">将受支持应用的主窗口、菜单和对话框合并显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示；其他来源使用兼容显示。</p><p v-if="pictureMode === 'source'" class="hint">使用“适配本机窗口”后可开启此模式。</p><span class="setting-effect">下次连接应用时生效</span></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy || pictureMode === 'source'" @change="save" /></div>
         </details>

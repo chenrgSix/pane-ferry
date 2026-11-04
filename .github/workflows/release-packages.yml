@@ -93,11 +93,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake dpkg-dev libx11-dev libxtst-dev libxres-dev libxcomposite-dev libxdamage-dev libxfixes-dev
+          sudo apt-get install -y cmake dpkg-dev libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libx11-dev libxtst-dev libxres-dev libxcomposite-dev libxdamage-dev libxfixes-dev xvfb dbus-x11 desktop-file-utils
       - name: Test and build Linux packages
         run: |
           cargo test --locked -p paneferry-audio -p paneferry-platform -p paneferry-network
@@ -105,6 +108,8 @@ jobs:
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
           bash scripts/build-linux.sh "dist/paneferry-v$version-linux-x86_64"
           bash scripts/build-deb.sh dist
+          python3 tests/e2e/deb_package_check.py "dist/paneferry_$version-1_amd64.deb"
+          xvfb-run -a dbus-run-session -- python3 tests/e2e/linux_shared_launcher_smoke.py "dist/paneferry-v$version-linux-x86_64/bin/paneferry-launcher"
           test "$(dpkg-deb -f "dist/paneferry_$version-1_amd64.deb" Version)" = "$version-1"
           tar -tzf "dist/paneferry-v$version-linux-x86_64.tar.gz" > dist/linux-package-files.txt
           python3 scripts/release-manifest.py linux 'dist/*.deb' 'dist/*.tar.gz'

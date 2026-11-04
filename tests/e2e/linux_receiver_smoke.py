@@ -106,7 +106,8 @@ other_peer='quic:'+remote_other['device_id']
 deadline=time.monotonic()+5
 while not (directories[0]/('r-'+remote['device_id']+'.sock')).exists():
     assert time.monotonic()<deadline;time.sleep(.02)
-from main import Manager
+sys.path.insert(0,str(root/'tests/fixtures'))
+from legacy_linux_manager import Manager
 from types import SimpleNamespace
 opened=[]
 manager=SimpleNamespace(activate=lambda *_:None,open_viewer=lambda *a,**kw:opened.append((a,kw)))

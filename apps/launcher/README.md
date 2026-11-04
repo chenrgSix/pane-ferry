@@ -6,6 +6,8 @@ Tauri 2 + Vue 3 管理本机共享、设备配对、应用目录和运行窗口�
 
 需要已有 Rust、Node.js、Xcode Command Line Tools。运行 `cd apps/launcher && ./scripts/build-macos.sh`。产物在 `src-tauri/target/release/bundle/macos/`，为本机临时签名的开发包，尚无 Apple Developer ID 签名和公证。单独 `npm run dev` 仅预览界面，没有本机服务能力。
 
+当前源码中 Mac、Windows、Linux 共用 `App.vue`、偏好与自动接入逻辑。Linux 保留 GTK/GStreamer 原生窗口，管理窗口不转发视频、键鼠或剪贴板数据。已发布的旧安装包不会随主分支源码变化而自动更新。
+
 ## 配对与恢复
 
 左侧菜单按用途分为应用工作台、设备管理、本机共享、显示设置和连接记录。工作台顶部统一切换当前设备，使用保存的连接名称和地址；保存项的管理在“设备管理”。整桌面和全窗口接管各有独立按钮，运行窗口优先展示，已连接窗口排在前面。应用列表支持收藏、最近使用和全局搜索，默认展示前 12 个应用，可展开全部；搜索时直接展示所有匹配项。收藏和最近成功打开或连接的 8 个应用按设备 UUID 保存在本机，仅记录应用 ID，不记录窗口标题或内容；已从目录移除的应用不显示快捷入口。收藏和最近使用合并为最多 6 个首页入口，不重复显示。
@@ -27,3 +29,11 @@ Tauri 2 + Vue 3 管理本机共享、设备配对、应用目录和运行窗口�
 ## 验证边界
 
 “宿主已启动”不等于“远端画面已呈现”。实际两机、AppKit/GTK、恢复、剪贴板和多节点隔离的记录见[验证记录](../../docs/validation.md)。尚未把本机三节点测试称为三台物理设备验收；长期运行、休眠和切换网络仍需继续验证。
+
+## Linux 构建与安装
+
+需要 Rust、Node.js 22、CMake、GTK3 与 WebKitGTK 4.1 开发包。Ubuntu 可安装 `libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libasound2-dev patchelf`，以及现有 Agent 的 X11 开发依赖。仓库根目录执行 `bash scripts/build-linux.sh` 或 `bash scripts/build-deb.sh`；两者都会完整构建公共启动器。只构建 Linux 启动器可运行 `bash apps/launcher/scripts/build-linux.sh`。
+
+用户 tar 安装中，启动器和 native helpers 位于 `~/.local/bin`，GTK 接收代码在 `~/.local/share/paneferry`；Debian 包将两者一起放在 `/usr/lib/paneferry`。组件只从同一安装位置解析。配对身份继续使用 `~/.local/state/lan-remoteapp/network`；现有 Agent 和网络服务直接复用，打开管理界面不会重启它们。首次启动按需迁移旧 GTK 的画面尺寸、色彩、会话画面、声音和设备接管偏好，已有公共配置优先，原文件保持。
+
+每个设备／应用共用一个 GTK 接收进程，以私有本机 socket 管理各会话。重复手动接入复用原窗口，关闭某个会话不结束同进程其他窗口。自动接入不抢焦点，接收器采用原版本的 X11 窗口定位后端。窗口帧率接受公共设置中的 30／60 上限；实际协商还受发布端能力约束。

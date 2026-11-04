@@ -7,7 +7,10 @@ use tauri::Manager;
 mod audio;
 mod display_settings;
 mod legacy_settings;
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+mod linux;
 #[cfg_attr(windows, path = "windows/local_node.rs")]
+#[cfg_attr(target_os = "linux", path = "linux/local_node.rs")]
 mod local_node;
 #[cfg_attr(windows, path = "windows/network.rs")]
 mod network;
@@ -17,7 +20,7 @@ mod auto_connect;
 mod host_group;
 #[cfg(windows)]
 mod receiver;
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 mod window_host;
 #[cfg(windows)]
 use receiver as host_group;
@@ -144,7 +147,7 @@ async fn list_sessions(
         .await
         .map_err(RequestFailure::from)
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 fn native_host(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if !cfg!(target_os = "macos") {
         return Err("原生 WindowHost 目前只支持 macOS。".into());
@@ -165,6 +168,8 @@ struct NativeHost {
     #[cfg(not(windows))]
     executable: PathBuf,
     group: String,
+    #[cfg(target_os = "linux")]
+    name: String,
 }
 #[cfg(windows)]
 fn named_native_host(
@@ -180,7 +185,7 @@ fn named_native_host(
         group: format!("{:x}", Sha256::digest(identity)),
     })
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 fn named_native_host(
     app: &tauri::AppHandle,
     endpoint: &Device,
@@ -205,6 +210,27 @@ fn named_native_host(
             .map_err(|_| "无法准备应用入口。")?,
     })
 }
+#[cfg(target_os = "linux")]
+fn named_native_host(
+    app: &tauri::AppHandle,
+    endpoint: &Device,
+    app_id: &str,
+    app_name: Option<&str>,
+) -> Result<NativeHost, String> {
+    use sha2::{Digest, Sha256};
+    let identity =
+        serde_json::to_vec(&(1, endpoint.identity(), app_id)).map_err(|_| "应用身份无效。")?;
+    Ok(NativeHost {
+        executable: linux::runtime::installation(app)?.receiver,
+        group: format!("{:x}", Sha256::digest(identity)),
+        name: app_name
+            .unwrap_or("远端应用")
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(128)
+            .collect(),
+    })
+}
 #[cfg(not(windows))]
 fn spawn_host(
     app: &tauri::AppHandle,
@@ -225,7 +251,21 @@ fn spawn_host(
     let icon = icon_png.filter(|value| !value.is_empty() && value.len() <= 24 * 1024);
     let picture_mode = app.state::<display_settings::Service>().mode();
     let video_color = app.state::<display_settings::Service>().color();
+    #[cfg(target_os = "macos")]
     let mut command = Command::new(path.executable);
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut value = Command::new("/usr/bin/python3");
+        // Popup positioning in the existing GTK receiver uses X11 coordinates;
+        // keep that backend independent of the management window's WebView.
+        value.env("GDK_BACKEND", "x11");
+        value
+            .arg("-I")
+            .arg(path.executable)
+            .arg("--name")
+            .arg(path.name);
+        value
+    };
     command
         .arg("--native-peer")
         .arg(&endpoint.peer_id)
@@ -608,6 +648,17 @@ async fn start_desktop(
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            if let Ok(home) = app.path().home_dir() {
+                if linux::migration::migrate(
+                    &home.join(".local/state/lan-remoteapp/linux-preferences.json"),
+                    &app.path().app_data_dir()?,
+                )
+                .is_err()
+                {
+                    eprintln!("旧版 Linux 显示偏好未能迁移，原配置保留。");
+                }
+            }
             app.manage(audio::Service::open(
                 app.path().app_data_dir()?.join("device-audio.json"),
             ));
@@ -626,6 +677,8 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "linux")]
+            let _ = (window, event);
             #[cfg(windows)]
             if window.label().starts_with("receiver-") {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -633,7 +686,7 @@ fn main() {
                 }
                 return;
             }
-            #[cfg(not(windows))]
+            #[cfg(target_os = "macos")]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();

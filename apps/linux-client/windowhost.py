@@ -252,7 +252,7 @@ class Viewer:
         self.outbound = queue.Queue(maxsize=128) if owner is None else owner.outbound
         self.window_id = None; self.revision = 0; self.width = 0; self.height = 0
         self.pressed = set(); self.videos = {}; self.wire = None
-        self.buttons = set(); self.fixed_canvas = False; self.source_size=getattr(application,'source_size',False)
+        self.buttons = set(); self.fixed_canvas = False; self.source_size=owner.source_size if owner is not None else getattr(application,'source_size',False)
         self.scroll_remainder=[0.0,0.0]
         self.display_lock = threading.Lock(); self.pending_image = None; self.display_scheduled = False
         self.presented_frame_id = None
@@ -260,6 +260,7 @@ class Viewer:
             self.video_color_requested = getattr(application,'video_color','420')
             self.video_color = '420'
             self.max_fps = 60; self.configured_fps = None; self.qos_supported = False
+            self.requested_fps = getattr(application, 'requested_fps', None)
             self.remote_clipboard_shortcuts = False
             self.logical_keys = True; self.text_clipboard = False
             self.bundle_clipboard=False
@@ -281,6 +282,8 @@ class Viewer:
             self.window.set_skip_taskbar_hint(True); self.window.set_skip_pager_hint(True)
             self.window.set_type_hint(Gdk.WindowTypeHint.TOOLTIP if self.passive else Gdk.WindowTypeHint.POPUP_MENU)
         self.window.set_wmclass('paneferry-receiver', 'PaneFerry')
+        self.background_start = owner.background_start if owner is not None else bool(getattr(application, 'background_start', False))
+        if self.background_start: self.window.set_focus_on_map(False)
         self.window.set_default_size(max(1,int(self.presentation['width'])) if self.overlay else 900,
                                      max(1,int(self.presentation['height'])) if self.overlay else 650)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -330,7 +333,9 @@ class Viewer:
         self.window.connect('notify::is-active',lambda *_:self.owner.refresh_activity())
         if owner is None:
             self.window.connect('configure-event', lambda *_: (self.layout_overlays(), self.refresh_video_rate(), False)[2])
-        if not self.overlay: self.window.show_all(); self.view.grab_focus()
+        if not self.overlay:
+            self.window.show_all()
+            if not self.background_start: self.view.grab_focus()
         if owner is None:
             self.refresh_video_rate()
             self.monitor_timer = GLib.timeout_add_seconds(2, self.refresh_video_rate)
@@ -417,11 +422,11 @@ class Viewer:
             except (AttributeError, GLib.Error):
                 refresh_millihz = 0
         self.refresh_millihz = refresh_millihz
-        selected = automatic_video_fps(refresh_millihz, self.publisher_max_fps)
+        selected = min(self.requested_fps, self.publisher_max_fps) if self.requested_fps in (30, 60) else automatic_video_fps(refresh_millihz, self.publisher_max_fps)
         self.max_fps = selected
         if self.qos_supported:
             shown_hz = round(refresh_millihz / 1000) if refresh_millihz > 0 else 60
-            self.rate_label.set_text(f'帧率：自动 · 屏幕 {shown_hz} Hz · 上限 {selected} fps')
+            self.rate_label.set_text(f'帧率：{"自动" if self.requested_fps is None else str(self.requested_fps) + " 帧/秒"} · 屏幕 {shown_hz} Hz · 上限 {selected} fps')
             if self.ready and selected != self.configured_fps:
                 try: self.outbound.put_nowait((self.epoch, dict(type='video.configure', max_fps=selected)))
                 except queue.Full: self.status('帧率自动调整未发送，正在重试')
@@ -748,7 +753,7 @@ class Viewer:
                 self.activity_supported='video.activity' in wire.capabilities
                 self.remote_clipboard_shortcuts = 'clipboard.remote-only' in wire.capabilities
                 self.publisher_max_fps = wire.video_max_fps
-                self.max_fps = automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
+                self.max_fps = min(self.requested_fps, self.publisher_max_fps) if self.requested_fps in (30, 60) else automatic_video_fps(self.refresh_millihz, self.publisher_max_fps)
                 self.video_color = negotiate(self.video_color_requested,wire.capabilities)
                 color_fields = {'color':self.video_color} if self.video_color != '420' else {}
                 if self.qos_supported:

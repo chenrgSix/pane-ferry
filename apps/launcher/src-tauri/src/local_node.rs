@@ -101,6 +101,9 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn info(app: &tauri::AppHandle) -> Result<Value, String> {
     exchange(&ensure(app)?, json!({"type":"node.info"}))
 }
+pub fn publisher(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(ensure(app)?.with_file_name("node.sock"))
+}
 pub fn sharing(app: &tauri::AppHandle, enabled: bool) -> Result<Value, String> {
     exchange(
         &ensure(app)?,

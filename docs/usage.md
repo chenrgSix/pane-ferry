@@ -76,7 +76,7 @@ bash install.sh
 ~/.local/bin/paneferry
 ```
 
-安装包包含 Agent、网络组件、GTK 管理/接收界面和 GNOME 扩展。GNOME 50 首次安装扩展后可能要保存工作并注销、重新登录，才能接管原桌面上的 Wayland 窗口；安装脚本不会自动注销。可在扩展管理器确认“窗渡 PaneFerry”已启用。独立 X11 应用不依赖该扩展。
+已发布的旧 Linux 安装包使用 GTK 管理界面；当前主分支构建的 tar 和 .deb 已统一为与 Mac、Windows 共用的管理界面，包含 Agent、网络组件、GTK 原生接收器和 GNOME 扩展。tar 安装另需系统提供 WebKitGTK 4.1（Ubuntu 包名 `libwebkit2gtk-4.1-0`）；.deb 由包管理器解析其 ELF 依赖。首次使用会保留配对并迁移旧显示、声音与设备接管设置。GNOME 50 首次安装扩展后可能要保存工作并注销、重新登录，才能接管原桌面上的 Wayland 窗口；安装脚本不会自动注销。可在扩展管理器确认“窗渡 PaneFerry”已启用。独立 X11 应用不依赖该扩展。
 
 已有 Agent 运行时，普通安装会在写入前停止并给出提示。升级改用：
 

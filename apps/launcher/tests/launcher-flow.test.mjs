@@ -799,6 +799,26 @@ test("a late sharing-status poll cannot undo a completed stop-sharing result", a
   } finally { mounted.unmount(); }
 });
 
+test("Linux imports its legacy scene preference only before shared UI preferences exist", async () => {
+  const disk = storage(); disk.removeItem("lan-remoteapp.connection");
+  const node = { device_id: "local", name: "Ubuntu", platform: "linux", sharing_enabled: false,
+    launcher_defaults: { applicationScene: true } };
+  let mounted = mount(disk, { local_node_info: () => node });
+  try {
+    await settled(mounted.state);
+    assert.equal(mounted.state.applicationScene, true);
+    mounted.state.applicationScene = false; mounted.state.videoFPS = 30; mounted.state.save();
+    await mounted.state.readLocal();
+    assert.equal(mounted.state.applicationScene, false, "status polling must not reapply migrated defaults");
+  } finally { mounted.unmount(); }
+  mounted = mount(disk, { local_node_info: () => node });
+  try {
+    await settled(mounted.state);
+    assert.equal(mounted.state.applicationScene, false);
+    assert.equal(mounted.state.videoFPS, 30);
+  } finally { mounted.unmount(); }
+});
+
 test("sharing mutation excludes concurrent polls and duplicate clicks until confirmed", async () => {
   const node = { device_id: "local", name: "Mac", sharing_enabled: true,
     permissions: { screen_recording: true, accessibility: true } };

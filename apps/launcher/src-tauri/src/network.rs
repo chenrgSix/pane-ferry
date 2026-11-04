@@ -38,6 +38,11 @@ pub fn directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join(".local/state/lan-remoteapp/network"))
 }
 pub fn binary(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    {
+        return Ok(crate::linux::runtime::installation(app)?.network);
+    }
+    #[cfg(not(target_os = "linux"))]
     app.path()
         .resolve("paneferry-network", tauri::path::BaseDirectory::Resource)
         .map_err(|_| "缺少网络组件。".into())
@@ -72,9 +77,10 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
     if exchange(app, &json!({"op":"status"})).is_ok() {
         return Ok(());
     }
-    let publisher = crate::local_node::ensure(app)?.with_file_name("node.sock");
+    let publisher = crate::local_node::publisher(app)?;
     let info = crate::local_node::info(app)?;
-    let mut child = Command::new(binary(app)?)
+    let mut command = Command::new(binary(app)?);
+    command
         .arg("serve")
         .arg("--state")
         .arg(directory(app)?)
@@ -83,12 +89,15 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         .arg("--device-id")
         .arg(info["device_id"].as_str().ok_or("本机身份无效。")?)
         .arg("--name")
-        .arg(info["name"].as_str().unwrap_or("Mac"))
+        .arg(info["name"].as_str().unwrap_or("PaneFerry"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "网络组件启动失败。")?;
+        .stderr(Stdio::null());
+    #[cfg(target_os = "linux")]
+    command
+        .arg("--bulk-agent")
+        .arg(crate::linux::runtime::installation(app)?.agent);
+    let mut child = command.spawn().map_err(|_| "网络组件启动失败。")?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });

@@ -7,7 +7,7 @@
 首次安装推荐在 Ubuntu 文件管理器中双击 `.deb`，由应用中心、软件安装或 GDebi 处理。包管理器负责安装依赖；也可用 `sudo apt install ./paneferry_0.1.1-1_amd64.deb`。完整操作、旧脚本版迁移及卸载见[使用教程](usage.md)。
 
 - `/usr/bin/paneferry`：桌面启动入口。
-- `/usr/lib/paneferry/`：GTK 界面和配套 Agent / 网络组件；不会优先使用旧用户目录中的二进制。
+- `/usr/lib/paneferry/`：当前源码包包含公共 Tauri/Vue 管理界面、GTK 接收器和配套 Agent / 网络组件；不会优先使用旧用户目录中的二进制。下方历史 0.1.1 验收使用旧 GTK 管理界面。
 - `/usr/lib/systemd/user/remoteapp-agent.service`：用户服务，GUI 首次启动时按需启动；没有 systemd 用户管理器时保持直接启动兼容。
 - `/usr/share/applications/io.lanremoteapp.launcher.desktop`：应用菜单入口。
 - `/usr/share/gnome-shell/extensions/paneferry@local/`：GNOME 扩展，需当前用户启用，首次安装可能要重新登录。
@@ -17,7 +17,7 @@
 
 ## 构建与验证命令
 
-在具有 Rust、Python 3.11+、dpkg-dev 和运行依赖的 Ubuntu 上：
+在具有 Rust、Node.js 22、CMake、Python 3.11+、dpkg-dev、GTK3/WebKitGTK 4.1 开发包和运行依赖的 Ubuntu 上：
 
 ```sh
 bash scripts/build-deb.sh

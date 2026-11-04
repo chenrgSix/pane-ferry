@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 for command in cargo dpkg-deb dpkg-shlibdeps python3; do
   command -v "$command" >/dev/null || { echo "缺少构建工具：$command" >&2; exit 1; }
 done
-cargo build --locked --release -p paneferry-agent -p paneferry-network
+bash apps/launcher/scripts/build-linux.sh
 version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
 revision="${PANEFERRY_DEB_REVISION:-1}"
 [[ "$revision" =~ ^[1-9][0-9]*$ ]] || { echo 'Debian 修订号必须为正整数。' >&2; exit 1; }
@@ -22,7 +22,10 @@ mkdir -p "$package/DEBIAN" "$package/usr/bin" "$package/usr/lib/paneferry" \
   "$package/usr/share/icons/hicolor/128x128/apps" "$package/usr/share/doc/paneferry" \
   "$package/usr/share/gnome-shell/extensions/paneferry@local" "$stage/debian"
 install -m 755 target/release/paneferry-{agent,network} "$package/usr/lib/paneferry/"
-install -m 644 apps/linux-client/*.py "$package/usr/lib/paneferry/"
+install -m 755 apps/launcher/src-tauri/target/release/paneferry-launcher "$package/usr/lib/paneferry/"
+for file in apps/linux-client/*.py; do
+  [[ $(basename "$file") == main.py ]] || install -m 644 "$file" "$package/usr/lib/paneferry/"
+done
 install -m 644 apps/linux-agent/gnome-extension/* "$package/usr/share/gnome-shell/extensions/paneferry@local/"
 install -m 644 apps/launcher/src-tauri/icons/icon.png "$package/usr/share/icons/hicolor/128x128/apps/io.lanremoteapp.launcher.png"
 install -m 644 LICENSE "$package/usr/share/doc/paneferry/LICENSE"
@@ -41,8 +44,7 @@ sed 's|ExecStart=%h/.local/bin/paneferry-agent serve|ExecStart=/usr/lib/paneferr
   deploy/linux-user-service/remoteapp-agent.service > "$package/usr/lib/systemd/user/remoteapp-agent.service"
 cat > "$package/usr/bin/paneferry" <<'SH'
 #!/bin/sh
-export GDK_BACKEND=x11
-exec /usr/bin/python3 -I /usr/lib/paneferry/main.py "$@"
+exec /usr/lib/paneferry/paneferry-launcher "$@"
 SH
 chmod 755 "$package/usr/bin/paneferry"
 ln -s ../lib/paneferry/paneferry-agent "$package/usr/bin/paneferry-agent"
@@ -70,7 +72,7 @@ Package: paneferry
 Architecture: $architecture
 Description: PaneFerry desktop application sharing
 EOF
-shlibs=$(cd "$stage" && dpkg-shlibdeps -O -e"$package/usr/lib/paneferry/paneferry-agent" -e"$package/usr/lib/paneferry/paneferry-network")
+shlibs=$(cd "$stage" && dpkg-shlibdeps -O -e"$package/usr/lib/paneferry/paneferry-agent" -e"$package/usr/lib/paneferry/paneferry-network" -e"$package/usr/lib/paneferry/paneferry-launcher")
 shlibs=${shlibs#shlibs:Depends=}
 size=$(du -sk "$package/usr" | awk '{print $1}')
 cat > "$package/DEBIAN/control" <<EOF
@@ -86,7 +88,7 @@ Depends: $shlibs, python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-webso
 Recommends: xdg-desktop-portal-gnome, gnome-shell-extension-prefs
 Description: PaneFerry graphical application sharing between Mac and Ubuntu
  Pair devices and use remote applications in native windows over QUIC.
- Includes the GTK manager, receiver, user agent and GNOME window bridge.
+ Includes the shared Tauri/Vue manager, GTK receiver, user agent and GNOME window bridge.
  Applications remain on the publishing device. GNOME desktop integration
  requires GNOME 50; see the release BUILD-INFO.json for the build platform.
  .

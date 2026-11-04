@@ -20,6 +20,8 @@ for name, version in [('Gtk','3.0'),('Gst','1.0'),('GstApp','1.0')]:
 from gi.repository import Gst
 Gst.init(None)
 assert any(Gst.ElementFactory.find(n) for n in ('avdec_h264','openh264dec')), '需要 H.264 解码组件'
+import ctypes
+ctypes.CDLL('libwebkit2gtk-4.1.so.0')
 PY
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/paneferry" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps" "$HOME/.config/systemd/user"
 mkdir -p "$HOME/.local/share/doc/paneferry"
