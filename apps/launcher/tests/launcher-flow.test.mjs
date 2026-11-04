@@ -93,7 +93,7 @@ test("saved device selection restores after restart and applies its address befo
   try {
     await settled(mounted.state);
     assert.equal(mounted.state.addressEdits[peer.device_id], "10.0.0.20:42424");
-    await mounted.state.connectSaved(mounted.state.savedConnections[0]);
+    await mounted.state.changePeer({ target: { value: peer.device_id } });
     assert.equal(mounted.state.endpoint.peerId, peer.device_id);
     const update = mounted.calls.findIndex(c => c.command === "network_action" && c.args.body.op === "address");
     const read = mounted.calls.findIndex(c => c.command === "list_apps" && c.args.endpoint.peerId === peer.device_id);
@@ -687,6 +687,59 @@ test("menu navigation preserves the active device, app search, display preferenc
     await state.launch(state.installed[0]);
     assert.equal(actions(mounted).at(-1).args.renderScale, 1);
     assert.equal(actions(mounted).at(-1).args.endpoint.peerId, endpoint.peerId);
+  } finally { mounted.unmount(); }
+});
+
+test("workspace favorites never launch apps, recent entries follow successful operations and shortcuts stay device-scoped", async () => {
+  const disk = storage();
+  const mounted = mount(disk);
+  try {
+    const state = mounted.state;
+    await settled(state);
+    const count = mounted.calls.length;
+    state.toggleFavorite(state.apps[0]);
+    assert.equal(mounted.calls.length, count, "favoriting is a local UI preference");
+    assert.equal(state.favoriteApps[0].id, "firefox");
+    await state.launch(state.apps[0]);
+    assert.equal(state.recentApps[0].id, "firefox");
+    assert.equal(state.quickApps.length, 1, "favorite and recent entries must not duplicate a tile");
+    state.catalogView = "favorites";
+    assert.equal(state.catalogApps[0].id, "firefox");
+    state.search = "no match";
+    assert.equal(state.quickApps.length, 0);
+    state.search = "";
+    state.endpoint = { peerId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" };
+    await nextTick();
+    assert.equal(state.favoriteApps.length, 0);
+    assert.equal(state.recentApps.length, 0);
+    assert.equal(state.catalogView, "all");
+    state.endpoint = endpoint;
+    await nextTick();
+    assert.equal(state.favoriteApps.length, 1);
+    state.apps = [];
+    assert.equal(state.quickApps.length, 0, "removed catalogue entries are never offered as stale launch targets");
+  } finally { mounted.unmount(); }
+  const reopened = mount(disk);
+  try {
+    await settled(reopened.state);
+    assert.equal(reopened.state.favoriteApps[0].id, "firefox");
+    assert.equal(reopened.state.recentApps[0].id, "firefox");
+  } finally { reopened.unmount(); }
+});
+
+test("resuming a live window remembers its stable application, while failed launches create no recent entry", async () => {
+  const mounted = mount(storage(), {
+    list_desktop_windows: () => ({ windows: [{ ...window("window-live", "remote"), app_id: "firefox", application_key: "firefox" }], unavailable_reason: null }),
+    launch_app: () => { throw { kind: "remote", message: "launch refused" }; },
+  });
+  try {
+    const state = mounted.state;
+    await settled(state);
+    await state.launch(state.apps[0]);
+    assert.equal(state.recentApps.length, 0);
+    await state.connect(state.runningConnections[0]);
+    assert.equal(state.recentApps[0].id, "firefox");
+    assert.equal(actions(mounted).at(-1).command, "resume_session");
   } finally { mounted.unmount(); }
 });
 

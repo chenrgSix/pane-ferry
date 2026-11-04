@@ -12,6 +12,7 @@ import type { AppCatalog, AppInfo, DesktopMonitor, DesktopMonitors, DesktopWindo
 import AppIcon from "./AppIcon.vue";
 import { retireLegacyPreferences } from "./connection-preferences";
 import { SavedConnections } from "./saved-connections";
+import { AppShortcutStore } from "./app-shortcuts";
 import type { SavedConnection } from "./saved-connections";
 import { automaticApplications, emptyAutomaticStatus } from "./automatic-windows";
 import type { AutomaticMode, AutomaticRule, AutomaticStatus } from "./automatic-windows";
@@ -90,6 +91,11 @@ retireLegacyPreferences(storage);
 const attempts = new PendingLaunches(storage);
 const savedConnectionStore = new SavedConnections(storage);
 const savedConnections = ref(savedConnectionStore.list());
+const appShortcutStore = new AppShortcutStore(storage);
+const appShortcuts = ref(appShortcutStore.list());
+const shortcutWarning = ref("");
+const catalogView = ref<"all" | "favorites" | "recent">("all");
+const catalogExpanded = ref(false);
 const connectionNames = ref<Record<string, string>>({});
 const savedConnectionError = ref(""), savedConnectionNotice = ref("");
 const switchingConnection = ref("");
@@ -101,6 +107,9 @@ type NativePeer = {device_id:string; name:string; address:string; fingerprint:st
 const nativePeers = ref<NativePeer[]>([]), nativeWarning=ref(""), pairAddress=ref(""), pairCode=ref(""), ownInvite=ref(""), pairing=ref(false);
 const pairNotice = ref("");
 const selectedPeer = computed(() => nativePeers.value.find(peer => peer.device_id === endpoint.value.peerId));
+function peerLabel(peer: NativePeer): string {
+  return savedConnections.value.find(row => row.peerId === peer.device_id)?.name || peer.name;
+}
 const networkReady = ref(false);
 let networkRevision = 0;
 const automaticStatus = ref<AutomaticStatus>(emptyAutomaticStatus());
@@ -278,7 +287,9 @@ async function connectSaved(row: SavedConnection) {
 }
 async function changePeer(event: Event) {
   const peer = nativePeers.value.find(item => item.device_id === (event.target as HTMLSelectElement).value);
-  if (peer) await selectPeer(peer);
+  if (!peer) return;
+  const saved = savedConnections.value.find(row => row.peerId === peer.device_id);
+  if (saved) await connectSaved(saved); else await selectPeer(peer);
 }
 async function updatePeerAddress(peer:NativePeer) {
   pairing.value=true;
@@ -333,6 +344,24 @@ const filtered = computed(() =>
 );
 const installed = computed(() => filtered.value.filter(app => app.source === "desktop"));
 const custom = computed(() => filtered.value.filter(app => app.source === "custom"));
+const selectedShortcuts = computed(() => appShortcuts.value.find(row => row.peerId === endpoint.value.peerId));
+const favoriteIds = computed(() => new Set(selectedShortcuts.value?.favorites || []));
+const favoriteApps = computed(() => (selectedShortcuts.value?.favorites || []).flatMap(id =>
+  apps.value.filter(app => app.id === id && app.source === "desktop")));
+const recentApps = computed(() => (selectedShortcuts.value?.recent || []).flatMap(id =>
+  apps.value.filter(app => app.id === id && app.source === "desktop")));
+const quickApps = computed(() => [...favoriteApps.value, ...recentApps.value.filter(app => !favoriteIds.value.has(app.id))]
+  .filter(app => `${app.name} ${app.id}`.toLowerCase().includes(search.value.toLowerCase())).slice(0, 6));
+const catalogApps = computed(() => catalogView.value === "all" ? installed.value :
+  (catalogView.value === "favorites" ? favoriteApps.value : recentApps.value).filter(app =>
+    `${app.name} ${app.id}`.toLowerCase().includes(search.value.toLowerCase())));
+const visibleApps = computed(() => catalogExpanded.value || search.value.trim() ? catalogApps.value : catalogApps.value.slice(0, 12));
+function toggleFavorite(app: AppInfo) {
+  try {
+    appShortcutStore.toggleFavorite(endpoint.value.peerId, app.id);
+    appShortcuts.value = appShortcutStore.list(); shortcutWarning.value = "";
+  } catch (error) { shortcutWarning.value = (error as Error).message; }
+}
 const runningConnections = computed(() => connections(apps.value, desktopWindows.value, sessions.value));
 const currentStarting = computed(() => startingApps.value.filter(item => item.endpoint === signature()));
 const filteredStarting = computed(() => currentStarting.value.filter(item =>
@@ -341,7 +370,8 @@ const isStarting = (appId: string) => currentStarting.value.some(item => item.ap
 const desktopSession = (monitor: DesktopMonitor) => sessions.value.find(
   session => session.mode === "desktop" && session.monitor_id === monitor.id);
 const filteredConnections = computed(() => runningConnections.value.filter(row =>
-  `${row.name} ${row.title}`.toLowerCase().includes(search.value.toLowerCase())));
+  `${row.name} ${row.title}`.toLowerCase().includes(search.value.toLowerCase()))
+  .sort((a, b) => Number(b.controlled) - Number(a.controlled)));
 const signature = () => endpointKey(endpoint.value),
   catalogCurrent = computed(() => connected.value === signature()),
   runtimeCurrent = computed(() => runtimeEndpoint.value === signature());
@@ -527,9 +557,16 @@ async function refresh() {
     busy.value = false;
   }
 }
-function record(name: string, result: Result) {
+function record(name: string, result: Result, appId?: string, applicationKey?: string | null) {
   launches.value.unshift({ name, result, deviceName: selectedPeer.value?.name || endpoint.value.peerId, deviceAddress: selectedPeer.value?.address || "", peerId: endpoint.value.peerId, createdAt: Date.now() });
   launches.value = launches.value.slice(0, 20);
+  const app = apps.value.find(item => item.source === "desktop" && (item.id === appId || item.id === applicationKey));
+  if (app) {
+    try {
+      appShortcutStore.recordUse(endpoint.value.peerId, app.id);
+      appShortcuts.value = appShortcutStore.list(); shortcutWarning.value = "";
+    } catch (error) { shortcutWarning.value = (error as Error).message; }
+  }
   notice.value = result.message;
   save();
 }
@@ -579,7 +616,7 @@ async function launch(app: LaunchTarget) {
     attempts.resolve(key);
     startingApps.value = startingApps.value.filter(item => item.endpoint !== endpointKey(sent) || item.appId !== app.id);
     if (signature() === endpointKey(sent)) record(app.name, applicationScene.value && !useScene
-      ? { ...result, message: `${result.message} 当前入口使用兼容窗口显示。` } : result);
+      ? { ...result, message: `${result.message} 当前入口使用兼容窗口显示。` } : result, app.id, app.application_key);
   } catch (e) {
     const failure = launchFailure(e);
     if (!failure.retrySameRequest) attempts.resolve(key);
@@ -629,7 +666,7 @@ async function openDesktop(monitor: DesktopMonitor) {
     busy.value = false;
   }
 }
-async function resume(sessionId: string, name: string, iconPng?: string | null, applicationKey?: string) {
+async function resume(sessionId: string, name: string, iconPng?: string | null, applicationKey?: string, appId?: string) {
   if (busy.value || !valid.value) return;
   busy.value = true;
   error.value = "";
@@ -645,7 +682,7 @@ async function resume(sessionId: string, name: string, iconPng?: string | null, 
       videoFps: videoFPS.value,
       applicationKey: applicationKey ?? null,
     });
-    if (signature() === endpointKey(sent)) record(name, result);
+    if (signature() === endpointKey(sent)) record(name, result, appId, applicationKey);
   } catch (e) {
     if (signature() === endpointKey(sent)) {
       error.value = requestFailure(e).message;
@@ -661,7 +698,7 @@ async function connect(row: Connection) {
   const session = sessions.value.find(s => s.session_id === row.sessionId);
   const changingPresentation = session && session.display === 0 && session.mode !== "desktop" &&
     (session.mode === "scene") !== useApplicationScene(row.appId);
-  if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png, row.applicationKey);
+  if (row.sessionId && !changingPresentation) await resume(row.sessionId, row.name, row.icon_png, row.applicationKey, row.appId);
   else await launch({ id: row.appId, name: row.name, icon_png: row.icon_png, application_key: row.applicationKey });
 }
 function onFocus() {
@@ -679,6 +716,8 @@ function onOnline() {
   onFocus();
 }
 watch(signature, restoreCatalog);
+watch(signature, () => { catalogView.value = "all"; catalogExpanded.value = false; shortcutWarning.value = ""; });
+watch(catalogView, () => { catalogExpanded.value = false; });
 watch(activePage, () => window.scrollTo?.(0, 0), { flush: "post" });
 onMounted(() => {
   void readPictureMode();
@@ -716,8 +755,7 @@ onUnmounted(() => {
         </template>
       </nav>
       <div class="aside-bottom">
-        <span class="network-note"><span class="status-dot" />本地网络 · 加密连接</span>
-        <p>应用留在原设备<br />窗口来到当前桌面</p>
+        <span class="network-note"><span class="status-dot" />设备间加密连接</span>
         <small>开发预览 0.1.3</small>
       </div>
     </aside>
@@ -728,13 +766,12 @@ onUnmounted(() => {
           <h1>{{ currentPage.label }}</h1>
           <p>{{ currentPage.description }}</p>
         </div>
-        <span class="badge">双向应用共享</span>
+        <div v-if="activePage === 'apps'" class="workspace-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input v-model="search" type="search" placeholder="搜索应用或窗口…" aria-label="搜索应用或窗口" /></div>
       </header>
 
-      <section v-if="activePage === 'apps' || activePage === 'devices'" class="panel saved-connections" aria-labelledby="saved-connections-title">
-        <div class="section-title"><h2 id="saved-connections-title">已保存连接 <span class="count">{{ savedConnections.length }}</span></h2><button v-if="activePage === 'apps'" class="text-action" @click="activePage = 'devices'">保存／编辑连接 ↗</button></div>
-        <p v-if="!savedConnections.length" class="hint">在设备管理中为已配对设备填写名称和地址，点击“保存连接”，下次即可一键切换。</p>
-        <div v-else class="saved-connection-list">
+      <section v-if="activePage === 'devices' && (savedConnections.length || savedConnectionError || savedConnectionNotice)" class="panel saved-connections" aria-labelledby="saved-connections-title">
+        <div class="section-title"><h2 id="saved-connections-title">已保存连接 <span class="count">{{ savedConnections.length }}</span></h2></div>
+        <div class="saved-connection-list">
           <article v-for="row in savedConnections" :key="row.peerId" class="saved-connection-row">
             <div class="window-label"><strong>{{ row.name }}</strong><p>{{ row.address }}</p></div>
             <span v-if="!nativePeers.some(peer => peer.device_id === row.peerId)" class="window-state">{{ networkReady ? "需重新配对" : "正在读取设备" }}</span>
@@ -744,108 +781,111 @@ onUnmounted(() => {
           </article>
         </div>
         <p v-if="savedConnectionError" class="alert error" role="alert">{{ savedConnectionError }}</p>
-        <p v-if="activePage === 'apps' && nativeWarning" class="alert error" role="alert">{{ nativeWarning }}</p>
         <p v-if="savedConnectionNotice" class="hint" role="status">{{ savedConnectionNotice }}</p>
       </section>
 
       <div v-if="activePage === 'apps'" class="page-content">
         <div class="workspace-toolbar">
           <div class="device-picker">
-            <label for="workspace-device">应用来源</label>
+            <span class="device-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg></span>
+            <div class="device-selection"><label for="workspace-device">当前设备</label>
             <select id="workspace-device" :value="endpoint.peerId" :disabled="busy || pairing || !!switchingConnection || !nativePeers.length" @change="changePeer">
               <option value="" disabled>选择已配对设备</option>
               <option v-if="endpoint.peerId && !selectedPeer" :value="endpoint.peerId">上次使用的设备</option>
-              <option v-for="peer in nativePeers" :key="peer.device_id" :value="peer.device_id">{{ peer.name }} · {{ peer.address }}</option>
+              <option v-for="peer in nativePeers" :key="peer.device_id" :value="peer.device_id">{{ peerLabel(peer) }}</option>
             </select>
-            <span v-if="selectedPeer" class="device-status" :class="{ online: selectedPeer.connected }"><span class="status-dot" />{{ selectedPeer.connected ? "已连接" : "已配对" }}</span>
+            </div>
+            <span v-if="selectedPeer" class="device-status" :class="{ online: selectedPeer.connected }" role="status"><span class="status-dot" />{{ switchingConnection ? "切换中…" : selectedPeer.connected ? "网络已连接" : "已配对 · 等待连接" }}</span>
+            <span v-if="selectedPeer" class="device-address">{{ selectedPeer.address }}</span>
           </div>
-          <button class="text-action" @click="activePage = 'devices'">管理设备 ↗</button>
+          <button class="text-action" @click="activePage = 'devices'">{{ nativePeers.length ? "管理设备" : "添加设备" }} ↗</button>
         </div>
+        <p v-if="nativeWarning || savedConnectionError" class="alert error" role="alert">{{ nativeWarning || savedConnectionError }}</p>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <div v-if="notice" class="alert notice" role="status">{{ notice }}</div>
-        <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
-          <div class="section-title"><h2>整桌面</h2><button :disabled="busy" @click="refresh">刷新显示器</button></div>
-          <p class="hint">连接远端当前已登录的显示器，查看完整桌面和系统弹窗。关闭本机窗口只会断开，远端应用继续运行。锁屏、安全桌面或权限限制仍需在远端处理。</p>
+        <div v-if="valid" class="workspace-actions">
+        <section class="quick-action desktop-action" aria-labelledby="desktop-title">
+          <div class="quick-action-heading"><span class="action-symbol" aria-hidden="true">▣</span><div><h2 id="desktop-title">整桌面</h2><p class="hint">查看完整桌面和系统弹窗</p></div><button class="icon-action" :disabled="busy" aria-label="刷新显示器" title="刷新显示器" @click="refresh">↻</button></div>
           <p v-if="monitorWarning" class="hint" role="status">{{ monitorWarning }}</p>
-          <p v-if="!desktopMonitors.length && !monitorWarning" class="hint">当前没有可连接的显示器。</p>
-          <div v-for="monitor in desktopMonitors" :key="monitor.id" class="desktop-window-row">
-            <div class="app-icon" aria-hidden="true">▣</div>
-            <div class="window-label"><strong>{{ monitor.name }}</strong><p>{{ monitor.width }} × {{ monitor.height }} 像素{{ monitor.primary ? " · 主显示器" : "" }}</p></div>
-            <span class="window-state">{{ desktopSession(monitor)?.controlled ? "已连接" : desktopSession(monitor) ? "可继续" : "当前桌面" }}</span>
+          <p v-if="!desktopMonitors.length && !monitorWarning" class="hint">{{ busy ? "正在读取显示器…" : "当前没有可连接的显示器。" }}</p>
+          <div v-for="monitor in desktopMonitors" :key="monitor.id" class="monitor-row">
+            <div class="window-label"><strong :title="monitor.name">{{ monitor.name }}</strong><p>{{ monitor.width }} × {{ monitor.height }}{{ monitor.primary ? " · 主显示器" : "" }}</p></div>
             <button :disabled="busy || desktopSession(monitor)?.controlled" @click="openDesktop(monitor)">{{ desktopSession(monitor)?.controlled ? "已连接" : "连接桌面" }}</button>
           </div>
         </section>
-        <section v-if="valid" class="catalog desktop-windows window-takeover" aria-labelledby="window-takeover-title">
-          <div class="section-title"><h2 id="window-takeover-title">全窗口接管</h2></div>
-          <p class="hint">将这台设备已有和之后新开的应用窗口、选择器与对话框分别接入当前桌面。已连接窗口直接复用。</p>
-          <div class="desktop-window-row">
-            <div class="app-icon" aria-hidden="true">▦</div>
-            <div class="window-label"><strong>{{ selectedPeer?.name || "当前设备" }}的全部应用窗口</strong><p>无需逐个连接，远端应用继续运行。</p></div>
-            <span class="window-state">{{ automaticStatus.takeoverEnabled ? "接管中" : "未接管" }}</span>
+        <section class="quick-action window-takeover" :class="{ 'takeover-active': automaticStatus.takeoverEnabled }" aria-labelledby="window-takeover-title">
+          <div class="quick-action-heading"><span class="action-symbol" aria-hidden="true">▦</span><div><h2 id="window-takeover-title">全窗口接管</h2><p class="hint">自动接入已有窗口和之后的新窗口</p></div></div>
+          <div class="takeover-controls">
+            <span class="device-status" :class="{ online: automaticStatus.takeoverEnabled }"><span class="status-dot" />{{ automaticStatus.takeoverEnabled ? "正在接管" : "未开启" }}{{ automaticStatus.managedWindows ? ` · ${automaticStatus.managedWindows} 个窗口` : "" }}</span>
             <button :disabled="automaticSaving" :aria-pressed="Boolean(automaticStatus.takeoverEnabled)" @click="deviceWindowAction()">{{ automaticSaving ? "处理中…" : automaticStatus.takeoverEnabled ? "停止接管" : "接管全部窗口" }}</button>
           </div>
-          <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">正在自动接入已有和新开的窗口。停止接管会保留已连接的窗口，并恢复应用级规则；再次开启会重新接入此前关闭的窗口。</p>
-          <p v-if="automaticStatus.managedWindows" class="hint">此启动器管理 {{ automaticStatus.managedWindows }} 个应用接收窗口。<button :disabled="automaticSaving" @click="deviceWindowAction(true)">断开此设备全部应用窗口</button></p>
+          <details class="action-details"><summary>接管说明{{ automaticStatus.managedWindows ? "与窗口管理" : "" }}</summary><p class="hint">菜单、选择器和对话框也会自动接入，已连接窗口直接复用。停止接管会保留已连接窗口并恢复应用级规则；再次开启会重新接入此前关闭的窗口。退出启动器后停止自动接入。</p><button v-if="automaticStatus.managedWindows" class="danger-action" :disabled="automaticSaving" @click="deviceWindowAction(true)">断开此设备全部应用窗口</button></details>
           <p v-if="takeoverError || (automaticStatus.takeoverEnabled && automaticStatus.warning)" class="alert error" role="alert">{{ takeoverError || automaticStatus.warning }}</p>
         </section>
-        <section class="catalog">
+        </div>
+
+        <section v-if="catalogCurrent || runtimeCurrent" class="workspace-windows" aria-labelledby="running-title">
+          <div class="section-title"><h2 id="running-title">运行中的窗口 <span class="count">{{ runningConnections.length }}</span><span v-if="runningConnections.some(row => row.controlled)" class="section-note">{{ runningConnections.filter(row => row.controlled).length }} 个已连接</span></h2><button class="text-action" :disabled="busy" @click="refresh">刷新运行状态 ↻</button></div>
+          <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
+          <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
+          <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="inline-empty">{{ busy ? "正在读取运行状态…" : "暂无运行窗口，从下方打开一个应用即可开始。" }}</p>
+          <p v-else-if="runningConnections.length && !filteredConnections.length" class="inline-empty">没有匹配的窗口。</p>
+          <div class="running-list">
+          <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row" :class="{ 'window-connected': row.controlled }">
+            <AppIcon :icon="row.icon_png" :name="row.name" />
+            <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
+            <span class="window-state">{{ row.minimized ? "已最小化" : row.controlled ? "已连接" : "可连接" }}</span>
+            <button :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接窗口" }}</button>
+          </div>
+          </div>
+          <details v-if="runningConnections.length" class="action-details"><summary>关闭窗口会怎样？</summary><p class="hint">关闭本机接收窗口只会断开连接，原设备上的应用继续运行。</p></details>
+        </section>
+
+        <section v-if="currentStarting.length" class="workspace-windows" aria-live="polite">
+          <div class="section-title"><h2>启动中的应用 <span class="count">{{ currentStarting.length }}</span></h2><button class="text-action" :disabled="busy" @click="refresh">检查状态</button></div>
+          <p v-if="!filteredStarting.length" class="hint">没有匹配的应用。</p>
+          <div v-for="item in filteredStarting" :key="item.endpoint + item.appId" class="desktop-window-row">
+            <AppIcon :icon="apps.find(app => app.id === item.appId)?.icon_png" :name="item.name" />
+            <div class="window-label"><strong>{{ item.name }}</strong><p>正在等待应用创建窗口，无需重复打开</p></div><span class="window-state">启动中…</span>
+          </div>
+        </section>
+
+        <section v-if="quickApps.length" class="quick-apps" aria-labelledby="quick-apps-title">
+          <div class="section-title"><h2 id="quick-apps-title">常用与最近</h2><span class="subtle-label">仅当前设备</span></div>
+          <div class="quick-app-grid"><button v-for="app in quickApps" :key="app.id" class="quick-app" :title="app.unavailable_reason || app.name" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason) || isStarting(app.id)" @click="launch(app)"><AppIcon :icon="app.icon_png" :name="app.name" /><span>{{ app.name }}</span><span class="quick-app-mark" aria-hidden="true">{{ favoriteIds.has(app.id) ? "★" : "↗" }}</span></button></div>
+        </section>
+
+        <section class="catalog application-catalog" aria-labelledby="catalog-title">
           <div class="section-title">
-            <h2>已安装应用 <span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span></h2>
+            <h2 id="catalog-title">应用 <span class="count">{{ apps.filter(app => app.source === "desktop").length }}</span></h2>
             <div class="catalog-actions">
-              <input v-model="search" class="search" type="search" placeholder="搜索应用或窗口…" aria-label="搜索应用或窗口" />
-              <button :disabled="!valid || busy" @click="load(true)">{{ busy ? "读取中…" : "刷新应用" }}</button>
+              <span v-if="catalogSavedAt" class="catalog-timestamp" :title="new Date(catalogSavedAt).toLocaleString()">已缓存列表</span>
+              <button class="text-action" :disabled="!valid || busy" @click="load(true)">{{ busy ? "读取中…" : "刷新应用 ↻" }}</button>
             </div>
           </div>
-          <p v-if="catalogSavedAt" class="hint catalog-updated">更新于 {{ new Date(catalogSavedAt).toLocaleString() }}</p>
+          <div class="catalog-filters" role="group" aria-label="应用列表筛选"><button :class="{ selected: catalogView === 'all' }" :aria-pressed="catalogView === 'all'" @click="catalogView = 'all'">全部应用</button><button :class="{ selected: catalogView === 'favorites' }" :aria-pressed="catalogView === 'favorites'" @click="catalogView = 'favorites'">收藏 <span>{{ favoriteApps.length }}</span></button><button :class="{ selected: catalogView === 'recent' }" :aria-pressed="catalogView === 'recent'" @click="catalogView = 'recent'">最近使用</button><span class="catalog-tip">点星号收藏，常用应用会出现在上方</span></div>
           <p v-if="catalogSavedAt && !catalogPersisted" class="hint">本机缓存无法保存；当前列表仍可使用，退出启动器后需要重新读取。</p>
           <p v-if="discoveryWarning" class="alert error" role="status">{{ discoveryWarning }}</p>
+          <p v-if="shortcutWarning" class="alert error" role="status">{{ shortcutWarning }}</p>
           <div v-if="!apps.some(app => app.source === 'desktop')" class="empty">
             <div class="empty-icon" aria-hidden="true">▦</div>
             <h3>{{ busy ? "正在读取设备应用" : valid ? "这台设备暂无可显示的应用" : "从另一台设备开始" }}</h3>
             <p>{{ valid ? "可刷新应用列表，或检查对方设备是否已开启共享。" : "选择一台已配对设备，即可在这里打开它的应用。" }}</p>
             <button v-if="!valid" class="primary-action" @click="activePage = 'devices'">{{ nativePeers.length ? "选择设备" : "配对第一台设备" }}</button>
           </div>
-          <div v-else-if="installed.length" class="app-grid">
-            <button v-for="app in installed" :key="app.id" class="app-card" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason) || isStarting(app.id)" @click="launch(app)">
+          <div v-else-if="catalogApps.length" class="app-grid compact-app-grid">
+            <article v-for="app in visibleApps" :key="app.id" class="app-tile">
+            <button class="app-card" :title="app.unavailable_reason || app.name" :disabled="busy || !catalogCurrent || Boolean(app.unavailable_reason) || isStarting(app.id)" @click="launch(app)">
               <AppIcon :icon="app.icon_png" :name="app.name" />
-              <strong>{{ app.name }}</strong>
-              <p :title="app.unavailable_reason || app.description">{{ app.unavailable_reason || app.description }}</p>
-              <span class="launch-label">{{ app.unavailable_reason ? "暂不可启动" : isStarting(app.id) || launchingAppId === app.id ? "启动中…" : "打开应用 ↗" }}</span>
-            </button>
+              <span class="app-card-label"><strong>{{ app.name }}</strong><span class="app-description">{{ app.unavailable_reason || (isStarting(app.id) || launchingAppId === app.id ? "启动中…" : app.description || "打开应用") }}</span></span>
+            </button><button class="favorite-action" :class="{ favorited: favoriteIds.has(app.id) }" :aria-pressed="favoriteIds.has(app.id)" :aria-label="`${favoriteIds.has(app.id) ? '取消收藏' : '收藏'} ${app.name}`" :title="favoriteIds.has(app.id) ? '取消收藏' : '收藏应用'" @click="toggleFavorite(app)">{{ favoriteIds.has(app.id) ? "★" : "☆" }}</button>
+            </article>
           </div>
-          <p v-else class="empty search-empty">没有匹配的应用，试试其他关键词。</p>
+          <div v-else class="inline-empty">{{ search ? "没有匹配的应用，试试其他关键词。" : catalogView === "favorites" ? "还没有收藏。在全部应用中点击星号，即可固定常用入口。" : "打开或连接应用后，它会出现在这里。" }}</div>
+          <button v-if="catalogApps.length > 12 && !search.trim()" class="expand-catalog" :aria-expanded="catalogExpanded" @click="catalogExpanded = !catalogExpanded">{{ catalogExpanded ? "收起列表 ↑" : `显示全部 ${catalogApps.length} 个应用 ↓` }}</button>
           <p v-if="apps.length && !catalogCurrent" class="hint">设备已改变，请刷新当前设备的应用。</p>
         </section>
-        <section v-if="currentStarting.length" class="catalog desktop-windows" aria-live="polite">
-          <div class="section-title"><h2>启动中的应用 <span class="count">{{ currentStarting.length }}</span></h2><button :disabled="busy" @click="refresh">检查状态</button></div>
-          <p class="hint">应用进程仍在等待窗口；这里会自动更新，无需重复启动。</p>
-          <p v-if="!filteredStarting.length" class="hint">没有匹配的应用。</p>
-          <div v-for="item in filteredStarting" :key="item.endpoint + item.appId" class="desktop-window-row">
-            <AppIcon :icon="apps.find(app => app.id === item.appId)?.icon_png" :name="item.name" />
-            <div class="window-label"><strong>{{ item.name }}</strong><p>正在等待应用创建窗口</p></div>
-            <span class="window-state">启动中</span>
-            <button disabled>启动中</button>
-          </div>
-        </section>
-        <section v-if="catalogCurrent || runtimeCurrent" class="catalog desktop-windows">
-          <div class="section-title">
-            <h2>运行中的窗口 <span class="count">{{ runningConnections.length }}</span></h2>
-            <button :disabled="busy" @click="refresh">刷新运行状态</button>
-          </div>
-          <p class="hint">连接已有窗口可继续原来的工作；关闭本机窗口只会断开，原设备上的应用继续运行。</p>
-          <p v-if="windowWarning" class="alert error" role="status">{{ windowWarning }}</p>
-          <p v-if="sessionWarning" class="alert error" role="status">{{ sessionWarning }}</p>
-          <p v-if="!runningConnections.length && !windowWarning && !sessionWarning" class="hint">{{ busy ? "正在读取运行状态…" : "当前没有运行中的窗口。" }}</p>
-          <p v-else-if="runningConnections.length && !filteredConnections.length" class="hint">没有匹配的窗口。</p>
-          <div v-for="row in filteredConnections" :key="row.key" class="desktop-window-row">
-            <AppIcon :icon="row.icon_png" :name="row.name" />
-            <div class="window-label"><strong>{{ row.name }}</strong><p :title="row.title">{{ row.title }}</p></div>
-            <span class="window-state">{{ row.kind === "desktop" ? "原设备窗口" : "远程应用" }}{{ row.minimized ? " · 已最小化" : "" }}</span>
-            <button :disabled="busy || row.controlled" @click="connect(row)">{{ row.controlled ? "已连接" : "连接" }}</button>
-          </div>
-        </section>
-        <section v-if="valid" class="panel automatic-windows">
-          <div class="section-title"><h2>新窗口自动接入</h2><span class="subtle-label">按应用配置 · 更改自动生效</span></div>
+        <details v-if="valid" class="panel automatic-windows"><summary class="settings-summary"><span>新窗口自动接入</span><span class="subtle-label">按应用配置 · 更改自动生效</span></summary>
           <p v-if="automaticStatus.takeoverEnabled" class="hint" role="status">全窗口接管已开启；以下应用级规则保留，停止接管后恢复生效。</p>
           <fieldset v-if="automaticOptions.length" class="automatic-applications" :disabled="automaticSaving || automaticStatus.takeoverEnabled">
           <legend>按应用配置新窗口接入</legend>
@@ -879,7 +919,7 @@ onUnmounted(() => {
           </fieldset>
           <p class="hint">应用级规则仅接入启用后新出现的窗口。关闭接收窗口后冷却 5 秒；仍然存在的同一个窗口不会反复弹回，随时可以手动重连。退出启动器后停止自动接入。</p>
           <p v-if="automaticError || (!automaticStatus.takeoverEnabled && automaticStatus.warning)" class="alert error" role="alert">{{ automaticError || automaticStatus.warning }}</p>
-        </section>
+        </details>
         <section v-if="custom.length" class="catalog">
           <div class="section-title"><h2>自定义入口 <span class="count">{{ custom.length }}</span></h2></div>
           <div class="app-grid">
@@ -965,14 +1005,16 @@ onUnmounted(() => {
       <div v-else-if="activePage === 'display'" class="page-content">
         <section class="panel">
           <div class="section-title"><h2>窗口显示</h2><span class="subtle-label">更改自动保存</span></div>
-          <div class="setting-row"><div><label for="video-fps">默认帧率上限</label><p class="hint">新打开或重新连接的窗口使用所选上限。已打开的窗口可在“显示 → 帧率”中即时切换；实际帧率随画面内容和连接状态变化。</p></div><select id="video-fps" v-model.number="videoFPS" :disabled="busy" @change="save"><option :value="30">30 帧/秒</option><option :value="60">60 帧/秒</option></select></div>
-          <div class="setting-row"><div><label for="picture-mode">接收画面尺寸</label><p class="hint">通用于手动和自动接管。适配本机沿用当前策略；原画面按源系统的窗口尺寸显示，不随本机窗口调整源端大小。保存后，关闭接收窗口并重新接管即可应用。</p></div><select id="picture-mode" :value="pictureMode" :disabled="!pictureModeReady || pictureModeSaving || busy" @change="savePictureMode"><option value="adapt">调整画面 · 适配本机</option><option value="source">原画面 · 保持源窗口尺寸</option></select></div>
+          <div class="setting-row"><div><label for="video-fps">默认帧率</label><p class="hint">60 帧更流畅，30 帧减少传输和处理负担。实际帧率随画面内容变化。</p><span class="setting-effect">新开或重新连接后生效</span></div><select id="video-fps" v-model.number="videoFPS" :disabled="busy" @change="save"><option :value="30">30 帧/秒</option><option :value="60">60 帧/秒</option></select></div>
+          <p class="hint">已打开窗口可在它的“显示 → 帧率”菜单中即时切换。</p>
+          <div class="setting-row"><div><label for="picture-mode">画面尺寸</label><p class="hint">适配本机：远端窗口跟随本机内容区调整。保持源尺寸：只缩放本机显示，远端窗口大小保持不变。</p><span class="setting-effect">关闭接收窗口并重新接管后生效</span></div><select id="picture-mode" :value="pictureMode" :disabled="!pictureModeReady || pictureModeSaving || busy" @change="savePictureMode"><option value="adapt">适配本机窗口</option><option value="source">保持源窗口尺寸</option></select></div>
           <p v-if="pictureModeError" role="alert">{{ pictureModeError }}</p>
-          <div v-if="localNode?.platform === 'macos'" class="setting-row"><div><label for="video-color">接收色彩</label><p class="hint">4:4:4 保留彩色文字和细线的逐像素色彩，需要新版 Windows 发布端，仍为有损视频，并增加带宽及编解码负担。不支持的发布端使用兼容模式。保存后关闭旧接收窗口并重新接管。</p></div><select id="video-color" :value="videoColor" :disabled="!videoColorReady || videoColorSaving || busy" @change="saveVideoColor"><option value="420">兼容 · 4:2:0</option><option value="444-atlas-v1">清晰色彩 · 4:4:4（试用）</option></select></div>
-          <p v-if="videoColorError" role="alert">{{ videoColorError }}</p>
-          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">支持的运行窗口将主窗口、菜单和对话框合并显示，保留远端原生布局；其他窗口和新启动的应用使用兼容显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示。原画面模式使用源窗口尺寸，不启用此固定画布。</p></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy || pictureMode === 'source'" @change="save" /></div>
-          <div class="setting-row"><div><h3>窗口大小</h3><p class="hint">适配本机时，远端窗口跟随本机内容区大小；原画面时，本机调整窗口仅缩放显示，源端窗口尺寸保持不变。两种模式都保留画面比例。</p></div><span class="subtle-label">{{ pictureMode === "source" ? "保持源尺寸" : "跟随窗口" }}</span></div>
         </section>
+        <details class="panel advanced-settings"><summary class="settings-summary"><span>高级显示设置</span><span class="subtle-label">{{ videoColor === "444-atlas-v1" ? "清晰色彩" : "兼容色彩" }} · 会话画面{{ applicationScene && pictureMode !== "source" ? "开启" : "关闭" }}</span></summary>
+          <div v-if="localNode?.platform === 'macos'" class="setting-row"><div><label for="video-color">接收色彩</label><p class="hint">清晰色彩保留彩色文字和细线的细节，需要支持此功能的发布端，带宽及编解码负担更高。不支持时使用兼容模式；两种模式均为有损视频。</p><span class="setting-effect">关闭接收窗口并重新接管后生效</span></div><select id="video-color" :value="videoColor" :disabled="!videoColorReady || videoColorSaving || busy" @change="saveVideoColor"><option value="420">兼容 · 4:2:0</option><option value="444-atlas-v1">清晰色彩 · 4:4:4（试用）</option></select></div>
+          <p v-if="videoColorError" role="alert">{{ videoColorError }}</p>
+          <div class="setting-row"><div><label for="application-scene">应用会话画面 · 试用</label><p class="hint">将受支持应用的主窗口、菜单和对话框合并显示。画布按连接时的屏幕大小确定，本机调整窗口时等比显示；其他来源使用兼容显示。</p><p v-if="pictureMode === 'source'" class="hint">使用“适配本机窗口”后可开启此模式。</p><span class="setting-effect">下次连接应用时生效</span></div><input id="application-scene" type="checkbox" v-model="applicationScene" :disabled="busy || pictureMode === 'source'" @change="save" /></div>
+        </details>
         <section class="panel">
           <div class="section-title"><h2>输入与剪贴板</h2></div>
           <div class="setting-row"><div><h3>输入法</h3><p class="hint">使用当前控制设备的输入法。</p></div></div>
