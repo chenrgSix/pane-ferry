@@ -51,9 +51,11 @@ else
   python3 tests/e2e/linux_chroma_smoke.py
   python3 tests/e2e/linux_audio_unit.py
   if command -v xvfb-run >/dev/null; then
-    xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
-    xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_group_smoke.py
-    xvfb-run -a env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_manager_ui_smoke.py
+    # Gtk.Application registers with D-Bus before activation. Give each fixture
+    # its own session bus as well as an X display, including on headless CI.
+    xvfb-run -a dbus-run-session -- env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_smoke.py
+    xvfb-run -a dbus-run-session -- env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_receiver_group_smoke.py
+    xvfb-run -a dbus-run-session -- env GTK_IM_MODULE=simple GDK_BACKEND=x11 python3 tests/e2e/linux_manager_ui_smoke.py
   fi
   echo 'SKIP: Swift/AppKit 需要 macOS SDK，当前平台未编译。'
 fi
