@@ -777,7 +777,7 @@ onUnmounted(() => {
       </nav>
       <div class="aside-bottom">
         <span class="network-note"><span class="status-dot" />设备间加密连接</span>
-        <small>开发预览 0.1.3</small>
+        <small>开发预览 0.1.4</small>
       </div>
     </aside>
     <main>

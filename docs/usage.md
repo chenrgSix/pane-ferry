@@ -1,16 +1,16 @@
 # 窗渡 PaneFerry 使用教程
 
-适用于 **v0.1.3 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
+适用于 **v0.1.4 开发者预览版**。两端各安装一份窗渡，就能在 Mac 使用 Ubuntu 应用，也能在 Ubuntu 使用 Mac 应用。应用继续在原设备运行，文件保存在原设备；复制文件需主动使用剪贴板。
 
 ## 1. 下载与安装
 
-从 [v0.1.3 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.3) 下载对应安装包和 `SHA256SUMS`：
+从 [v0.1.4 发布页](https://github.com/chenrgSix/pane-ferry/releases/tag/v0.1.4) 下载对应安装包和 `SHA256SUMS`：
 
 | 设备 | 安装包 | 支持范围 |
 | --- | --- | --- |
-| Apple Silicon Mac | `paneferry-v0.1.3-macos-arm64.zip` | macOS 13+；在 macOS 15 arm64 构建，使用临时签名、未公证 |
-| Windows x86_64 | `paneferry-v0.1.3-windows-x86_64-setup.exe` | 开发者预览；已在 Windows 11 实测发布，安装包未做 Authenticode 签名 |
-| Ubuntu x86_64（推荐） | `paneferry_0.1.3-1_amd64.deb` | Ubuntu 24.04 构建；GNOME 原桌面接管仍需要 GNOME 50，其他桌面组合未验收 |
+| Apple Silicon Mac | `paneferry-v0.1.4-macos-arm64.zip` | macOS 13+；在 macOS 15 arm64 构建，使用临时签名、未公证 |
+| Windows x86_64 | `paneferry-v0.1.4-windows-x86_64-setup.exe` | 开发者预览；已在 Windows 11 实测发布，安装包未做 Authenticode 签名 |
+| Ubuntu x86_64（推荐） | `paneferry_0.1.4-1_amd64.deb` | Ubuntu 24.04 构建；GNOME 原桌面接管仍需要 GNOME 50，其他桌面组合未验收 |
 
 Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文件名`，将输出与 `SHA256SUMS` 中对应文件的值核对。不要将源码 ZIP 当作可直接运行的安装包。
 
@@ -32,7 +32,7 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 
 ### Ubuntu：双击安装（推荐）
 
-1. 下载 `paneferry_0.1.3-1_amd64.deb`，在“文件”中双击它。
+1. 下载 `paneferry_0.1.4-1_amd64.deb`，在“文件”中双击它。
 2. 使用“应用中心 / 软件安装”打开，点击“安装”，按系统提示输入本机管理员密码。包管理器会下载所需依赖，因此首次安装需要可用的软件源和网络。
 3. 安装完成后，在应用菜单搜索并打开 **窗渡 PaneFerry**。后台组件以当前登录用户身份启动，无需手动运行安装脚本或以 root 身份打开程序。
 4. 要接管原桌面 Wayland 窗口，在“扩展”中启用“窗渡 PaneFerry”。首次安装可能需要保存工作后注销、重新登录，让 GNOME 识别扩展；独立 X11 应用不需要这一步。
@@ -40,7 +40,7 @@ Mac 用 `shasum -a 256 安装包文件名`，Ubuntu 用 `sha256sum 安装包文�
 如果双击没有进入安装器，右键选择“打开方式 → 应用中心 / 软件安装”，也可使用 GDebi。测试中的隔离 Ubuntu 26.04 桌面使用 GDebi 完成了文件管理器双击安装；这不代表所有应用中心版本都已实测。可选命令行安装方式是：
 
 ```sh
-sudo apt install ./paneferry_0.1.3-1_amd64.deb
+sudo apt install ./paneferry_0.1.4-1_amd64.deb
 ```
 
 `.deb` 安装到系统目录，程序入口为 `/usr/bin/paneferry`，许可证在 `/usr/share/doc/paneferry/LICENSE`。安装、重装和升级不会主动停止正在运行的 Agent 或应用；保存工作并退出旧会话后，再重启用户服务或重新登录使用更新。卸载前也应保存并关闭应用，随后从软件管理器移除，或运行 `sudo apt remove paneferry`。卸载不会删除用户的配对、配置和数据。
@@ -49,7 +49,7 @@ sudo apt install ./paneferry_0.1.3-1_amd64.deb
 
 ### Ubuntu：脚本安装包（保留兼容）
 
-`paneferry-v0.1.3-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
+`paneferry-v0.1.4-linux-x86_64.tar.gz` 仍可下载。此方式安装到当前用户目录；请与 `.deb` 选择一种使用。先登录 Ubuntu 图形桌面，在终端安装运行依赖：
 
 ```sh
 sudo apt update
@@ -58,15 +58,15 @@ sudo apt install python3-gi python3-gi-cairo python3-websocket \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-pipewire \
   gstreamer1.0-tools pulseaudio-utils \
-  xvfb openbox xauth dbus-x11 xdg-dbus-proxy libei1 libx11-6 \
+  xvfb openbox xauth dbus-x11 xdg-dbus-proxy libei1 libx11-6 libwebkit2gtk-4.1-0 \
   xdg-desktop-portal xdg-desktop-portal-gnome
 ```
 
 在下载目录解压并安装：
 
 ```sh
-tar -xzf paneferry-v0.1.3-linux-x86_64.tar.gz
-cd paneferry-v0.1.3-linux-x86_64
+tar -xzf paneferry-v0.1.4-linux-x86_64.tar.gz
+cd paneferry-v0.1.4-linux-x86_64
 bash install.sh
 ```
 
@@ -76,7 +76,7 @@ bash install.sh
 ~/.local/bin/paneferry
 ```
 
-已发布的旧 Linux 安装包使用 GTK 管理界面；当前主分支构建的 tar 和 .deb 已统一为与 Mac、Windows 共用的管理界面，包含 Agent、网络组件、GTK 原生接收器和 GNOME 扩展。tar 安装另需系统提供 WebKitGTK 4.1（Ubuntu 包名 `libwebkit2gtk-4.1-0`）；.deb 由包管理器解析其 ELF 依赖。首次使用会保留配对并迁移旧显示、声音与设备接管设置。GNOME 50 首次安装扩展后可能要保存工作并注销、重新登录，才能接管原桌面上的 Wayland 窗口；安装脚本不会自动注销。可在扩展管理器确认“窗渡 PaneFerry”已启用。独立 X11 应用不依赖该扩展。
+v0.1.4 的 Linux tar 和 .deb 已统一为与 Mac、Windows 共用的管理界面，包含 Agent、网络组件、GTK 原生接收器和 GNOME 扩展。tar 安装需系统提供 WebKitGTK 4.1（Ubuntu 包名 `libwebkit2gtk-4.1-0`）；.deb 由包管理器解析其 ELF 依赖。首次使用会保留配对并迁移旧显示、声音、设备接管设置及保存连接；已有公共连接配置优先。GNOME 50 首次安装扩展后可能要保存工作并注销、重新登录，才能接管原桌面上的 Wayland 窗口；安装脚本不会自动注销。可在扩展管理器确认“窗渡 PaneFerry”已启用。独立 X11 应用不依赖该扩展。
 
 已有 Agent 运行时，普通安装会在写入前停止并给出提示。升级改用：
 
@@ -121,7 +121,7 @@ Windows、macOS 和新版 Linux 管理端共用保存连接入口：在“设备
 
 首次接管 Ubuntu 原桌面窗口时，请在 **Ubuntu 本机** 的“窗渡 PaneFerry Agent”系统控制授权弹窗点击允许，并按需保留“记住”选项。这个系统弹窗不会出现在 Mac 的目标应用画面内。未授权时可能有画面但不能操作；授权取消后可主动重新连接。独立虚拟桌面应用不需要原桌面输入授权。
 
-### 新窗口自动接入（v0.1.3 开发者预览）
+### 新窗口自动接入（v0.1.4 开发者预览）
 
 “刷新应用”只重读已安装应用目录；会话、窗口和显示器列表查询也只读取元数据，不创建采集、不移动或调整源窗口。采集和窗口控制由明确的连接、接管或控制操作触发。
 
