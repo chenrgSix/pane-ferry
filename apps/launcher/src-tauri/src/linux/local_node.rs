@@ -95,6 +95,13 @@ pub fn publisher(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn info(app: &tauri::AppHandle) -> Result<Value, String> {
     let mut value = exchange(&ensure(app)?, json!({"type":"node.info"}))?;
     value["platform"] = json!("linux");
+    if let Ok(home) = app.path().home_dir() {
+        if let Some(bookmarks) = crate::linux::migration::saved_connections(
+            &home.join(".local/state/lan-remoteapp/saved-connections-v1.json"),
+        ) {
+            value["legacy_saved_connections"] = json!(bookmarks);
+        }
+    }
     if let Ok(directory) = app.path().app_data_dir() {
         let path = directory.join("launcher-defaults.json");
         if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= 1024) {

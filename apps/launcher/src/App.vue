@@ -101,7 +101,7 @@ const savedConnectionError = ref(""), savedConnectionNotice = ref("");
 const switchingConnection = ref("");
 type StartingApp = { endpoint: string; appId: string; name: string; requestKey: string; missingReads: number };
 const startingApps = ref<StartingApp[]>([]), launchingAppId = ref<string | null>(null);
-type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}; launcher_defaults?:{applicationScene:boolean}};
+type LocalNode = {device_id:string; name:string; platform?:string; sharing_enabled:boolean; permissions?:{screen_recording:boolean; accessibility:boolean}; launcher_defaults?:{applicationScene:boolean}; legacy_saved_connections?:unknown};
 let platformDefaultsApplied = false;
 const localNode = ref<LocalNode|null>(null), localWarning=ref(""), localBusy=ref(false);
 type NativePeer = {device_id:string; name:string; address:string; fingerprint:string; connected:boolean};
@@ -315,6 +315,17 @@ async function readLocal() {
     localNode.value = info; localWarning.value = "";
     if (info.platform === "linux" && !platformDefaultsApplied) {
       platformDefaultsApplied = true;
+      try {
+        const imported = savedConnectionStore.importLegacy(info.legacy_saved_connections);
+        savedConnections.value = savedConnectionStore.list();
+        if (imported) for (const row of savedConnections.value) {
+          const peer = nativePeers.value.find(item => item.device_id === row.peerId);
+          if (!connectionNames.value[row.peerId] || connectionNames.value[row.peerId] === peer?.name)
+            connectionNames.value[row.peerId] = row.name;
+          if (!addressEdits.value[row.peerId] || addressEdits.value[row.peerId] === peer?.address)
+            addressEdits.value[row.peerId] = row.address;
+        }
+      } catch (error) { savedConnectionError.value = (error as Error).message; }
       let hasSavedPreferences = true;
       try { hasSavedPreferences = Boolean(storage?.getItem("lan-remoteapp.connection")); } catch {}
       if (!hasSavedPreferences && info.launcher_defaults) {

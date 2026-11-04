@@ -10,6 +10,7 @@ python3 tests/e2e/linux_install_safety.py
 python3 tests/e2e/linux_runtime_unit.py
 python3 tests/e2e/linux_manager_unit.py
 python3 tests/e2e/linux_receiver_broker_unit.py
+python3 tests/e2e/linux_saved_connections_unit.py
 python3 tests/e2e/wayland_capture_unit.py
 python3 -m py_compile apps/linux-client/*.py
 python3 tests/e2e/linux_wire_unit.py

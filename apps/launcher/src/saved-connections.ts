@@ -44,6 +44,24 @@ export class SavedConnections {
     } catch { /* A corrupt bookmark file must not prevent normal pairing. */ }
   }
   list(): SavedConnection[] { return this.entries.map(row => ({ ...row })); }
+  importLegacy(values: unknown): boolean {
+    if (!Array.isArray(values)) return false;
+    try {
+      if (!this.storage) throw new Error("storage unavailable");
+      // An explicitly emptied common list is also a saved preference. Never
+      // resurrect removed bookmarks on a subsequent status poll or restart.
+      if (this.storage.getItem(key) !== null) return false;
+    } catch { throw new Error("旧连接导入失败，原文件已保留。请检查本机存储后重试。"); }
+    const entries: SavedConnection[] = [];
+    for (const value of values.slice(0, 100)) {
+      try {
+        const item = normalize(value);
+        if (!entries.some(row => row.peerId === item.peerId)) entries.push(item);
+      } catch { /* Invalid legacy rows cannot create a connection target. */ }
+    }
+    this.commit(entries);
+    return true;
+  }
   save(value: SavedConnection): void {
     const item = normalize(value);
     const exists = this.entries.some(row => row.peerId === item.peerId);

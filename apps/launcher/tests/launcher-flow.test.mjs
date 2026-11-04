@@ -799,6 +799,30 @@ test("a late sharing-status poll cannot undo a completed stop-sharing result", a
   } finally { mounted.unmount(); }
 });
 
+test("Linux imports saved names and addresses without issuing pairing or address changes", async () => {
+  const disk = storage();
+  const peer = { device_id: endpoint.peerId, name: "Ubuntu", address: "192.168.8.20:42424", connected: true };
+  const bookmark = { peerId: peer.device_id, name: "办公电脑", address: "10.0.0.20:42424" };
+  const fixtures = { network_action: () => ({ peers: [peer] }), local_node_info: () => ({
+    device_id: "local", platform: "linux", name: "Ubuntu", sharing_enabled: false, legacy_saved_connections: [bookmark],
+  }) };
+  let mounted = mount(disk, fixtures);
+  try {
+    await settled(mounted.state);
+    assert.deepEqual(mounted.state.savedConnections, [bookmark]);
+    assert.equal(mounted.state.peerLabel(peer), bookmark.name);
+    assert.equal(mounted.state.connectionNames[peer.device_id], bookmark.name);
+    assert.equal(mounted.state.addressEdits[peer.device_id], bookmark.address);
+    assert.ok(mounted.calls.filter(call => call.command === "network_action").every(call => call.args.body.op === "status"));
+    mounted.state.removeSavedConnection(bookmark);
+  } finally { mounted.unmount(); }
+  mounted = mount(disk, fixtures);
+  try {
+    await settled(mounted.state);
+    assert.deepEqual(mounted.state.savedConnections, []);
+  } finally { mounted.unmount(); }
+});
+
 test("Linux imports its legacy scene preference only before shared UI preferences exist", async () => {
   const disk = storage(); disk.removeItem("lan-remoteapp.connection");
   const node = { device_id: "local", name: "Ubuntu", platform: "linux", sharing_enabled: false,
