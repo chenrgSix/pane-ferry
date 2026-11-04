@@ -1,6 +1,15 @@
 import AppKit
 
 @main struct WindowTreeSmoke {
+    static func drainMainQueue() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(2)
+        while !drained && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        precondition(drained, "initial window placement did not finish")
+    }
     static func pixels(_ width: Int, _ height: Int) -> CGImage {
         CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!.makeImage()!
@@ -28,7 +37,7 @@ import AppKit
         }
         let root = update(metadata(1, nil, "window", CGRect(x: -600, y: 200, width: 1000, height: 500)))
         precondition(root.window.canBecomeKey && root.window.canBecomeMain)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // drain initial fitToScreen
+        drainMainQueue() // finish initial fitToScreen before choosing fixture geometry
         root.applyingRemote = true
         root.window.setContentSize(NSSize(width: 800, height: 600))
         root.window.setFrameOrigin(NSPoint(x: 100, y: 100))
@@ -83,7 +92,7 @@ import AppKit
         // pixels, expose the bottom via a real AppKit clip view, and exercise
         // input after scrolling rather than merely testing a clamp formula.
         let scrollRoot = update(metadata(20, nil, "window", CGRect(x: -600, y: 200, width: 1000, height: 500)))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue()
         scrollRoot.applyingRemote = true
         scrollRoot.window.setContentSize(NSSize(width: 800, height: 600))
         scrollRoot.window.setFrameOrigin(NSPoint(x: 100, y: 100))
@@ -113,7 +122,8 @@ import AppKit
         messages.removeAll()
         tall.surface.scrollWheel(with: NSEvent(cgEvent: wheel)!)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        precondition(scroll.contentView.bounds.minY > retained.y, "a real wheel event scrolls the local viewport")
+        precondition(scroll.contentView.bounds.minY > retained.y,
+                     "a real wheel event scrolls the local viewport: \(retained) -> \(scroll.contentView.bounds.origin), document=\(tall.surface.frame), viewport=\(scroll.contentSize)")
         precondition(!messages.contains { $0["type"] as? String == "input.pointer" }, "local scroll must not also scroll the remote menu")
         scroll.contentView.scroll(to: CGPoint(x: 0, y: tall.surface.bounds.height - scroll.contentSize.height))
         scroll.reflectScrolledClipView(scroll.contentView)
@@ -171,11 +181,13 @@ import AppKit
         let reused=update(metadata(99,1,"dialog",CGRect(x:0,y:0,width:20,height:20)))
         precondition(app.windows[99] === reused)
         app.capabilities.insert("video.qos")
+        messages.removeAll()
         app.receive(Incoming(object:["type":"frame","window_id":99,"session_id":"fixture","seq":4,"geometry_revision":1,"frame_id":1],image:pixels(40,40)))
-        precondition(app.pendingVideoFeedbackID==nil, "scheduling a redraw is not feedback")
+        precondition(!messages.contains { $0["type"] as? String == "video.feedback" }, "scheduling a redraw is not feedback")
         let bitmap=reused.surface.bitmapImageRepForCachingDisplay(in:reused.surface.bounds)!
         reused.surface.cacheDisplay(in:reused.surface.bounds,to:bitmap)
-        precondition(app.pendingVideoFeedbackID==1, "feedback follows the actual AppKit draw")
+        precondition(messages.contains { $0["type"] as? String == "video.feedback" && $0["frame_id"] as? UInt64 == 1 },
+                     "feedback follows the actual AppKit draw and is sent immediately")
         let delayedVideo = pixels(40, 40)
         app.receive(Incoming(object:["type":"input.authorization", "session_id":"fixture", "seq":6, "state":"ready"], image:nil))
         app.receive(Incoming(object:["type":"frame", "window_id":99, "session_id":"fixture", "seq":5, "geometry_revision":1, "frame_id":2], image:delayedVideo))
