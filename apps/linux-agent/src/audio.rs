@@ -1,7 +1,19 @@
 //! Audio owns a separate authenticated route. Video never enters this queue.
 use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
+#[cfg(target_os = "linux")]
 use std::collections::VecDeque;
+
+pub fn available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        paneferry_audio::available()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
 
 pub fn serve(
     state: &Arc<Mutex<State>>,
@@ -19,6 +31,7 @@ pub fn serve(
     }
     result
 }
+#[cfg(target_os = "linux")]
 fn run(
     state: &Arc<Mutex<State>>,
     requests: &mpsc::Receiver<Request>,
@@ -105,6 +118,15 @@ fn run(
         }
     }
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run(
+    _state: &Arc<Mutex<State>>,
+    _requests: &mpsc::Receiver<Request>,
+    _output: &mut output::Output,
+) -> Result<()> {
+    bail!("system audio capture requires Linux")
 }
 
 /// GTK delegates Opus/PLC/jitter to the same player as the native launchers.

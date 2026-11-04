@@ -1490,7 +1490,7 @@ fn client(out: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
         capabilities.push("video.color.444-atlas-v1");
         capabilities.push("video.color.444-atlas-v2");
     }
-    if paneferry_audio::available() {
+    if audio::available() {
         capabilities.push(paneferry_audio::CAPABILITY);
     }
     send(
