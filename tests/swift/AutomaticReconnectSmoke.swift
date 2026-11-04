@@ -147,7 +147,13 @@ struct AutomaticReconnectSmoke {
                      "Ubuntu icon content is applied to this application's Dock tile")
         until { app.windows[42] != nil }
         let rate = NSMenuItem(); rate.tag = 30; app.selectVideoFPS(rate)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.03)); app.pump()
+        // The first snapshot queues fitToScreen on the main queue. Record the
+        // retained geometry only after that initial placement has completed;
+        // an arbitrary short sleep can compare pre-fit and post-fit frames.
+        var placed = false
+        DispatchQueue.main.async { placed = true }
+        until { placed }
+        app.pump()
         let original = app.windows[42]!
         original.fixedPixels = (800, 600)
         let frame = original.window.frame
@@ -160,7 +166,8 @@ struct AutomaticReconnectSmoke {
         app.send(["type":"input.text.commit", "window_id":UInt32(42), "text":"offline input"])
         app.connectionLost() // coalesce repeat failure notifications
         until { app.connected && !app.recovering && app.windows[42]?.revision == 2 }
-        precondition(app.windows[42] === original && original.window.frame == frame)
+        precondition(app.windows[42] === original && original.window.frame == frame,
+                     "reconnect must preserve the placed window: \(frame) -> \(original.window.frame)")
         precondition(original.fixedPixels?.width == 800 && original.fixedPixels?.height == 600)
         precondition(original.surface.transmit != nil && app.reconnectTimer == nil && app.reconnectAttempt == 0)
         precondition(isFixtureIcon(NSApp.applicationIconImage),
